@@ -149,7 +149,8 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
       if (m.type === 'req' && m.op === 'text-models') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: fake.textModels })); return }
       if (m.type === 'req' && m.op === 'model-mcp') {
         fake.mcpAsked.push(m.request)
-        ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: fake.onModelMcp?.(m.request) ?? { tools: [] } })); return
+        const result = fake.onModelMcp?.(m.request) ?? { tools: [] }
+        ws.send(JSON.stringify(result instanceof Error ? { type: 'res', id: m.id, ok: false, error: result.message } : { type: 'res', id: m.id, ok: true, result })); return
       }
       if (m.type === 'req' && m.op === 'text-request') {
         fake.textAsked.push(m.request)

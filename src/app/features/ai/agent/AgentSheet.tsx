@@ -6,6 +6,7 @@
  * Hiding it never stops a task (only Stop, ⌘. / Ctrl+., Ctrl+C or /stop do).
  */
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { WorkerConnectionHelp } from '../mcp-servers/WorkerConnectionHelp'
 import { createPortal } from 'react-dom'
 import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, RotateCw, Settings2, Square, Undo2, X } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
@@ -771,6 +772,7 @@ function McpRow({ step }: { step: AgentStep }) {
           {call.error ? t('features.ai.mcp.callErr', { server, tool: call.tool, error: call.error }) : t('features.ai.mcp.callErrBare', { server, tool: call.tool })} {t('features.ai.mcp.callErrNote')}
         </p>
       )}
+      {step.state === 'err' && <WorkerConnectionHelp error={new Error(call.error ?? '')} />}
     </li>
   )
 }

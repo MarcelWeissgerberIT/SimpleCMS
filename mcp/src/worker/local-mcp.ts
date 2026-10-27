@@ -9,6 +9,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { ownEnv, resolveCommand } from './exec.ts'
 import { MemoryOAuth } from './local-memory-oauth.ts'
+import { noteCertificateFailure } from './certificates.ts'
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const strings = (v: unknown): v is Record<string, string> => object(v) && Object.values(v).every(s => typeof s === 'string')
@@ -103,11 +104,13 @@ export class LocalMcp {
           cursor = listed.nextCursor
         } while (cursor && count <= 600)
         this.clients.set(name, client)
+        noteCertificateFailure(name, false)
       } catch (error) {
         this.failures.push(name)
         // Diagnose without returning raw HTTP bodies, headers, URLs or credentials.
         const e=error as {message?:string;code?:unknown;cause?:{code?:unknown;message?:string}}
         const hint=[e?.message,e?.code,e?.cause?.code,e?.cause?.message].join(' ').toLowerCase()
+        if (/certificate|cert_|self.signed|tls|issuer/.test(hint)) noteCertificateFailure(name, true)
         this.failureKinds.set(name,/\b(?:401|403)\b|unauthorized|forbidden|invalid.token/.test(hint)?'Authentication rejected by this endpoint. Check the Atlas instance and personal token.':/certificate|cert_|self.signed|tls|issuer/.test(hint)?'TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification.':/timeout|timed.out|aborted/.test(hint)?'Connection timed out. Check VPN, proxy and network access from this worker.':/enotfound|econn|eai_again|fetch failed|network|socket/.test(hint)?'Network connection failed. Check VPN, proxy, DNS and network access from this worker.':'Connection or tool discovery failed. Check the endpoint and worker connectivity.')
         await client?.close().catch(() => {})
         await transport?.close().catch(() => {})

@@ -1,3 +1,4 @@
+import { WorkerConnectionHelp } from './mcp-servers/WorkerConnectionHelp'
 /**
  * AIMenu — the Claude panel the editor opens for a selection ("Ask AI") or at the cursor
  * block (space on an empty line / slash command). One input line on top (prompt or filter),
@@ -2643,10 +2644,11 @@ function McpChips({ calls }: { calls: McpCall[] }) {
       </ul>
       <McpSkippedNote calls={calls} />
       {failed.map((c) => (
-        <p key={c.id} className="ai-mcp__err">
+        <div key={c.id} className="ai-mcp__err">
           {c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
           {t('features.ai.mcp.callErrNote')}
-        </p>
+          <WorkerConnectionHelp error={new Error(c.error ?? '')} />
+        </div>
       ))}
     </div>
   )

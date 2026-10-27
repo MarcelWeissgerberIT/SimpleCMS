@@ -41,6 +41,8 @@ import { forgeOfHost } from './git.ts'
 import { inSyncedFolder, pathId, samePath, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
 import { createWriteStream, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { certificateStatus, parseCertificates, removeCertificates, saveCertificates } from './certificates.ts'
+import { certificateOffer } from './certificate-offers.ts'
 
 export interface SetupLive {
   /** the workspace id the worker serves (null: not bound) */
@@ -316,6 +318,7 @@ export class SetupServer {
       minimax: miniMaxStatus(this.host.configFile),
       copilot: copilotStatus(this.host.configFile),
       ollama: ollamaCloudStatus(this.host.configFile),
+      certificates: { ...certificateStatus(this.host.configFile), offer: certificateOffer(this.host.preset) ? { id: certificateOffer(this.host.preset)!.id, name: certificateOffer(this.host.preset)!.name } : null },
       clone: this.clone,
       // what the one-time marking marked (an older worker's clones and imports), until the person took note
       marked: unseenMarks(this.host.configFile),
@@ -606,6 +609,23 @@ export class SetupServer {
       body = raw ? JSON.parse(raw) : {}
     } catch {
       return json(400, { error: 'bad JSON' }), true
+    }
+    if (op === 'certificates-offer' || op === 'certificates-preview' || op === 'certificates-save' || op === 'certificates-remove') {
+      if (this.host.live().busy.length) return json(409, { error: 'Wait for running tasks to finish before changing certificate trust.' }), true
+      try {
+        if (op === 'certificates-offer') {
+          const offer = certificateOffer(this.host.preset)
+          if (!offer) return json(404, { error: 'No company certificate is offered for this workspace.' }), true
+          const certificates = parseCertificates(offer.pem)
+          if (certificates.length !== 1 || certificates[0]!.fingerprint !== offer.fingerprint) throw Error('The offered certificate fingerprint does not match.')
+          return json(200, { pem: offer.pem, certificates: certificates.map(({ pem: _, ...c }) => c) }), true
+        }
+        if (op === 'certificates-remove') { removeCertificates(this.host.configFile); return json(200, await this.state()), true }
+        if (!isObj(body) || typeof body.pem !== 'string') throw Error('Choose a PEM CA certificate.')
+        if (op === 'certificates-preview') return json(200, { certificates: parseCertificates(body.pem).map(({ pem: _, ...c }) => c) }), true
+        saveCertificates(this.host.configFile, body.pem, body.fingerprints)
+        return json(200, await this.state()), true
+      } catch (e) { return json(400, { error: e instanceof Error ? e.message : 'Certificate setup failed.' }), true }
     }
     if (op === 'scan') {
       await this.scan()

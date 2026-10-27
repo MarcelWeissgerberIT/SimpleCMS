@@ -131,6 +131,8 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
 .rule button:hover { background: var(--hover); color: var(--signal-ink); }
 .rule button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .hint { color: var(--ink-3); font-size: 12px; }
+.cert-meta { overflow-wrap: anywhere; min-width: 0; }
+[data-testid="worker-certificates"] input[type="file"] { max-width: 100%; }
 .warn { padding-left: 8px; border-left: 2px solid var(--signal); color: var(--signal-ink); font-size: 12px; }
 .own { grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid var(--rule); }
 .own .sw { align-items: flex-start; }
@@ -184,6 +186,19 @@ export const SETUP_JS = String.raw`(function () {
   var token = (/[#&]k=([A-Za-z0-9_-]{43})/.exec(location.hash) || [])[1] || ''
   var de = /^de\b/i.test(navigator.language || '')
   var EN = {
+    certTitle: 'Company network · TLS certificates',
+    certHint: 'The worker automatically uses certificates trusted by your operating system, alongside the standard public CAs. TLS verification stays enabled. An offered company certificate is activated only after your explicit confirmation.',
+    certInvalid: 'The saved CA is expired or unreadable and is not used. Replace or remove it here; worker setup stays available.',
+    certChoose: 'Choose company CA (.crt / .pem)',
+    certTrust: 'Trust this CA for this worker',
+    certRemove: 'Remove locally imported CAs',
+    certRestart: 'Saved locally. Finish running work, then fully stop and restart the worker using its existing desktop starter. Pairing stays unchanged. No system-wide trust or environment setting was changed.',
+    certConfirm: 'Check the SHA-256 fingerprint with your IT team. This CA can authenticate TLS connections of this worker and its child processes. Only import your approved company CA. Nothing is uploaded to ONE or Atlas.',
+    certRuntime: 'Automatic system trust requires a recent Node.js 22/24 runtime. Update Node.js if your system CA is still unavailable.',
+    certError: 'Certificate could not be read. Choose a PEM CA certificate, not a private key.',
+    certOffer: 'Check provided E+H certificate',
+    certDownload: 'Download certificate',
+    certAttention: 'TLS verification failed. 1. Check the company certificate below. 2. Confirm trust. 3. Fully restart the worker. 4. Return to ONE and retry the Atlas check. No new token is needed to fix a TLS error.',
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. In One → Settings → AI, refresh worker models and choose Copilot for workspace features; data permissions and defaults stay explicit.',
     copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
@@ -371,6 +386,19 @@ export const SETUP_JS = String.raw`(function () {
     failed: 'That did not work: {e}'
   }
   var DE = {
+    certTitle: 'Firmennetz · TLS-Zertifikate',
+    certHint: 'Der Worker nutzt automatisch die vom Betriebssystem freigegebenen Zertifikate zusätzlich zu den üblichen öffentlichen CAs. Die TLS-Prüfung bleibt aktiv. Ein angebotenes Firmenzertifikat wird erst nach deiner ausdrücklichen Bestätigung aktiviert.',
+    certInvalid: 'Die gespeicherte CA ist abgelaufen oder nicht lesbar und wird nicht genutzt. Hier ersetzen oder entfernen; die Worker-Einrichtung bleibt erreichbar.',
+    certChoose: 'Firmen-CA auswählen (.crt / .pem)',
+    certTrust: 'Dieser CA für diesen Worker vertrauen',
+    certRemove: 'Lokal importierte CAs entfernen',
+    certRestart: 'Lokal gespeichert. Laufende Arbeit beenden, dann den Worker vollständig stoppen und über seinen bisherigen Desktop-Starter neu starten. Die Kopplung bleibt erhalten. Systemweite Vertrauens- und Umgebungseinstellungen wurden nicht geändert.',
+    certConfirm: 'SHA-256-Fingerabdruck mit eurer IT abgleichen. Diese CA kann TLS-Verbindungen dieses Workers und seiner Unterprozesse bestätigen. Nur eure freigegebene Firmen-CA importieren. Nichts wird zu ONE oder Atlas hochgeladen.',
+    certRuntime: 'Automatisches Systemvertrauen benötigt eine aktuelle Node.js-Version 22/24. Node.js aktualisieren, falls die System-CA weiterhin fehlt.',
+    certError: 'Zertifikat nicht lesbar. Eine PEM-CA-Datei auswählen, keinen privaten Schlüssel.',
+    certOffer: 'Bereitgestelltes E+H-Zertifikat prüfen',
+    certDownload: 'Zertifikat herunterladen',
+    certAttention: 'Die TLS-Prüfung ist fehlgeschlagen. 1. Firmenzertifikat unten prüfen. 2. Vertrauen bestätigen. 3. Worker vollständig neu starten. 4. In ONE den Atlas-Test erneut prüfen. Ein TLS-Fehler wird nicht durch einen neuen Token behoben.',
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. In One → Einstellungen → KI die Worker-Modelle aktualisieren und Copilot für Workspace-Funktionen wählen; Datenfreigaben und Standards bleiben ausdrücklich.',
     copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
@@ -618,6 +646,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   var state = null
+  var certPem = '', certPreview = [], certMessage = '', certBusy = false
   var edits = {}
   var adding = false
   var addError = ''
@@ -897,6 +926,44 @@ export const SETUP_JS = String.raw`(function () {
     ])
   }
 
+  function certificatesPanel() {
+    var box = el('details', { className: 'msg', open: state.certificates && state.certificates.needsAttention, 'data-testid': 'worker-certificates' }, [el('summary', { text: t('certTitle') }), el('p', { className: 'hint', text: t('certHint') })])
+    if (state.certificates && state.certificates.needsAttention) box.appendChild(el('p', { role: 'status', text: t('certAttention') }))
+    if (state.certificates && state.certificates.invalid) box.appendChild(el('p', { role: 'status', text: t('certInvalid') }))
+    if (state.certificates && state.certificates.offer) {
+      var offer = function (download) {
+        certBusy = true
+        api('POST', 'certificates-offer', {}).then(function (result) {
+          certPem = result.pem; certPreview = result.certificates; certMessage = ''
+          if (download) { var url = URL.createObjectURL(new Blob([result.pem], {type:'application/x-pem-file'})), a = document.createElement('a'); a.href = url; a.download = 'EH-RootCA03.crt'; a.click(); setTimeout(function () { URL.revokeObjectURL(url) },1000) }
+        }, function (e) { certMessage = e.message }).finally(function () { certBusy = false; render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true })
+      }
+      box.appendChild(el('p', { text: state.certificates.offer.name }))
+      box.appendChild(el('div', { className: 'clone__keys' }, [el('button', { className:'btn btn--primary',type:'button',disabled:certBusy,text:t('certOffer'),onclick:function(){offer(false)} }),el('button',{className:'btn',type:'button',disabled:certBusy,text:t('certDownload'),onclick:function(){offer(true)}})]))
+    }
+    if (!state.certificates || !state.certificates.system) box.appendChild(el('p', { className: 'hint', text: t('certRuntime') }))
+    ;((state.certificates || {}).certificates || []).forEach(function (c) { box.appendChild(el('p', { className: 'hint cert-meta', text: c.subject + ' · SHA-256 ' + c.fingerprint })) })
+    box.appendChild(el('label', { className: 'field' }, [el('span', { text: t('certChoose') }), el('input', { type: 'file', accept: '.crt,.pem', disabled: certBusy, onchange: function (ev) {
+      var file = ev.target.files && ev.target.files[0]; if (!file) return
+      if (file.size > 131072) { certMessage = t('certError'); render(); return }
+      certBusy = true; certPreview = []; certPem = ''; certMessage = ''
+      file.text().then(function (pem) { return api('POST', 'certificates-preview', { pem: pem }).then(function (result) { certPem = pem; certPreview = result.certificates }) }).catch(function (e) { certMessage = e.message || t('certError') }).finally(function () { certBusy = false; render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true })
+    } })]))
+    certPreview.forEach(function (c) { box.appendChild(el('p', { className: 'hint cert-meta', text: c.subject + ' · ' + c.issuer + ' · ' + c.validTo + ' · SHA-256 ' + c.fingerprint })) })
+    if (certPreview.length) {
+      box.appendChild(el('p', { className: 'hint', text: t('certConfirm') }))
+      box.appendChild(el('button', { className: 'btn btn--primary', type: 'button', disabled: certBusy, text: t('certTrust'), onclick: function () {
+        certBusy = true
+        api('POST', 'certificates-save', { pem: certPem, fingerprints: certPreview.map(function (c) { return c.fingerprint }) }).then(function (next) { state = next; certPem = ''; certPreview = []; certMessage = t('certRestart') }, function (e) { certMessage = e.message }).finally(function () { certBusy = false; render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true })
+      } }))
+    }
+    if (((state.certificates || {}).certificates || []).length || (state.certificates || {}).invalid) box.appendChild(el('button', { className: 'btn', type: 'button', disabled: certBusy, text: t('certRemove'), onclick: function () {
+      api('POST', 'certificates-remove', {}).then(function (next) { state = next; certMessage = t('certRestart'); render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true }, fail)
+    } }))
+    if (certMessage) box.appendChild(el('p', { role: 'status', text: certMessage }))
+    return box
+  }
+
   function render() {
     var app = $('app')
     var focus = document.activeElement && document.activeElement.id
@@ -908,6 +975,7 @@ export const SETUP_JS = String.raw`(function () {
       return
     }
     if (!state.workspace.id) app.appendChild(el('p', { className: 'msg', text: t('unbound') }))
+    if (state.certificates && state.certificates.needsAttention) app.appendChild(certificatesPanel())
     if (state.workspaces && state.workspaces.length) {
       var spaces = el('section', { className: 'msg' }, [el('h2', { text: t('workspaces') })])
       state.workspaces.forEach(function (space) {
@@ -964,6 +1032,7 @@ export const SETUP_JS = String.raw`(function () {
       el('span', { className: 'hint', text: t('wmcpHint') })
     ]))
     app.appendChild(copilotPanel())
+    if (!state.certificates || !state.certificates.needsAttention) app.appendChild(certificatesPanel())
     app.appendChild(minimaxPanel())
     app.appendChild(ollamaPanel())
     app.appendChild(statusPanel())

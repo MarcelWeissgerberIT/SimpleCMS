@@ -45,6 +45,7 @@ import { factsOf, findRepos, shortPath } from './scan.ts'
 import { terminalChecklist } from './checklist.ts'
 import { pathId, samePath } from './paths.ts'
 import { WorkerWorkspaces } from './workspaces.ts'
+import { configureCertificates } from './certificates.ts'
 
 let workspaceHost: WorkerWorkspaces | null = null
 
@@ -136,6 +137,7 @@ Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs 
 }
 
 async function main() {
+  if (await configureCertificates(configFile, self, argv)) return
   const managed = { dir: profileDir(configFile), file: self, config: configFile, preset, version: VERSION, args: ['--no-browser', '--model-host'].filter(flag) }
   if (command === 'install' || ['managed-start','managed-setup','managed-status','managed-update','managed-rollback','managed-cancel'].includes(command)) return managedCommand(managed, command)
   if ((command === 'run' || command === 'setup') && await redirectInstalled(managed, command === 'setup')) return

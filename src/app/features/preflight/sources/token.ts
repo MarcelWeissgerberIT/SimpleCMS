@@ -14,6 +14,8 @@ import { tokenTrouble } from '../../ai/mcp-servers/health'
 import type { CardAction, LampReading, LampSourceDef, QueueItem } from '../registry'
 import { checkConnection, signInServer } from '../queue/calls'
 import { all, watch } from './util'
+import { connectionProblem } from '@/shared/ai/connection-problem'
+import { changeRepositories } from '../../coding/SetupCard'
 
 const enabled = () => readServers(useWorkspace.getState().settings).filter((s) => s.enabled)
 
@@ -60,7 +62,7 @@ export const tokenLamp: LampSourceDef = {
           bulk: false,
           resolveBy: 'reading',
           title: s.name,
-          detail: t(st === 'red' ? 'features.preflight.fix.token.refused' : 'features.preflight.fix.token.failed'),
+          detail: connectionProblem(new Error(s.checkError ?? '')) === 'tls' ? t('features.preflight.fix.token.tls') : t(st === 'red' ? 'features.preflight.fix.token.refused' : 'features.preflight.fix.token.failed'),
         })
       }
       return out
@@ -71,6 +73,7 @@ export const tokenLamp: LampSourceDef = {
       const settings: CardAction = { key: s?.oauth ? '2' : 'a', label: t('features.preflight.fix.token.enter'), outcome: 'hand', run: () => (openAISettings({ section: 'mcp' }), { ok: true, stay: true }) }
       if (!s) return [settings]
       const out: CardAction[] = []
+      if (connectionProblem(new Error(s.checkError ?? '')) === 'tls') out.push({ key: '4', label: t('features.preflight.fix.token.certificates'), outcome: 'hand', run: async () => { await changeRepositories(t); return { ok: true, stay: true } } })
       // the sign-in window opens inside the key press (sync)
       if (s.oauth) out.push({ key: 'a', label: t('features.preflight.fix.token.signIn'), outcome: 'hand', hand: ['signIn'], sync: true, run: () => (void signInServer(s.id).catch((e) => console.warn('[one] preflight: sign-in failed', e)), { ok: true, resolve: 'reading' }) })
       out.push(settings)

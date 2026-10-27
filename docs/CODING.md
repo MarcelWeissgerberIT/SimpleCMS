@@ -1532,8 +1532,16 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   over. Download again (and start only the newest file), or ask the workspace admin.
 - **Cloud: tasks do not start** — tasks run only while a One tab of this device is open (any page of the
   workspace). A tab opened in the background waits until you look at it.
-- **Cloud: certificate errors** — a private CA: `NODE_EXTRA_CA_CERTS=/path/ca.pem node one-worker-cloud.mjs`.
-  An outbound HTTPS proxy is not supported: the worker needs a direct connection to the server.
+- **Cloud / Atlas: certificate errors** — worker 1.34.3 automatically includes the operating system's trusted
+  CAs on supported Node.js 22/24 runtimes, keeping the public CAs and existing explicit extra CAs. This also
+  reaches Node child processes. If the company CA is not in the OS store, open the worker's protected local
+  setup page (Change repositories), expand **Company network · TLS certificates**, choose a PEM `.crt`/`.pem`,
+  check its SHA-256 fingerprint with IT and confirm trust. The bundle stays next to this worker profile on
+  the computer, outside the repository, workspace, exports and team server. Finish work, fully stop and
+  restart through the existing starter; no pairing or system-wide certificate change is required. Removal
+  also needs a full restart. Never disable TLS verification or import a private key. The owner-supplied public EH-RootCA03 is offered only for the paired E+H workshop profile, with its checked
+  SHA-256 fingerprint, preview, explicit confirmation and download. It is never automatically trusted.
+  Certificates from repositories, model responses and shared workspace content are never implicitly trusted.
 - **Cloud: the worker logs "has no worker relay"** — the server is older or runs with
   `CODING_RELAY=off`; a self-hosted proxy must pass WebSocket upgrades on `/coding/…` (docs/SELF_HOSTING.md).
 - Logs go to stderr (`ONE_WORKER_QUIET=1` silences them). Chrome logs refused connection attempts in the console

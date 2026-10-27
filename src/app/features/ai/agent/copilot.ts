@@ -1,5 +1,6 @@
 import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, LOCAL_DISCOVERY_REPAIR, localWorkspaceTools } from './localTools'
 import { priceFor } from '../core/registry'
+import { connectionProblem } from '@/shared/ai/connection-problem'
 /** Browser-owned One tools; Copilot supplies bounded decisions through the personal worker. */
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { Prepared } from '../core/gate'
@@ -108,7 +109,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
           } catch (e) { failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: '', ms: performance.now() - start }) }
         } else if (remote && isWorkerMcpFunction(c.name)) {
           try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;content = clipResult(raw, local ? 6000 : RESULT_CHARS + 2000) }
-          catch { failed=true;content='MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
+          catch (e) { if (connectionProblem(e) === 'tls') throw e; failed=true;content='MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
         } else throw new AIError('capability', 'Unknown model function.')
         results.push({ type: 'tool_result' as const, tool_use_id: c.id, content, ...(failed ? { is_error: true } : {}) })
       }

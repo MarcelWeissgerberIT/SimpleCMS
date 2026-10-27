@@ -43514,6 +43514,14 @@ ${authorization.href}
   }
 }
 
+// src/worker/certificates.ts
+var MAX = 128 * 1024;
+var failures = /* @__PURE__ */ new Set();
+var noteCertificateFailure = (name, failed) => {
+  if (failed) failures.add(name);
+  else failures.delete(name);
+};
+
 // src/worker/local-mcp.ts
 var object4 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var strings = (v) => object4(v) && Object.values(v).every((s) => typeof s === "string");
@@ -43612,10 +43620,12 @@ var LocalMcp = class {
           cursor = listed.nextCursor;
         } while (cursor && count <= 600);
         this.clients.set(name, client);
+        noteCertificateFailure(name, false);
       } catch (error62) {
         this.failures.push(name);
         const e = error62;
         const hint = [e?.message, e?.code, e?.cause?.code, e?.cause?.message].join(" ").toLowerCase();
+        if (/certificate|cert_|self.signed|tls|issuer/.test(hint)) noteCertificateFailure(name, true);
         this.failureKinds.set(name, /\b(?:401|403)\b|unauthorized|forbidden|invalid.token/.test(hint) ? "Authentication rejected by this endpoint. Check the Atlas instance and personal token." : /certificate|cert_|self.signed|tls|issuer/.test(hint) ? "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification." : /timeout|timed.out|aborted/.test(hint) ? "Connection timed out. Check VPN, proxy and network access from this worker." : /enotfound|econn|eai_again|fetch failed|network|socket/.test(hint) ? "Network connection failed. Check VPN, proxy, DNS and network access from this worker." : "Connection or tool discovery failed. Check the endpoint and worker connectivity.");
         await client?.close().catch(() => {
         });
