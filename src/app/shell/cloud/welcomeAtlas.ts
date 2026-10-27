@@ -4,7 +4,7 @@ import type { WorkerMcpTool } from '@/shared/ai/worker'
 import { useCloud } from '../../cloud'
 import { useWorkspace } from '../../store/store'
 import { setDeviceAI, setDeviceRule } from '../../store/aiRules'
-import { flushSecretWrites } from '../../store/secrets'
+import { flushSecretWrites, getMcpToken } from '../../store/secrets'
 import { withWriter } from '../../store/writer'
 import { requestWorkerMcp, workerOnline } from '../../features/coding'
 import { assertMcpFlow, assertModelFlow } from '../../features/ai/core/dataFlow'
@@ -17,7 +17,18 @@ export function welcomeAtlasCredential(entry: WelcomeAtlasEntry) {
   if (link.protocol !== 'https:' || link.username || link.password || !['eh-atlas.com','aj-atlas.com'].includes(link.hostname)) throw Error('address')
   const token = entry.atlasToken.trim() || atlasLinkToken(entry.atlasLink)
   if (!token || /\s/.test(token)) throw Error('token')
-  return {url:'https://aj-atlas.com/api/atlas/mcp',token,linkBase:link.origin+'/'}
+  return {url:link.origin+'/api/atlas/mcp',token,linkBase:link.origin+'/'}
+}
+/** Repair only connections this onboarding created; unrelated Atlas instances stay intact. */
+export function repairWelcomeAtlasEndpoints(): number {
+  let changed=0
+  const next=readServers().map(s=>{
+    if(!s.id.startsWith('welcome-atlas-')||s.linkBase!=='https://eh-atlas.com/'||s.url!=='https://aj-atlas.com/api/atlas/mcp')return s
+    changed++
+    return {...s,url:'https://eh-atlas.com/api/atlas/mcp',checkedAt:undefined,checkError:undefined,checkAuth:undefined}
+  })
+  if(changed)withWriter({kind:'system',why:'repair'},()=>writeServers(next))
+  return changed
 }
 /** One explicit press grants MCP to the chosen provider; testing needs no AI key or model call. */
 export async function activateWelcomeAtlas(entry: WelcomeAtlasEntry, provider: 'copilot' | 'local', workspace: string, user: string): Promise<{membershipMissing:boolean}> {
@@ -54,12 +65,21 @@ export async function activateWelcomeAtlas(entry: WelcomeAtlasEntry, provider: '
   if(typeof identity?.person!=='string'||normalize(identity.person)!==normalize(entry.name))throw Error('identity')
   await refreshWorkerModels()
   permitted()
+  // Retire a manual connection to the wrong Atlas instance only when it holds
+  // this exact personal credential. Other users' or instances' tokens are untouched.
+  const wrongInstance=new Set<string>()
+  if(credential.url==='https://eh-atlas.com/api/atlas/mcp'){
+    for(const s of readServers().filter(s=>s.id!==id&&s.url==='https://aj-atlas.com/api/atlas/mcp')){
+      if(await getMcpToken(s)===credential.token)wrongInstance.add(s.id)
+    }
+  }
+  permitted()
   const model=workerModelRows().find(m=>m.route.p===provider&&m.caps.mcp)
   withWriter({kind:'you',via:'setup',ref:'welcome-atlas'},()=>{
     const allow=useWorkspace.getState().settings.ai?.allow??{}
     if(!setDeviceAI({allow:{...allow,[provider]:[...new Set([...(allow[provider]??[]),'mcp' as const])]}}))throw Error('policy')
     if(model)setDeviceRule('mcp-setup',[model.route])
-    writeServers([...readServers().filter(s=>s.id!==id),{id,name,url:credential.url,token:credential.token,enabled:true,scope:'all',linkBase:credential.linkBase,prompt:'Use this personal Atlas connection for the workshop. Verify identity and tenant with atlas_whoami; use actual Atlas sources. Do not change the selected tenant or make decisions for the team.',promptSource:'edited',tools:['atlas_whoami'],checkedAt:Date.now()}])
+    writeServers([...readServers().filter(s=>s.id!==id).map(s=>wrongInstance.has(s.id)?{...s,enabled:false}:s),{id,name,url:credential.url,token:credential.token,enabled:true,scope:'all',linkBase:credential.linkBase,prompt:'Use this personal Atlas connection for the workshop. Verify identity and tenant with atlas_whoami; use actual Atlas sources. Do not change the selected tenant or make decisions for the team.',promptSource:'edited',tools:['atlas_whoami'],checkedAt:Date.now()}])
   })
   await flushSecretWrites()
   assertScope()

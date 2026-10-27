@@ -75,6 +75,7 @@ export function AtlasWelcome() {
   const [scope,setScope]=useState('')
   const [ids,setIds]=useState<Array<{id:string}>>([]),[entry,setEntry]=useState<{id:string;name:string;atlasLink:string;atlasToken:string}|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[checked,setChecked]=useState(false),[show,setShow]=useState(false)
   const linkToken=entry?atlasLinkToken(entry.atlasLink):null
+  useEffect(()=>{if(!ws||!user||viewer)return;void import('./welcomeAtlas').then(m=>{const c=useCloud.getState();if(c.active.kind==='cloud'&&c.active.id===ws&&c.user?.id===user&&!c.readOnly)m.repairWelcomeAtlasEndpoints()})},[ws,user,viewer])
   useEffect(()=>{let live=true;setScope(identity);setIds([]);setEntry(null);setMessage('');if(ws&&user&&supported)void cloudApi.cloudRequest<Array<{id:string}>>('GET',path(ws,'-access')).then(r=>{if(live)setIds(r)}).catch(()=>{});return()=>{live=false}},[ws,user,supported])
   useEffect(()=>{const refresh=(event:Event)=>{const d=(event as CustomEvent).detail;if(d?.workspace!==ws||d?.user!==user||!ws)return;void cloudApi.cloudRequest<Array<{id:string}>>('GET',path(ws,'-access')).then(r=>{if(useCloud.getState().active.id===ws&&useCloud.getState().user?.id===user){setIds(r);if(!r.length)setEntry(null)}}).catch(()=>{})};window.addEventListener('one-readiness',refresh);return()=>window.removeEventListener('one-readiness',refresh)},[ws,user])
   const activate=async(provider:'copilot'|'local')=>{
