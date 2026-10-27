@@ -9,6 +9,7 @@ export const LOCAL_WORKSPACE_FUNCTIONS: WorkerFunction[] = [
   {name:'one_workspace_call',description:'Call an exact ONE workspace tool discovered with one_workspace_search. Pass its exact name and arguments matching the returned schema. Writing tools stage proposals for review.',parameters:{type:'object',properties:{name:{type:'string'},arguments:{type:'object'}},required:['name','arguments'],additionalProperties:false}},
 ]
 export const LOCAL_WORKSPACE_GUIDE = '\n\nFor ONE tools named in these instructions, first use one_workspace_search with their exact name or keywords, then one_workspace_call with the discovered name and arguments. Only these wrapper functions are directly callable. MCP uses the separate one_mcp_search / one_mcp_call wrappers. Never simulate a tool result.'
+export const LOCAL_DISCOVERY_REPAIR = 'No tool was executed. Discover the permitted tool first: ONE workspace tools use one_workspace_search, then one_workspace_call with the exact discovered name and valid arguments. External Atlas/MCP tools use one_mcp_search, then one_mcp_call with the exact discovered server and name. These are separate tool catalogs. This is the only discovery-correction retry; do not invent tool results or bypass permissions.'
 export function localWorkspaceTools(tools: AgentTool[]) {
   const seen = new Set<string>()
   return {

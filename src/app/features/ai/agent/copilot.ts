@@ -1,4 +1,4 @@
-import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, localWorkspaceTools } from './localTools'
+import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, LOCAL_DISCOVERY_REPAIR, localWorkspaceTools } from './localTools'
 import { priceFor } from '../core/registry'
 /** Browser-owned One tools; Copilot supplies bounded decisions through the personal worker. */
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
@@ -44,7 +44,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
@@ -85,7 +85,16 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         repeated.set(key, n)
         if (++calls > MAX_TOOL_CALLS || n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || isWorkerMcpFunction(c.name) || c.name==='one_workspace_call')) { hooks.limit(); return 'limit' as const }
         let content: string, failed = false
-        const resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null
+        let resolved: ReturnType<ReturnType<typeof localWorkspaceTools>['resolve']> | null = null
+        try { resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null }
+        catch (e) {
+          if (!(e instanceof AIError) || e.detail !== 'features.ai.local.discovery' || discoveryRepairs++ >= 1) throw e
+          // The failed call never ran. Let the model correct discovery once, without granting
+          // access or counting a later valid call as a repeated write.
+          repeated.delete(key)
+          results.push({type:'tool_result' as const,tool_use_id:c.id,content:LOCAL_DISCOVERY_REPAIR,is_error:true})
+          continue
+        }
         const tool = resolved?.tool ?? (!local ? tools.find(t => t.name === c.name) : undefined)
         const input = resolved?.input ?? c.arguments
         if (local && c.name==='one_workspace_search') { content = local.search(c.arguments) }

@@ -148,9 +148,27 @@ test.describe('Atlas Flow across workspace features',()=>{
     const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
     await prompt.fill('Read this source.');await prompt.press('Enter')
     await expect(term).toContainText('Discover the permitted tool before calling it.')
-    expect(fake.textAsked).toHaveLength(1)
+    expect(fake.textAsked).toHaveLength(2)
+    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('only discovery-correction retry')
     expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)).not.toContain('Unauthorized staged text')
     await expect(term.locator('.term-step[data-tool="append_to_page"]')).toHaveCount(0)
+  })
+
+  test('terminal corrects workspace/MCP discovery confusion once and reads only the selected Atlas tool',async({page})=>{
+    await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'atlas-discovery',name:'atlas',url:'https://atlas.example.org/mcp',token:'private-discovery-token',enabled:true,prompt:'Read approved sources.',tools:['atlas_whoami'],checkedAt:Date.now()}]}))
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_whoami',inputSchema:{type:'object',properties:{}}}]}:{result:JSON.stringify({content:[{type:'text',text:'Verified identity from Atlas: tenant one.'}]})}
+    let round=0
+    fake.onText=r=>{const n=round++;return {model:r.model,text:n===3?'Atlas identity confirmed: tenant one.':'',...(n<3?{calls:[n===0?{id:'wrong-catalog',name:'one_workspace_call',arguments:{name:'atlas_whoami',arguments:{}}}:n===1?{id:'discover-atlas',name:'one_mcp_search',arguments:{query:'atlas_whoami'}}:{id:'identity',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_whoami',arguments:{}}}]}:{}),inputTokens:100,outputTokens:20,usd:0}}
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await prompt.fill('atlas_whoami');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Atlas identity confirmed: tenant one.',{timeout:20000})
+    expect(fake.textAsked).toHaveLength(4)
+    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('only discovery-correction retry')
+    expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call'])
+    expect(fake.mcpAsked[1],JSON.stringify(fake.mcpAsked[1])).toMatchObject({name:'atlas_whoami'})
+    expect(JSON.stringify(fake.textAsked)).not.toContain('private-discovery-token')
   })
 
   test('personal Atlas connections can be tested with a local model and no Claude key',async({page})=>{
