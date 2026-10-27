@@ -80,7 +80,10 @@ export function welcomeRoutes(s:Services) {
   })
   app.get('/:id/welcome-access',c=>{
     const {workspace,auth}=access(s,c,'viewer')
-    const rows=s.db.all<{id:string}>('SELECT id FROM welcome_access WHERE target_workspace_id=? AND email_hash=? AND expires_at>? AND completed_at IS NULL',workspace.id,s.repo.hash(normalizeEmail(auth.user.email)),Date.now())
+    // The first-start guide can reopen the same person's setup after its welcome
+    // reminder was completed. No other recipient or expired grant is exposed.
+    const all=c.req.query('setup')==='1'
+    const rows=s.db.all<{id:string}>('SELECT id FROM welcome_access WHERE target_workspace_id=? AND email_hash=? AND expires_at>?'+(all?'':' AND completed_at IS NULL'),workspace.id,s.repo.hash(normalizeEmail(auth.user.email)),Date.now())
     return c.json(rows)
   })
   app.post('/:id/welcome-access/:entry/open',c=>{

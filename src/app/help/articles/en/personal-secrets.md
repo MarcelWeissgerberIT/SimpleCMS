@@ -29,6 +29,14 @@ The worker receives only the selected connections, keeps tokens in memory and ex
 
 Plan and document stages expose only known or explicitly annotated read-only tools. Implementation stages can use explicitly granted external write tools immediately. One's proposal mode does not hold these writes for review. Start with a restricted Atlas token and a short reading allow-list.
 
+## Use configured Atlas access for a coding task
+
+If your personal Atlas access has passed its check under **Settings → AI → MCP servers**, open the coding task and **My secrets · connections for this task**. Under **Your configured Atlas access**, select **Use Atlas for this task**. No copying of the token or second vault is required.
+
+This explicit grant belongs only to you, this task and the displayed paired worker in this session. It permits only `atlas_whoami`, `atlas_search`, `atlas_get` and `atlas_context`, where Atlas provides them. The provider must be allowed to receive MCP results. Confirm the grant again after changing the connection; closing the session or signing out ends it. Another person must select their own access. Guests receive no coding grant.
+
+Use the separate passphrase-protected vault for additional or external write tools. Handing over a task never transfers credentials. The recipient reviews the task and grants their own connection.
+
 ## Protection and limits
 
 The personal vault encrypts tokens and connection metadata with AES-256-GCM, a random salt and PBKDF2-SHA-256 at 600,000 iterations. Its browser key is non-extractable and kept in memory while unlocked. Server access is restricted to the signed-in person; workspace admins cannot fetch other people's vaults. Concurrent edits conflict instead of silently overwriting another device: reload and unlock again.

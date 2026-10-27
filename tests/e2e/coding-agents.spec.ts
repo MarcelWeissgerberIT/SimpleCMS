@@ -55,7 +55,7 @@ for (const selectedAgent of ['codex', 'minimax', 'ollama', 'copilot'] as const) 
   await page.getByRole('button', { name: 'Retry', exact: true }).click()
   let payload: any
   await expect.poll(async () => {
-    payload = await page.evaluate(() => (window as any).__oneCodingWrites.next(['demo'], 'new-worker', true, ['doc', 'model', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot']))
+    payload = await page.evaluate(() => (window as any).__oneCodingWrites.next(['demo'], 'new-worker', true, ['doc', 'model', 'copilot-options', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot']))
     return payload?.agent
   }).toBe(selectedAgent)
   expect(payload?.stage.kind).toBe('plan')

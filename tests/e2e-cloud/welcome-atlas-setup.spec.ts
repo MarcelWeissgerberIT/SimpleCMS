@@ -3,7 +3,7 @@ import {startFakeWorker} from '../e2e/helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 
 test('a recipient activates personal Atlas from their link for Copilot without copying secrets or calling a model',async({page:owner,context},info)=>{
- const fake=await startFakeWorker(47429,{worker:'1.34.1',name:'Personal Windows worker',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true})
+ const fake=await startFakeWorker(47429,{worker:'1.34.1',name:'Personal Windows worker',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true,personalSecrets:true})
  fake.can=[...WORKER_CAN];fake.textModels=[{provider:'copilot',model:'auto',context:32768,chat:true}]
  let missing=false
  fake.onModelMcp=r=>r.action==='list'?{tools:[{name:'remote_mcp_0',server:r.servers[0].name,tool:'atlas_whoami',description:'Personal identity',parameters:{type:'object',properties:{}}}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({person:'Participant',effectiveTenantScope:missing?[]:['one'],memberships:missing?[]:[{tenantSlug:'one'}]})}]})}
@@ -13,7 +13,7 @@ test('a recipient activates personal Atlas from their link for Copilot without c
   const ws=await createWorkspace(owner,'Workshop setup');await openApp(owner,ws);await waitOnline(owner)
   await wsEval(owner,s=>s.setWorkspaceAI({policy:{restricted:[],providers:{copilot:{allow:['public','page','selection','structure','workspace']},local:{allow:['public','page','selection','structure','workspace']}}}}))
   await openApp(member);await signIn(member,email('participant'));await join(owner,member,ws,'member');await openApp(member,ws);await waitOnline(member)
-  await wsEval(member,s=>s.updateSettings({mcpServers:[{id:'keep',name:'atlas-workshop',url:'https://other.example.test/mcp',token:'unrelated-test-token',enabled:false,prompt:'Keep this configuration.'},{id:'manual-wrong-instance',name:'old-atlas',url:'https://aj-atlas.com/api/atlas/mcp',token:'personal-link-test-token',enabled:true,prompt:'Old manual setup.'},{id:'welcome-atlas-migrate',name:'past-setup',url:'https://aj-atlas.com/api/atlas/mcp',linkBase:'https://eh-atlas.com/',token:'other-personal-fixture',enabled:false,prompt:'Keep disabled.',checkedAt:123}]}))
+  await wsEval(member,s=>s.updateSettings({ai:{narrow:{copilot:['mcp','files'],local:['mcp']}},mcpServers:[{id:'keep',name:'atlas-workshop',url:'https://other.example.test/mcp',token:'unrelated-test-token',enabled:false,prompt:'Keep this configuration.'},{id:'manual-wrong-instance',name:'old-atlas',url:'https://aj-atlas.com/api/atlas/mcp',token:'personal-link-test-token',enabled:true,prompt:'Old manual setup.'},{id:'welcome-atlas-migrate',name:'past-setup',url:'https://aj-atlas.com/api/atlas/mcp',linkBase:'https://eh-atlas.com/',token:'other-personal-fixture',enabled:false,prompt:'Keep disabled.',checkedAt:123}]}))
   await member.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
   await member.getByRole('tab',{name:/Coding worker/}).click()
   await member.getByLabel('Port',{exact:true}).fill('47429');await member.getByLabel('Port',{exact:true}).press('Enter')
@@ -36,7 +36,7 @@ test('a recipient activates personal Atlas from their link for Copilot without c
   expect(settings.servers[2]).toMatchObject({id:'welcome-atlas-migrate',url:'https://eh-atlas.com/api/atlas/mcp',enabled:false,prompt:'Keep disabled.'})
   expect(settings.servers[2].checkedAt).toBeUndefined()
   expect(settings.servers[3]).toMatchObject({id:'welcome-atlas-personal-grant',url:'https://eh-atlas.com/api/atlas/mcp',enabled:true,scope:'all',token:expect.stringMatching(/^vault:/)})
-  expect(settings.ai.allow.copilot).toContain('mcp');expect(settings.ai.allow.local??[]).not.toContain('mcp')
+  expect(settings.ai.narrow.copilot).toEqual(['files']);expect(settings.ai.narrow.local).toEqual(['mcp']);expect(settings.ai.allow.copilot).toContain('mcp');expect(settings.ai.allow.local??[]).not.toContain('mcp')
   expect(settings.key).toBeFalsy();expect(JSON.stringify(settings)).not.toContain('personal-link-test-token')
   expect(await wsEval(owner,s=>s.settings.mcpServers??[])).toEqual([])
   await modal.screenshot({path:info.outputPath('personal-atlas-connected.png')})

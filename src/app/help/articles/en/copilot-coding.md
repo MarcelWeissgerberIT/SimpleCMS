@@ -74,3 +74,11 @@ The [workshop start check](help:workshop-startcheck) covers accounts, the worker
 For a malformed harness answer, ONE makes exactly one format-correction request in the same isolated Copilot session, with the same model selection and within the existing three-minute deadline. Both answers count towards reported usage. Unavailable tools, transport/login errors, cancellation and timeouts are not retried this way. If correction also fails, the run stops with a clear message. Receipts include the number of format corrections; no silent provider fallback occurs.
 
 Actually started configured tests also report the sanitised command as argv, commit if available, uncommitted/changed-during-test Git state, platform and timing. These fields remain unknown for older workers or tests that did not start. A commit accompanied by uncommitted changes does not identify the full tested content.
+
+## From Atlas in the AI terminal to a coding task
+
+In the illustrated workshop first start, connect your worker, then choose **Set up Atlas access → Connect Atlas with Copilot**. This explicit press enables personal MCP permission even if an older device restriction still blocked MCP. Other data rules remain in force. A successful identity check clears a previous rejection marker for this connection. The first-start guide can reopen your access after the welcome reminder is completed.
+
+In the AI terminal, actually read the Atlas source, then request a small proposed coding task with its source, goal and testable criteria. Review and apply the proposal. In the task, select the repository and **GitHub Copilot**, check the model, and grant your configured Atlas connection under **My secrets**. Then start the desired step. Plan, implementation and tests remain separate stages with run evidence. Handing a task to QA or another person never transfers credentials; the next person uses their own worker and Atlas access.
+
+An explicitly requested MCP source without personal permission stops before inference. Large tool results are fitted to Copilot context as marked excerpts; the task, tool arguments and visible history remain intact. Omitted content must never be claimed as read. An unsuitable or still oversized task stops before the next model request.

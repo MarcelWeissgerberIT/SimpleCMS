@@ -43526,6 +43526,7 @@ var LocalMcp = class {
   tools = [];
   secrets = [];
   failures = [];
+  failureKinds = /* @__PURE__ */ new Map();
   readOnly;
   memoryProjects = /* @__PURE__ */ new Map();
   defaultMemoryProject = "";
@@ -43611,8 +43612,11 @@ var LocalMcp = class {
           cursor = listed.nextCursor;
         } while (cursor && count <= 600);
         this.clients.set(name, client);
-      } catch {
+      } catch (error62) {
         this.failures.push(name);
+        const e = error62;
+        const hint = [e?.message, e?.code, e?.cause?.code, e?.cause?.message].join(" ").toLowerCase();
+        this.failureKinds.set(name, /\b(?:401|403)\b|unauthorized|forbidden|invalid.token/.test(hint) ? "Authentication rejected by this endpoint. Check the Atlas instance and personal token." : /certificate|cert_|self.signed|tls|issuer/.test(hint) ? "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification." : /timeout|timed.out|aborted/.test(hint) ? "Connection timed out. Check VPN, proxy and network access from this worker." : /enotfound|econn|eai_again|fetch failed|network|socket/.test(hint) ? "Network connection failed. Check VPN, proxy, DNS and network access from this worker." : "Connection or tool discovery failed. Check the endpoint and worker connectivity.");
         await client?.close().catch(() => {
         });
         await transport?.close().catch(() => {
@@ -43620,6 +43624,9 @@ var LocalMcp = class {
         this.tools = this.tools.filter((t) => t.server !== name);
       }
     }
+  }
+  failureReason(server) {
+    return this.failureKinds.get(server) ?? "Connection or tool discovery failed.";
   }
   description() {
     const available = [...this.clients.keys()].map((name) => this.memoryOnly.has(name) ? `${name} (private task checkpoint transport; use memory_atlas_recall for saved refs)` : `${name} (${this.tools.filter((t) => t.server === name).length} tools allowed in this stage)`).join(", ");

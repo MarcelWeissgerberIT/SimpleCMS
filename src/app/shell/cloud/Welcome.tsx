@@ -66,18 +66,19 @@ export function WelcomeEditor({wsId}:{wsId:string}) {
 }
 
 /** Personal Start button. Fetching the page never reads token values; opening the modal is explicit. */
-export function AtlasWelcome() {
+export function AtlasWelcome({setup=false}:{setup?:boolean}={}) {
   const lang=useLang(),tr=(de:string,en:string)=>lang==='de'?de:en
   const active=useCloud(s=>s.active),user=useCloud(s=>s.user?.id),supported=useCloud(s=>s.supports?.includes('welcome:1'))
   const viewer=useCloud(s=>s.readOnly)
   const ws=active.kind==='cloud'?active.id:null
+  const accessList=path(ws??'','-access')+(setup?'?setup=1':'')
   const identity=`${ws??''}:${user??''}`
   const [scope,setScope]=useState('')
   const [ids,setIds]=useState<Array<{id:string}>>([]),[entry,setEntry]=useState<{id:string;name:string;atlasLink:string;atlasToken:string}|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[checked,setChecked]=useState(false),[show,setShow]=useState(false)
   const linkToken=entry?atlasLinkToken(entry.atlasLink):null
   useEffect(()=>{if(!ws||!user||viewer)return;void import('./welcomeAtlas').then(m=>{const c=useCloud.getState();if(c.active.kind==='cloud'&&c.active.id===ws&&c.user?.id===user&&!c.readOnly)m.repairWelcomeAtlasEndpoints()})},[ws,user,viewer])
-  useEffect(()=>{let live=true;setScope(identity);setIds([]);setEntry(null);setMessage('');if(ws&&user&&supported)void cloudApi.cloudRequest<Array<{id:string}>>('GET',path(ws,'-access')).then(r=>{if(live)setIds(r)}).catch(()=>{});return()=>{live=false}},[ws,user,supported])
-  useEffect(()=>{const refresh=(event:Event)=>{const d=(event as CustomEvent).detail;if(d?.workspace!==ws||d?.user!==user||!ws)return;void cloudApi.cloudRequest<Array<{id:string}>>('GET',path(ws,'-access')).then(r=>{if(useCloud.getState().active.id===ws&&useCloud.getState().user?.id===user){setIds(r);if(!r.length)setEntry(null)}}).catch(()=>{})};window.addEventListener('one-readiness',refresh);return()=>window.removeEventListener('one-readiness',refresh)},[ws,user])
+  useEffect(()=>{let live=true;setScope(identity);setIds([]);setEntry(null);setMessage('');if(ws&&user&&supported)void cloudApi.cloudRequest<Array<{id:string}>>('GET',accessList).then(r=>{if(live)setIds(r)}).catch(()=>{});return()=>{live=false}},[ws,user,supported,accessList])
+  useEffect(()=>{const refresh=(event:Event)=>{const d=(event as CustomEvent).detail;if(d?.workspace!==ws||d?.user!==user||!ws)return;void cloudApi.cloudRequest<Array<{id:string}>>('GET',accessList).then(r=>{if(useCloud.getState().active.id===ws&&useCloud.getState().user?.id===user){setIds(r);if(!r.length)setEntry(null)}}).catch(()=>{})};window.addEventListener('one-readiness',refresh);return()=>window.removeEventListener('one-readiness',refresh)},[ws,user,accessList])
   const activate=async(provider:'copilot'|'local')=>{
     if(!entry||!ws||!user||viewer||busy)return
     const workspace=ws,owner=user,access=entry

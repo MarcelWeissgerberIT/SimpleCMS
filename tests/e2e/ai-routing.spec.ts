@@ -238,7 +238,7 @@ test.describe('the route chip and its picker', () => {
   })
 
   test('Mac: Option+M types "µ" — it opens the picker and types nothing', async ({ page }) => {
-    await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }))
+    await page.addInitScript(() => { Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' });Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => ({ platform: 'macOS' }) }) })
     await setup(page)
     await openMenu(page)
     const field = aiPanel(page).locator('.ai-cmd__input')

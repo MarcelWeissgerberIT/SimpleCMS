@@ -40,7 +40,7 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   await expect(member.getByTestId('coding-conn')).toContainText('Workshop-Laptop')
   await member.keyboard.press('Escape')
   // Synthetic protected welcome card: no real participant link or token enters screenshots.
-  await member.route(`**/api/workspaces/${ws}/welcome-access`,r=>r.fulfill({json:[{id:'fixture-access'}]}))
+  await member.route(`**/api/workspaces/${ws}/welcome-access*`,r=>r.fulfill({json:[{id:'fixture-access'}]}))
   await member.route(`**/api/workspaces/${ws}/welcome-access/fixture-access/open`,r=>r.fulfill({json:{name:'Workshop-Teilnehmer',atlasLink:'https://atlas.example.test/?token=synthetic-example-not-valid',atlasToken:''}}))
   await member.reload();await waitForApp(member);await waitOnline(member)
   await member.getByTestId('atlas-welcome').getByRole('button',{name:'Atlas-Zugang einrichten'}).click()
@@ -105,7 +105,7 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   await viewer.getByTestId('first-start-entry').getByRole('button',{name:'Start step by step'}).click()
   const guest=viewer.getByTestId('first-start-tools');await expect(guest).toContainText('Guest · read only');await expect(guest.getByRole('button',{name:'Prepare Copilot test'})).toHaveCount(0);await expect(guest.getByRole('button',{name:'Set up worker'})).toHaveCount(0)
   await viewer.screenshot({path:info.outputPath('09-gastpfad.png'),animations:'disabled'})
-  await viewer.route(`**/api/workspaces/${ws}/welcome-access`,r=>r.fulfill({json:[{id:'guest-fixture'}]}))
+  await viewer.route(`**/api/workspaces/${ws}/welcome-access*`,r=>r.fulfill({json:[{id:'guest-fixture'}]}))
   await viewer.route(`**/api/workspaces/${ws}/welcome-access/guest-fixture/open`,r=>r.fulfill({json:{name:'Workshop guest',atlasLink:'https://atlas.example.test/?token=guest-test-only',atlasToken:''}}))
   await viewer.reload();await waitForApp(viewer);await waitOnline(viewer)
   await viewer.getByTestId('atlas-welcome').getByRole('button',{name:'Set up Atlas access'}).click()

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.34.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.34.2 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -20851,7 +20851,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.34.1" : "dev";
+var VERSION = true ? "1.34.2" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -39451,6 +39451,7 @@ var LocalMcp = class {
   tools = [];
   secrets = [];
   failures = [];
+  failureKinds = /* @__PURE__ */ new Map();
   readOnly;
   memoryProjects = /* @__PURE__ */ new Map();
   defaultMemoryProject = "";
@@ -39536,8 +39537,11 @@ var LocalMcp = class {
           cursor = listed.nextCursor;
         } while (cursor && count3 <= 600);
         this.clients.set(name, client);
-      } catch {
+      } catch (error2) {
         this.failures.push(name);
+        const e = error2;
+        const hint = [e?.message, e?.code, e?.cause?.code, e?.cause?.message].join(" ").toLowerCase();
+        this.failureKinds.set(name, /\b(?:401|403)\b|unauthorized|forbidden|invalid.token/.test(hint) ? "Authentication rejected by this endpoint. Check the Atlas instance and personal token." : /certificate|cert_|self.signed|tls|issuer/.test(hint) ? "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification." : /timeout|timed.out|aborted/.test(hint) ? "Connection timed out. Check VPN, proxy and network access from this worker." : /enotfound|econn|eai_again|fetch failed|network|socket/.test(hint) ? "Network connection failed. Check VPN, proxy, DNS and network access from this worker." : "Connection or tool discovery failed. Check the endpoint and worker connectivity.");
         await client?.close().catch(() => {
         });
         await transport?.close().catch(() => {
@@ -39545,6 +39549,9 @@ var LocalMcp = class {
         this.tools = this.tools.filter((t) => t.server !== name);
       }
     }
+  }
+  failureReason(server) {
+    return this.failureKinds.get(server) ?? "Connection or tool discovery failed.";
   }
   description() {
     const available = [...this.clients.keys()].map((name) => this.memoryOnly.has(name) ? `${name} (private task checkpoint transport; use memory_atlas_recall for saved refs)` : `${name} (${this.tools.filter((t) => t.server === name).length} tools allowed in this stage)`).join(", ");
@@ -41094,7 +41101,9 @@ async function modelMcp(raw, signal) {
   try {
     const config2 = Object.fromEntries(r.servers.map((s) => [s.name, { type: "http", url: s.url, headers: s.token ? { Authorization: "Bearer " + s.token } : {}, ...s.allow ? { oneAllowedTools: s.allow } : {}, oneDeniedTools: s.deny }]));
     await client.connect(r.servers.map((s) => s.name), {}, signal, void 0, config2);
-    if (r.servers.some((s) => !client.probe(s.name, []).connected)) throw new Error("A selected MCP connection could not be opened. Check its login and permissions.");
+    const failed = r.servers.filter((s) => !client.probe(s.name, []).connected);
+    const unavailable = failed.map((s) => `MCP connection ${s.name}: ${client.failureReason(s.name)}`);
+    if (failed.length === r.servers.length) throw new Error(unavailable[0]);
     if (r.action === "search") {
       let chars = 0;
       const tools2 = client.search(r.query).filter((t) => {
@@ -41103,15 +41112,16 @@ async function modelMcp(raw, signal) {
         chars += size;
         return true;
       });
-      return { tools: JSON.parse(client.redact(JSON.stringify(tools2))) };
+      return { tools: JSON.parse(client.redact(JSON.stringify(tools2))), ...unavailable.length ? { unavailable } : {} };
     }
     if (r.action === "call") {
+      if (failed.some((s) => s.name === r.server)) throw new Error(`MCP connection ${r.server}: ${client.failureReason(r.server)}`);
       const tool = client.catalog().find((t) => t.server === r.server && t.name === r.name);
       if (!tool || !new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(r.arguments).valid) throw new Error("MCP tool is unavailable or arguments do not match its schema.");
       return { result: await client.call(r.server, r.name, r.arguments, signal) };
     }
     const tools = client.catalog().slice(0, 120).map((t, i2) => ({ name: "remote_mcp_" + i2, server: t.server, tool: t.name, description: `[${t.server} / ${t.name}] ${t.description ?? ""}`, parameters: t.inputSchema }));
-    return { tools: JSON.parse(client.redact(JSON.stringify(tools))) };
+    return { tools: JSON.parse(client.redact(JSON.stringify(tools))), ...unavailable.length ? { unavailable } : {} };
   } finally {
     await client.close();
   }
@@ -49670,7 +49680,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.34.1" : "dev";
+var VERSION2 = true ? "1.34.2" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

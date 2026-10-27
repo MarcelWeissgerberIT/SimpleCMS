@@ -3,6 +3,7 @@ import { codingProvider, providersForSources, hasFlowLimits } from '@/shared/ai/
 import { readCopilotReceipt } from '@/shared/copilot'
 import { captureReadiness, noteReadiness } from '../../cloud'
 import { personalConnectionsForTask, personalSelection } from '../secrets/store'
+import { taskAtlasConnection, taskAtlasSelection, taskAtlasGrantCurrent } from '../secrets/deviceTask'
 import { codingAgentOf, codingAgentProperty, agentProperty } from './agent'
 /**
  * Coding pipeline — the task operations on the workspace (store actions only):
@@ -356,6 +357,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       set(row.id, props.worker, workerName)
       set(row.id, props.claimed, nowValue())
     })
+    const claimed=ws().pages[row.id]
     const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
     // the turn: this stage's answers and rework note — their pages go first (coding/refs.ts); older ones after the task's
     const { turn, older } = splitTurn(local, stage.id)
@@ -365,10 +367,14 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     // for the stage that stopped there, only to a worker that knows it
     const resume = local.resume && local.stepLimit && local.stepLimit.stageId === stage.id && caps.has('continue') ? { turns: local.stepLimit.turns, max: local.stepLimit.max } : null
     let personalMcp: TaskPayload['personalMcp']
-    if (['plan', 'implement', 'doc'].includes(stage.kind) && personalSelection(row.id).length) {
+    if (['plan', 'implement', 'doc'].includes(stage.kind) && (personalSelection(row.id).length || taskAtlasSelection(row.id))) {
       try {
         if (!caps.has('personal-secrets') || (!['claude','copilot'].includes(agent) && !caps.has('source-review'))) throw new Error('Meine Secrets benötigen für diesen Coding-Agenten Worker 1.28.0 oder neuer. / My secrets require worker 1.28.0 or newer for this coding agent.')
-        personalMcp = personalConnectionsForTask(row.id)
+        const provider=codingProvider(agent)
+        if(!provider)throw new Error('Unknown coding provider.')
+        personalMcp = [...personalConnectionsForTask(row.id),...await taskAtlasConnection(row.id,provider)]
+        if(new Set(personalMcp.map(s=>s.name)).size!==personalMcp.length)throw new Error('Duplicate personal MCP name; select only one Atlas connection.')
+        if(ws().pages[row.id]!==claimed||ws().databases[dbId]!==db||!(await isTrusted(row.id))||ws().pages[row.id]!==claimed||!taskAtlasGrantCurrent(row.id)||isAgentWriting()){skip();continue}
       } catch (e) {
         skip();await patchTask(row.id, { state: 'failed', error: e instanceof Error ? e.message : 'Unlock My secrets.', runNow: false });continue
       }

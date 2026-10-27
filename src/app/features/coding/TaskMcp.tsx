@@ -18,6 +18,8 @@ import { useCoding } from './state'
 import { ChangeReposButton } from './SetupCard'
 import { mentionedMcp, taskMcpServers } from './tasks'
 import { TaskSecrets } from '../secrets/TaskSecrets'
+import { codingAgentOf } from './agent'
+import { useCloud } from '../../cloud'
 import { stepBlockIds } from './orders/stepPage'
 
 /** the task's text without a chain step's own context callout */
@@ -32,16 +34,19 @@ export function TaskMcp({ taskId, repo }: { taskId: ID; repo: string | null }) {
   const t = useT()
   const worker = useCoding((s) => s.worker)
   const connected = useCoding((s) => s.enabled && s.conn === 'connected')
+  const readOnly=useCloud(s=>s.readOnly)
   const page = useWorkspace((s) => s.pages[taskId])
+  const db=useWorkspace(s=>page?.databaseId?s.databases[page.databaseId]:null)
   useWorkspace((s) => s.settings.mcpServers)
-  if (!connected || !worker || !page) return null
+  if (!connected || !worker || !page || readOnly) return null
+  const claude=!!db&&codingAgentOf(db,page)==='claude'
   const list = taskMcpServers(worker, repo)
   const available = list ?? []
   const missing = mentionedMcp(taskText(taskId, page.title, page.content, page.plain), readServers(), available)
   return (
     <>
     <TaskSecrets taskId={taskId} capable={worker.personalSecrets === true} worker={worker.name} />
-    <div className="ctk-mcp" data-testid="coding-task-mcp">
+    {claude&&<div className="ctk-mcp" data-testid="coding-task-mcp">
       <span className="label">{t('features.coding.mcp.label')}</span>
       {available.length ? (
         available.map((n) => (
@@ -59,7 +64,7 @@ export function TaskMcp({ taskId, repo }: { taskId: ID; repo: string | null }) {
           <ChangeReposButton className="btn btn--sm" label={t('features.coding.mcp.fix')} testId="coding-task-mcp-fix" />
         </p>
       )}
-    </div>
+    </div>}
     </>
   )
 }

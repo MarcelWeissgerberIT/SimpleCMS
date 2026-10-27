@@ -268,7 +268,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             {codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'copilot' && <CopilotTaskOptions taskId={pageId} />}
           </div>
         )}
-        {stage?.kind !== 'done' && codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'claude' && <TaskMcp taskId={pageId} repo={repo} />}
+        {stage?.kind !== 'done' && <TaskMcp taskId={pageId} repo={repo} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">

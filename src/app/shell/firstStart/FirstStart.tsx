@@ -14,6 +14,7 @@ import {openAgent,useAgent} from '../../features/ai/agent/state'
 import {useCoding} from '../../features/coding/state'
 import {readServers} from '../../features/ai/mcp-servers/config'
 import {AtlasWelcome} from '../cloud/Welcome'
+import {allowedFor} from '@/shared/ai/policy'
 import {firstStart,atlasStartPrompt} from './model'
 import './firstStart.css'
 
@@ -37,8 +38,9 @@ function StartTools({page,config}:{page:Page;config:NonNullable<ReturnType<typeo
  const [notice,setNotice]=useState(''),[copied,setCopied]=useState(false)
  useWorkerModels()
  const personal=useWorkspace(s=>s.settings)
+ const workspaceAI=useWorkspace(s=>s.ai)
  const mcpReady=readServers().some(s=>s.enabled&&!!s.checkedAt&&!s.checkAuth)
- const copilotAllowed=!!personal.ai?.allow?.copilot?.includes('mcp'),flowAllowed=!!personal.ai?.allow?.local?.includes('mcp')
+ const copilotAllowed=allowedFor('copilot','mcp',workspaceAI,personal.ai),flowAllowed=allowedFor('local','mcp',workspaceAI,personal.ai)
  const models=workerModelRows(),copilot=models.find(m=>m.route.p==='copilot'&&m.route.m==='auto')??models.find(m=>m.route.p==='copilot')
  const shares=sharedModels().filter(s=>s.enabled&&s.online&&s.tools)
  const share=shares.length===1?shares[0]:null
@@ -59,7 +61,7 @@ function StartTools({page,config}:{page:Page;config:NonNullable<ReturnType<typeo
   <div className="first-start-tools__head"><span className="label">§ 01 · {tr('DEIN PERSÖNLICHER EINSTIEG','YOUR PERSONAL START')}</span><strong>{person?.name||person?.email||tr('Dein Konto','Your account')}</strong><span>{readOnly?tr('Gast · nur lesen','Guest · read only'):tr('Team · eigener Zugang','Team · personal access')}</span></div>
   <p>{tr('Lies die bebilderten Schritte unten der Reihe nach. Diese Schaltflächen führen direkt an die benötigte Stelle.','Follow the illustrated steps below in order. These buttons take you straight to the relevant place.')}</p>
   <div className="first-start-tools__actions"><button className="btn" onClick={()=>openPage(config.readinessPage)}>{tr('Unsere Startampel','Our start checklist')}</button>{!readOnly&&<><button className="btn" onClick={()=>settings('coding')}><Settings2 size={14}/>{tr('Worker einrichten','Set up worker')}</button><button className="btn" onClick={()=>settings('ai')}>{tr('Modelle und Atlas MCP','Models and Atlas MCP')}</button><button className="btn" onClick={()=>settings('secrets')}>{tr('Meine Secrets · für Coding','My secrets · for coding')}</button></>}</div>
-  <AtlasWelcome/>
+  <AtlasWelcome setup/>
   {readOnly?<p className="first-start-tools__hint">{tr('Du nutzt den Gastpfad unten: ONE öffnen, deinen persönlichen Atlas-Zugang prüfen und die Ergebnisse mitverfolgen. Worker, Modellaufrufe und Änderungen bleiben für Gäste gesperrt.','Use the guest path below: open ONE, check your personal Atlas access and follow the results. Worker registration, model calls and edits remain unavailable to guests.')}</p>:<>
    <div className="first-start-tests"><div><span className="label">04 · COPILOT</span><p>{copilot?tr('Deine angemeldete Copilot CLI verwenden.','Use your signed-in Copilot CLI.'):tr('Noch kein Copilot-Modell gefunden. Worker verbinden, dann Modelle aktualisieren.','No Copilot model found yet. Connect your worker, then refresh models.')}</p><button className="btn btn--ink" disabled={!copilot||worker!=='connected'||!mcpReady||!copilotAllowed||occupied} onClick={()=>prepare('copilot')}><Play size={14}/>{tr('Copilot-Test vorbereiten','Prepare Copilot test')}</button></div><div><span className="label">05 · ATLAS FLOW</span><p>{share?tr('Geteiltes Workshop-Modell, persönlicher Atlas-Zugang.','Shared workshop model, your own Atlas access.'):shares.length>1?tr('Mehrere geteilte Modelle: bitte im Terminal gezielt wählen.','Several shared models: choose explicitly in the terminal.'):tr('Modellhost gerade nicht verfügbar. Copilot weiter nutzen und Marcel Bescheid geben.','Model host currently unavailable. Continue with Copilot and tell Marcel.')}</p><button className="btn btn--ink" disabled={!share||worker!=='connected'||!mcpReady||!flowAllowed||occupied} onClick={()=>prepare('flow')}><Play size={14}/>{tr('Atlas-Flow-Test vorbereiten','Prepare Atlas Flow test')}</button></div></div>
    {(!mcpReady||!copilotAllowed||!flowAllowed)&&<p className="first-start-tools__hint">{tr('Vor den Modelltests: Atlas MCP mit deinem eigenen Token prüfen und die MCP-Erlaubnis für Copilot sowie Lokal/Ollama ausdrücklich aktivieren. Das geschieht unter „Modelle und Atlas MCP“.','Before the model tests: check Atlas MCP with your own token and explicitly allow MCP for Copilot and Local/Ollama under “Models and Atlas MCP”.')}</p>}

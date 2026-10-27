@@ -29,6 +29,14 @@ Der Worker erhält nur die ausgewählten Verbindungen, hält Tokens im Speicher 
 
 Plan- und Dokumentationsschritte erhalten nur bekannte beziehungsweise als lesend gekennzeichnete Werkzeuge. Im Umsetzungsschritt können ausdrücklich erlaubte Schreibwerkzeuge sofort in Atlas schreiben; Ones Vorschlagsmodus hält diese externen Aufrufe nicht zurück. Für einen Zugangstest deshalb ein passend eingeschränktes Token und eine kleine Werkzeugliste verwenden.
 
+## Bereits eingerichtetes Atlas für eine Coding-Aufgabe nutzen
+
+Wenn dein persönlicher Atlas-Zugang unter **Einstellungen → KI → MCP-Server** erfolgreich geprüft ist, öffne die Coding-Aufgabe und **Meine Secrets · Verbindungen für diese Aufgabe**. Unter **Dein bereits eingerichteter Atlas-Zugang** wählst du **Atlas für diese Aufgabe nutzen**. Du musst den Token nicht erneut kopieren oder einen zweiten Tresor anlegen.
+
+Diese ausdrückliche Freigabe gilt nur für dich, diese Aufgabe und den angezeigten gekoppelten Worker in dieser Sitzung. Sie erlaubt ausschließlich `atlas_whoami`, `atlas_search`, `atlas_get` und `atlas_context`, soweit Atlas sie anbietet. Der Anbieter muss MCP-Ergebnisse erhalten dürfen. Nach einer geänderten Verbindung bestätigst du die Auswahl erneut; beim Schließen oder Abmelden endet sie. Eine andere Person muss ihren eigenen Zugang wählen. Gäste erhalten keine Coding-Freigabe.
+
+Für zusätzliche oder externe Schreibwerkzeuge bleibt der separate, mit Passphrase geschützte Tresor vorgesehen. Eine Aufgabe weiterzureichen überträgt niemals deinen Token. Die übernehmende Person prüft die Aufgabe und gibt ihre eigene Verbindung frei.
+
 ## Was geschützt wird
 
 Tokens und Verbindungsmetadaten liegen im persönlichen Tresor mit AES-256-GCM, eigener Zufalls-Salt und PBKDF2-SHA-256 mit 600.000 Iterationen. Der Schlüssel ist im Browser nicht exportierbar und nur während der Entsperrung im Speicher. Der Server bindet den verschlüsselten Tresor ausschließlich an die angemeldete Person; auch Workspace-Administratoren erhalten keine fremden Tresore. Änderungen auf mehreren Geräten überschreiben sich nicht stillschweigend: bei einem Konflikt neu laden und entsperren.

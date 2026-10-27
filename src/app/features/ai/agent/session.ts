@@ -579,6 +579,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const tooling = terminalSetup(withCoding, withMemTools && pre.allows('memory'), withUpsert, prepared.taskRules)
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')
+    const addressedMcp=forced.length>0||setup.servers.some(s=>[s.name,s.codeword].filter(Boolean).some(name=>new RegExp('(?:^|[^a-z0-9_-])'+name!.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?:$|[^a-z0-9_-])','i').test(task)))||(/\batlas[_\s]+(?:whoami|get|search|context)\b/i.test(task)&&setup.servers.some(s=>/^https:\/\/(?:eh|aj)-atlas\.com\//.test(s.url)))
+    // An explicitly requested source must not silently become a page-only answer.
+    if(!mcpOk&&addressedMcp&&pre.route)throw new AIError('policy','mcp-required',undefined,undefined,[{kind:'step',step:'data',provider:pre.route.p,data:'mcp'}])
     if (!mcpOk) for (const name of mcpNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.policy', { server: name }))
     const mcp = setup.servers.length && mcpOk ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)

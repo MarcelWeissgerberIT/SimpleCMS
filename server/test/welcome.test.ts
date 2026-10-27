@@ -116,6 +116,9 @@ test('one explicit send grants read-only guest access to the shared workspace, h
   assert.equal((await bob.post(`/api/workspaces/${ws}/welcome-access/${own[0].id}/open`)).status,404)
   const revealed=await alice.post(path()+`-access/${own[0].id}/open`);assert.equal(revealed.body.atlasToken,'ALICE-MCP-SECRET');assert.equal(revealed.res.headers.get('cache-control'),'no-store')
   assert.equal((await alice.post(path()+`-access/${own[0].id}/complete`)).status,204);assert.deepEqual((await alice.get(path()+'-access')).body,[])
+  assert.equal((await alice.get(path()+'-access?setup=1')).body[0].id,own[0].id)
+  assert.equal((await owner.get(path()+'-access?setup=1')).body.length,0)
+  assert.equal((await bob.get(`/api/workspaces/${ws}/welcome-access?setup=1`)).body.length,1)
   assert.equal((await bob.get(`/api/workspaces/${ws}/welcome-access`)).body.length,1)
   const db=new DatabaseSync(join(server.dataDir,'one.sqlite'));try{const rows=db.prepare('SELECT sealed FROM welcome_access').all();assert.ok(rows.every(x=>String(x.sealed).startsWith('v1.')&&!String(x.sealed).includes('SECRET')))}finally{db.close()}
 })

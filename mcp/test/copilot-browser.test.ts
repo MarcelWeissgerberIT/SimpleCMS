@@ -91,3 +91,21 @@ test('Copilot vision is account-advertised; blobs stay out of prompts/argv; text
     assert.equal(auto.model,'auto')
   }finally{process.env=previous;await rm(dir,{recursive:true,force:true})}
 })
+
+test('one refused MCP endpoint does not hide a working Atlas connection; diagnostic text contains no credentials',async()=>{
+ const original=globalThis.fetch,secret='private-rejection-body-never-log',servers=[{name:'stale',url:'https://stale.example.org/mcp',token:secret,allow:null,deny:[]},{name:'atlas',url:'https://atlas.example.org/mcp',token:secret,allow:null,deny:[]}]
+ globalThis.fetch=(async(input:any,init:any={})=>{
+  const url=String(input instanceof Request?input.url:input)
+  if(url.startsWith('https://stale.'))return new Response(secret,{status:401})
+  const r=JSON.parse(init.body)
+  const result=r.method==='initialize'?{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'atlas-fixture',version:'1'}}:r.method==='tools/list'?{tools:[{name:'atlas_whoami',inputSchema:{type:'object',properties:{}}}]}:r.method==='tools/call'?{content:[{type:'text',text:'Personal identity verified'}]}:null
+  return result?Response.json({jsonrpc:'2.0',id:r.id,result}):new Response(null,{status:202})
+ }) as typeof fetch
+ try{
+  const found=await modelMcp({servers,action:'search',query:'atlas_whoami'},new AbortController().signal)
+  assert.equal(found.tools?.[0]?.name,'atlas_whoami');assert.match(found.unavailable?.[0]??'',/Authentication rejected/);assert.ok(!JSON.stringify(found).includes(secret))
+  const result=await modelMcp({servers,action:'call',server:'atlas',name:'atlas_whoami',arguments:{}},new AbortController().signal)
+  assert.match(result.result??'',/identity verified/)
+  await assert.rejects(modelMcp({servers:[servers[0]],action:'list'},new AbortController().signal),e=>e instanceof Error&&/Authentication rejected/.test(e.message)&&!e.message.includes(secret))
+ }finally{globalThis.fetch=original}
+})

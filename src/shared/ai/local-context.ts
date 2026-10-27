@@ -48,5 +48,5 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
     return next
   }
   // Never discard the person's question or silently clip their source to make a request fit.
-  throw new RangeError('Local context is full. Start a fresh task or select a smaller source passage; no further model request was sent.')
+  throw new RangeError('Model context is full. Start a fresh task or select a smaller source passage; no further model request was sent.')
 }

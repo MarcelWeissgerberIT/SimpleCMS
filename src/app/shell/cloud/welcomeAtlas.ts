@@ -8,7 +8,7 @@ import { flushSecretWrites, getMcpToken } from '../../store/secrets'
 import { withWriter } from '../../store/writer'
 import { requestWorkerMcp, workerOnline } from '../../features/coding'
 import { assertMcpFlow, assertModelFlow } from '../../features/ai/core/dataFlow'
-import { readServers, writeServers, MAX_SERVERS } from '../../features/ai/mcp-servers/config'
+import { readServers, writeServers, clearRefused, MAX_SERVERS } from '../../features/ai/mcp-servers/config'
 import { refreshWorkerModels, workerModelRows } from '../../features/ai/core/workerModels'
 
 export interface WelcomeAtlasEntry { id: string; name: string; atlasLink: string; atlasToken: string }
@@ -76,12 +76,15 @@ export async function activateWelcomeAtlas(entry: WelcomeAtlasEntry, provider: '
   permitted()
   const model=workerModelRows().find(m=>m.route.p===provider&&m.caps.mcp)
   withWriter({kind:'you',via:'setup',ref:'welcome-atlas'},()=>{
-    const allow=useWorkspace.getState().settings.ai?.allow??{}
-    if(!setDeviceAI({allow:{...allow,[provider]:[...new Set([...(allow[provider]??[]),'mcp' as const])]}}))throw Error('policy')
+    const device=useWorkspace.getState().settings.ai,allow=device?.allow??{},narrow=device?.narrow??{}
+    // This explicit setup press also removes a previous device-only MCP restriction.
+    // Other classes/providers and workspace forbids remain unchanged.
+    if(!setDeviceAI({allow:{...allow,[provider]:[...new Set([...(allow[provider]??[]),'mcp' as const])]},narrow:{...narrow,[provider]:(narrow[provider]??[]).filter(c=>c!=='mcp')}}))throw Error('policy')
     if(model)setDeviceRule('mcp-setup',[model.route])
     writeServers([...readServers().filter(s=>s.id!==id).map(s=>wrongInstance.has(s.id)?{...s,enabled:false}:s),{id,name,url:credential.url,token:credential.token,enabled:true,scope:'all',linkBase:credential.linkBase,prompt:'Use this personal Atlas connection for the workshop. Verify identity and tenant with atlas_whoami; use actual Atlas sources. Do not change the selected tenant or make decisions for the team.',promptSource:'edited',tools:['atlas_whoami'],checkedAt:Date.now()}])
   })
   await flushSecretWrites()
   assertScope()
+  clearRefused(name)
   return {membershipMissing:Array.isArray(identity.effectiveTenantScope)&&identity.effectiveTenantScope.length===0}
 }

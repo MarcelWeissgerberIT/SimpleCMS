@@ -61,7 +61,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       assertPreparedFlow(prepared)
       if (signal.aborted) throw new AIError('aborted')
       const transcript = await copilotMessages(messages, material)
-      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) })
+      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) })
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
       const entry = call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: system.length + JSON.stringify(messages).length + JSON.stringify(definitions).length }))
