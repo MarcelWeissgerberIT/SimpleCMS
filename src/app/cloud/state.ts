@@ -15,6 +15,8 @@ export interface CloudUser {
 }
 
 export interface CloudWorkspace {
+  /** Temporary guest participation; the server keeps and restores the viewer base role. */
+  participationUntil?: number
   id: string
   name: string
   icon: string | null
@@ -147,6 +149,7 @@ export const useCloudSync = create<CloudSyncState>(() => ({
 }))
 
 export interface Member {
+  participationUntil?: number
   guest?: boolean
   user: CloudUser
   role: Role

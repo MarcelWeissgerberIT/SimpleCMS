@@ -459,4 +459,15 @@ export const migrations: Migration[] = [
       expires_at INTEGER NOT NULL
     );`,
   },
+  {
+    version: 18,
+    name: 'expiring guest workshop participation without changing base membership',
+    sql: `CREATE TABLE guest_participation (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      granted_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY(workspace_id,email)
+    );`,
+  },
 ]

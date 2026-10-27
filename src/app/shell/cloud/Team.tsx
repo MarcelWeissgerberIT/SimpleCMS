@@ -329,8 +329,14 @@ function Members({
                 )}
               </span>
               {aside?.(m.user.id)}
+              {m.participationUntil && <span className="tm-row__meta">{lang === 'de' ? 'Mitmachrechte bis ' : 'Participation until '}{new Date(m.participationUntil).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB')}{lang === 'de' ? ' · danach Gast, nur lesen' : ' · then guest, read only'}</span>}
             </div>
             <div className="tm-row__ctl">
+              {editable && m.guest && <button className="btn btn--sm" disabled={busy} onClick={() => void run(m.user.id, async () => {
+                const end = new Date(); end.setDate(end.getDate() + 1); end.setHours(23,59,59,999)
+                await cloudApi.cloudRequest('PUT', `api/workspaces/${encodeURIComponent(wsId)}/guest-participation`, { emails: [m.user.email], expiresAt: m.participationUntil ? null : end.getTime() })
+                setMembers(await cloudApi.listMembers(wsId))
+              })}>{m.participationUntil ? (lang === 'de' ? 'Mitmachrechte beenden' : 'End participation') : (lang === 'de' ? 'Mitmachen bis morgen · Worker & Aufgaben' : 'Participate until tomorrow · worker & tasks')}</button>}
               {editable ? (
                 <select
                   className="input"

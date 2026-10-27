@@ -5,6 +5,20 @@ client (`src/app/cloud/`). Change it first, then the code.
 
 ## Product
 
+### Expiring workshop participation for named guests
+
+Guests retain their base `viewer` membership and guest flag. An admin can grant named guests temporary
+`member` access for at most seven days using `PUT /api/workspaces/:id/guest-participation` with
+`{emails, expiresAt}` (epoch milliseconds, or null to revoke). Only existing guests or pending personal
+guest invitations in that workspace qualify. This allows worker registration, personal Atlas setup,
+tasks and shared results, with ordinary member rights; it never grants administration or another
+person's secrets. It includes ordinary member editing of shared content, not a per-author write sandbox.
+The UI labels the expiry and offers early revocation under People. Permissions are derived on every
+lookup from the server clock, including after restart. Expired guests revert to read-only automatically;
+collaboration rejects their next update before applying it and the worker relay rejects their next frame.
+Regular membership changes or removal clear the grant. Already downloaded local software and local files
+are outside the server's access control; expiry revokes access to this cloud workspace, not the user's computer.
+
 ### Explicit detached content checkout (checkout:1)
 
 Normal cloud offline edits continue syncing automatically. Explicit checkout instead creates a separate local

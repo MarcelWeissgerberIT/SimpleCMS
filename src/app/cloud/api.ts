@@ -141,6 +141,7 @@ interface RawUser {
   name: string | null
 }
 interface RawWorkspace {
+  participation_until?: number
   id: string
   name: string
   icon: unknown
@@ -149,7 +150,7 @@ interface RawWorkspace {
 }
 
 const toUser = (u: RawUser): CloudUser => ({ id: u.id, email: u.email, name: u.name ?? '' })
-const toWorkspace = (w: RawWorkspace): CloudWorkspace => ({ id: w.id, name: w.name, icon: (w.icon ?? null) as string | null, role: w.role, ...(w.personal ? { personal: true } : {}) })
+const toWorkspace = (w: RawWorkspace): CloudWorkspace => ({ id: w.id, name: w.name, icon: (w.icon ?? null) as string | null, role: w.role, ...(w.personal ? { personal: true } : {}), ...(Number.isFinite(w.participation_until) ? { participationUntil: w.participation_until } : {}) })
 const toMs = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) || 0 : 0)
 
 /* ------------------------------------------------------------------ endpoints */
@@ -206,8 +207,8 @@ export function delWorkspace(id: string): Promise<void> {
 }
 
 export async function getMembers(wsId: string): Promise<Member[]> {
-  const list = await request<Array<{ user: RawUser; role: Role; guest?: boolean; created_at: unknown }>>('GET', `api/workspaces/${encodeURIComponent(wsId)}/members`)
-  return list.map((m) => ({ user: toUser(m.user), role: m.role, guest: !!m.guest, created_at: toMs(m.created_at) }))
+  const list = await request<Array<{ user: RawUser; role: Role; guest?: boolean; participation_until?: number; created_at: unknown }>>('GET', `api/workspaces/${encodeURIComponent(wsId)}/members`)
+  return list.map((m) => ({ user: toUser(m.user), role: m.role, guest: !!m.guest, created_at: toMs(m.created_at), ...(m.participation_until ? { participationUntil: m.participation_until } : {}) }))
 }
 
 export function patchMember(wsId: string, userId: string, role: Role, guest?: boolean): Promise<void> {

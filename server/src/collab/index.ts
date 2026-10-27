@@ -82,6 +82,15 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       return { userId: auth.user.id, sessionId: auth.session.id, workspaceId: doc.workspaceId, role, ...(schema === 'outdated' ? { outdated: true } : {}) } satisfies ConnContext
     },
 
+    async beforeHandleMessage({ context, connection }) {
+      if (!context.sessionId) return // server-owned direct writes have their own API gate
+      const role = sessions.roleForSession(context.sessionId, context.workspaceId)
+      if (role !== context.role) {
+        connection.close({ code: 4403, reason: role ? 'role-changed' : 'session-ended' })
+        throw deny('forbidden') // reject the very first update after expiry, before applying it
+      }
+    },
+
     async connected({ context, connection }) {
       // membership may have changed while the document was loading
       const role = sessions.roleForSession(context.sessionId, context.workspaceId)
@@ -223,6 +232,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       if (!checked.has(e.sessionId)) checked.set(e.sessionId, sessions.isValid(e.sessionId))
       return !checked.get(e.sessionId)
     }, 'session-ended')
+    close(e => sessions.roleForSession(e.sessionId, e.workspaceId) !== e.role, 'role-changed')
   }, 60_000)
   sweep.unref()
 

@@ -150,7 +150,7 @@ export const isApiTokenShape = (s: unknown): s is string => typeof s === 'string
 export const publicUser = (u: Pick<UserRow, 'id' | 'email' | 'name'>) => ({ id: u.id, email: u.email, name: u.name })
 
 /** `viewer`: the user asking — `personal` is true on their own personal workspace (while they own it). */
-export const publicWorkspace = (w: WorkspaceRow, role: Role, viewer?: string) => ({
+export const publicWorkspace = (w: WorkspaceRow & { participationUntil?: number }, role: Role, viewer?: string) => ({
   id: w.id,
   name: w.name,
   icon: parseJson(w.icon),
@@ -158,6 +158,7 @@ export const publicWorkspace = (w: WorkspaceRow, role: Role, viewer?: string) =>
   plan: w.plan,
   created_at: iso(w.created_at),
   personal: !!viewer && w.personal_of === viewer && role === 'owner',
+  ...(w.participationUntil ? { participation_until: w.participationUntil } : {}),
 })
 
 function parseJson(s: string | null): unknown {
@@ -246,7 +247,10 @@ export class Repo {
       `SELECT w.*, m.role FROM members m JOIN workspaces w ON w.id = m.workspace_id
        WHERE m.user_id = ? ORDER BY (w.personal_of IS NOT NULL AND w.personal_of = m.user_id AND m.role = 'owner') DESC, w.created_at`,
       userId,
-    )
+    ).map(w => {
+      const participationUntil = this.guestParticipationUntil(w.id, userId)
+      return { ...w, role: participationUntil ? 'member' as const : w.role, ...(participationUntil ? { participationUntil } : {}) }
+    })
   }
 
   /** Workspaces this user created (the personal one, created for them, does not count). */
@@ -320,7 +324,15 @@ export class Repo {
   }
 
   memberRole(workspaceId: string, userId: string): Role | undefined {
-    return this.db.get<{ role: Role }>('SELECT role FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)?.role
+    const role = this.db.get<{ role: Role }>('SELECT role FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)?.role
+    return role === 'viewer' && this.guestParticipationUntil(workspaceId, userId) ? 'member' : role
+  }
+
+  /** Base membership stays viewer/guest. Expiry is checked on every permission lookup, also after restart. */
+  guestParticipationUntil(workspaceId: string, userId: string): number | undefined {
+    return this.db.get<{ expires_at: number }>(`SELECT p.expires_at FROM guest_participation p
+      JOIN users u ON u.email=p.email JOIN members m ON m.user_id=u.id AND m.workspace_id=p.workspace_id
+      WHERE p.workspace_id=? AND u.id=? AND m.role='viewer' AND m.guest=1 AND p.expires_at>?`, workspaceId, userId, Date.now())?.expires_at
   }
 
   members(workspaceId: string) {
@@ -336,6 +348,7 @@ export class Repo {
   }
 
   setRole(workspaceId: string, userId: string, role: Exclude<Role, 'owner'>, guest = false) {
+    this.db.run('DELETE FROM guest_participation WHERE workspace_id=? AND email=(SELECT email FROM users WHERE id=?)', workspaceId, userId)
     this.db.run('UPDATE members SET role = ?, guest = ? WHERE workspace_id = ? AND user_id = ?', role, Number(guest), workspaceId, userId)
   }
 
@@ -362,6 +375,7 @@ export class Repo {
   /** Their cloud worker tokens go with the membership (the relay closes the sockets). */
   removeMember(workspaceId: string, userId: string) {
     this.db.tx(() => {
+      this.db.run('DELETE FROM guest_participation WHERE workspace_id=? AND email=(SELECT email FROM users WHERE id=?)', workspaceId, userId)
       this.db.run('DELETE FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)
       this.revokeCodingWorkersOf(workspaceId, userId)
     })

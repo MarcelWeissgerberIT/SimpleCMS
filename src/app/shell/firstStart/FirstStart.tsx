@@ -33,6 +33,7 @@ export function FirstStartTools({page}:{page:Page}) {
 function StartTools({page,config}:{page:Page;config:NonNullable<ReturnType<typeof firstStart>>}) {
  const lang=useLang(),tr=(de:string,en:string)=>lang==='de'?de:en
  const person=useCloud(s=>s.user),readOnly=useCloud(s=>s.readOnly),active=useCloud(s=>s.active)
+ const participationUntil=useCloud(s=>s.active.kind==='cloud'?s.workspaces.find(w=>w.id===s.active.id)?.participationUntil:undefined)
  const worker=useCoding(s=>s.conn),running=useAgent(s=>s.status==='running'),draft=useAgent(s=>s.draft)
  const pending=useAgent(s=>s.changes.some(c=>!['applied','discarded','superseded'].includes(c.status)))
  const [notice,setNotice]=useState(''),[copied,setCopied]=useState(false)
@@ -58,7 +59,7 @@ function StartTools({page,config}:{page:Page;config:NonNullable<ReturnType<typeo
  const occupied=running||!!draft.trim()||pending
  const settings=(tab:'coding'|'ai'|'secrets')=>useUI.getState().openModal({type:'settings',tab})
  return <section className="first-start-tools screw-plate" data-testid="first-start-tools"><Screws seed="first-start-tools"/>
-  <div className="first-start-tools__head"><span className="label">§ 01 · {tr('DEIN PERSÖNLICHER EINSTIEG','YOUR PERSONAL START')}</span><strong>{person?.name||person?.email||tr('Dein Konto','Your account')}</strong><span>{readOnly?tr('Gast · nur lesen','Guest · read only'):tr('Team · eigener Zugang','Team · personal access')}</span></div>
+  <div className="first-start-tools__head"><span className="label">§ 01 · {tr('DEIN PERSÖNLICHER EINSTIEG','YOUR PERSONAL START')}</span><strong>{person?.name||person?.email||tr('Dein Konto','Your account')}</strong><span>{readOnly?tr('Gast · nur lesen','Guest · read only'):participationUntil?tr('Gast · befristet mitmachen','Guest · temporary participation'):tr('Team · eigener Zugang','Team · personal access')}</span></div>
   <p>{tr('Lies die bebilderten Schritte unten der Reihe nach. Diese Schaltflächen führen direkt an die benötigte Stelle.','Follow the illustrated steps below in order. These buttons take you straight to the relevant place.')}</p>
   <div className="first-start-tools__actions"><button className="btn" onClick={()=>openPage(config.readinessPage)}>{tr('Unsere Startampel','Our start checklist')}</button>{!readOnly&&<><button className="btn" onClick={()=>settings('coding')}><Settings2 size={14}/>{tr('Worker einrichten','Set up worker')}</button><button className="btn" onClick={()=>settings('ai')}>{tr('Modelle und Atlas MCP','Models and Atlas MCP')}</button><button className="btn" onClick={()=>settings('secrets')}>{tr('Meine Secrets · für Coding','My secrets · for coding')}</button></>}</div>
   <AtlasWelcome setup/>

@@ -94,7 +94,39 @@ export function workspaceRoutes(s: Services) {
 
   app.get('/:id/members', (c) => {
     const { workspace } = access(s, c, 'viewer')
-    return c.json(s.repo.members(workspace.id).map(memberJson))
+    return c.json(s.repo.members(workspace.id).map(m => ({ ...memberJson(m), participation_until: s.repo.guestParticipationUntil(workspace.id, m.id) ?? null })))
+  })
+
+  app.get('/:id/guest-participation', c => {
+    const { workspace } = access(s, c, 'admin')
+    return c.json(s.db.all<{ email: string; expires_at: number }>('SELECT email,expires_at FROM guest_participation WHERE workspace_id=? AND expires_at>?', workspace.id, Date.now()))
+  })
+
+  // Named existing guests or personal pending guest invitations only; no public/reusable elevation link.
+  app.put('/:id/guest-participation', async c => {
+    const { workspace, auth } = access(s, c, 'admin')
+    if (workspace.personal_of) throw badRequest('guest_workspace', 'Guest participation needs a team workspace')
+    const input = await body(c, z.object({ emails: z.array(z.email().max(254)).min(1).max(20), expiresAt: z.number().int().nullable() }).strict())
+    const now = Date.now(), emails = [...new Set(input.emails.map(normalizeEmail))]
+    if (input.expiresAt !== null && (input.expiresAt <= now || input.expiresAt > now + 7 * DAY)) throw badRequest('guest_expiry', 'Choose an expiry within the next seven days')
+    s.db.tx(() => {
+      for (const email of emails) {
+        const user = s.repo.userByEmail(email)
+        const member = user && s.repo.members(workspace.id).find(m => m.id === user.id)
+        const pending = s.db.get(`SELECT 1 FROM invites WHERE workspace_id=? AND email=? AND guest=1 AND role='viewer' AND expires_at>? AND uses<max_uses`, workspace.id, email, now)
+        if (input.expiresAt !== null && (member ? member.role !== 'viewer' || !member.guest : !pending)) throw badRequest('guest_only', 'Only named guests in this workspace may receive temporary participation')
+        if (input.expiresAt === null) s.db.run('DELETE FROM guest_participation WHERE workspace_id=? AND email=?', workspace.id, email)
+        else s.db.run('INSERT INTO guest_participation(workspace_id,email,expires_at,granted_by) VALUES(?,?,?,?) ON CONFLICT(workspace_id,email) DO UPDATE SET expires_at=excluded.expires_at,granted_by=excluded.granted_by', workspace.id, email, input.expiresAt, auth.user.id)
+      }
+    })
+    for (const email of emails) {
+      const user = s.repo.userByEmail(email)
+      if (!user) continue
+      s.collab.closeUser(user.id, workspace.id, 'role-changed')
+      if (input.expiresAt === null) s.coding.closeUser(user.id, workspace.id, 'role-changed')
+    }
+    s.log.info('guest participation changed', { workspace: workspace.id, actor: auth.user.id, count: emails.length, expires: input.expiresAt })
+    return c.json({ count: emails.length, expiresAt: input.expiresAt })
   })
 
   app.patch('/:id/members/:userId', async (c) => {

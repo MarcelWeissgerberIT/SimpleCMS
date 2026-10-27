@@ -255,6 +255,8 @@ export function createCodingRelay(deps: { config: Config; log: Logger; repo: Rep
   function receive(peer: Peer, message: Message) {
     const side = sides.get(peer)
     if (!side) return
+    const currentRole = repo.memberRole(side.pair.workspaceId, side.pair.userId)
+    if (!currentRole || currentRole === 'viewer') return close(side, RELAY_CLOSE_FORBIDDEN, currentRole ? 'viewer' : 'membership-revoked')
     const raw = message.rawData
     if (typeof raw !== 'string') return close(side, 1003, 'text frames only')
     const load = budget(side, raw.length)
