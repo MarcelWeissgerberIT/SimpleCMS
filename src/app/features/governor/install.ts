@@ -105,6 +105,9 @@ function decision(ctx: BrakeCtx, l: Limits): MoneyVerdict {
 
 /** The money phase (prepare only): identity without a line, else pass · cap · refuse. */
 export function money(ctx: BrakeCtx): MoneyVerdict | void {
+  // Copilot uses the person's subscription, not a USD tariff. Keep its price unknown;
+  // monetary lines cannot judge it. The gate's data/capability checks still run first.
+  if (ctx.route.p === 'copilot') return
   const l = limitsNow()
   if (!hasLimit(l)) return
   if (ctx.cls === 'gate') return decision(ctx, l)
@@ -156,6 +159,7 @@ export function money(ctx: BrakeCtx): MoneyVerdict | void {
 
 /** precheck: what the money phase would say (null: no line) — never throws, never reserves. */
 export function peek(ctx: BrakeCtx): MoneyHint | null {
+  if (ctx.route.p === 'copilot') return null
   const l = limitsNow()
   if (!hasLimit(l)) return null
   // a decision: the rests as decision() judges them — its run's decide reservation counted as room, no run budget
@@ -175,6 +179,7 @@ const loops = () => import('./loops')
 
 /** Between two loop requests (beforeRound): go · halt (the AI terminal) · stop (agents, background) — null: no line. */
 export function round(ctx: RoundCtx): RoundVerdict | null | Promise<RoundVerdict | null> {
+  if (ctx.route.p === 'copilot') return null
   if (!hasLimit(limitsNow())) return null
   return loops().then((m) => m.roundAt(ctx))
 }

@@ -15,6 +15,9 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   const ws=await createWorkspace(owner,'ONE Workshop · Dev Hub Karlsruhe');await openApp(owner,ws);await waitOnline(owner)
   await wsEval(owner,s=>{const now=Date.now();for(const [id,title]of [['first-start-checks','Startampel'],['first-start-guide','Dein Erststart mit ONE und Atlas']]){s.createPage({id,title,content:{type:'doc',content:[{type:'paragraph'}]}})}s.updatePageSettings('first-start-guide',{locked:true,firstStart:{v:1,project:'one-webserver-demo',record:31503,readinessPage:'first-start-checks'}});s.setWorkspaceAI({policy:{restricted:[],providers:{local:{allow:['public','selection','page','structure','rows','workspace']},copilot:{allow:['public','selection','page','structure','rows','workspace']}}}})})
   await wsEval(owner,(s,doc)=>s.setContent('first-start-guide',doc,'e2e'),promptDoc)
+  // Workshop budgets are inherited even when a member has never set one. Copilot's
+  // subscription must pass start, prepare and every tool round with an unknown USD price.
+  await wsEval(owner,s=>s.setGovernor({v:1,day:10,month:50}))
   const {json:w}=await api<any>(owner,'POST',`/api/workspaces/${ws}/coding/workers`,{label:'Workshop Modellhost'})
   const origin=new URL(owner.url()).origin,keys=await modelShareKey(),publicKey=await crypto.subtle.exportKey('jwk',keys.publicKey)
   const host=async(data:any)=>{const r=await fetch(origin+'/api/coding/shared-model/poll',{method:'POST',headers:{authorization:'Bearer '+w.token,'Content-Type':'application/json'},body:JSON.stringify(data)});expect(r.ok).toBe(true);return r.json() as Promise<any>}
@@ -22,6 +25,7 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   const poll={publicKey,dataFlow:true,tools:true,busy:false,available:true,active:null};await host(poll)
   await openApp(member);await signIn(member,email('teilnehmer'));await join(owner,member,ws,'member');await openApp(member,ws);await waitOnline(member)
   await wsEval(member,s=>s.updateSettings({language:'de',ai:{allow:{local:['mcp'],copilot:['mcp']}},mcpServers:[{id:'atlas-start',name:'atlas',url:'https://atlas.example.test/api/atlas/mcp',token:'test-only-not-a-user-token',enabled:true,prompt:'Use the approved demo only.',tools:['atlas_whoami','atlas_get'],checkedAt:Date.now()}]}))
+  await member.evaluate(()=>localStorage.setItem('one.governor.device',JSON.stringify({v:1,day:0.1,month:1,at:Date.now()})))
   const entry=member.getByTestId('first-start-entry');await expect(entry).toContainText('Schritt für Schritt starten')
   await member.screenshot({path:info.outputPath('01-einstieg.png'),animations:'disabled'})
   await entry.getByRole('button',{name:'Schritt für Schritt starten'}).click()
@@ -50,7 +54,7 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   await member.keyboard.press('Escape')
   await panel.screenshot({path:info.outputPath('08-erststart-1440.png'),animations:'disabled'})
   let copilotRound=0,flowRound=0
-  const reply=(n:number,model:string)=>({model,text:n===4?'Atlas-Zugriff bestätigt. Projekt one-webserver-demo · Record 31503 · Demo-Auftrag. Nächster Schritt: eine kurze Arbeitsnotiz in ONE vorbereiten.':'',inputTokens:100,outputTokens:20,usd:0,...(n<4?{calls:[n%2===0?{id:'find-'+n,name:'one_mcp_search',arguments:{query:n===0?'atlas_whoami':'atlas_get'}}:{id:'call-'+n,name:'one_mcp_call',arguments:{server:'atlas',name:n===1?'atlas_whoami':'atlas_get',arguments:n===1?{}:{ref:31503}}}]}:{})})
+  const reply=(n:number,model:string)=>({model,text:n===4?'Atlas-Zugriff bestätigt. Projekt one-webserver-demo · Record 31503 · Demo-Auftrag. Nächster Schritt: eine kurze Arbeitsnotiz in ONE vorbereiten.':'',inputTokens:100,outputTokens:20,usd:model==='auto'?null:0,...(n<4?{calls:[n%2===0?{id:'find-'+n,name:'one_mcp_search',arguments:{query:n===0?'atlas_whoami':'atlas_get'}}:{id:'call-'+n,name:'one_mcp_call',arguments:{server:'atlas',name:n===1?'atlas_whoami':'atlas_get',arguments:n===1?{}:{ref:31503}}}]}:{})})
   fake.onText=r=>reply(copilotRound++,r.model)
   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:r.query,inputSchema:{type:'object',properties:r.query==='atlas_get'?{ref:{type:'integer'}}:{}}}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify(r.name==='atlas_get'?{item:{ref:31503,project:'one-webserver-demo',title:'Demo-Auftrag',body:'Approved workshop demo source.'}}:{name:'Workshop-Teilnehmer',tenant:'one'})}]})}
   const seen:any[]=[]
@@ -61,9 +65,30 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   await expect(input).toHaveValue(/atlas_whoami.*atlas_get/)
   expect(fake.textAsked).toHaveLength(0)
   await expect(term.locator('.term-head')).toContainText('GitHub Copilot')
+  const prepared=await member.evaluate(()=>{
+   const gate=(window as any).__oneAI
+   return gate.prepare({purpose:'palette.ask',sources:[],route:{p:'copilot',m:'auto'},size:{promptChars:100,maxTokens:100},run:{mode:'interactive',budget:0}})
+  })
+  expect(prepared,JSON.stringify(prepared)).toMatchObject({ok:true,route:'copilot:auto',band:null,reserved:0})
+  // The same zero run budget still blocks a metered provider, and Copilot's data rules
+  // still refuse disallowed files before any worker request is sent.
+  await wsEval(member,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+  const controls=await member.evaluate(()=>{
+   const gate=(window as any).__oneAI
+   return {
+    paid:gate.prepare({purpose:'palette.ask',sources:[],route:{p:'anthropic',m:'claude-opus-5-5'},size:{promptChars:100,maxTokens:100},run:{mode:'interactive',budget:0}}),
+    restricted:gate.prepare({purpose:'documents.file',sources:[{file:'upload'}],route:{p:'copilot',m:'auto'},size:{promptChars:100,maxTokens:100}}),
+   }
+  })
+  expect(controls.paid).toMatchObject({ok:false,code:'budget'})
+  expect(controls.restricted,JSON.stringify(controls.restricted)).toMatchObject({ok:false,code:'policy'})
   await member.screenshot({path:info.outputPath('05-copilot-prompt.png'),animations:'disabled'})
   await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('Atlas-Zugriff bestätigt',{timeout:20000})
   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_whoami','atlas_get'])
+  const entries=await member.evaluate(()=>(window as any).__oneLedger.entries())
+  const copilotEntries=entries.filter((e:any)=>e.route==='copilot:auto')
+  expect(copilotEntries.length).toBeGreaterThan(0)
+  expect(copilotEntries.every((e:any)=>e.usd===null&&e.costSource==='none')).toBe(true)
   await member.screenshot({path:info.outputPath('06-copilot-nachweis.png'),animations:'disabled'})
   await term.getByRole('button',{name:'Terminal ausblenden',exact:true}).click()
   await panel.getByRole('button',{name:'Atlas-Flow-Test vorbereiten'}).click()
