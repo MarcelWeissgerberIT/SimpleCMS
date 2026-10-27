@@ -40,3 +40,6 @@
 .welcome-preview { white-space:pre-wrap;overflow-wrap:anywhere;padding:20px;font:inherit; }
 .welcome-start { border-left:3px solid var(--signal); }
 @media(max-width:600px){.welcome-fields,.welcome-recipients{grid-template-columns:minmax(0,1fr)}.welcome-recipient__summary,.welcome-recipient__body{padding:18px 20px}}
+
+.welcome-connect { padding:16px;border:1px solid var(--rule);border-left:3px solid var(--signal);background:var(--surface); }
+.welcome-connect p { margin-block:8px 12px; }

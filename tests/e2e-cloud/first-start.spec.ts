@@ -111,7 +111,7 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   await viewer.getByTestId('atlas-welcome').getByRole('button',{name:'Set up Atlas access'}).click()
   await expect(viewer.getByRole('dialog')).toContainText('separate Atlas browser sign-in')
   await expect(viewer.getByRole('dialog').getByRole('button',{name:'Set up Atlas MCP'})).toHaveCount(0)
-  await expect(viewer.getByRole('dialog').getByLabel('Atlas agent token',{exact:true})).toHaveCount(0)
+  await expect(viewer.getByRole('dialog').getByLabel('Separate Atlas agent token · optional',{exact:true})).toHaveCount(0)
   await member.reload();await waitForApp(member);await waitOnline(member);await expect(member.getByTestId('first-start-tools')).toBeVisible()
  }finally{if(timer)clearInterval(timer);while(polling)await new Promise(r=>setTimeout(r,20));await fake.close();await member.context().close();await viewer.context().close()}
 })
