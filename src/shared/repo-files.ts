@@ -6,7 +6,7 @@ export function repoFileLink(ref: RepoFileRef): string { return `one-repo://file
 export function repoFileRefs(text: string): RepoFileRef[] {
   const found = new Map<string,RepoFileRef>()
   for (const hit of text.matchAll(/one-repo:\/\/file\?[^\s)<>\]"']+/g)) {
-    const url = new URL(hit[0]), repo = url.searchParams.get('repo') ?? '', path = url.searchParams.get('path') ?? ''
+    const url = new URL(hit[0].replace(/\\([\\`*_[\]~<])/g,'$1')), repo = url.searchParams.get('repo') ?? '', path = url.searchParams.get('path') ?? ''
     if (!repo || repo.length > 120 || !path || path.length > 1024 || /[\x00-\x1f]/.test(repo+path) || /^(?:\/|\\|[a-z]:)/i.test(path) || path.split(/[/\\]/).some(p=>p==='..'||p.toLowerCase()==='.git')) throw new Error('Invalid repository file reference.')
     const branch=url.searchParams.get('branch') ?? undefined
     if(branch && (branch.length>200||/[\x00-\x1f]/.test(branch)||branch.startsWith('-'))) throw new Error('Invalid repository branch reference.')

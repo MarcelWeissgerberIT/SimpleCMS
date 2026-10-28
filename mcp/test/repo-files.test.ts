@@ -1,3 +1,4 @@
+import { escapeMarkdownText } from '../../src/app/editor/lib/mdText.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, symlink, link, rm } from 'node:fs/promises'
@@ -34,6 +35,8 @@ test('registered repo path discovery, current snapshots and every file boundary'
   const before=await repoFiles([repo],{repo:'Demo',action:'read',path:'src/app.cpp'})
   const text=repoFileMarkdown({repo:'Demo',path:'src/app.cpp',branch:'main'})
   assert.equal(repoFileRefs(text)[0]?.path,'src/app.cpp')
+  const underscored={repo:'Demo',path:'src/user_name.cpp',branch:'feature/my_branch'}
+  assert.deepEqual(repoFileRefs(escapeMarkdownText(repoFileMarkdown(underscored))),[underscored], 'Plain task paragraphs may escape Markdown characters in path references')
   await writeFile(join(root,'src','app.cpp'),'int value = 2;\n')
   const context=await taskRepoFiles(text,repo,root,'codex/task')
   assert.match(context,/value = 2/);assert.ok(!context.includes(before.file!.revision));assert.match(context,/codex\/task/)

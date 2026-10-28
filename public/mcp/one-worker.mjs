@@ -20538,7 +20538,7 @@ ${textFile.slice(0, 3500)}
 function repoFileRefs(text2) {
   const found = /* @__PURE__ */ new Map();
   for (const hit of text2.matchAll(/one-repo:\/\/file\?[^\s)<>\]"']+/g)) {
-    const url2 = new URL(hit[0]), repo = url2.searchParams.get("repo") ?? "", path = url2.searchParams.get("path") ?? "";
+    const url2 = new URL(hit[0].replace(/\\([\\`*_[\]~<])/g, "$1")), repo = url2.searchParams.get("repo") ?? "", path = url2.searchParams.get("path") ?? "";
     if (!repo || repo.length > 120 || !path || path.length > 1024 || /[\x00-\x1f]/.test(repo + path) || /^(?:\/|\\|[a-z]:)/i.test(path) || path.split(/[/\\]/).some((p) => p === ".." || p.toLowerCase() === ".git")) throw new Error("Invalid repository file reference.");
     const branch = url2.searchParams.get("branch") ?? void 0;
     if (branch && (branch.length > 200 || /[\x00-\x1f]/.test(branch) || branch.startsWith("-"))) throw new Error("Invalid repository branch reference.");
