@@ -1,3 +1,4 @@
+import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
 /**
  * AI terminal — the dock at the bottom of the content area (the sidebar stays visible; a full-screen
  * sheet on phones), built like an instrument readout: an ink panel in JetBrains Mono. Prompt with
@@ -1642,6 +1643,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
 
   const submit = () => {
     const text = draft.trim()
+    if (text === '/files') return
     // ↵ on an empty prompt: Continue (stopped at the limit) · sign in to a server that rejected its token (the window
     // opens from this key press) · run the task again once signed in. A y / n question goes first.
     if (!text && !running && !asking) {
@@ -1777,6 +1779,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       }}
     >
       <Chips />
+      <RepoFilesControl value={draft} onChange={v=>setDraft(v)} disabled={running} />
       {comp && (
         <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : comp.kind === 'tool' ? 'features.agent.complete.tools' : comp.kind === 'server' ? 'features.agent.complete.servers' : 'features.agent.complete.pages')}>
           {comp.items.map((item, i) => (

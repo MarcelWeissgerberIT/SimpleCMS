@@ -39753,6 +39753,30 @@ var LocalFiles = class {
   async list(input2) {
     return (await readdir2(await this.path(input2), { withFileTypes: true })).filter((e) => !EXCLUDED.test(e.name) && !e.isSymbolicLink()).slice(0, 200).map((e) => ({ name: e.name, directory: e.isDirectory() }));
   }
+  /** Path search only: no source bytes are read during discovery. */
+  async paths(query = "") {
+    if (typeof query !== "string" || query.length > 200) throw new Error("Use a path query up to 200 characters.");
+    const paths = [];
+    let visited = 0, truncated = false;
+    const walk = async (folder, depth) => {
+      if (depth > 20 || visited >= 1e4 || paths.length >= 200) {
+        truncated = true;
+        return;
+      }
+      for (const e of (await readdir2(await this.path(folder), { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+        if (++visited > 1e4 || paths.length >= 200) {
+          truncated = true;
+          break;
+        }
+        if (EXCLUDED.test(e.name) || e.isSymbolicLink()) continue;
+        const name = folder === "." ? e.name : folder + "/" + e.name;
+        if (e.isDirectory()) await walk(name, depth + 1);
+        else if (e.isFile() && name.toLowerCase().includes(query.toLowerCase())) paths.push(name);
+      }
+    };
+    await walk(".", 0);
+    return { paths, truncated };
+  }
   async read(input2, first, last) {
     const path = await this.path(input2);
     const text2 = await this.text(path);

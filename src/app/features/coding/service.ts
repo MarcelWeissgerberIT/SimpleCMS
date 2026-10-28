@@ -1,3 +1,4 @@
+import type { RepoFilesRequest, RepoFilesResult } from '../../../shared/repo-files'
 import { hasFlowLimits, modelDestinationAllowed, mcpDestinationAllowed } from '@/shared/ai/dataFlow'
 import type { WorkerModel, WorkerTextRequest, WorkerTextResult, WorkerMcpRequest } from '@/shared/ai/worker'
 /**
@@ -1105,4 +1106,14 @@ export const configureModelShare = (choice:{model:string;label:string;enabled:bo
 export interface ManagedWorkerStatus { path?: string; installed: boolean; version: string; previous: string | null; phase: string; error?: string; available?: string }
 export async function manageWorker(action: 'status' | 'update' | 'rollback' | 'cancel'): Promise<ManagedWorkerStatus> {
   return await request({ op: 'worker-manage', action } as never, 50_000) as ManagedWorkerStatus
+}
+
+/** File reads always use this person's paired channel, never the shared model host. */
+export async function requestRepoFiles(body: RepoFilesRequest): Promise<RepoFilesResult> {
+  if (!get().can?.includes('repo-files')) throw new Error('Update and connect your own worker to browse repository files.')
+  const channel=link, scope=currentWorkspace()?.id, user=useCloud.getState().user?.id
+  const result=await request({op:'repo-files',request:body} as never,30000) as RepoFilesResult
+  if (channel!==link || scope!==currentWorkspace()?.id || user!==useCloud.getState().user?.id) throw new Error('The workspace or worker changed. Select the files again.')
+  if (result?.repo!==body.repo || typeof result.branch!=='string' || (body.action==='read' && (!result.file || result.file.path!==body.path))) throw new Error('Invalid repository file response.')
+  return result
 }

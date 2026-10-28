@@ -1,3 +1,5 @@
+import { repoFileRefs, repoFileContext } from '@/shared/repo-files'
+import { requestRepoFiles } from '../../coding/service'
 /**
  * AI terminal (workspace agent) — session actions: run a task or a /command, stop it, review
  * staged changes (apply / discard), undo an applied batch, start over. The API conversation lives
@@ -564,7 +566,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // team: the member list (owners by email) before the first request — the staging tools never wait for it
   await warmMembers()
   // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
-  const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))]
+  const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id })), ...(task.includes('one-repo://') ? [{file:'upload' as const}] : [])]
   const attempt = async () => {
     answered = 0
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
@@ -588,8 +590,19 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
     // servers left out because they rejected their token: the terminal offers a sign-in under the task
     if (left.length && here()) patchTurn(n, { signIn: [...new Set([...(get().turns.find((x) => x.n === n)?.signIn ?? []), ...left])] })
+    let repoText = ''
+    const selectedFiles = repoFileRefs(task)
+    if (selectedFiles.length && !pre.allows('files')) throw new AIError('policy', 'Repository files are excluded for this model.')
+    for (const ref of selectedFiles) {
+      ac.signal.throwIfAborted()
+      const result=await requestRepoFiles({repo:ref.repo,path:ref.path,branch:ref.branch,action:'read'})
+      if (!here()) throw new Error('The conversation changed. Select the files again.')
+      repoText += repoFileContext(result)
+      if (repoText.length>80000) throw new Error('Select fewer files: excerpts exceed 80,000 characters.')
+      note(`Repository: ${result.repo} · ${result.branch} · ${ref.path} · SHA256 ${result.file!.revision.slice(0,12)}`)
+    }
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
-    const withImages = await withRefImages(taskMessage(activeHistory, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
+    const withImages = await withRefImages(taskMessage(activeHistory, prompt, text + repoText), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
     return runAgent({

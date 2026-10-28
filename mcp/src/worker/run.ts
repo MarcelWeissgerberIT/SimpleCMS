@@ -1,3 +1,4 @@
+import { taskRepoFiles } from './repo-files.ts'
 import { codingProvider, modelDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { REVIEW_POLICY } from '../../../src/shared/ai/review.ts'
 import { secretValues } from './secrets.ts'
@@ -553,7 +554,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
     const res = await runClaude({
       bin: ctx.bin,
       cwd: wt.dir,
-      prompt: buildPrompt(task, repo, wt.branch, markerCode(), null, { scratch: extras.scratch, asks: !!extras.permissionTool }),
+      prompt: buildPrompt(task, repo, wt.branch, markerCode(), null, { scratch: extras.scratch, asks: !!extras.permissionTool }) + await taskRepoFiles([task.text, task.rework ?? '', ...task.answers.map(a=>a.a)].join('\n'), repo, wt.dir, wt.branch),
       mode,
       maxTurns,
       model: model.model,
@@ -636,7 +637,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
     const res = await runClaude({
       bin: ctx.bin,
       cwd: dir ?? repo.path,
-      prompt: buildPrompt(task, repo, branch ?? '', markerCode(), changes ? { text: changes.text, worktree: !!dir } : null, { asks: !!extras.permissionTool }),
+      prompt: buildPrompt(task, repo, branch ?? '', markerCode(), changes ? { text: changes.text, worktree: !!dir } : null, { asks: !!extras.permissionTool }) + await taskRepoFiles([task.text, task.rework ?? '', ...task.answers.map(a=>a.a)].join('\n'), repo, dir ?? repo.path, branch ?? ''),
       // headless "default" mode: whatever is not allowed below is refused — or asked through One (the permission prompt)
       mode: 'default',
       maxTurns,
@@ -680,6 +681,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
   const readOnly = task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan'
   const changes = task.stage.kind === 'doc' && branch ? await branchDiff(repo, branch, wt?.dir ?? null).catch(() => null) : null
   const prompt = buildPrompt(task, repo, branch ?? '', markerCode(), changes ? { text: changes.text, worktree: !!wt } : null)
+    + await taskRepoFiles([task.text, task.rework ?? '', ...task.answers.map(a=>a.a)].join('\n'), repo, dir, branch ?? '')
     + `\n\nUse your native ${agent !== 'codex' ? 'file, search and configured check' : 'file and shell'} tools inside this worktree. One task tools are available through MCP. The read-only sandbox applies to planning and documents. Ask through one_task_ask if essential information is missing.`
   log('info', `Starting ${agent === 'local' ? 'local Ollama coding agent' : agent === 'minimax' ? MINIMAX_MODEL : agent === 'ollama' ? 'Ollama Cloud' : agent === 'copilot' ? 'GitHub Copilot' : 'Codex'} (${readOnly ? 'read only' : 'workspace write'}).`)
   if (agent === 'codex') log('info', 'Codex uses this computer’s Codex login. Dollar cost is not supplied by Codex CLI; One does not estimate it.')

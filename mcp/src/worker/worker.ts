@@ -1,3 +1,4 @@
+import { repoFiles } from './repo-files.ts'
 import { manageInstalled } from './managed.ts'
 import { readDataFlow, codingProvider, modelDestinationAllowed, mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { SharedModelHost } from './shared-model.ts'
@@ -781,6 +782,7 @@ export class Worker {
     if (msg.op === 'worker-manage') { if (this.opts.virtual) throw new Error('Manage the worker from its owning workspace.'); if (!['status','update','rollback','cancel'].includes(msg.action)) throw new Error('Invalid worker management action.'); return manageInstalled(msg.action) }
     if (msg.op === 'model-share-status') return this.sharedModels.status()
     if (msg.op === 'model-share-config') return this.sharedModels.configure(msg.choice)
+    if (msg.op === 'repo-files') return repoFiles(this.config.repos, msg.request)
     if (msg.op === 'text-models') return textModels(this.config.file)
     if (msg.op === 'text-stop') { this.textRuns.get(msg.requestId)?.abort(); return { stopped: true } }
     if (msg.op === 'text-request' || msg.op === 'model-mcp') {

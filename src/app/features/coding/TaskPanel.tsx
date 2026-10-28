@@ -316,7 +316,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             <p className="ctk-question" data-testid="coding-question">{local.question}</p>
             {/* pages the question names in quotes: one key puts the page into the answer */}
             {local.question && <GivePages question={local.question} taskId={pageId} draft={answer} allowPrivate={allowPrivate} field={answerField} />}
-            <RefField
+            <RefField repo={repo} branch={branch}
               ref={answerField}
               className="input ctk-text"
               rows={2}
@@ -375,7 +375,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             <label className="label" htmlFor={`ctk-rw-${pageId}`}>
               {t('features.coding.rework.label')}
             </label>
-            <RefField
+            <RefField repo={repo} branch={branch}
               id={`ctk-rw-${pageId}`}
               className="input ctk-text"
               rows={3}

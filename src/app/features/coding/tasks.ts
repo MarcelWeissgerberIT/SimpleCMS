@@ -1,3 +1,4 @@
+import type { SourceRef } from '@/shared/ai/types'
 import { policyKnown } from '@/shared/ai/policy'
 import { codingProvider, providersForSources, hasFlowLimits } from '@/shared/ai/dataFlow'
 import { readCopilotReceipt } from '@/shared/copilot'
@@ -322,7 +323,10 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     }
     if (quality && (!caps.has('delivery-qa') || (quality.repair && !caps.has('harness-quality')))) { skip(); await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false }); continue }
     if (!agent) { skip(); await patchTask(row.id, { state: 'failed', error: t('features.coding.agent.unknown'), runNow: false }); continue }
-    const flowSources = [row.id, ...refIdsOf(row)].map(page => ({ page }))
+    const flowSources: SourceRef[] = [row.id, ...refIdsOf(row)].map(page => ({ page }))
+    const selectedRepoFiles = taskText(row.id, [...(local.answers ?? []).map(a=>a.a), ...(local.rework?.text ? [local.rework.text] : [])]).includes('one-repo://')
+    if(selectedRepoFiles) flowSources.push({file:'upload'})
+    if(selectedRepoFiles&&!caps.has('repo-files')) { skip(); await patchTask(row.id,{state:'failed',error:OLD_WORKER(),runNow:false});continue }
     const restrictions = [...(s.ai?.policy?.restricted ?? []), ...(s.settings.ai?.restricted ?? [])]
     const bounded = hasFlowLimits(s.ai?.dataFlow) || restrictions.length > 0
     const providers = providersForSources(s.ai?.dataFlow, flowSources, s, restrictions)

@@ -1,3 +1,4 @@
+import { RepoFilesControl } from '../repo-files/RepoFilesControl'
 /**
  * A coding text field that points at pages (the answer to Claude, the rework note, the new task's goal and criteria):
  * "@" or "one:" opens the page search — the editor's own (coding/pagePick.ts) — ↑ ↓ choose, ↵ or Tab take it, Esc
@@ -24,6 +25,8 @@ export interface RefFieldHandle {
 }
 
 export interface RefFieldProps {
+  repo?: string | null
+  branch?: string | null
   value: RefDraft
   onChange: (d: RefDraft) => void
   /** the task the field belongs to (left out of the search; "one:" starts next to it) — null: a task not made yet */
@@ -185,6 +188,8 @@ export const RefField = forwardRef<RefFieldHandle, RefFieldProps>(function RefFi
   }, [value])
 
   return (
+    <>
+      <RepoFilesControl value={value.text} onChange={v=>onChange(retext(value,v))} repo={props.repo} branch={props.branch} />
     <div className="cref" ref={setWrap}>
       <textarea
         ref={ta}
@@ -245,5 +250,6 @@ export const RefField = forwardRef<RefFieldHandle, RefFieldProps>(function RefFi
         </div>
       </Popover>
     </div>
+    </>
   )
 })

@@ -1,3 +1,4 @@
+import { RepoFilesControl } from '../repo-files/RepoFilesControl'
 import { WorkerConnectionHelp } from './mcp-servers/WorkerConnectionHelp'
 /**
  * AIMenu — the Claude panel the editor opens for a selection ("Ask AI") or at the cursor
@@ -124,7 +125,7 @@ import { holdsItemNode } from '../../lib/itemIds'
 import { echoedIds, insideTaskOrTable, rangeDoc, replaceRange } from './menuItems'
 import { itemsFitAt } from './transform/range'
 import { ITEM_KEYWORDS } from './transform/forms'
-import { openAgent } from './agent/state'
+import { openAgent, useAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, selectionMarkdown, type RunTarget } from './runsTarget'
 import { markSeen, receiptOf, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
 import { countWords, effectiveMode, readsFor, readsShort, readsText, type RunReads } from './reads'
@@ -2167,6 +2168,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 />
               )}
             </div>
+
+            {!busy && !reviewing && view === 'actions' && <RepoFilesControl value={query} onChange={task=>{onClose();useAgent.setState({route:chip});openAgent({task})}} />}
 
             {demo && (
               <div className="ai-demo" role="note" data-ai-demo="">

@@ -58,6 +58,23 @@ export class LocalFiles {
   async list(input: unknown) {
     return (await readdir(await this.path(input), { withFileTypes: true })).filter(e => !EXCLUDED.test(e.name) && !e.isSymbolicLink()).slice(0, 200).map(e => ({ name: e.name, directory: e.isDirectory() }))
   }
+  /** Path search only: no source bytes are read during discovery. */
+  async paths(query: unknown = '') {
+    if (typeof query !== 'string' || query.length > 200) throw new Error('Use a path query up to 200 characters.')
+    const paths: string[] = []; let visited = 0, truncated = false
+    const walk = async (folder: string, depth: number): Promise<void> => {
+      if (depth > 20 || visited >= 10000 || paths.length >= 200) { truncated = true; return }
+      for (const e of (await readdir(await this.path(folder), {withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))) {
+        if (++visited > 10000 || paths.length >= 200) { truncated=true; break }
+        if (EXCLUDED.test(e.name) || e.isSymbolicLink()) continue
+        const name = folder === '.' ? e.name : folder+'/'+e.name
+        if (e.isDirectory()) await walk(name,depth+1)
+        else if (e.isFile() && name.toLowerCase().includes(query.toLowerCase())) paths.push(name)
+      }
+    }
+    await walk('.',0)
+    return {paths,truncated}
+  }
   async read(input: unknown, first?: unknown, last?: unknown) {
     const path = await this.path(input)
     const text = await this.text(path)

@@ -1,3 +1,5 @@
+import { openText, sealText } from '../crypto/aead.ts'
+import type { PersonalGuide } from '../../../src/shared/personal-guides.ts'
 /** Explicit, private welcome preparation. No scheduler, model, shared document or automatic retry. */
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -20,6 +22,28 @@ export function welcomeRoutes(s:Services) {
   function target(user:string,id:string) { const role=s.repo.memberRole(id,user);const w=s.repo.workspaceById(id);if(!role||!atLeast(role,'admin')||!w||w.personal_of)throw forbidden('welcome_target','Every destination must be a team workspace you administer');return w }
   function read(ws:string,user:string) { const d=store.read(ws,user);if(!d)throw notFound('welcome_missing','No private welcome draft');return d }
   const key=(ws:string,u:string)=>`${ws}:${u}`
+  // No shared Yjs metadata, model context, welcome credentials or impersonation session.
+  app.put('/:id/personal-guides/:guide',async c=>{
+    const {workspace,auth}=access(s,c,'admin')
+    if(auth.testAccess)throw forbidden('personal_guide_test','Use your own account.')
+    const id=c.req.param('guide')
+    if(!idSchema.safeParse(id).success)throw badRequest('personal_guide_id','Invalid guide ID')
+    const v=await body(c,z.object({email:z.email().max(254),title:z.string().trim().min(1).max(150),sections:z.array(z.object({title:z.string().min(1).max(150),body:z.string().max(12000),prompt:z.string().max(6000).optional()})).min(1).max(20),expiresAt:z.number().int().min(Date.now()+60000).max(Date.now()+90*DAY)}))
+    const old=s.db.get<{created_by:string;workspace_id:string}>('SELECT created_by,workspace_id FROM personal_guides WHERE id=?',id)
+    if(old&&(old.created_by!==auth.user.id||old.workspace_id!==workspace.id))throw forbidden('personal_guide_owner','Only the preparing owner may replace this guide.')
+    const key=s.repo.keys.forWorkspace(workspace.id)!.aead
+    const guide:PersonalGuide={id,title:v.title,sections:v.sections}
+    const sealed=sealText(key,JSON.stringify(guide),`personal-guide\n${workspace.id}\n${id}`)
+    s.db.run('INSERT INTO personal_guides(id,workspace_id,created_by,email_hash,sealed,expires_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET email_hash=excluded.email_hash,sealed=excluded.sealed,expires_at=excluded.expires_at',id,workspace.id,auth.user.id,s.repo.hash(normalizeEmail(v.email)),sealed,v.expiresAt)
+    return c.json({id})
+  })
+  app.get('/:id/personal-guides',c=>{
+    const {workspace,auth}=access(s,c,'viewer')
+    if(auth.testAccess)return c.json([])
+    const rows=s.db.all<{id:string;created_by:string;sealed:string}>('SELECT id,created_by,sealed FROM personal_guides WHERE workspace_id=? AND email_hash=? AND expires_at>?',workspace.id,s.repo.hash(normalizeEmail(auth.user.email)),Date.now())
+    const key=s.repo.keys.forWorkspace(workspace.id)!.aead
+    return c.json(rows.filter(r=>atLeast(s.repo.memberRole(workspace.id,r.created_by)??'viewer','admin')).map(r=>JSON.parse(openText(key,r.sealed,`personal-guide\n${workspace.id}\n${r.id}`)) as PersonalGuide))
+  })
   app.get('/:id/welcome',c=>{const {workspace,auth}=access(s,c,'admin');return c.json(store.read(workspace.id,auth.user.id)?store.safe(read(workspace.id,auth.user.id)):null)})
   app.put('/:id/welcome',async c=>{
     const {workspace,auth}=access(s,c,'admin'), v=await body(c,schema), k=key(workspace.id,auth.user.id)

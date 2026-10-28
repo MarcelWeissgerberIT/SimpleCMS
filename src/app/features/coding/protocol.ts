@@ -1,3 +1,4 @@
+import type { RepoFilesRequest } from '../../../shared/repo-files.ts'
 import type { WorkerTextRequest, WorkerMcpRequest } from '../../../shared/ai/worker.ts'
 /**
  * Coding pipeline — the shared contract of `one-worker` (mcp/src/worker, bundled to public/mcp/one-worker.mjs)
@@ -70,7 +71,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['local-chat', 'data-flow', 'shared-models', 'source-review', 'copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
+export const WORKER_CAN = ['repo-files', 'local-chat', 'data-flow', 'shared-models', 'source-review', 'copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -685,6 +686,7 @@ export type TabMessage =
   | { type: 'req'; id: string; op: 'worker-manage'; action: 'status' | 'update' | 'rollback' | 'cancel' }
   | { type: 'req'; id: string; op: 'model-share-status' }
   | { type: 'req'; id: string; op: 'model-share-config'; choice: {model:string;label:string;enabled:boolean} }
+  | { type: 'req'; id: string; op: 'repo-files'; request: RepoFilesRequest }
   | { type: 'req'; id: string; op: 'text-models' }
   | { type: 'req'; id: string; op: 'model-mcp'; requestId: string; request: WorkerMcpRequest }
   | { type: 'req'; id: string; op: 'text-request'; requestId: string; request: WorkerTextRequest }

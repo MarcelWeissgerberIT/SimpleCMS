@@ -1,3 +1,4 @@
+import { PersonalGuides } from '../cloud/PersonalGuides'
 import { useMemo, type ReactNode } from 'react'
 import { CalendarDays, FilePlus2, LayoutTemplate, Table2, Upload, ArrowRight } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -57,6 +58,7 @@ export function Home() {
         )}
         <FirstStartEntry />
         <AtlasWelcome />
+        <PersonalGuides />
         <PreflightHome />
         {mode === 'full' ? <h1 className="visually-hidden">{greeting}</h1> : <HomeSections greeting={greeting} />}
       </div>
