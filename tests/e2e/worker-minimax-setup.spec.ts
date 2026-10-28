@@ -51,7 +51,7 @@ test('the E+H workshop offers the owner-provided CA with a download and explicit
     await section.getByRole('button',{name:'Trust this CA for this worker',exact:true}).click()
     await expect(section).toContainText('Saved locally. Finish running work')
     expect(new X509Certificate(readFileSync(saved)).fingerprint256).toBe(cert.fingerprint256)
-    for(const width of [1440,390]){await page.setViewportSize({width,height:900});await section.scrollIntoViewIfNeeded();expect(await section.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);await section.screenshot({path:info.outputPath('eh-company-certificate-'+width+'.png')})}
+    for(const width of [1440,390]){await page.setViewportSize({width,height:900});await section.scrollIntoViewIfNeeded();expect(await section.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);await page.screenshot({path:info.outputPath('eh-company-certificate-'+width+'.png')})}
   }finally{await worker.stop()}
 })
 

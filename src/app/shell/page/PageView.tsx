@@ -28,6 +28,8 @@ import { scrollHostOf } from './outline'
 import { toggleMarginRail, useMarginRailOpen } from './railPref'
 import { TourOffer } from '../tour/TourOffer'
 import {FirstStartTools} from '../firstStart/FirstStart'
+import {firstStart} from '../firstStart/model'
+import {useLang} from '../../i18n'
 import './page.css'
 
 export type PageVariant = 'main' | 'pane' | 'peek'
@@ -47,6 +49,9 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
   const editorRef = useRef<Editor | null>(null)
   const isDb = page.kind === 'database'
   const isRow = !!page.databaseId
+  const lang=useLang()
+  const guided=variant==='main'&&!!firstStart(page)&&!trashed
+  const [referenceOpen,setReferenceOpen]=useState(false)
   const locked = page.settings.locked
   // a viewer in a team workspace reads every page like a locked one
   const viewer = useReadOnly()
@@ -55,7 +60,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
 
   const articleRef = useRef<HTMLElement>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
-  const rail = useRail(articleRef, variant === 'main' && !wide)
+  const rail = useRail(articleRef, variant === 'main' && !wide && (!guided||referenceOpen))
   const railOpen = useMarginRailOpen()
   // an empty rail (no outline, no reminders) leaves the text centred; the first layout reads the
   // stored content, the rail reports the live document from then on
@@ -70,6 +75,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
     if (ed && !ed.isDestroyed && ed.isEditable) ed.commands.focus(where)
   }
 
+  const editorContent = <PageEditor pageId={page.id} language={language} readOnly={readOnly} onReady={(ed) => { editorRef.current=ed;setEditor(ed) }} />
   return (
     <article
       ref={articleRef}
@@ -121,17 +127,12 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
               <DatabaseView databaseId={page.id} />
               {!trashed && <OutboxDbFoot dbId={page.id} />}
             </>
-          ) : (
-            <PageEditor
-              pageId={page.id}
-              language={language}
-              readOnly={readOnly}
-              onReady={(ed) => {
-                editorRef.current = ed
-                setEditor(ed)
-              }}
-            />
-          )}
+          ) : guided ? (
+            <>
+              <button className="btn first-start-reference" aria-expanded={referenceOpen} onClick={()=>setReferenceOpen(!referenceOpen)}>{lang==='de'?'Bebilderte Anleitung und alle Details nachschlagen':'Look up illustrated guide and all details'}</button>
+              <div hidden={!referenceOpen}>{editorContent}</div>
+            </>
+          ) : editorContent}
         </div>
         {rail && <MarginRail page={page} editor={editor} onFill={setRailFilled} />}
         {!isDb && (

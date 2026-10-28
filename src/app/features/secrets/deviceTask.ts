@@ -45,6 +45,7 @@ export function selectTaskAtlas(task:string,server:string|null){
   // coding provider, including Codex/MiniMax/Ollama. No other data class opens.
   withWriter({kind:'you',via:'setup',ref:'task-atlas'},()=>{
     const device=s.settings.ai,allow=device?.allow??{},narrow=device?.narrow??{}
+    if(((allow[provider]??[]).includes('mcp')&&!(narrow[provider]??[]).includes('mcp')))return
     if(!setDeviceAI({allow:{...allow,[provider]:[...new Set([...(allow[provider]??[]),'mcp' as const])]},narrow:{...narrow,[provider]:(narrow[provider]??[]).filter(c=>c!=='mcp')}}))throw Error('Reload ONE to use current data rules.')
   })
   grants.set(key(task),{server,fingerprint:fingerprint(chosen),receiver:receiver(),provider})

@@ -1,0 +1,78 @@
+import {test,expect,email,signIn,openApp,waitOnline,waitForApp,createWorkspace,wsEval} from './fixtures'
+import {startFakeWorker} from '../e2e/helpers/fakeWorker'
+import {WORKER_CAN} from '../../src/app/features/coding/protocol'
+
+// Real ONE UI and cloud store, simulated worker/Atlas. No user tokens or paid model requests.
+test('guided first start checks each prerequisite and runs only one personal read-only BA stage',async({page},info)=>{
+ test.setTimeout(150000)
+ const worker=await startFakeWorker(47429,{worker:'1.34.3',name:'Workshop-Laptop',repos:[{name:'ONE-WebServer-Demo',baseBranch:'main'}],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true,personalSecrets:true})
+ worker.can=[...WORKER_CAN];worker.textModels=[{provider:'copilot',model:'auto',context:32768,chat:true}]
+ try{
+  await openApp(page);await signIn(page,email('setup'));await openApp(page)
+  const ws=await createWorkspace(page,'ONE Workshop · Beispiel');await openApp(page,ws);await waitOnline(page)
+  await wsEval(page,s=>{s.createPage({id:'guided-start',title:'Dein Erststart',content:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Ausführliche Anleitung bleibt erhalten.'}]}]}});s.updatePageSettings('guided-start',{locked:true,firstStart:{v:1,project:'one-webserver',record:31503,readinessPage:'guided-start'}});s.updateSettings({language:'de',ai:{allow:{copilot:['mcp']},narrow:{copilot:[]}},mcpServers:[{id:'setup-atlas',name:'atlas-workshop',url:'https://eh-atlas.com/api/atlas/mcp',token:'synthetic-not-valid',enabled:true,checkedAt:Date.now(),tools:['atlas_whoami','atlas_get']}]});s.setWorkspaceAI({policy:{restricted:[],providers:{copilot:{allow:['public','selection','page','structure','rows','workspace']}}}})})
+  await page.goto(`/app/?e2e&w=${ws}#/p/guided-start`);await waitForApp(page);await waitOnline(page)
+  const guide=page.getByTestId('guided-setup'),active=guide.getByTestId('setup-active-step'),next=guide.getByRole('button',{name:'Weiter',exact:true})
+  const shotReady=()=>expect.poll(()=>guide.locator('.guided-setup__shot img').evaluate((el:HTMLImageElement)=>el.naturalWidth)).toBeGreaterThan(0)
+  await shotReady()
+  await expect(guide).toContainText('Deinen Worker verbinden');await expect(next).toBeDisabled()
+  await guide.getByRole('button',{name:'Prüfen, was noch fehlt'}).click();await expect(guide.getByTestId('setup-diagnosis')).toContainText('Starte den vorhandenen Desktop-Starter')
+  await expect(page.getByText('Ausführliche Anleitung bleibt erhalten.',{exact:true})).toBeHidden()
+  await active.getByRole('button',{name:'Worker einrichten',exact:true}).click()
+  await page.getByRole('radio',{name:'Cloud',exact:true}).click()
+  await page.screenshot({path:info.outputPath('worker.png'),animations:'disabled'})
+  await page.getByRole('radio',{name:'Lokal',exact:true}).click()
+  await page.getByLabel('Port',{exact:true}).fill('47429');await page.getByLabel('Port',{exact:true}).press('Enter')
+  await page.getByRole('switch',{name:'Mit einem Coding-Worker auf diesem Rechner verbinden'}).click()
+  await expect(page.getByTestId('coding-conn')).toContainText('Workshop-Laptop');await page.keyboard.press('Escape')
+  await expect(next).toBeEnabled();await next.click()
+  await expect(guide.getByRole('button',{name:'Prüfen, was noch fehlt'})).toBeVisible();await shotReady();await expect(active).toContainText('copilot login');await expect(active.getByRole('button',{name:'Worker einrichten'})).toHaveCount(0)
+  await active.getByRole('button',{name:'Copilot-Anmeldung prüfen'}).click();await expect(next).toBeEnabled()
+  await guide.screenshot({path:info.outputPath('copilot.png'),animations:'disabled'})
+  await next.click()
+  // Failures cannot advance. TLS guidance is distinct from rejected credentials.
+  worker.onModelMcp=()=>Error('TLS certificate verification failed')
+  await active.getByRole('button',{name:'Atlas und sichere Verbindung prüfen'}).click()
+  await expect(guide.getByTestId('worker-tls-help')).toBeVisible();await expect(next).toBeDisabled()
+  worker.onModelMcp=()=>({result:JSON.stringify({isError:true,content:[{type:'text',text:'Not found'}]})})
+  await active.getByRole('button',{name:'Atlas und sichere Verbindung prüfen'}).click();await expect(next).toBeDisabled()
+  worker.onModelMcp=r=>({result:JSON.stringify({content:[{type:'text',text:JSON.stringify(r.name==='atlas_whoami'?{person:'Workshop-Teilnehmer',effectiveTenantScope:['one']}:{item:{ref:31503,project:'one-webserver',title:'Workshop Starter Folder',content:'A small approved scope.'}})}]})})
+  await shotReady();await active.getByRole('button',{name:'Atlas und sichere Verbindung prüfen'}).click();await expect(active).toContainText('TLS und beide Leseaufrufe erfolgreich')
+  expect(worker.textAsked).toHaveLength(0)
+  await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings',tab:'ai'}))
+  await page.getByTestId('mcp-servers').locator('.mcps-card[data-id="setup-atlas"] button[aria-expanded]').click()
+  await page.getByTestId('mcp-check-model').selectOption('copilot:auto')
+  await page.getByTestId('mcp-check-setup').scrollIntoViewIfNeeded()
+  await page.screenshot({path:info.outputPath('atlas.png'),animations:'disabled'});await page.keyboard.press('Escape')
+  await next.click();await shotReady();await expect(next).toBeDisabled()
+  await guide.getByRole('button',{name:'Prüfen, was noch fehlt'}).click();await expect(guide.getByTestId('setup-diagnosis')).toContainText('Wähle einen Eintrag aus der Liste')
+  await active.getByLabel('Repository für meinen ersten Test').selectOption('ONE-WebServer-Demo');await expect(next).toBeEnabled()
+  await guide.screenshot({path:info.outputPath('repo.png'),animations:'disabled'})
+  await next.click();await shotReady();await active.getByRole('button',{name:'Meine BA-Testaufgabe vorbereiten'}).click()
+  await expect(guide).toHaveAttribute('aria-busy','false');await expect(active.getByRole('button',{name:'BA-Check jetzt starten'})).toBeVisible()
+  expect(worker.handed()).toHaveLength(0)
+  const state=await page.evaluate(()=>{const s=(window as any).__one.workspace.getState(),db=Object.values(s.databases).find((d:any)=>s.pages[d.id]?.title==='Mein Erststart · BA-Test') as any;return {pipeline:db.pipeline,rows:Object.values(s.pages).filter((p:any)=>p.databaseId===db.id).map((p:any)=>({id:p.id,private:p.private,title:p.title,properties:p.properties})),private:s.pages[db.id].private}})
+  expect(state.private).toBe(true);expect(state.rows).toHaveLength(1);expect(state.pipeline.map((s:any)=>[s.kind,s.auto])).toEqual([['doc',false],['gate',false],['done',false]]);expect(state.pipeline[1].hold).toBe(true)
+  await active.getByRole('button',{name:'Meine Aufgabe und Laufnachweis öffnen'}).click()
+  await expect(page).toHaveURL(new RegExp('#/p/'+state.rows[0].id+'$'));await expect(page.locator('.pv-title').first()).toHaveValue('Erster BA-Check · ONE-WebServer-Demo')
+  await page.screenshot({path:info.outputPath('ba.png'),animations:'disabled'})
+  await page.goto(`/app/?e2e&w=${ws}#/p/guided-start`);await waitForApp(page);await waitOnline(page)
+  await active.getByRole('button',{name:'Atlas und sichere Verbindung prüfen'}).click()
+  await expect(active.getByRole('button',{name:'BA-Check jetzt starten'})).toBeVisible()
+  // A changed pipeline is never started under the wizard's read-only label.
+  await wsEval(page,(s,id)=>{const row=s.pages[id],db=s.databases[row.databaseId];s.updateDatabase(db.id,{pipeline:db.pipeline.map((p:any)=>p.id==='setup-read'?{...p,kind:'implement'}:p)})},state.rows[0].id)
+  await active.getByRole('button',{name:'BA-Check jetzt starten'}).click();await expect(guide).toContainText('Diese Aufgabe wurde inzwischen geändert');expect(worker.handed()).toHaveLength(0)
+  await wsEval(page,(s,id)=>{const row=s.pages[id],db=s.databases[row.databaseId];s.updateDatabase(db.id,{pipeline:db.pipeline.map((p:any)=>p.id==='setup-read'?{...p,kind:'doc'}:p)})},state.rows[0].id)
+  await active.getByRole('button',{name:'BA-Check jetzt starten'}).click()
+  await expect.poll(()=>worker.handed().length).toBe(1)
+  const task=worker.handed()[0]!
+  expect(task.agent).toBe('copilot');expect(task.repo).toBe('ONE-WebServer-Demo');expect(task.stage.kind).toBe('doc');expect(task.stage.permissionMode).toBe('default');expect(task.personalMcp).toHaveLength(1);expect(task.personalMcp[0].tools).toEqual(['atlas_whoami','atlas_get','atlas_search','atlas_context']);expect(task.stage.copilot.model).toBe('auto')
+  await worker.finish(task,{status:'ok',plan:'## Befund\nREADME.md:1 beschreibt den Anwendungsfall. Atlas #31503 ist die Quelle. Offene Frage: Abnahmekriterium fehlt. Keine Tests ausgeführt.',runEvidence:{executor:'copilot',requestedModel:'auto',startedAt:Date.now()-100,finishedAt:Date.now(),turns:2,costUsd:null}})
+  await expect(active).toContainText('Bericht angekommen');expect(worker.handed()).toHaveLength(1)
+  for(const width of [1440,390]){await page.setViewportSize({width,height:1000});expect(await guide.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);await guide.screenshot({path:info.outputPath(`complete-${width}.png`),animations:'disabled'})}
+  // Reload restores navigation/task references but cannot restore a stale personal Atlas success claim.
+  await page.reload();await waitForApp(page);await waitOnline(page);await expect(guide).toContainText('Deinen Atlas-Zugang prüfen');await expect(next).toBeDisabled()
+  await active.getByRole('button',{name:'Atlas und sichere Verbindung prüfen'}).click();await expect(active).toContainText('Bericht angekommen')
+  await page.getByRole('button',{name:'Bebilderte Anleitung und alle Details nachschlagen'}).click();await expect(page.getByText('Ausführliche Anleitung bleibt erhalten.',{exact:true})).toBeVisible()
+ }finally{await worker.close()}
+})
