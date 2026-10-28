@@ -27,3 +27,6 @@ Teammitglieder bearbeiten im Rahmen ihrer bestehenden Workspace-Rechte; Gäste s
 
 ## Einrichtung und aktuelle Verbindung
 Die fünf Einrichtungsprüfungen bleiben mit Quelle und Zeitpunkt erhalten. Worker-Versionen werden zusätzlich erfasst, wenn das Gerät sie meldet. Eine getrennte Anzeige nennt „jetzt verbunden“, „jetzt getrennt“ oder „erneut prüfen“. Sie basiert auf angemeldeten Teilnehmerereignissen und der Cloud-Relay-Beobachtung, wird bei sichtbarem ONE-Fenster etwa alle 30 Sekunden aktualisiert und gilt nach 90 Sekunden ohne Beobachtung als veraltet. Geschlossene Tabs und fehlendes Netz sind deshalb kein dauerhafter grüner Online-Nachweis. Eine manuelle Sperre wird nicht automatisch aufgehoben. Die Anzeige prüft keine fremden Konten und startet kein Modell.
+
+
+Gäste mit aktiver, befristeter Mitmachfreigabe benötigen ebenfalls alle fünf Prüfungen: ONE, Atlas, Worker, Copilot und Repository. Die Ampel liest dafür die tatsächliche Freigabe vom Teamserver; die Planungsrolle bleibt „Gast“. Nach Ablauf entfallen die technischen Prüfungen wieder, vorhandene Nachweise bleiben erhalten. Bei unbekanntem Freigabestand werden sie nicht voreilig als „entfällt“ gewertet.

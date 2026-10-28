@@ -9,7 +9,7 @@ test('account-bound automatic checks cannot target another person, leak a draft,
  try{
   const owner=await signIn(server,'organizer@readiness.test'),alice=await signIn(server,'alice@readiness.test'),bob=await signIn(server,'bob@readiness.test'),alien=await signIn(server,'alien@readiness.test')
   const ws=(await owner.post('/api/workspaces',{name:'Readiness workshop'})).body.id,path=`/api/workspaces/${ws}/readiness`
-  for(const [client,email,role]of [[alice,'alice@readiness.test','member'],[bob,'bob@readiness.test','viewer']] as const){const invite=(await owner.post(`/api/workspaces/${ws}/invites`,{email,role})).body.link;await client.post('/api/invites/'+invite.split('#/invite/')[1]+'/accept')}
+  for(const [client,email,role]of [[alice,'alice@readiness.test','member'],[bob,'bob@readiness.test','viewer']] as const){const invite=(await owner.post(`/api/workspaces/${ws}/invites`,{email,role,...(role==='viewer'?{guest:true}:{})})).body.link;await client.post('/api/invites/'+invite.split('#/invite/')[1]+'/accept')}
   await owner.json('PUT',`/api/workspaces/${ws}/welcome`,{revision:0,title:'Workshop',notBefore:Date.now()+86400000,lang:'en',recipients:[{id:'alice-recipient',name:'Same name',email:'alice@readiness.test',workspaceId:ws,role:'member',guest:false,note:'',atlasLink:'https://atlas.example/a'},{id:'bob-recipient',name:'Same name',email:'bob@readiness.test',workspaceId:ws,role:'viewer',guest:true,note:'',atlasLink:'https://atlas.example/b'}]})
   const mails=(await mailbox(server)).length
   meta=openDoc(server,owner,`ws:${ws}`);await meta.synced
@@ -31,6 +31,24 @@ test('account-bound automatic checks cannot target another person, leak a draft,
   assert.equal((await bob.post(path,{signal:'worker'})).status,403)
   assert.equal((await bob.post(path,{signal:'repo'})).status,403);assert.equal((await bob.post(path,{signal:'copilot'})).status,403)
   await bob.post(path,{signal:'sync'});await waitFor(()=>props('bob').get('one')==='ready');assert.equal(props('alice').get('repo'),'open')
+  assert.deepEqual((await owner.get(path+'/participation')).body,{untilByRecipient:{}})
+  assert.equal((await alien.get(path+'/participation')).status,404)
+  const until=Date.now()+3600000
+  assert.equal((await owner.json('PUT',`/api/workspaces/${ws}/guest-participation`,{emails:['bob@readiness.test'],expiresAt:until})).status,200)
+  for(const client of [owner,alice,bob]){
+   const projection=await client.get(path+'/participation');assert.equal(projection.status,200)
+   assert.deepEqual(projection.body,{untilByRecipient:{'bob-recipient':until}})
+   assert.ok(!JSON.stringify(projection.body).includes('readiness.test'))
+   assert.ok(!JSON.stringify(projection.body).includes('atlas.example'))
+  }
+  for(const signal of ['worker','copilot','repo'])assert.equal((await bob.post(path,{signal})).status,200)
+  await waitFor(()=>props('bob').get('worker')==='ready')
+  assert.equal(props('bob').get('role'),'guest','Display projection never changes the planning role')
+  assert.equal((await owner.json('PUT',`/api/workspaces/${ws}/guest-participation`,{emails:['bob@readiness.test'],expiresAt:null})).status,200)
+  assert.deepEqual((await owner.get(path+'/participation')).body,{untilByRecipient:{}})
+  assert.equal((await bob.post(path,{signal:'worker'})).status,403)
+  assert.equal(props('bob').get('worker'),'ready','Revocation does not erase historical checks')
+
   props('alice').set('copilot','blocked');await flushed(meta);await alice.post(path,{signal:'copilot'});assert.equal(props('alice').get('copilot'),'blocked')
   await alice.post(path,{signal:'sync',version:'1.30.0',localWorker:{online:true,version:'1.30.0'}});await waitFor(()=>JSON.parse(String(props('alice').get('evidence'))).workerConnection?.online===true)
   assert.equal(JSON.parse(String(props('alice').get('evidence'))).workerConnection.version,'1.30.0')

@@ -42,3 +42,21 @@ test('connection expires independently of preserved setup and manual blockers',(
  assert.equal(workerConnection({at:at+6000,source:'relay',online:true},at),'stale')
  assert.equal(workerConnection({at,source:'session',online:true},at),'unknown')
 })
+
+test('active temporary guests need all five checks; expiry restores read-only scope without losing evidence',()=>{
+ const now=100000,properties={role:'guest',one:'ready',atlas:'ready',worker:'na',copilot:'open',repo:'open'}
+ const active=participant(row(properties),c,{until:now+1000,now})
+ assert.equal(active.guest,true);assert.equal(active.participating,true);assert.equal(active.total,5)
+ assert.equal(active.states.worker,'open');assert.equal(active.overall,'open')
+ assert.equal(participant(row({...properties,worker:'blocked'}),c,{until:now+1000,now}).overall,'blocked')
+ const checked=row({...properties,worker:'ready',copilot:'ready',repo:'ready'})
+ assert.equal(participant(checked,c,{until:now+1000,now}).overall,'ready')
+ const expired=participant(checked,c,{until:now,now})
+ assert.equal(expired.participating,false);assert.equal(expired.total,2);assert.equal(expired.states.worker,'na')
+ assert.equal(checked.properties.worker,'ready','Projection preserves the previous setup evidence')
+ assert.equal(participant(row({...properties,participation:'later'}),c,{until:now+1000,now}).overall,'later')
+})
+test('unknown cloud participation cannot falsely waive guest technical checks',()=>{
+ const s=participant(row({role:'guest',one:'ready',atlas:'ready'}),c,{known:false})
+ assert.equal(s.participationUnknown,true);assert.equal(s.total,5);assert.equal(s.states.worker,'open');assert.equal(s.overall,'open')
+})

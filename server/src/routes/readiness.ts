@@ -18,6 +18,31 @@ const observation=z.discriminatedUnion('signal',[
 ])
 export function readinessRoutes(s:Services){
  const app=new Hono<AppEnv>(),store=new WelcomeStore(s)
+ // Public tracker identities only. No emails, invitation links, tokens or draft bodies.
+ app.get('/:id/readiness/participation',async c=>{
+  const {workspace}=access(s,c,'viewer')
+  c.header('Cache-Control','no-store')
+  const recipients=await s.collab.read(`ws:${workspace.id}`,doc=>{
+   const pages=doc.getMap<Y.Map<unknown>>('pages'),ids=new Set<string>()
+   for(const [id,d]of doc.getMap<Y.Map<unknown>>('databases')){
+    if(!(d instanceof Y.Map)||!(pages.get(id) instanceof Y.Map)||pages.get(id)!.get('trashed'))continue
+    const raw=d.toJSON(),config=readReadiness({...raw,properties:Object.values(raw.properties??{})} as ReadinessDatabase)
+    if(!config?.automation)continue
+    for(const row of pages.values())if(row instanceof Y.Map&&row.get('databaseId')===id&&!row.get('trashed')){const p=row.get('properties');if(p instanceof Y.Map&&typeof p.get(config.automation.recipient)==='string')ids.add(p.get(config.automation.recipient))}
+   }
+   return ids
+  })
+  const untilByRecipient:Record<string,number>=Object.create(null)
+  for(const draft of s.db.all<{user_id:string}>('SELECT user_id FROM welcome_drafts WHERE workspace_id=?',workspace.id)){
+   if(!atLeast(s.repo.memberRole(workspace.id,draft.user_id)??'viewer','admin'))continue
+   for(const r of store.read(workspace.id,draft.user_id)?.recipients??[]){
+    if(r.workspaceId!==workspace.id||!recipients.has(r.id))continue
+    const user=s.repo.userByEmail(normalizeEmail(r.email)),until=user&&s.repo.guestParticipationUntil(workspace.id,user.id)
+    if(until)untilByRecipient[r.id]=until
+   }
+  }
+  return c.json({untilByRecipient})
+ })
  app.post('/:id/readiness',async c=>{
   const {workspace,auth,role}=access(s,c,'viewer'),input=await body(c,observation)
   const wait=s.limiter.hit(`readiness:${workspace.id}:${auth.user.id}`,60,60000);if(wait)throw rateLimited(60)

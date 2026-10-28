@@ -48,10 +48,14 @@ export function readReadiness(db: ReadinessDatabase): ReadinessConfig | null {
   const ids = [...CHECKS.map(k => c.checks[k]), c.role, c.participation, c.blocker, c.next, c.owner, c.note, c.changedAt, c.changedBy, ...(a?[a.recipient,a.evidence]:[])]
   return new Set(ids).size === ids.length ? c : null
 }
-export function participant(row: {properties:Record<string,unknown>}, c: ReadinessConfig) {
+export interface ReadinessParticipation { until?:number; known?:boolean; now?:number }
+/** Participation is a server projection; the planning role never grants account access. */
+export function participant(row: {properties:Record<string,unknown>}, c: ReadinessConfig, access?:ReadinessParticipation) {
   const guest = row.properties[c.role] === 'guest'
   const later = row.properties[c.participation] === 'later'
-  const required: readonly Check[] = guest ? ['one', 'atlas'] : CHECKS
+  const participating=guest&&Number.isSafeInteger(access?.until)&&access!.until!>(access?.now??Date.now())
+  const participationUnknown=guest&&access?.known===false
+  const required: readonly Check[] = guest&&!participating&&!participationUnknown ? ['one', 'atlas'] : CHECKS
   const states = Object.fromEntries(CHECKS.map(k => {
     const v = row.properties[c.checks[k]]
     // A required check cannot turn green by choosing "not needed" or an unknown value.
@@ -59,7 +63,7 @@ export function participant(row: {properties:Record<string,unknown>}, c: Readine
   })) as Record<Check, CheckState>
   const done = required.filter(k => states[k] === 'ready').length
   const overall: Overall = later ? 'later' : required.some(k => states[k] === 'blocked') ? 'blocked' : done === required.length ? 'ready' : 'open'
-  return { guest, later, required, states, done, total: required.length, overall }
+  return { guest, later, participating, participationUnknown, participationUntil:participating?access?.until:undefined, required, states, done, total: required.length, overall }
 }
 
 /** A past setup proof and a current connection are separate facts. No silent deletion of prior checks. */

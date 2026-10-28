@@ -27,3 +27,6 @@ Team members edit within existing workspace permissions; guests can only read. O
 
 ## Setup and current connection
 The five setup checks retain their source and time. The worker version is recorded when reported by the device. A separate connection label says “connected now”, “disconnected now” or “check again”. It uses authenticated participant events and the cloud relay observation, updates about every 30 seconds while ONE is visible and becomes stale after 90 seconds without observation. Closed tabs and lost network therefore cannot leave permanent green online evidence. Manual holds remain in place. The display probes no other accounts and starts no model.
+
+
+Guests with active temporary participation need all five checks too: ONE, Atlas, worker, Copilot and repository. The tracker reads the actual grant from the team server; the planning role remains Guest. After expiry, technical checks become not needed again and previous evidence is preserved. An unknown grant status does not prematurely waive technical checks.
