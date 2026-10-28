@@ -15,7 +15,9 @@ Ein Atlas-Login in einem anderen Tab, ein gespeicherter Token, Discovery oder ei
 
 **Offen** heißt noch nicht geprüft. **Startbereit** erst nach dem tatsächlichen persönlichen Prüfschritt wählen. **Blockiert** zeigt ein konkretes Hindernis. Der Gesamtstatus entsteht aus den benötigten Schritten: Ein Blocker hat Vorrang; erst alle benötigten Schritte auf Startbereit ergeben Startbereit. Entfällt ersetzt keinen erforderlichen Nachweis.
 
-Für Gäste werden nur ONE- und Atlas-Lesezugriff benötigt. Worker, Coding und Repo sind für die Gastteilnahme nicht erforderlich. Spätere Nutzer zählen nicht in den Bereitschaftsnenner des Workshops. Diese Planungsrolle ändert keine Mitgliedschaft und keine Zugriffsrechte.
+Für Gäste ohne aktive Mitmachfreigabe werden nur ONE- und Atlas-Lesezugriff benötigt. Worker, Coding und Repo sind für die rein lesende Gastteilnahme nicht erforderlich. Spätere Nutzer zählen nicht in den Bereitschaftsnenner des Workshops. Diese Planungsrolle ändert keine Mitgliedschaft und keine Zugriffsrechte.
+
+Gäste mit aktiver, befristeter Mitmachfreigabebenötigen ebenfalls alle fünf Prüfungen: ONE, Atlas, Worker, Copilot und Repository. Die Ampel liest dafür die tatsächliche Freigabe vom Teamserver; die Planungsrolle bleibt „Gast“. Nach Ablauf entfallen die technischen Prüfungen wieder, vorhandene Nachweise bleiben erhalten. Bei unbekanntem Freigabestand werden sie nicht voreilig als „entfällt“ gewertet.
 
 Die Automatik zeigt Quelle und Zeitpunkt pro Schritt. Sie ist kein dauerhafter Online-Monitor: „Worker zuletzt verbunden“ ist ein erfolgreicher Verbindungsnachweis mit Zeitpunkt. Manuelle Blocker bleiben als bewusster Halt bestehen. Manuell gesetzte Werte sind weiter möglich und entsprechend gekennzeichnet.
 
@@ -23,10 +25,7 @@ Auf der aufgeklappten Platte lassen sich Ursache, nächster Schritt, verantwortl
 
 Die Ampel stellt keine Atlas-Verbindung her, führt keine zusätzlichen Verbindungs- oder Modelltests aus und versendet keine Einladung. Sie übernimmt nur beobachtete erfolgreiche Schritte; Anmeldung am ONE-Server wird der tatsächlich authentifizierten Sitzung zugeordnet. Ein gespeicherter Atlas-Link oder eine installierte Copilot-App ist noch kein erfolgreicher Lese- beziehungsweise CLI-Lauf. Der vereinbarte End-to-End-Test ist ein eigener Nachweis.
 
-Teammitglieder bearbeiten im Rahmen ihrer bestehenden Workspace-Rechte; Gäste sehen die Ampel nur lesend. Die Daten sind gewöhnliche Datenbankzeilen und bleiben in Workspace-Exporten enthalten. Ältere ONE-Versionen können sie als normale Galerie/Tabelle darstellen.
+Teammitglieder und Gäste mit aktiver Mitmachfreigabe bearbeiten im Rahmen ihrer bestehenden Workspace-Rechte; Gäste ohne diese Freigabe sehen die Ampel nur lesend. Die Daten sind gewöhnliche Datenbankzeilen und bleiben in Workspace-Exporten enthalten. Ältere ONE-Versionen können sie als normale Galerie/Tabelle darstellen.
 
 ## Einrichtung und aktuelle Verbindung
 Die fünf Einrichtungsprüfungen bleiben mit Quelle und Zeitpunkt erhalten. Worker-Versionen werden zusätzlich erfasst, wenn das Gerät sie meldet. Eine getrennte Anzeige nennt „jetzt verbunden“, „jetzt getrennt“ oder „erneut prüfen“. Sie basiert auf angemeldeten Teilnehmerereignissen und der Cloud-Relay-Beobachtung, wird bei sichtbarem ONE-Fenster etwa alle 30 Sekunden aktualisiert und gilt nach 90 Sekunden ohne Beobachtung als veraltet. Geschlossene Tabs und fehlendes Netz sind deshalb kein dauerhafter grüner Online-Nachweis. Eine manuelle Sperre wird nicht automatisch aufgehoben. Die Anzeige prüft keine fremden Konten und startet kein Modell.
-
-
-Gäste mit aktiver, befristeter Mitmachfreigabe benötigen ebenfalls alle fünf Prüfungen: ONE, Atlas, Worker, Copilot und Repository. Die Ampel liest dafür die tatsächliche Freigabe vom Teamserver; die Planungsrolle bleibt „Gast“. Nach Ablauf entfallen die technischen Prüfungen wieder, vorhandene Nachweise bleiben erhalten. Bei unbekanntem Freigabestand werden sie nicht voreilig als „entfällt“ gewertet.

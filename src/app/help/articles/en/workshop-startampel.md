@@ -15,7 +15,9 @@ An Atlas login in another tab, stored token, tool discovery or installed app doe
 
 **Open** means not yet checked. Choose **Ready** only after the real personal check works. **Blocked** identifies an actual obstacle. Overall readiness is derived from required steps: a blocker wins; every required step must be Ready. Not needed cannot substitute for a required check.
 
-Guests only require ONE and Atlas read access. They do not require a worker, coding, or repository access to observe the workshop. Later users are excluded from the workshop readiness denominator. This planning role changes no membership or permissions.
+Guests without active temporary participation only require ONE and Atlas read access. They do not require a worker, coding, or repository access to observe the workshop. Later users are excluded from the workshop readiness denominator. This planning role changes no membership or permissions.
+
+Guests with active temporary participationneed all five checks too: ONE, Atlas, worker, Copilot and repository. The tracker reads the actual grant from the team server; the planning role remains Guest. After expiry, technical checks become not needed again and previous evidence is preserved. An unknown grant status does not prematurely waive technical checks.
 
 Automatic receipts show the source and timestamp for each step. This is not a continuous online monitor: “Worker last connected” is a timestamped successful connection check. Manual blockers remain explicit holds. Manual values remain possible and are labelled accordingly.
 
@@ -23,10 +25,7 @@ Expand a plate to record the cause, next step, responsible person, and a minimal
 
 The tracker establishes no Atlas connection, performs no additional connection or model tests, and sends no invitation. It records observed successful steps; ONE sign-in is attributed to the actual authenticated server session. A stored Atlas link or installed Copilot app is not proof of a successful read or CLI request. End-to-end acceptance requires its own evidence.
 
-Team members edit within existing workspace permissions; guests can only read. Ordinary database rows remain in workspace exports. Older ONE versions can show the data as a normal gallery/table.
+Team members and guests with active temporary participation edit within existing workspace permissions; guests without this grant can only read. Ordinary database rows remain in workspace exports. Older ONE versions can show the data as a normal gallery/table.
 
 ## Setup and current connection
 The five setup checks retain their source and time. The worker version is recorded when reported by the device. A separate connection label says “connected now”, “disconnected now” or “check again”. It uses authenticated participant events and the cloud relay observation, updates about every 30 seconds while ONE is visible and becomes stale after 90 seconds without observation. Closed tabs and lost network therefore cannot leave permanent green online evidence. Manual holds remain in place. The display probes no other accounts and starts no model.
-
-
-Guests with active temporary participation need all five checks too: ONE, Atlas, worker, Copilot and repository. The tracker reads the actual grant from the team server; the planning role remains Guest. After expiry, technical checks become not needed again and previous evidence is preserved. An unknown grant status does not prematurely waive technical checks.
