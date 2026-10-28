@@ -473,7 +473,7 @@ export const migrations: Migration[] = [
   {
     version: 19,
     name: 'encrypted recipient-only preparation guides',
-    sql: `CREATE TABLE personal_guides (
+    sql: `CREATE TABLE IF NOT EXISTS personal_guides (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -481,6 +481,6 @@ export const migrations: Migration[] = [
       sealed TEXT NOT NULL,
       expires_at INTEGER NOT NULL
     );
-    CREATE INDEX personal_guides_recipient ON personal_guides(workspace_id,email_hash);`,
+    CREATE INDEX IF NOT EXISTS personal_guides_recipient ON personal_guides(workspace_id,email_hash);`,
   },
 ]
