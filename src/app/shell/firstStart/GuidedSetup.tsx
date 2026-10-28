@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react'
+import {useEffect,useRef,useState} from 'react'
 import {ArrowLeft,ArrowRight,Check,Copy,LoaderCircle,Play,RefreshCw} from 'lucide-react'
 import {useCloud} from '../../cloud'
 import {useWorkspace} from '../../store/store'
@@ -48,6 +48,8 @@ function Setup({storage,config,readonly}:{storage:string;config:FirstStart;reado
  const act=async(fn:()=>Promise<void>)=>{setBusy(true);setError(null);try{await fn()}catch(e){setError(e)}finally{setBusy(false)}}
  const next=()=>{setError(null);setStep(at+1)}
  const image=['worker','copilot','atlas','repo','ba'][at]
+ const heading=useRef<HTMLHeadingElement>(null),lastStep=useRef(at)
+ useEffect(()=>{if(lastStep.current!==at){heading.current?.focus({preventScroll:true});heading.current?.scrollIntoView({block:'start'})}lastStep.current=at},[at])
  const code=error instanceof Error?error.message:''
  useEffect(()=>setDiagnose(false),[at])
  const help=connectionProblem(error)
@@ -66,7 +68,7 @@ function Setup({storage,config,readonly}:{storage:string;config:FirstStart;reado
   <header><span className="label">§ START · {tr('DEIN GEFÜHRTER ERSTSTART','YOUR GUIDED FIRST START')}</span><span className="label">{at+1} / 5</span></header>
   <ol className="guided-setup__progress" aria-label={tr('Einrichtungsschritte','Setup steps')}>{titles.map((title,i)=><li key={i} aria-current={i===at?'step':undefined} data-done={i<maximum||undefined}><span>{i<maximum?<Check size={13}/>:String(i+1).padStart(2,'0')}</span><span>{title}</span></li>)}</ol>
   {readonly?<div role="status"><h2>{tr('Dein Zugang ist derzeit nur lesend','Your access is currently read-only')}</h2><p>{tr('Du kannst die Anleitung und Workshop-Ergebnisse ansehen. Für einen eigenen Worker und eigene Aufgaben muss die Workshop-Leitung deine Teilnahme freischalten.','You can view the guide and workshop results. The workshop host must enable participation before you can connect a worker or create tasks.')}</p><AtlasWelcome setup/></div>:<>
-  <h2 tabIndex={-1}>{titles[at]}</h2>
+  <h2 ref={heading} tabIndex={-1}>{titles[at]}</h2>
   <figure className="guided-setup__shot"><a href={`/assets/shots/first-start/${image}.png`} target="_blank" rel="noreferrer"><img src={`/assets/shots/first-start/${image}.png`} alt={tr('Echte ONE-Ansicht zum aktuellen Schritt. Zum Vergrößern öffnen.','Actual ONE screen for this step. Open to enlarge.')} loading="lazy"/></a><figcaption>{tr('Echte Bildschirmaufnahme · Beispielansicht, deine Namen und Pfade können abweichen. Zum Vergrößern anklicken.','Actual screenshot · example view; your names and paths may differ. Click to enlarge.')}</figcaption></figure>
   <div className="guided-setup__body" data-testid="setup-active-step">
   {at===0&&<><p>{tr('Öffne die Worker-Karte, wähle „Cloud“ und installiere deinen persönlich gekoppelten Worker einmal. Danach immer den festen Desktop-Starter mit Workspace-Namen verwenden. Ein bereits installierter Worker wird aktualisiert; lade ihn nicht nochmals herunter.','Open the worker card, choose “Cloud” and install your personally paired worker once. Afterwards use the fixed workspace-named Desktop launcher. Update an existing installation instead of downloading again.')}</p><p>{tr('Voraussetzung: Node 24 und Git. Lass das gestartete Worker-Fenster offen.','Prerequisites: Node 24 and Git. Leave the running worker window open.')}</p><button className="btn btn--ink" onClick={()=>settings('coding')}>{tr('Worker einrichten','Set up worker')}</button><p className="guided-setup__status" role="status">{current?`✓ ${worker?.name} · ${worker?.worker}`:online?tr('Verbunden · Worker bitte in der Karte aktualisieren.','Connected · please update the worker in its card.'):tr('Warte auf deinen Worker …','Waiting for your worker …')}</p></>}

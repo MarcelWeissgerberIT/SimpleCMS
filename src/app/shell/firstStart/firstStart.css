@@ -25,3 +25,4 @@
 @media(max-width:600px){.guided-setup{padding:16px}.guided-setup__progress li>span:last-child{display:none}.guided-setup__shot img{max-height:220px}.guided-setup>header{font-size:10px}}
 .guided-setup__certificate{display:block;width:100%;max-height:280px;object-fit:contain;background:var(--surface);border:1px solid var(--plate-edge);margin:16px 0}
 .guided-setup__diagnosis{margin:20px 0;padding:16px;background:var(--surface);border:1px solid var(--plate-edge)}.guided-setup__diagnosis ul{list-style:none;padding:0;margin:12px 0 0}.guided-setup__diagnosis li{padding:10px 0;border-top:1px solid var(--plate-edge)}.guided-setup__diagnosis li>span{font-weight:600}.guided-setup__diagnosis li[data-ok=false]>span{color:var(--signal-ink)}.guided-setup__diagnosis p{font-size:13px;margin:6px 0 0}
+.guided-setup>h2{scroll-margin-top:80px}
