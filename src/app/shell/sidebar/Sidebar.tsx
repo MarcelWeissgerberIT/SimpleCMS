@@ -21,6 +21,7 @@ import { TrashPopover } from './TrashPopover'
 import { useVisited, VisitedSection } from './Visited'
 import { createPrivateDatabaseAndOpen, createPrivatePageAndOpen } from './private'
 import { foldedBut, treeAncestors, treeKey, useTreeState } from '../lib/tree'
+import { isTestAccess } from '../../cloud/testScope'
 import { usePrivateMode } from '../../cloud'
 import { closeMobileSidebar, createDatabaseAndOpen, createFreeBoardAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
 import { useIsMobile, useKbdHint } from '../lib/hooks'
@@ -41,6 +42,7 @@ const MAX_W = 480
 
 export function Sidebar() {
   const t = useT()
+  const inCloud = useInCloud()
   const mobile = useIsMobile()
   const width = useWorkspace((s) => s.settings.sidebarWidth)
   const collapsed = useWorkspace((s) => s.settings.sidebarCollapsed)
@@ -97,6 +99,7 @@ export function Sidebar() {
         <nav className="sb-nav" aria-label={t('shell.nav.label')}>
           <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
+          {inCloud && !isTestAccess() && <NavRow icon={<Users size={16} />} label={t('shell.nav.personalGuides')} active={route.name === 'personal-guides'} onClick={() => { closeMobileSidebar(); navigate({ name: 'personal-guides' }) }} />}
           <InboxNavRow active={route.name === 'inbox'} />
           <OutboxNavRow active={route.name === 'outbox'} />
           {!readOnly && (

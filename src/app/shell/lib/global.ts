@@ -257,6 +257,7 @@ export function useRouteEffects(route: Route) {
   useEffect(() => {
     let name: string
     if (route.name === 'page') name = exists || title !== undefined ? title?.trim() || t('common.untitled') : t('shell.notFound.title')
+    else if (route.name === 'personal-guides') name = t('shell.nav.personalGuides')
     else if (route.name === 'graph') name = t('shell.nav.graph')
     else if (route.name === 'journal') name = t('shell.nav.today')
     else if (route.name === 'agenda') name = t('shell.nav.agenda')

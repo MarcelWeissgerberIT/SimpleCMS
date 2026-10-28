@@ -56,9 +56,9 @@ export function Home() {
             </span>
           </div>
         )}
+        <PersonalGuides />
         <FirstStartEntry />
         <AtlasWelcome />
-        <PersonalGuides />
         <PreflightHome />
         {mode === 'full' ? <h1 className="visually-hidden">{greeting}</h1> : <HomeSections greeting={greeting} />}
       </div>

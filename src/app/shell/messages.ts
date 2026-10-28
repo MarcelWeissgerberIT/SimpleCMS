@@ -45,6 +45,7 @@ export const messages: Messages = {
     // navigation
     'shell.nav.search': 'Search',
     'shell.nav.home': 'Home',
+    'shell.nav.personalGuides': 'My start',
     'shell.nav.today': 'Today',
     'shell.nav.graph': 'Graph',
     'shell.nav.templates': 'Templates',
@@ -558,6 +559,7 @@ export const messages: Messages = {
 
     'shell.nav.search': 'Suchen',
     'shell.nav.home': 'Start',
+    'shell.nav.personalGuides': 'Mein Einstieg',
     'shell.nav.today': 'Heute',
     'shell.nav.graph': 'Graph',
     'shell.nav.templates': 'Vorlagen',

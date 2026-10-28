@@ -95,6 +95,7 @@ function RouteCrumb({ route }: { route: Route }) {
   // routes rendered outside the workspace (share, forms …) never reach this crumb
   const map: Partial<Record<Route['name'], readonly [LucideIcon, string]>> = {
     home: [Home, t('shell.nav.home')],
+    'personal-guides': [Home, t('shell.nav.personalGuides')],
     graph: [Waypoints, t('shell.nav.graph')],
     journal: [CalendarDays, t('shell.nav.today')],
     agenda: [CalendarRange, t('shell.nav.agenda')],

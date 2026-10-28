@@ -18,6 +18,7 @@ import { Peek } from './stage/Peek'
 import { StatusBar } from './stage/StatusBar'
 import { Toasts } from './stage/Toasts'
 import { PageView } from './page/PageView'
+import { PersonalGuidesPage } from './cloud/PersonalGuides'
 import { Home } from './home/Home'
 import { Agenda } from './agenda/Agenda'
 import { Inbox } from './inbox/Inbox'
@@ -188,6 +189,8 @@ function RouteView({ route }: { route: Route }) {
       return exists ? <PageView pageId={route.id} variant="main" /> : <MissingPage id={route.id} block={route.block} />
     case 'home':
       return <Home />
+    case 'personal-guides':
+      return <PersonalGuidesPage guideId={route.id} />
     case 'graph':
       return <GraphView />
     case 'agenda':
@@ -233,5 +236,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : route.name === 'patchbay' ? t('features.patchbay.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'personal-guides' ? t('shell.nav.personalGuides') : route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : route.name === 'patchbay' ? t('features.patchbay.title') : t('shell.nav.home')}</span>
 }

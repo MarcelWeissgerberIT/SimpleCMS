@@ -31,6 +31,8 @@ import { useSyncExternalStore } from 'react'
 
 export type Route =
   | { name: 'home' }
+  /** Recipient-only cloud preparation; never redirects to a configured workspace start page. */
+  | { name: 'personal-guides'; id?: string }
   | { name: 'page'; id: string; block?: string }
   | { name: 'graph' }
   | { name: 'journal' }
@@ -88,6 +90,7 @@ export function parseHash(hash: string): Route {
   const parts = path.split('/').filter(Boolean)
   if (parts.length === 0) return { name: 'home' }
   if (parts[0] === 'p' && parts[1]) return { name: 'page', id: parts[1], block: params.get('b') ?? undefined }
+  if (parts[0] === 'my-start') return { name: 'personal-guides', ...(parts[1] ? { id: parts[1] } : {}) }
   if (parts[0] === 'graph') return { name: 'graph' }
   if (parts[0] === 'journal') return { name: 'journal' }
   if (parts[0] === 'agenda') return { name: 'agenda' }
@@ -145,6 +148,8 @@ export function routeHref(r: Route): string {
   switch (r.name) {
     case 'home':
       return '#/'
+    case 'personal-guides':
+      return r.id ? `#/my-start/${encodeURIComponent(r.id)}` : '#/my-start'
     case 'page':
       return `#/p/${r.id}${r.block ? `?b=${r.block}` : ''}`
     case 'graph':
