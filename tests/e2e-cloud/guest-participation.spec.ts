@@ -1,8 +1,10 @@
-import { test, expect, email, signIn, openApp, waitOnline, createWorkspace, api, newPerson } from './fixtures'
+import { test, expect, email, signIn, openApp, waitOnline, createWorkspace, api, newPerson, wsEval } from './fixtures'
 
 test('temporary guests see expiry and can set up their worker; revocation returns them to read only', async ({ page: owner, context }, info) => {
   await openApp(owner); await signIn(owner, email('owner'))
   const ws = await createWorkspace(owner, 'Workshop participation')
+  await openApp(owner,ws);await waitOnline(owner)
+  await wsEval(owner,s=>{s.createPage({id:'guest-guided-start',title:'Your first start'});s.updatePageSettings('guest-guided-start',{firstStart:{v:1,project:'one-webserver',record:31503,readinessPage:'guest-guided-start'}})})
   const guest = await newPerson(context), address = email('guest')
   try {
     await openApp(guest); await signIn(guest, address)
@@ -15,9 +17,20 @@ test('temporary guests see expiry and can set up their worker; revocation return
     await expect(guest.getByTestId('guest-participation')).toContainText('Participation until')
     expect(await guest.evaluate(() => (window as any).__one.cloud.useCloud.getState().readOnly)).toBe(false)
     expect((await api(guest, 'POST', `/api/workspaces/${ws}/coding/workers`, {})).status).toBe(201)
+    expect((await api(owner,'PUT',`/api/workspaces/${ws}/personal-guides/guest-setup`,{email:address,title:'Your workshop start today',sections:[{title:'Your own Copilot',body:'Use your own worker and Atlas connection.'}],expiresAt:end})).status).toBe(200)
+    await openApp(guest,ws,'/my-start')
+    await expect(guest.getByRole('heading',{name:'Your workshop start today'})).toBeVisible()
+    await guest.getByRole('button',{name:'Set up step by step'}).click()
+    const guide=guest.getByTestId('guided-setup')
+    await expect(guide.getByTestId('setup-active-step')).toBeVisible()
+    await expect(guide).toContainText('Check Copilot on your computer')
+    await guide.getByRole('button',{name:'Check what is missing'}).click()
+    await expect(guide.getByTestId('setup-diagnosis')).toContainText('Worker reachable')
     await guest.screenshot({ path: info.outputPath('guest-participation.png'), animations: 'disabled' })
     expect((await api(owner, 'PUT', `/api/workspaces/${ws}/guest-participation`, { emails: [address], expiresAt: null })).status).toBe(200)
     await expect(guest.getByTestId('view-only')).toBeVisible()
+    await expect(guide).toContainText('Your access is currently read-only')
+    await expect(guide.getByTestId('setup-active-step')).toHaveCount(0)
     await expect(guest.getByTestId('guest-participation')).toHaveCount(0)
     expect((await api(guest, 'POST', `/api/workspaces/${ws}/coding/workers`, {})).status).toBe(403)
   } finally { await guest.context().close() }

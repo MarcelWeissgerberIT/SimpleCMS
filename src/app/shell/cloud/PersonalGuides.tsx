@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useCloud } from '../../cloud'
+import { useWorkspace } from '../../store/store'
+import { firstStart } from '../firstStart/model'
 import { isTestAccess } from '../../cloud/testScope'
 import { cloudApi } from './api'
 import { Modal } from '../../ui/Modal'
@@ -13,8 +15,9 @@ import './personal-guides.css'
 
 /** A stable destination, even if Home redirects to a workspace's configured start page. */
 export function PersonalGuidesPage({ guideId }: { guideId?: string }) {
- const t=useT(),lang=useLang(),workspace=useWorkspaceTitle(),email=useCloud(s=>s.user?.email)
- return <div className="personal-guides-page"><span className="label">§ GUIDE · {lang==='de'?'NUR FÜR DEIN KONTO':'YOUR ACCOUNT ONLY'}</span><h1>{t('shell.nav.personalGuides')}</h1><p className="personal-guides-page__identity">{workspace}<br/>{email}</p><PersonalGuides page guideId={guideId}/></div>
+ const t=useT(),lang=useLang(),workspace=useWorkspaceTitle(),email=useCloud(s=>s.user?.email),inCloud=useCloud(s=>s.active.kind==='cloud')
+ const setup=useWorkspace(s=>Object.values(s.pages).find(p=>!p.trashed&&!p.databaseId&&firstStart(p))?.id)
+ return <div className="personal-guides-page"><span className="label">§ GUIDE · {lang==='de'?'NUR FÜR DEIN KONTO':'YOUR ACCOUNT ONLY'}</span><h1>{t('shell.nav.personalGuides')}</h1><p className="personal-guides-page__identity">{workspace}<br/>{email}</p>{inCloud&&setup&&!isTestAccess()&&<div className="personal-guides__card"><Screws seed="personal-setup-entry"/><h2>{lang==='de'?'Worker, Copilot und Atlas einrichten':'Set up worker, Copilot and Atlas'}</h2><p>{lang==='de'?'Ein Schritt nach dem anderen – mit echten Screenshots und einer Prüfung, was noch fehlt.':'One step at a time – with real screenshots and checks for missing prerequisites.'}</p><button className="btn btn--primary" onClick={()=>navigate({name:'page',id:setup})}>{lang==='de'?'Schritt für Schritt einrichten':'Set up step by step'} →</button></div>}<PersonalGuides page guideId={guideId}/></div>
 }
 
 /** Neither the member directory nor the shared workspace contains these recipient-only payloads. */
