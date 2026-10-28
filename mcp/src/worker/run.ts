@@ -730,12 +730,12 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
       } : undefined,
     }) : await runCodex(options)
     if (res.cost && res.cost > 0) ctx.state.addCost(task.id, res.cost)
-    const receipt = copilot ? {...copilot.receipt(),stageKind:task.stage.kind as 'plan'|'doc'|'implement',status:ctx.question()?'question' as const:res.stopped?'stopped' as const:res.limited?'limit' as const:res.ok?'ok' as const:'failed' as const} : null
+    const receipt = copilot ? {...copilot.receipt(),...(res.limitKind?{limitKind:res.limitKind}:{}),stageKind:task.stage.kind as 'plan'|'doc'|'implement',status:ctx.question()?'question' as const:res.stopped?'stopped' as const:res.limited?'limit' as const:res.ok?'ok' as const:'failed' as const} : null
     if(receipt)log('info','Copilot run receipt: '+JSON.stringify(receipt))
     const base: Partial<StageOutcome> = { ...(receipt ? {copilotReceipts:[receipt]} : {}), ...(branch ? { branch } : {}), turns: res.steps, ...(res.cost !== undefined ? { cost: res.cost } : {}), ...(wt ? { git: await gitSnapshot(ctx, wt, scrub) } : {}) }
     if (res.stopped) return { ...base, status: 'stopped', error: 'Stopped in One.' }
     if (ctx.question()) return { ...base, status: 'question', question: scrub.text(ctx.question()!) }
-    if (res.limited) return { ...base, status: 'limit', error: res.error, ...(res.limitKind === 'budget' ? {} : { stepLimit: { turns: res.steps, max } }) }
+    if (res.limited) return { ...base, status: 'limit', error: res.error, ...(res.limitKind==='steps'||!res.limitKind&&res.steps>=max ? { stepLimit: { turns: res.steps, max } } : {}) }
     if (!res.ok) return { ...base, status: 'failed', error: scrub.text(res.error ?? 'The coding agent failed.') }
     const content = scrub.text(res.text).trim()
     if (!content) return { ...base, status: 'failed', error: 'The coding agent returned no final answer.' }

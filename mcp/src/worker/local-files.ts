@@ -188,11 +188,18 @@ export class LocalFiles {
     for (const e of entries) if (selected.length < 20 && !selected.includes(e) && e.imports.some(i => names.some(n => i.endsWith('/' + n)))) selected.push(e)
     return { entries: selected, scanned, truncated: truncated || entries.length > selected.length, warning: 'Partial lexical/symbol map, not a complete dependency graph. Read current source before editing.' }
   }
-  async projectContext() {
-    let text = ''
+  async projectReferences() {
+    const refs: Array<{ path: string; text: string }> = []
+    let remaining = 12000
     for (const name of ['AGENTS.md', 'CLAUDE.md', 'GLOSSARY.md', 'CONTEXT.md', 'README.md', 'package.json']) {
-      try { const textFile = await this.text(await this.path(name)); text += `\n--- ${name} (excerpt) ---\n${textFile.slice(0, 3500)}\n` } catch { /* optional project context; excerpts never count as a complete tool read */ }
+      try {
+        const textFile = await this.text(await this.path(name))
+        const text = `\n--- ${name} (excerpt) ---\n${textFile.slice(0, 3500)}\n`.slice(0, remaining)
+        if (text) refs.push({ path: name, text })
+        remaining -= text.length
+      } catch { /* optional project context; excerpts never count as a complete tool read */ }
     }
-    return text.slice(0, 12000)
+    return refs
   }
+  async projectContext() { return (await this.projectReferences()).map(ref => ref.text).join('') }
 }

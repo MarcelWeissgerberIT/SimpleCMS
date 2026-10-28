@@ -67,6 +67,28 @@ test('unsupported choices fail before sending a prompt; credential-shaped or mal
  assert.equal(readRepairPolicy({agent:'claude',attempts:1,copilot:{model:'auto'}}),null)
  assert.deepEqual(readRepairPolicy({agent:'copilot',attempts:1,copilot:{model:'gpt-6.1-sol'}})?.copilot,{model:'gpt-6.1-sol'})
 })
+test('auto starts a read-only BA run with a large README by deferring optional bootstrap references',async()=>{
+ const root=tempDir('copilot-ba-context'),logs:string[]=[],capture=join(tempDir('copilot-ba-capture'),'capture.json')
+ writeFileSync(join(root,'AGENTS.md'),'Project constraint: never edit source in this BA stage.')
+ writeFileSync(join(root,'CLAUDE.md'),'Preserve the existing API contract.')
+ for(const name of ['GLOSSARY.md','CONTEXT.md','README.md','package.json'])writeFileSync(join(root,name),'reference-data '.repeat(400))
+ const prompt='Inspect the API contract read only. '+ 'User requirement: preserve compatibility. '.repeat(400)+' END-OF-ASSIGNED-TASK'
+ const prepared=await prepareCopilotRun('auto',undefined,'role',envOf({COPILOT_CAPTURE:capture}))
+ const result=await runLocal({agent:'copilot',cwd:root,prompt,readOnly:true,maxSteps:5,taskMcp:null,signal:new AbortController().signal,log:l=>logs.push(l.s),env:envOf(),model:prepared.model,inference:prepared.inference,context:prepared.context,outputTokens:prepared.outputTokens})
+ assert.equal(result.ok,true,result.error);assert.equal(prepared.receipt().rounds,1);assert.ok(logs.some(l=>l.startsWith('Initial context fitted:')))
+ const sent=JSON.parse(readFileSync(capture,'utf8')).find((r:any)=>r.method==='session.send')
+ assert.ok(sent);const body=JSON.stringify(sent.params)
+ assert.match(body,/END-OF-ASSIGNED-TASK/);assert.match(body,/Project constraint: never edit source/);assert.match(body,/Deferred project excerpts/)
+ assert.ok(readCopilotReceipt({...prepared.receipt(),limitKind:'context'})?.limitKind==='context')
+ assert.equal(readCopilotReceipt({...prepared.receipt(),limitKind:'quota-guessed'}),null)
+})
+test('an oversized immutable BA task logs the context boundary before inference and does not claim quota usage',async()=>{
+ const root=tempDir('copilot-large-task'),logs:string[]=[]
+ const prepared=await prepareCopilotRun('auto',undefined,'role',envOf())
+ const result=await runLocal({agent:'copilot',cwd:root,prompt:'Human scope '.repeat(5000),readOnly:true,maxSteps:5,taskMcp:null,signal:new AbortController().signal,log:l=>logs.push(l.s),env:envOf(),model:prepared.model,inference:prepared.inference,context:prepared.context})
+ assert.equal(result.limited,true);assert.equal(result.limitKind,'context');assert.equal(result.steps,0);assert.equal(prepared.receipt().rounds,0);assert.equal(prepared.receipt().inputTokens,null)
+ assert.match(result.error!,/No model prompt was sent/);assert.ok(logs.some(l=>l.startsWith('Harness context limit:')));assert.match(logs.find(l=>l.startsWith('Harness receipt:'))!,/"limitKind":"context"/)
+})
 test('auto receipts preserve actual models, deduplicate usage, sum units without inventing currency or missing values',async()=>{
  const usage=[{eventId:'u1',model:'gpt-6.1-sol',inputTokens:50,outputTokens:20,copilotUsage:{totalNanoAiu:1000000000},quotaSnapshots:{premium:{remainingPercentage:72.5,resetDate:'2026-11-01T00:00:00Z'}},cost:999,secret:'not allowed'}]
  const run=await prepareCopilotRun('auto',undefined,'worker',envOf({COPILOT_FAKE_USAGE:JSON.stringify([...usage,...usage])}))
@@ -110,6 +132,18 @@ test('built QA repair uses Coding model then QA model and retains both real harn
   assert.deepEqual(out.copilotReceipts?.map(r=>r.status),['ok','ok']);assert.ok(out.copilotReceipts?.every(r=>r.source==='role'&&r.inputTokens!==null))
   const creates=JSON.parse(readFileSync(capture,'utf8')).filter((e:any)=>e.method==='session.create')
   assert.deepEqual(creates.map((c:any)=>c.params.model),['gpt-6.1-sol','gpt-6.1-sol','gpt-6.1-sol','claude-opus-5.5']);assert.equal(creates.at(-1).params.reasoningEffort,'high')
+ }finally{tab?.close();await worker.stop()}
+})
+test('built BA context refusal preserves its cause and does not offer step-limit continuation',async()=>{
+ const r=makeRepo(),file=writeConfig(r,{workspace:WS_LOCAL.id,port:47419,pollSec:2,name:'copilot-context-refusal',repos:[repoEntry(r)]})
+ const worker=await startWorker(file,{COPILOT_BIN:fake,CLAUDE_BIN:'intentionally-missing-claude'})
+ let tab:FakeTab|null=null
+ try{
+  tab=await FakeTab.connect(47419);tab.hello(WS_LOCAL);await tab.next('welcome')
+  const out=await tab.run(task({kind:'doc',copilot:{model:'auto'},copilotSource:'role'},{id:'copilot_ba_context',agent:'copilot',text:'Required scope '.repeat(3200)}))
+  assert.equal(out.status,'limit',JSON.stringify(out));assert.equal(out.turns,0);assert.equal(out.stepLimit,undefined)
+  assert.equal(out.copilotReceipts?.[0]?.limitKind,'context');assert.equal(out.copilotReceipts?.[0]?.rounds,0)
+  assert.match(out.error??'',/No model prompt was sent/)
  }finally{tab?.close();await worker.stop()}
 })
 
