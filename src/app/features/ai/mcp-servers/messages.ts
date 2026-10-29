@@ -8,6 +8,8 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.mcp.protected.open': 'Open protected sign-in',
+    'features.ai.mcp.protected.note': 'Opens a separate sign-in window on the displayed server. Passwords and MFA codes never go into this chat.',
     'features.ai.mcp.cw.label': 'Codeword',
     'features.ai.mcp.cw.hint': 'Start a request with {cw} — Claude then answers with this server’s tools first, even where it is not used otherwise.',
     'features.ai.mcp.cw.hintEmpty': 'Optional. A short word like “kb”: a request starting with kb: then goes to this server first.',
@@ -57,6 +59,8 @@ export const messages: Messages = {
     'features.ai.mcp.ov.note': '“Off” = not used, not even through its codeword. Claude Code in the coding worker has its own MCP servers (your claude mcp setup, ticked per repo on the worker’s setup page): a server of the same name or codeword counts here, a name One does not know gets a row of its own.',
   },
   de: {
+    'features.ai.mcp.protected.open': 'Geschützte Anmeldung öffnen',
+    'features.ai.mcp.protected.note': 'Öffnet ein getrenntes Anmeldefenster auf dem angezeigten Server. Passwort und MFA-Code gelangen nicht in diesen Chat.',
     'features.ai.mcp.cw.label': 'Codewort',
     'features.ai.mcp.cw.hint': 'Beginne eine Anfrage mit {cw} — dann antwortet Claude zuerst mit den Werkzeugen dieses Servers, auch wo er sonst nicht dabei ist.',
     'features.ai.mcp.cw.hintEmpty': 'Optional. Ein kurzes Wort wie „kb“: Eine Anfrage, die mit kb: beginnt, geht dann zuerst an diesen Server.',

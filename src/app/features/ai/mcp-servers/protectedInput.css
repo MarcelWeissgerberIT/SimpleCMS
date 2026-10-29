@@ -1,0 +1,4 @@
+.mcp-protected-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; padding: 8px 0; }
+.mcp-protected-input__url { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-xs); }
+.mcp-protected-input small { flex-basis: 100%; color: var(--muted); font-size: var(--text-xs); }
+.term-step .mcp-protected-input { grid-column: 2 / -1; }

@@ -64,7 +64,7 @@ export interface AgentStep {
   kind: 'tool' | 'note' | 'mcp'
   tool?: ToolName
   /** kind 'mcp': the call (server, tool name, the error text of a failed call) */
-  mcp?: { id: string; server: string; tool: string; error?: string }
+  mcp?: { id: string; server: string; tool: string; error?: string; protectedInput?: string }
   /** what the tool was asked for (a query, a page title …) */
   arg?: string
   /** readout after the call: "4 results", "staged #2" */

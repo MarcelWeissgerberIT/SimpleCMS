@@ -1,3 +1,4 @@
+import { ProtectedMcpInput } from './mcp-servers/ProtectedMcpInput'
 /**
  * AIMenu — the Claude panel the editor opens for a selection ("Ask AI") or at the cursor
  * block (space on an empty line / slash command). One input line on top (prompt or filter),
@@ -2638,6 +2639,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
           ),
         )}
       </ul>
+      {calls.filter((c) => c.protectedInput).map((c) => <ProtectedMcpInput key={c.id} call={c} />)}
       <McpSkippedNote calls={calls} />
       {failed.map((c) => (
         <p key={c.id} className="ai-mcp__err">

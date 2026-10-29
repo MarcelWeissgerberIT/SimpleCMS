@@ -520,7 +520,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       sawMcp = true
       if (!here()) return
       const step = get().steps.find((x) => x.mcp?.id === call.id)
-      const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error }
+      const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error, protectedInput: call.protectedInput }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
       else set((s) => ({ steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'mcp', arg: call.arg, state: call.state, startedAt: Date.now(), mcp }] }))
     },
