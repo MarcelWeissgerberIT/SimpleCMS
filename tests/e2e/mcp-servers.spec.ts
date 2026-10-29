@@ -927,3 +927,46 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     expect(text).not.toContain(marker)
   })
 })
+
+
+test('protected Polarion sign-in is an explicit trusted link, never fetched or embedded by One', async ({ page, context }, testInfo) => {
+  const url = 'https://mcp.example.test/mcp/secure-input/12345678-1234-4234-8234-123456789abc'
+  let signInRequests = 0
+  await context.route('https://mcp.example.test/mcp/secure-input/**', async (route) => {
+    signInRequests++
+    await route.fulfill({ contentType: 'text/html', body: '<h1>Protected fixture</h1>' })
+  })
+  await mockApi(context, (r) => r.stream ? { sse: sseMessage([
+    { type: 'mcp_tool_use', id: 'protected-1', server: 'archive', name: 'atlas_polarion_status', input: { connection: 'fixture', job: 'fixture' } },
+    { type: 'mcp_tool_result', id: 'protected-1', text: JSON.stringify({ status: 'running', result: { status: 'auth_required', interaction: { type: 'url', purpose: 'authentication', url } } }) },
+    { type: 'text', text: 'Open the protected sign-in to continue.' },
+  ]) } : undefined)
+  await openApp(page)
+  await setKey(page)
+  await setServers(page, [archive({ tools: ['atlas_polarion_status'] })])
+  const agent = await openAgent(page)
+  await runAgentTask(page, 'Read CASE-40616 from Polarion')
+  const protectedInput = agent.getByTestId('mcp-protected-input')
+  const link = protectedInput.getByRole('link')
+  await expect(link).toHaveAttribute('href', url)
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(link).toHaveAttribute('target', '_blank')
+  await expect(agent.locator('iframe,input[type=password]')).toHaveCount(0)
+  expect(signInRequests).toBe(0)
+  for (const dark of [false, true]) {
+    await page.emulateMedia({ colorScheme: dark ? 'dark' : 'light' })
+    for (const mobile of [false, true]) {
+      await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 })
+      await expect(link).toBeVisible()
+      await page.waitForTimeout(400) // Let responsive terminal/theme transitions settle for visual QA.
+      await page.screenshot({ path: testInfo.outputPath(`protected-${dark ? 'dark' : 'light'}-${mobile ? 'mobile' : 'desktop'}.png`), fullPage: true })
+    }
+  }
+  const popup = page.waitForEvent('popup')
+  await link.click()
+  const window = await popup
+  await window.waitForLoadState()
+  expect(signInRequests).toBe(1)
+  expect(await window.evaluate(() => window.opener === null)).toBe(true)
+  await window.close()
+})

@@ -3,6 +3,7 @@
  * (Anthropic calls the server), so they are only watched here — shown as "KB · search" chips.
  */
 import {noteAtlasRead,type ReadinessScope} from '../../../cloud'
+import { protectedInputOf } from './protectedInput'
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 
 export interface McpCall {
@@ -15,6 +16,8 @@ export interface McpCall {
   state: 'run' | 'ok' | 'err'
   /** an error result's text (clipped) */
   error?: string
+  /** Credential-free URL; revalidated against the configured server before display. */
+  protectedInput?: string
   /**
    * Not a call: a server that did not join — 'off' = switched off, 'token' = no token in this browser, 'refused' = its
    * token was rejected, 'provider' = the route's provider connects no MCP servers (OpenRouter), 'policy' = the route
@@ -64,7 +67,7 @@ export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock, readines
     if (i < 0) return calls
     if(readiness&&!block.is_error)noteAtlasRead(readiness.scope,readiness.servers.find(s=>s.name===calls[i].server)?.url,calls[i].tool,block.content)
     const next = [...calls]
-    next[i] = block.is_error ? { ...calls[i], state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...calls[i], state: 'ok' }
+    next[i] = block.is_error ? { ...calls[i], state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...calls[i], state: 'ok', protectedInput: protectedInputOf(block.content) }
     return next
   }
   return calls
