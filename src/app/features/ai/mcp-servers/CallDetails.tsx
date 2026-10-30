@@ -1,3 +1,4 @@
+import { Tooltip } from '../../../ui/Tooltip'
 import { useT } from '../../../i18n'
 import { callLabel, type McpCall } from './activity'
 import './callDetails.css'
@@ -13,7 +14,7 @@ export function McpCallDetails({ call }: { call: Pick<McpCall, 'server' | 'tool'
   // Older stored steps may still contain a prefixed connection or job UUID.
   const readable = call.arg && !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(call.arg) ? call.arg : ''
   return <details className="mcp-call-details">
-    <summary><span className="mcp-call-details__server">{call.server}</span><span>{action}</span>{readable && <span className="mcp-call-details__subject">{readable}</span>}</summary>
+    <Tooltip label={`${action}${readable ? ` · ${readable}` : ''} — ${callLabel(call)}. ${t('features.ai.mcp.action.details')}`}><summary><span className="mcp-call-details__server">{call.server}</span><span>{action}</span>{readable && <span className="mcp-call-details__subject">{readable}</span>}</summary></Tooltip>
     <div className="mcp-call-details__technical"><code>{callLabel(call)}</code>{call.arg && <pre>{call.arg}</pre>}</div>
   </details>
 }
