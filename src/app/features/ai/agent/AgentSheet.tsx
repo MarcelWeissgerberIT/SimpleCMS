@@ -1,3 +1,4 @@
+import { McpCallDetails } from '../mcp-servers/CallDetails'
 import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
 import { ProtectedMcpInput } from '../mcp-servers/ProtectedMcpInput'
 /**
@@ -762,12 +763,7 @@ function McpRow({ step }: { step: AgentStep }) {
       <span className="term-step__glyph" aria-hidden>
         {step.state === 'err' ? '✗' : '⇄'}
       </span>
-      <span className="term-step__chip" title={callLabel(call)}>
-        {callLabel(call)}
-      </span>
-      <span className="term-step__arg" title={step.arg}>
-        {step.arg}
-      </span>
+      <McpCallDetails call={{ ...call, arg: step.arg ?? '' }} />
       <span className="term-step__res">{result}</span>
       <ProtectedMcpInput call={call} />
       {step.state === 'err' && (

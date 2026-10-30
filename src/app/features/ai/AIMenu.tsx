@@ -1,3 +1,4 @@
+import { McpCallDetails } from './mcp-servers/CallDetails'
 import { RepoFilesControl } from '../repo-files/RepoFilesControl'
 import { WorkerConnectionHelp } from './mcp-servers/WorkerConnectionHelp'
 import { ProtectedMcpInput } from './mcp-servers/ProtectedMcpInput'
@@ -2641,7 +2642,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
           ) : (
             <li key={c.id} className="ai-mcp__chip" data-state={c.state} title={c.arg ? `${callLabel(c)} — ${c.arg}` : callLabel(c)}>
               <span className={`led${c.state === 'run' ? ' led--on ai-led--live' : c.state === 'err' ? ' ai-led--err' : ' led--ok'}`} aria-hidden />
-              {callLabel(c)}
+              <McpCallDetails call={c} />
             </li>
           ),
         )}

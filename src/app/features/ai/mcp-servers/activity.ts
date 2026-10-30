@@ -38,7 +38,12 @@ export function skippedCall(server: string, why: McpSkip, provider?: string): Mc
 /** The first short string in a tool input (a query, an id …), for the readout. */
 export function inputLabel(input: unknown): string {
   if (!input || typeof input !== 'object') return ''
-  for (const v of Object.values(input as Record<string, unknown>)) {
+  const values = input as Record<string, unknown>
+  const hidden = new Set(['connection', 'job', 'lease', 'token', 'password', 'workerSecret', 'authorization'])
+  const preferred = ['id', 'query', 'title', 'path', 'ref']
+  const entries = [...preferred.filter((k) => k in values).map((k) => [k, values[k]] as const), ...Object.entries(values).filter(([k]) => !preferred.includes(k))]
+  for (const [key, v] of entries) {
+    if (hidden.has(key)) continue
     if (typeof v === 'string' && v.trim()) return clip(v.trim().replace(/\s+/g, ' '), 80)
     if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   }

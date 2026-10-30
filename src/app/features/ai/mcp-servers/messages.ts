@@ -8,6 +8,12 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.mcp.action.read': 'Read',
+    'features.ai.mcp.action.search': 'Search',
+    'features.ai.mcp.action.status': 'Check connection',
+    'features.ai.mcp.action.connect': 'Connect',
+    'features.ai.mcp.action.list': 'List',
+
     'features.ai.mcp.check.model': 'Model for connection tests and usage guides',
     'features.ai.mcp.check.default': 'Use current default · {model}',
     'features.ai.mcp.check.scope': 'Saved on this device for MCP setup only. Choosing a model does not send a request or grant data access.',
@@ -66,6 +72,12 @@ export const messages: Messages = {
     'features.ai.mcp.ov.note': '“Off” = not used, not even through its codeword. Claude Code in the coding worker has its own MCP servers (your claude mcp setup, ticked per repo on the worker’s setup page): a server of the same name or codeword counts here, a name One does not know gets a row of its own.',
   },
   de: {
+    'features.ai.mcp.action.read': 'Lesen',
+    'features.ai.mcp.action.search': 'Suchen',
+    'features.ai.mcp.action.status': 'Verbindung prüfen',
+    'features.ai.mcp.action.connect': 'Verbinden',
+    'features.ai.mcp.action.list': 'Auflisten',
+
     'features.ai.mcp.check.model': 'Modell für Verbindungstests und Anleitungen',
     'features.ai.mcp.check.default': 'Aktuelle Vorgabe verwenden · {model}',
     'features.ai.mcp.check.scope': 'Gilt auf diesem Gerät nur für die MCP-Einrichtung. Die Modellwahl sendet keine Anfrage und erteilt keine Datenfreigabe.',

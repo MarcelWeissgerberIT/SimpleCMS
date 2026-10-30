@@ -1,0 +1,9 @@
+.mcp-call-details { min-width: 0; max-width: 100%; color: inherit; }
+.mcp-call-details > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+.mcp-call-details > summary::before { content: '›'; color: var(--ink-3); }
+.mcp-call-details[open] > summary::before { content: '⌄'; }
+.mcp-call-details__server { color: var(--ink-3); font-size: var(--text-xs); }
+.mcp-call-details__subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+.mcp-call-details__technical { padding: 8px 0 4px 16px; overflow-wrap: anywhere; font-size: var(--text-xs); color: var(--ink-3); }
+.mcp-call-details__technical pre { white-space: pre-wrap; margin: 4px 0 0; }
+.term-step--mcp > .mcp-call-details { grid-column: 2 / 4; }

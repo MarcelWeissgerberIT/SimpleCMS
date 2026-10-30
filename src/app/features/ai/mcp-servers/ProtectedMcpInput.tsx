@@ -13,7 +13,7 @@ export function ProtectedMcpInput({ call }: { call: { server: string; tool: stri
   if (!url) return null
   return <div className="mcp-protected-input" data-testid="mcp-protected-input">
     <a className="btn btn--sm" href={url} target="_blank" rel="noopener noreferrer">{t('features.ai.mcp.protected.open')}</a>
-    <span className="mcp-protected-input__url">{url}</span>
+    <span className="mcp-protected-input__url" title={url}>{new URL(url).origin}</span>
     <small>{t('features.ai.mcp.protected.note')}</small>
   </div>
 }
