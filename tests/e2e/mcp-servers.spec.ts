@@ -1002,6 +1002,12 @@ test('Polarion activity hides prefixed transport UUIDs while preserving item IDs
   await expect(details).toHaveCount(2)
   await expect(details.nth(0).locator('summary')).toContainText('Inspect Polarion fields and tables')
   await expect(details.nth(0).locator('summary')).toContainText('CASE-23028')
+  await details.nth(0).locator('summary').hover()
+  await expect(page.locator('.tooltip')).toContainText('Inspect Polarion fields and tables')
+  await expect(page.locator('.tooltip')).toContainText('atlas_polarion_inspect')
+  await expect(page.locator('.tooltip')).not.toContainText(connection)
+  await page.screenshot({ path: testInfo.outputPath('polarion-tool-tooltip.png'), fullPage: true })
+  await page.mouse.move(0, 0)
   await expect(details.nth(1).locator('summary')).toContainText('Check Polarion connection')
   await expect(agent).not.toContainText('atlas_polarion_inspect', { useInnerText: true })
   await expect(agent).not.toContainText(connection, { useInnerText: true })
@@ -1014,4 +1020,31 @@ test('Polarion activity hides prefixed transport UUIDs while preserving item IDs
   await agent.screenshot({ path: testInfo.outputPath('polarion-readable-mobile.png') })
   await details.nth(1).locator('summary').click()
   await expect(details.nth(1).locator('pre')).toContainText(connection)
+})
+
+
+test('terminal opens plain and inline-code web links only after a user click', async ({ page, context }, testInfo) => {
+  const url = 'https://mcp.example.test/mcp/secure-input/12345678-1234-4234-8234-123456789abc'
+  let requests = 0
+  await context.route('https://mcp.example.test/mcp/secure-input/**', async route => {
+    requests++
+    await route.fulfill({contentType:'text/html',body:'<h1>Fixture sign-in</h1>'})
+  })
+  await mockApi(context, r => r.stream ? {sse:sseMessage([{type:'text',text:`Sign in: ${url}.\nOr use \`${url}\`.\n[Unsafe](javascript:alert)\n\n\`\`\`text\n${url}\n\`\`\``}])} : undefined)
+  await openApp(page);await setKey(page)
+  const agent = await openAgent(page);await runAgentTask(page, 'Show a sign-in link')
+  const links = agent.locator('.term-answer a')
+  await expect(links).toHaveCount(2)
+  for(const link of await links.all()) {
+    await expect(link).toHaveAttribute('href',url)
+    await expect(link).toHaveAttribute('target','_blank')
+    await expect(link).toHaveAttribute('rel','noopener noreferrer')
+  }
+  expect(requests).toBe(0)
+  await links.first().scrollIntoViewIfNeeded()
+  await agent.screenshot({path:testInfo.outputPath('terminal-clickable-links.png')})
+  const popup = page.waitForEvent('popup');await links.first().click()
+  const opened = await popup;await opened.waitForLoadState()
+  expect(requests).toBe(1);expect(await opened.evaluate(()=>window.opener===null)).toBe(true)
+  await opened.close()
 })

@@ -156,7 +156,11 @@ function parse(src: string): Block[] {
   return out
 }
 
-const INLINE_RE = /(\[\[[^\]\n]+\]\]|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|\*[^*\n]+\*|_[^_\n]+_)/g
+const INLINE_RE = /(\[\[[^\]\n]+\]\]|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s<>"`]+|\*[^*\n]+\*|_[^_\n]+_)/g
+
+function webLink(value: string): string | undefined {
+  try {const u = new URL(value);return /^https?:$/.test(u.protocol) && !u.username && !u.password ? u.href : undefined} catch {return undefined}
+}
 
 function inline(text: string, resolve: Props['resolveCitation'], keyBase: string): ReactNode[] {
   const out: ReactNode[] = []
@@ -184,14 +188,23 @@ function inline(text: string, resolve: Props['resolveCitation'], keyBase: string
       )
     } else if (tok.startsWith('**') || tok.startsWith('__')) out.push(<strong key={key}>{inline(tok.slice(2, -2), resolve, key)}</strong>)
     else if (tok.startsWith('~~')) out.push(<s key={key}>{inline(tok.slice(2, -2), resolve, key)}</s>)
-    else if (tok.startsWith('`')) out.push(<code key={key}>{tok.slice(1, -1)}</code>)
+    else if (tok.startsWith('`')) {
+      const value = tok.slice(1, -1), href = webLink(value)
+      out.push(<code key={key}>{href ? <a href={href} target="_blank" rel="noopener noreferrer">{value}</a> : value}</code>)
+    } else if (/^https?:\/\//i.test(tok)) {
+      let value = tok.replace(/[.,;:!?]+$/, '')
+      while (value.endsWith(')') && value.split(')').length > value.split('(').length) value = value.slice(0, -1)
+      const href = webLink(value)
+      out.push(href ? <a key={key} href={href} target="_blank" rel="noopener noreferrer">{value}</a> : <span key={key}>{value}</span>)
+      if(value.length < tok.length)out.push(tok.slice(value.length))
+    }
     else if (tok.startsWith('[')) {
       const lm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/)
       const href = lm?.[2] ?? ''
       const safe = /^(https?:|mailto:|#)/i.test(href)
       out.push(
         safe ? (
-          <a key={key} href={href} target={href.startsWith('#') ? undefined : '_blank'} rel="noreferrer">
+          <a key={key} href={href} target={href.startsWith('#') ? undefined : '_blank'} rel="noopener noreferrer">
             {lm?.[1]}
           </a>
         ) : (

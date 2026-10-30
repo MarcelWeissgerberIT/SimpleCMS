@@ -8,6 +8,7 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.mcp.action.details': 'Open technical details',
     'features.ai.mcp.action.inspect': 'Inspect fields and tables',
     'features.ai.mcp.action.generic': 'Run tool',
     'features.ai.mcp.action.polarion.inspect': 'Inspect Polarion fields and tables',
@@ -80,6 +81,7 @@ export const messages: Messages = {
     'features.ai.mcp.ov.note': '“Off” = not used, not even through its codeword. Claude Code in the coding worker has its own MCP servers (your claude mcp setup, ticked per repo on the worker’s setup page): a server of the same name or codeword counts here, a name One does not know gets a row of its own.',
   },
   de: {
+    'features.ai.mcp.action.details': 'Technische Details aufklappen',
     'features.ai.mcp.action.inspect': 'Felder und Tabellen prüfen',
     'features.ai.mcp.action.generic': 'Werkzeug ausführen',
     'features.ai.mcp.action.polarion.inspect': 'Polarion-Felder und Tabellen prüfen',
