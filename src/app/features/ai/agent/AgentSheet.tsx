@@ -1,4 +1,6 @@
+import { McpCallDetails } from '../mcp-servers/CallDetails'
 import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
+import { ProtectedMcpInput } from '../mcp-servers/ProtectedMcpInput'
 /**
  * AI terminal — the dock at the bottom of the content area (the sidebar stays visible; a full-screen
  * sheet on phones), built like an instrument readout: an ink panel in JetBrains Mono. Prompt with
@@ -761,13 +763,9 @@ function McpRow({ step }: { step: AgentStep }) {
       <span className="term-step__glyph" aria-hidden>
         {step.state === 'err' ? '✗' : '⇄'}
       </span>
-      <span className="term-step__chip" title={callLabel(call)}>
-        {callLabel(call)}
-      </span>
-      <span className="term-step__arg" title={step.arg}>
-        {step.arg}
-      </span>
+      <McpCallDetails call={{ ...call, arg: step.arg ?? '' }} />
       <span className="term-step__res">{result}</span>
+      <ProtectedMcpInput call={call} />
       {step.state === 'err' && (
         <p className="term-step__err">
           {call.error ? t('features.ai.mcp.callErr', { server, tool: call.tool, error: call.error }) : t('features.ai.mcp.callErrBare', { server, tool: call.tool })} {t('features.ai.mcp.callErrNote')}

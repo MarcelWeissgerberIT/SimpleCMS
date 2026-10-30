@@ -3,6 +3,7 @@
  * (Anthropic calls the server), so they are only watched here — shown as "KB · search" chips.
  */
 import {noteAtlasRead,type ReadinessScope} from '../../../cloud'
+import { protectedInputOf } from './protectedInput'
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 
 export interface McpCall {
@@ -15,6 +16,8 @@ export interface McpCall {
   state: 'run' | 'ok' | 'err'
   /** an error result's text (clipped) */
   error?: string
+  /** Credential-free URL; revalidated against the configured server before display. */
+  protectedInput?: string
   /**
    * Not a call: a server that did not join — 'off' = switched off, 'token' = no token in this browser, 'refused' = its
    * token was rejected, 'provider' = the route's provider connects no MCP servers (OpenRouter), 'policy' = the route
@@ -35,7 +38,12 @@ export function skippedCall(server: string, why: McpSkip, provider?: string): Mc
 /** The first short string in a tool input (a query, an id …), for the readout. */
 export function inputLabel(input: unknown): string {
   if (!input || typeof input !== 'object') return ''
-  for (const v of Object.values(input as Record<string, unknown>)) {
+  const values = input as Record<string, unknown>
+  const hidden = new Set(['connection', 'job', 'lease', 'token', 'password', 'workerSecret', 'authorization'])
+  const preferred = ['id', 'query', 'title', 'path', 'ref']
+  const entries = [...preferred.filter((k) => k in values).map((k) => [k, values[k]] as const), ...Object.entries(values).filter(([k]) => !preferred.includes(k))]
+  for (const [key, v] of entries) {
+    if (hidden.has(key)) continue
     if (typeof v === 'string' && v.trim()) return clip(v.trim().replace(/\s+/g, ' '), 80)
     if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   }
@@ -64,7 +72,7 @@ export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock, readines
     if (i < 0) return calls
     if(readiness&&!block.is_error)noteAtlasRead(readiness.scope,readiness.servers.find(s=>s.name===calls[i].server)?.url,calls[i].tool,block.content)
     const next = [...calls]
-    next[i] = block.is_error ? { ...calls[i], state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...calls[i], state: 'ok' }
+    next[i] = block.is_error ? { ...calls[i], state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...calls[i], state: 'ok', protectedInput: protectedInputOf(block.content) }
     return next
   }
   return calls

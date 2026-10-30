@@ -1,5 +1,7 @@
+import { McpCallDetails } from './mcp-servers/CallDetails'
 import { RepoFilesControl } from '../repo-files/RepoFilesControl'
 import { WorkerConnectionHelp } from './mcp-servers/WorkerConnectionHelp'
+import { ProtectedMcpInput } from './mcp-servers/ProtectedMcpInput'
 /**
  * AIMenu — the Claude panel the editor opens for a selection ("Ask AI") or at the cursor
  * block (space on an empty line / slash command). One input line on top (prompt or filter),
@@ -110,7 +112,7 @@ import { AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel }
 import { legacyRule } from '@/shared/ai/route'
 import type { Route } from '@/shared/ai/types'
 import { codewordsIn, readServers } from './mcp-servers/config'
-import { callLabel, type McpCall } from './mcp-servers/activity'
+import type { McpCall } from './mcp-servers/activity'
 import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codeword.tsx'
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { deeperRoute, useVerifyOn } from './decide/answers'
@@ -2638,13 +2640,14 @@ function McpChips({ calls }: { calls: McpCall[] }) {
               {skippedLabel(t, c)}
             </li>
           ) : (
-            <li key={c.id} className="ai-mcp__chip" data-state={c.state} title={c.arg ? `${callLabel(c)} — ${c.arg}` : callLabel(c)}>
+            <li key={c.id} className="ai-mcp__chip" data-state={c.state}>
               <span className={`led${c.state === 'run' ? ' led--on ai-led--live' : c.state === 'err' ? ' ai-led--err' : ' led--ok'}`} aria-hidden />
-              {callLabel(c)}
+              <McpCallDetails call={c} />
             </li>
           ),
         )}
       </ul>
+      {calls.filter((c) => c.protectedInput).map((c) => <ProtectedMcpInput key={c.id} call={c} />)}
       <McpSkippedNote calls={calls} />
       {failed.map((c) => (
         <div key={c.id} className="ai-mcp__err">

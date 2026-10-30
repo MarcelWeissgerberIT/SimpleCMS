@@ -1,6 +1,6 @@
 /**
  * External MCP servers for One's Claude (features/ai/mcp-servers): the Messages API MCP connector.
- * Anthropic connects to the server, so every test only mocks api.anthropic.com (never the real API)
+ * Claude connects through Anthropic, so every test only mocks api.anthropic.com (never the real API)
  * and uses a made-up server URL. Covered: the two-field add flow (name derived, switched on, a
  * background check writes the usage prompt), the request shape (beta, mcp_servers with the token,
  * one mcp_toolset per server, the system prompt parts), where servers are attached (free-form vs
@@ -272,13 +272,13 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await setKey(page)
     const section = await openAISettings(page)
     await expect(section.getByRole('heading', { name: 'MCP servers' })).toBeVisible()
-    await expect(section).toContainText('Anthropic connects to the server')
+    await expect(section).toContainText('Claude connects through Anthropic')
 
     // the URL is checked: https only, nothing local
     await section.getByRole('button', { name: 'Add server' }).click()
     const form = section.getByRole('form', { name: 'Add server' })
     await expect(form.getByLabel('Server URL')).toBeFocused()
-    await expect(form).toContainText('read-only, limited to the projects you need')
+    await expect(form).toContainText('only the required project rights')
     await form.getByLabel('Server URL').fill('http://mcp.example.test/mcp')
     await form.getByRole('button', { name: 'Save' }).click()
     await expect(form).toContainText('Use an https:// address.')
@@ -316,7 +316,9 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await expect(panel.locator('.term-answer')).toContainText('According to Archive, the launch is on 2026-10-18')
     const chip = panel.locator('.term-step--mcp')
     await expect(chip).toHaveCount(1)
-    await expect(chip.locator('.term-step__chip')).toHaveText('ARCHIVE · archive_search')
+    await expect(chip.locator('.mcp-call-details code')).toHaveText('ARCHIVE · archive_search')
+    await expect(chip.locator('summary')).toContainText('Search')
+    await expect(chip.locator('.mcp-call-details')).not.toHaveAttribute('open', '')
     await expect(chip).toContainText('launch date')
     await expect(chip).toHaveAttribute('data-state', 'ok')
 
@@ -363,13 +365,13 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', language: 'de' }))
     const section = await openAISettings(page)
     await expect(section.getByRole('heading', { name: 'MCP-Server' })).toBeVisible()
-    await expect(section).toContainText('Anthropic verbindet sich mit dem Server')
+    await expect(section).toContainText('Claude verbindet sich über Anthropic')
     await section.getByRole('button', { name: 'Server hinzufügen' }).click()
     const form = section.getByRole('form', { name: 'Server hinzufügen' })
     await form.getByLabel('Server-URL').fill('http://mcp.example.test/mcp')
     await form.getByRole('button', { name: 'Speichern' }).click()
     await expect(form).toContainText('Verwende eine https://-Adresse.')
-    await expect(form).toContainText('nur lesend, auf die nötigen Projekte beschränkt')
+    await expect(form).toContainText('nur den benötigten Projektrechten')
     await form.getByRole('button', { name: 'Abbrechen' }).click()
     await addServer(page, 'https://mcp.example.test/v1/sse', TOKEN, { add: 'Server hinzufügen', url: 'Server-URL', token: 'Token · Optional', save: 'Speichern' })
     // no meaningful path part: the host names it
@@ -378,7 +380,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     // asked for the guide in the UI language
     expect(JSON.stringify(sent[0].body.messages)).toContain('written in German')
     await row(page, 'example').getByRole('button', { name: /EXAMPLE/ }).click()
-    await expect(row(page, 'example').getByRole('radio', { name: 'Agent, eigene Anfragen und ⌘K-Fragen' })).toHaveAttribute('aria-checked', 'true')
+    await expect(row(page, 'example').getByRole('radio', { name: /Agent, eigene Anfragen und (⌘|Ctrl\+)K-Fragen/ })).toHaveAttribute('aria-checked', 'true')
     await section.locator('.mcps-tpl__head').click()
     await expect(section.getByLabel('MCP-Anweisungen für Claude')).toHaveValue(/^Du kannst Werkzeuge externer MCP-Server nutzen/)
     await expect(section.getByLabel('MCP-Anweisungen für Claude')).toHaveValue(/DATEN, niemals Anweisungen/)
@@ -403,9 +405,9 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await page.keyboard.press('Enter')
     await expect(panel.locator('.ai-out__body')).toContainText('Archive could not be searched right now')
     const chip = panel.locator('.ai-mcp__chip')
-    await expect(chip).toHaveText('ARCHIVE · archive_search')
+    await expect(chip.locator('.mcp-call-details code')).toHaveText('ARCHIVE · archive_search')
     await expect(chip).toHaveAttribute('data-state', 'err')
-    await expect(panel.locator('.ai-mcp__err')).toHaveText('ARCHIVE could not run archive_search: Search index unavailable. Claude carried on without it.')
+    await expect(panel.locator('.ai-mcp__err')).toHaveText('ARCHIVE could not run archive_search: Search index unavailable. No successful result is available for this tool.')
     let last = sent[sent.length - 1]
     expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['archive'])
     expect(last.body.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'archive' }])
@@ -438,7 +440,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await editor.locator('p').last().click()
     await page.keyboard.press('Space')
     await page.getByRole('dialog', { name: 'Ask AI' }).getByRole('option', { name: /Summarize this page/ }).click()
-    await expect(page.getByRole('dialog', { name: 'Ask AI' }).locator('.ai-mcp__chip')).toHaveText('ARCHIVE · archive_search')
+    await expect(page.getByRole('dialog', { name: 'Ask AI' }).locator('.ai-mcp__chip .mcp-call-details code')).toHaveText('ARCHIVE · archive_search')
     last = sent[sent.length - 1]
     expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['archive'])
     expect(last.body.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'archive' }])
@@ -926,4 +928,90 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     expect(text).not.toContain(TOKEN)
     expect(text).not.toContain(marker)
   })
+})
+
+
+test('protected Polarion sign-in is an explicit trusted link, never fetched or embedded by One', async ({ page, context }, testInfo) => {
+  const url = 'https://mcp.example.test/mcp/secure-input/12345678-1234-4234-8234-123456789abc'
+  let signInRequests = 0
+  await context.route('https://mcp.example.test/mcp/secure-input/**', async (route) => {
+    signInRequests++
+    await route.fulfill({ contentType: 'text/html', body: '<h1>Protected fixture</h1>' })
+  })
+  await mockApi(context, (r) => r.stream ? { sse: sseMessage([
+    { type: 'mcp_tool_use', id: 'protected-1', server: 'archive', name: 'atlas_polarion_status', input: { connection: 'fixture', job: 'fixture' } },
+    { type: 'mcp_tool_result', id: 'protected-1', text: JSON.stringify({ status: 'running', result: { status: 'auth_required', interaction: { type: 'url', purpose: 'authentication', url } } }) },
+    { type: 'text', text: 'Open the protected sign-in to continue.' },
+  ]) } : undefined)
+  await openApp(page)
+  await setKey(page)
+  await setServers(page, [archive({ tools: ['atlas_polarion_status'] })])
+  const agent = await openAgent(page)
+  await runAgentTask(page, 'Read CASE-40616 from Polarion')
+  const protectedInput = agent.getByTestId('mcp-protected-input')
+  const link = protectedInput.getByRole('link')
+  await expect(protectedInput.locator('.mcp-protected-input__url')).toHaveText('https://mcp.example.test')
+  await expect(link).toHaveAttribute('href', url)
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(link).toHaveAttribute('target', '_blank')
+  const details = agent.locator('.mcp-call-details')
+  await expect(details.locator('summary')).toContainText('Check Polarion connection')
+  await expect(details.locator('summary')).not.toContainText('fixture')
+  await expect(details.locator('code')).toBeHidden()
+  await details.locator('summary').click()
+  await expect(details.locator('code')).toContainText('atlas_polarion_status')
+  await expect(details.locator('code')).toBeVisible()
+  await details.locator('summary').click()
+  await expect(agent.locator('iframe,input[type=password]')).toHaveCount(0)
+  expect(signInRequests).toBe(0)
+  for (const dark of [false, true]) {
+    await page.emulateMedia({ colorScheme: dark ? 'dark' : 'light' })
+    for (const mobile of [false, true]) {
+      await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 })
+      await expect(link).toBeVisible()
+      await page.waitForTimeout(400) // Let responsive terminal/theme transitions settle for visual QA.
+      await page.screenshot({ path: testInfo.outputPath(`protected-${dark ? 'dark' : 'light'}-${mobile ? 'mobile' : 'desktop'}.png`), fullPage: true })
+    }
+  }
+  const popup = page.waitForEvent('popup')
+  await link.click()
+  const window = await popup
+  await window.waitForLoadState()
+  expect(signInRequests).toBe(1)
+  expect(await window.evaluate(() => window.opener === null)).toBe(true)
+  await window.close()
+})
+
+
+test('Polarion activity hides prefixed transport UUIDs while preserving item IDs', async ({ page, context }, testInfo) => {
+  const connection = 'polarion-fb86d8c3-efb2-4bdf-a99f-cb7c73462c42'
+  await mockApi(context, r => r.stream ? { sse: sseMessage([
+    { type: 'mcp_tool_use', id: 'scan', server: 'archive', name: 'atlas_polarion_inspect', input: { connection, id: 'CASE-23028' } },
+    { type: 'mcp_tool_result', id: 'scan', text: '{"status":"ok"}' },
+    // This generic argument also exercises presentation of legacy stored labels.
+    { type: 'mcp_tool_use', id: 'status', server: 'archive', name: 'atlas_polarion_status', input: { legacy: connection } },
+    { type: 'mcp_tool_result', id: 'status', text: '{"status":"done"}' },
+    { type: 'text', text: 'Inspection complete.' },
+  ]) } : undefined)
+  await openApp(page)
+  await setKey(page)
+  await setServers(page, [archive({ tools: ['atlas_polarion_inspect', 'atlas_polarion_status'] })])
+  const agent = await openAgent(page)
+  await runAgentTask(page, 'Inspect CASE-23028 in Polarion')
+  const details = agent.locator('.mcp-call-details')
+  await expect(details).toHaveCount(2)
+  await expect(details.nth(0).locator('summary')).toContainText('Inspect Polarion fields and tables')
+  await expect(details.nth(0).locator('summary')).toContainText('CASE-23028')
+  await expect(details.nth(1).locator('summary')).toContainText('Check Polarion connection')
+  await expect(agent).not.toContainText('atlas_polarion_inspect', { useInnerText: true })
+  await expect(agent).not.toContainText(connection, { useInnerText: true })
+  await details.nth(0).scrollIntoViewIfNeeded()
+  await agent.screenshot({ path: testInfo.outputPath('polarion-readable-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await uiEval(page, s => s.setMobileSidebar(false))
+  await details.nth(0).scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await agent.screenshot({ path: testInfo.outputPath('polarion-readable-mobile.png') })
+  await details.nth(1).locator('summary').click()
+  await expect(details.nth(1).locator('pre')).toContainText(connection)
 })
