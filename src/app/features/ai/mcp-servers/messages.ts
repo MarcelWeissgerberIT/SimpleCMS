@@ -8,6 +8,14 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.mcp.action.inspect': 'Inspect fields and tables',
+    'features.ai.mcp.action.generic': 'Run tool',
+    'features.ai.mcp.action.polarion.inspect': 'Inspect Polarion fields and tables',
+    'features.ai.mcp.action.polarion.read': 'Read Polarion item',
+    'features.ai.mcp.action.polarion.search': 'Search Polarion',
+    'features.ai.mcp.action.polarion.status': 'Check Polarion connection',
+    'features.ai.mcp.action.polarion.connect': 'Connect to Polarion',
+    'features.ai.mcp.action.polarion.list': 'List Polarion items',
     'features.ai.mcp.action.read': 'Read',
     'features.ai.mcp.action.search': 'Search',
     'features.ai.mcp.action.status': 'Check connection',
@@ -72,6 +80,14 @@ export const messages: Messages = {
     'features.ai.mcp.ov.note': '“Off” = not used, not even through its codeword. Claude Code in the coding worker has its own MCP servers (your claude mcp setup, ticked per repo on the worker’s setup page): a server of the same name or codeword counts here, a name One does not know gets a row of its own.',
   },
   de: {
+    'features.ai.mcp.action.inspect': 'Felder und Tabellen prüfen',
+    'features.ai.mcp.action.generic': 'Werkzeug ausführen',
+    'features.ai.mcp.action.polarion.inspect': 'Polarion-Felder und Tabellen prüfen',
+    'features.ai.mcp.action.polarion.read': 'Polarion-Eintrag lesen',
+    'features.ai.mcp.action.polarion.search': 'Polarion durchsuchen',
+    'features.ai.mcp.action.polarion.status': 'Polarion-Verbindung prüfen',
+    'features.ai.mcp.action.polarion.connect': 'Mit Polarion verbinden',
+    'features.ai.mcp.action.polarion.list': 'Polarion-Einträge auflisten',
     'features.ai.mcp.action.read': 'Lesen',
     'features.ai.mcp.action.search': 'Suchen',
     'features.ai.mcp.action.status': 'Verbindung prüfen',

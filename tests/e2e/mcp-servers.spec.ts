@@ -955,7 +955,7 @@ test('protected Polarion sign-in is an explicit trusted link, never fetched or e
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   await expect(link).toHaveAttribute('target', '_blank')
   const details = agent.locator('.mcp-call-details')
-  await expect(details.locator('summary')).toContainText('Check connection')
+  await expect(details.locator('summary')).toContainText('Check Polarion connection')
   await expect(details.locator('summary')).not.toContainText('fixture')
   await expect(details.locator('code')).toBeHidden()
   await details.locator('summary').click()
@@ -980,4 +980,38 @@ test('protected Polarion sign-in is an explicit trusted link, never fetched or e
   expect(signInRequests).toBe(1)
   expect(await window.evaluate(() => window.opener === null)).toBe(true)
   await window.close()
+})
+
+
+test('Polarion activity hides prefixed transport UUIDs while preserving item IDs', async ({ page, context }, testInfo) => {
+  const connection = 'polarion-fb86d8c3-efb2-4bdf-a99f-cb7c73462c42'
+  await mockApi(context, r => r.stream ? { sse: sseMessage([
+    { type: 'mcp_tool_use', id: 'scan', server: 'archive', name: 'atlas_polarion_inspect', input: { connection, id: 'CASE-23028' } },
+    { type: 'mcp_tool_result', id: 'scan', text: '{"status":"ok"}' },
+    // This generic argument also exercises presentation of legacy stored labels.
+    { type: 'mcp_tool_use', id: 'status', server: 'archive', name: 'atlas_polarion_status', input: { legacy: connection } },
+    { type: 'mcp_tool_result', id: 'status', text: '{"status":"done"}' },
+    { type: 'text', text: 'Inspection complete.' },
+  ]) } : undefined)
+  await openApp(page)
+  await setKey(page)
+  await setServers(page, [archive({ tools: ['atlas_polarion_inspect', 'atlas_polarion_status'] })])
+  const agent = await openAgent(page)
+  await runAgentTask(page, 'Inspect CASE-23028 in Polarion')
+  const details = agent.locator('.mcp-call-details')
+  await expect(details).toHaveCount(2)
+  await expect(details.nth(0).locator('summary')).toContainText('Inspect Polarion fields and tables')
+  await expect(details.nth(0).locator('summary')).toContainText('CASE-23028')
+  await expect(details.nth(1).locator('summary')).toContainText('Check Polarion connection')
+  await expect(agent).not.toContainText('atlas_polarion_inspect', { useInnerText: true })
+  await expect(agent).not.toContainText(connection, { useInnerText: true })
+  await details.nth(0).scrollIntoViewIfNeeded()
+  await agent.screenshot({ path: testInfo.outputPath('polarion-readable-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await uiEval(page, s => s.setMobileSidebar(false))
+  await details.nth(0).scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  await agent.screenshot({ path: testInfo.outputPath('polarion-readable-mobile.png') })
+  await details.nth(1).locator('summary').click()
+  await expect(details.nth(1).locator('pre')).toContainText(connection)
 })

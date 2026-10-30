@@ -112,7 +112,7 @@ import { AIError, DEFAULT_MODEL, aiErrorText, isAIDemo, onAIDemo, resolveModel }
 import { legacyRule } from '@/shared/ai/route'
 import type { Route } from '@/shared/ai/types'
 import { codewordsIn, readServers } from './mcp-servers/config'
-import { callLabel, type McpCall } from './mcp-servers/activity'
+import type { McpCall } from './mcp-servers/activity'
 import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codeword.tsx'
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { deeperRoute, useVerifyOn } from './decide/answers'
@@ -2640,7 +2640,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
               {skippedLabel(t, c)}
             </li>
           ) : (
-            <li key={c.id} className="ai-mcp__chip" data-state={c.state} title={c.arg ? `${callLabel(c)} — ${c.arg}` : callLabel(c)}>
+            <li key={c.id} className="ai-mcp__chip" data-state={c.state}>
               <span className={`led${c.state === 'run' ? ' led--on ai-led--live' : c.state === 'err' ? ' ai-led--err' : ' led--ok'}`} aria-hidden />
               <McpCallDetails call={c} />
             </li>
