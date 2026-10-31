@@ -282,6 +282,12 @@ function rejectPending() {
   pending.clear()
 }
 
+/** Cloud-first AJ onboarding has no local-worker prerequisite; do not probe a worker from another workspace. */
+export function workerOptionalHere(): boolean {
+  const ws=currentWorkspace(),s=get()
+  return !!useWorkspace.getState().ai?.onboarding && !!ws && !s.pairs[ws.id] && !s.cloudPairs[ws.id] && viaFor(ws)!=='cloud'
+}
+
 function schedule() {
   window.clearTimeout(retryTimer)
   if (!get().enabled || link) return
@@ -302,6 +308,7 @@ function connect(keepRefused = false) {
     return schedule()
   }
   lastWs = self.id
+  if (workerOptionalHere()) { set({conn:'off',refused:null,blocked:null,lna:null}); return }
   if (viaFor(self) === 'cloud') {
     // what the browser said about the Local link does not hold for the team server's
     if (get().blocked || get().lna) set({ blocked: null, lna: null })

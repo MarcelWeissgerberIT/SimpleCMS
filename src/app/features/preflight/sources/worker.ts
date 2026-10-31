@@ -8,8 +8,9 @@
  * A worker:<conn> card says why, before "since": the link's own state text (a refusal, the browser's block) — for a Local
  * link that waits, what to check (codingConnText, features/coding).
  */
+import { useWorkspace } from '../../../store/store'
 import { t } from '../../../i18n'
-import { codingConnText, openCodingSettings, useCoding, workerOldHere } from '../../coding'
+import { codingConnText, openCodingSettings, useCoding, workerOptionalHere, workerOldHere } from '../../coding'
 import { workerOutdated, workerUnsafe } from '../../coding/protocol'
 import type { LampReading, LampSourceDef } from '../registry'
 import { fmtTime } from '../format'
@@ -42,13 +43,15 @@ export const workerLamp: LampSourceDef = {
   rule: () => t('features.preflight.lamp.worker.rule'),
   thresholds: { amber: 1, red: null },
   tick: true,
-  fitted: () => useCoding.getState().enabled,
+  fitted: () => useCoding.getState().enabled && !workerOptionalHere(),
   subscribe: (changed) => {
     track()
-    return watch(useCoding, (s) => [s.conn, s.enabled, s.worker, s.can, s.refused, s.blocked, s.lna], () => {
+    const offWorkspace=watch(useWorkspace,s=>[s.ai?.onboarding,s.epoch],changed)
+    const offCoding=watch(useCoding, (s) => [s.conn, s.enabled, s.worker, s.can, s.refused, s.blocked, s.lna], () => {
       track()
       changed()
     })
+    return ()=>{offWorkspace();offCoding()}
   },
   read({ now }): LampReading {
     track(now)

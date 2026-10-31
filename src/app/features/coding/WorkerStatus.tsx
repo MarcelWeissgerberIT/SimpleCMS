@@ -5,6 +5,8 @@
 import { Led } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { navigate } from '../../lib/router'
+import { useWorkspace } from '../../store/store'
+import { workerOptionalHere } from './service'
 import { useCoding } from './state'
 import { workerStateText } from './stateText'
 import './coding.css'
@@ -12,7 +14,8 @@ import './coding.css'
 export function CodingStatusCell() {
   const t = useT()
   const s = useCoding()
-  if (!s.enabled) return null
+  useWorkspace(s=>s.ai?.onboarding)
+  if (!s.enabled || workerOptionalHere()) return null
   const connected = s.conn === 'connected'
   const text = connected && s.busy.length ? t('features.coding.status.busy', { n: s.busy.length }) : t('features.coding.status.worker')
   return (
