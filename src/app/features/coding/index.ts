@@ -305,4 +305,4 @@ export { withEjected, withoutEjected } from './chain'
 /** The selected coding agent's display name for task-specific UI. */
 export { useCodingAgentName } from './agent'
 
-export { modelShareStatus, configureModelShare, requestTextModels, requestWorkerText, requestWorkerMcp } from './service'
+export { modelShareStatus, configureModelShare, cloudAtlasMcpReady, requestTextModels, requestWorkerText, requestWorkerMcp } from './service'

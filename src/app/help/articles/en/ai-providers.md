@@ -59,3 +59,14 @@ Worker 1.34.0 adds tool-capable local Ollama models to page questions, structure
 The harness discovers relevant tools, reads sources and stages changes for acceptance. ONE enforces scope; the team decides. Repeated identical calls stop, missing sources and context limits stay visible, and no cloud-AI fallback happens silently.
 
 With a shared model, the host performs inference. ONE tools execute in your browser; Atlas MCP uses your personal worker. The host receives approved context and tool results, never tokens. Private pages, mail and personal memory are not shared automatically. Moving the model host to a controlled VM later keeps this separation and does not require publicly exposing Ollama.
+
+## Analytik Jena · Direct start with Atlas Flow
+Prepared CNSx and FeliX team-workspace invite links lead straight to the start page. **Atlas Flow · Frankfurt** is already selected and the introductory tour offer is skipped.
+
+1. Enter your **personal AJ-Atlas token** or personal AJ-Atlas link on the start plate. The workspace owner also starts with an empty input. Connections from other workspaces are not inherited.
+2. **Connect and check Atlas** actually calls `atlas_whoami`. The token is encrypted on this device and forwarded through ONE to AJ-Atlas per request. The model server receives only permitted tool schemas and results, never your token.
+3. When Frankfurt is ready, **Start first Atlas task** opens the AI terminal with a read-only briefing. It checks your identity, discovers matching projects, cites sources and suggests a small first task. It makes no Atlas changes.
+
+This first Atlas task needs **no local worker, Copilot login or extra model API key**. Access to local repository files still needs your own paired worker. Personal settings outside this workspace stay intact. **Change token** replaces only this personal connection. Enter your token again on a new device.
+
+An offline Frankfurt model keeps the first task disabled. There is no silent provider fallback. Model capabilities and your actual Atlas/ONE permissions still apply; this text model has no native image analysis or image generation.

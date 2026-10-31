@@ -42,7 +42,7 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
   const uid = useId()
   const db = useWorkspace((s) => s.databases[dbId])
   // the server list follows this device's settings (a test elsewhere, a server switched off)
-  useWorkspace((s) => s.settings.mcpServers)
+  useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   useWorkspace((s) => s.integrations)
   const viewer = useCloud((s) => s.readOnly)
   const read = readOrderConfig(db)

@@ -538,7 +538,7 @@ function IconButton({ icon, onPick }: { icon: CustomAgent['icon']; onPick: (icon
 function Instructions({ value, onChange, error, id, agent }: { value: string; onChange: (v: string) => void; error?: string; id: string; agent: CustomAgent }) {
   const t = useT()
   const hasKey = useAIStatus('write.instructions').ready
-  const servers = useWorkspace((s) => s.settings.mcpServers)
+  const servers = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const [busy, setBusy] = useState(false)
   const [prev, setPrev] = useState<string | null>(null)
   const [open, setOpen] = useState(() => openPlaceholders(value))

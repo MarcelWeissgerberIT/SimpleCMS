@@ -14,7 +14,7 @@ import { agentsOfThisBrowser, workerLed, type Level } from './model'
 
 /** One's Claude's servers on this device, in Settings order. */
 export function useServers() {
-  const raw = useWorkspace((s) => s.settings.mcpServers)
+  const raw = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   return useMemo(() => readServers({ mcpServers: raw }), [raw])
 }
 

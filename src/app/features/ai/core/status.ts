@@ -7,6 +7,7 @@ import type { DataClass, Route } from '@/shared/ai/types'
 import { isJevRouter } from '@/shared/ai/jev'
 import { allowedFor } from '@/shared/ai/policy'
 import { providerInfo } from '@/shared/ai/providers'
+import { workspaceDeviceAI } from '../../../store/ai'
 import { useWorkspace } from '../../../store/store'
 import type { PurposeId } from './purposes'
 import { capsFor, labelFor, modelInfo, priceFor, shortFor } from './registry'
@@ -29,7 +30,7 @@ export const estimateOn = (r: { route: Route; pool?: readonly string[] }, req: E
 export function mayReceive(purpose: PurposeId, cls: DataClass, picked?: Route | null): boolean {
   const { route } = routeFor(purpose, { route: picked })
   const s = useWorkspace.getState()
-  return allowedFor(route.p, cls, s.ai, s.settings.ai)
+  return allowedFor(route.p, cls, s.ai, workspaceDeviceAI(s))
 }
 
 /**

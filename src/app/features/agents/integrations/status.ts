@@ -36,7 +36,7 @@ export function integrationStatuses(profiles = useWorkspace.getState().integrati
 
 export function useIntegrationStatuses(): IntegrationState[] {
   const profiles = useWorkspace((s) => s.integrations)
-  const servers = useWorkspace((s) => s.settings.mcpServers)
+  const servers = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   return useMemo(() => integrationStatuses(profiles, { mcpServers: servers }), [profiles, servers])
 }
 
@@ -52,7 +52,7 @@ export const unlocked = (feature: IntegrationFeature): boolean => unlockedFeatur
 /** The same as a hook (re-renders when the profiles or this device's MCP servers change). */
 export function useUnlocked(feature: IntegrationFeature): boolean {
   const profiles = useWorkspace((s) => s.integrations)
-  const servers = useWorkspace((s) => s.settings.mcpServers)
+  const servers = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   return useMemo(() => unlockedBy(profiles, deviceServers({ mcpServers: servers })).has(feature), [profiles, servers, feature])
 }
 

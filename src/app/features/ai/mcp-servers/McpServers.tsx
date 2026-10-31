@@ -58,7 +58,7 @@ const shortUrl = (url: string) => url.replace(/^https:\/\//, '').replace(/\/$/, 
  */
 export function McpServers({ openId, add }: { openId?: string; add?: boolean } = {}) {
   const t = useT()
-  const raw = useWorkspace((s) => s.settings.mcpServers)
+  const raw = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const servers = useMemo(() => readServers({ mcpServers: raw }), [raw])
   const hasKey = useAIStatus('mcp-setup.inspect').ready
   /** the add form is open */

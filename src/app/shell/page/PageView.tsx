@@ -27,6 +27,7 @@ import { MarginRail, railHasContent } from './MarginRail'
 import { scrollHostOf } from './outline'
 import { toggleMarginRail, useMarginRailOpen } from './railPref'
 import { TourOffer } from '../tour/TourOffer'
+import { AtlasStart } from '../cloud/AtlasStart'
 import {FirstStartTools} from '../firstStart/FirstStart'
 import {firstStart} from '../firstStart/model'
 import {useLang} from '../../i18n'
@@ -101,6 +102,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
           {variant === 'main' && !trashed && <FirstStartTools page={page} />}
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
           {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
+          {variant === 'main' && !trashed && <AtlasStart pageId={page.id} readOnly={viewer} />}
           {/* a database with send routes or slips: IN OUTBOX · SENT TODAY (features/outbox) */}
           {isDb && !trashed && <OutboxReadout dbId={page.id} />}
           {/* right after an eject into this database: ENTRIES · LAST You · 08:05 · Eject (features/recorder) */}

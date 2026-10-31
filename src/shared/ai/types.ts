@@ -244,6 +244,10 @@ export interface Restriction {
 
 /** Workspace.ai — synced; team: meta map `workspace`, key `ai`, written by owners / admins only (server guard). */
 export interface WorkspaceAI {
+  /** Optional team landing and credential-free connection template. Each member supplies their own token. */
+  onboarding?: { startPageId: string; mcpUrl: string; mcpName: string; project: string; skipIntro: boolean }
+  /** Shared inference can receive individually opted-in member context; absent retains the legacy restriction. */
+  sharedMemberContext?: boolean
   /** Optional explicit destinations; absent: existing rules, with quiet local hints. */
   dataFlow?: import('./dataFlow.ts').DataFlowRules
   /** the lowest build generation that enforces every stored rule */

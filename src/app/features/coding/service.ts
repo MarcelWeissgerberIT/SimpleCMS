@@ -60,7 +60,7 @@ import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
 import { browserOs, workerOldOnWindows } from './winWorker'
 import type { SessionKey } from './relayBox'
-import { CloudError, useCloud, captureReadiness, noteReadiness, noteAtlasRead } from '../../cloud'
+import { CloudError, cloudRequest, useCloud, captureReadiness, noteReadiness, noteAtlasRead } from '../../cloud'
 import { SYSTEM, withWriter, type Writer } from '../../store/writer'
 import { localNetworkStatus } from '../../lib/localNetwork'
 import { notifyAway } from './notify'
@@ -1083,10 +1083,21 @@ export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortS
   } finally { signal?.removeEventListener('abort', stop) }
 }
 
+export function cloudAtlasMcpReady(servers: readonly {name:string;url:string}[]): boolean {
+  const cloud=useCloud.getState(),setup=useWorkspace.getState().ai?.onboarding
+  return cloud.active.kind==='cloud' && !!cloud.supports?.includes('atlas-mcp:1') && !!setup && servers.length===1 && servers.every(s=>s.url===setup.mcpUrl&&s.name===setup.mcpName)
+}
+
 export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSignal): Promise<unknown> {
   if (body.servers.some(s => !mcpDestinationAllowed(s.url, useWorkspace.getState().ai?.dataFlow))) throw new Error('MCP destination is excluded by the workspace data-flow rule.')
   signal?.throwIfAborted()
   const readiness = captureReadiness()
+  const cloud = useCloud.getState(), setup = useWorkspace.getState().ai?.onboarding
+  if (cloud.active.kind === 'cloud' && setup && cloudAtlasMcpReady(body.servers)) {
+    const result = await cloudRequest<{result?:string}>('POST',`api/workspaces/${cloud.active.id}/atlas-mcp`,body,{signal})
+    if(body.action==='call'&&!signal?.aborted)noteAtlasRead(readiness,setup.mcpUrl,body.name,result?.result)
+    return result
+  }
   const requestId = crypto.randomUUID()
   const stop = () => { void request({ op: 'text-stop', requestId } as never, 5000).catch(() => {}) }
   signal?.addEventListener('abort', stop, { once: true })

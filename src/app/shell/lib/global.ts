@@ -362,6 +362,11 @@ export function bootRedirect(route: Route = parseHash(window.location.hash)) {
   if (bootRedirected || STANDALONE.has(route.name)) return
   bootRedirected = true
   if (route.name !== 'home') return
+  const current = useWorkspace.getState(), landing = current.ai?.onboarding?.startPageId
+  if (landing && current.pages[landing] && !isEffectivelyTrashed(current.pages, landing)) {
+    navigate({name:'page',id:landing},{replace:true})
+    return
+  }
   // Preflight: the first boot of a Preflight day stays on the plate when lamps were lit last time (consumed either way)
   if (preflightHoldsStart()) return
   const { settings, pages } = useWorkspace.getState()

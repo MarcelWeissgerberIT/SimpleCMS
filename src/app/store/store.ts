@@ -1175,6 +1175,7 @@ export const useWorkspace = create<WorkspaceState>()(
       let p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
       // MCP server tokens likewise: markers only in the list (secrets.ts)
       if ('mcpServers' in p) p = { ...p, mcpServers: mcpServersValue(p.mcpServers, get().settings.mcpServers, get().epoch) }
+      if ('workspaceMcpServers' in p) p = { ...p, workspaceMcpServers: mcpServersValue(p.workspaceMcpServers, get().settings.workspaceMcpServers, get().epoch) }
       // the other providers' keys likewise: markers only in settings.aiKeys (secrets.ts)
       if ('aiKeys' in p) p = { ...p, aiKeys: aiKeysValue(p.aiKeys, get().settings.aiKeys, get().epoch) }
       set((s) => {

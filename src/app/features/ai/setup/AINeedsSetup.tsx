@@ -39,11 +39,12 @@ export function useAIStatus(purpose: PurposeId): AIStatus {
   const key = useWorkspace((s) => s.settings.aiApiKey)
   const keys = useWorkspace((s) => s.settings.aiKeys)
   const device = useWorkspace((s) => s.settings.ai)
+  const scoped = useWorkspace((s) => s.settings.workspaceAI)
   const ws = useWorkspace((s) => s.ai)
   const model = useWorkspace((s) => s.settings.aiModel)
   const [demo, setDemo] = useState(isAIDemo)
   useEffect(() => onAIDemo(() => setDemo(isAIDemo())), [])
-  return useMemo(() => aiStatus(purpose), [purpose, key, keys, device, ws, model, demo, workerRev])
+  return useMemo(() => aiStatus(purpose), [purpose, key, keys, device, scoped, ws, model, demo, workerRev])
 }
 
 /**

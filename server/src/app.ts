@@ -7,6 +7,7 @@ import { hookRoutes } from './api/hooks.ts'
 import { WorkspaceModel } from './api/model.ts'
 import { apiRoutes } from './api/v1.ts'
 import { sharedModelRoutes } from './coding/shared-models.ts'
+import { atlasMcpRoutes } from './coding/atlas-mcp.ts'
 import { codingRoutes, codingWorkerRoutes } from './coding/routes.ts'
 import type { AppEnv, Services } from './context.ts'
 import { MIN_CLIENT_SCHEMA } from './collab/schema-gate.ts'
@@ -77,7 +78,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
+      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
     }),
   )
 
@@ -95,6 +96,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/workspaces', integrationRoutes(s, model))
   app.route('/api/workspaces', agentRoutes(s, model, agents))
   app.route('/api/workspaces', codingRoutes(s))
+  app.route('/api/workspaces', atlasMcpRoutes(s))
   app.route('/api/coding', codingWorkerRoutes(s))
   app.route('/api', sharedModelRoutes(s))
   app.route('/api/invites', inviteRoutes(s))

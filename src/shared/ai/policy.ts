@@ -83,6 +83,10 @@ function perProvider<T>(v: unknown, read: (x: unknown) => T | undefined): Partia
 export function sanitizeWorkspaceAI(v: unknown): WorkspaceAI | undefined {
   if (!isObj(v)) return undefined
   const out: WorkspaceAI = {}
+  if (v.sharedMemberContext === true) out.sharedMemberContext = true
+  if (isObj(v.onboarding) && typeof v.onboarding.startPageId === 'string' && ID_RE.test(v.onboarding.startPageId) && v.onboarding.mcpUrl === 'https://aj-atlas.com/api/atlas/mcp' && typeof v.onboarding.mcpName === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(v.onboarding.mcpName) && typeof v.onboarding.project === 'string' && v.onboarding.project.length > 0 && v.onboarding.project.length <= 80) {
+    out.onboarding = {startPageId:v.onboarding.startPageId,mcpUrl:v.onboarding.mcpUrl,mcpName:v.onboarding.mcpName,project:v.onboarding.project,skipIntro:v.onboarding.skipIntro===true}
+  }
   const flow = readDataFlow(v.dataFlow)
   if (flow) out.dataFlow = flow
   const g = gen(v.gen)

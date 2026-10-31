@@ -47,7 +47,7 @@ export interface GenerateSetupProps {
 export function GenerateSetup({ draft, onDraft, onRun, onCancel, hasKey }: GenerateSetupProps) {
   const t = useT()
   const uid = useId()
-  const raw = useWorkspace((s) => s.settings.mcpServers)
+  const raw = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const servers = useMemo(() => generateServers(draft.kind, readServers({ mcpServers: raw })), [draft.kind, raw])
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const set = (patch: Partial<GenerateDraft>) => onDraft({ ...draft, ...patch })

@@ -120,7 +120,7 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key, nor the MCP servers' token markers
-    settings: { ...settings, aiApiKey: '', aiKeys: {}, ...(snap.settings.mcpServers ? { mcpServers: snap.settings.mcpServers.map((s) => ({ ...s, token: '' })) } : {}) },
+    settings: { ...settings, aiApiKey: '', aiKeys: {}, ...(snap.settings.mcpServers ? { mcpServers: snap.settings.mcpServers.map((s) => ({ ...s, token: '' })) } : {}), ...(snap.settings.workspaceMcpServers ? {workspaceMcpServers:snap.settings.workspaceMcpServers.map(s=>({...s,token:''}))}: {}) },
     // which pages this device opened last is this device's (help: sidebar, privacy) — never in a backup
     recent: [],
   }

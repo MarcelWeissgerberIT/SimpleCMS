@@ -8,13 +8,15 @@ import { useT } from '../../i18n'
 import { shortcutLabel } from '../../ui/controls'
 import { navigate } from '../../lib/router'
 import type { ID } from '../../store/types'
+import { useWorkspace } from '../../store/store'
 import { dismissTourOffer, startTour, useTour, useTourOffer, TOUR_STEP_COUNT } from './state'
 import './offer.css'
 
 export function TourOffer({ pageId }: { pageId: ID }) {
   const t = useT()
   const show = useTourOffer(pageId)
-  if (!show) return null
+  const skip = useWorkspace((s) => s.ai?.onboarding?.skipIntro === true)
+  if (!show || skip) return null
   return (
     <section className="tour-offer" aria-labelledby="tour-offer-title" data-testid="tour-offer">
       <span className="tour-offer__icon" aria-hidden>

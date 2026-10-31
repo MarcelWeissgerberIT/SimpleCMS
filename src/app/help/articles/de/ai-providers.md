@@ -59,3 +59,14 @@ Ab Worker 1.34.0 kannst du ein werkzeugfähiges lokales Ollama-Modell auch für 
 Das lokale Modell findet passende Werkzeuge über den Harness, liest Quellen und schlägt Änderungen vor. ONE prüft den Seitenbereich und hält Änderungen zur Abnahme bereit. Das Team entscheidet. Wiederholte identische Aufrufe werden begrenzt; fehlende Quellen und Kontextgrenzen bleiben sichtbar. Es gibt keinen stillen Wechsel zu einer Cloud-KI.
 
 Beim geteilten Modell rechnet der freigegebene Host. ONE-Werkzeuge laufen in deinem Browser, Atlas-MCP über deinen persönlichen Worker. Der Modellhost erhält freigegebenen Kontext und Werkzeugergebnisse, keine Tokens. Private Seiten, Mail und persönliches Gedächtnis werden nicht automatisch geteilt. Zum Modellhost-Ausbau auf einer eigenen VM bleibt dieser Ablauf gleich; Ollama wird nicht öffentlich geöffnet.
+
+## Analytik Jena · Direktstart mit Atlas Flow
+In vorbereiteten CNSx- und FeliX-Team-Workspaces führt der Einladungslink direkt zur Startseite. Dort ist **Atlas Flow · Frankfurt** schon ausgewählt; das Einführungstour-Angebot entfällt.
+
+1. Gib auf der Startplatte deinen **persönlichen AJ-Atlas-Token** oder den persönlichen AJ-Atlas-Link ein. Auch der Workspace-Inhaber beginnt mit einer leeren Eingabe. Vorhandene Verbindungen aus anderen Workspaces werden nicht übernommen.
+2. **Atlas verbinden und prüfen** ruft tatsächlich `atlas_whoami` auf. Der Token wird auf diesem Gerät verschlüsselt gespeichert und für einzelne Aufrufe über ONE an AJ-Atlas übergeben. Der Modellserver erhält ausschließlich freigegebene Werkzeugbeschreibungen und Ergebnisse, keinen Token.
+3. Sobald Frankfurt bereit ist, öffnet **Erste Atlas-Aufgabe starten** das KI-Terminal mit einem vorbereiteten lesenden Briefing. Es prüft die Identität, sucht passende Projekte und zeigt Quellen, offene Fragen und einen Vorschlag für den ersten kleinen Auftrag. Es verändert noch keine Atlas-Inhalte.
+
+Für diesen ersten Atlas-Auftrag brauchst du **keinen lokalen Worker, Copilot-Zugang oder zusätzlichen Modell-API-Key**. Für Dateien aus einem lokalen Repository brauchst du weiterhin deinen eigenen gekoppelten Worker. Persönliche Einstellungen außerhalb dieses Workspaces bleiben erhalten. Der Button **Token wechseln** ersetzt nur diese persönliche Verbindung. Nach Gerätewechsel musst du den Token dort erneut eingeben.
+
+Ist Frankfurt offline, bleibt die erste Aufgabe gesperrt. Es gibt keinen stillen Wechsel zu einem anderen Anbieter. Modellfähigkeiten und deine tatsächlichen Atlas-/ONE-Rechte gelten weiterhin; das Textmodell bietet keine native Bildanalyse oder Bildgenerierung.

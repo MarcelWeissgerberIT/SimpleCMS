@@ -830,6 +830,8 @@ export interface Settings {
    * never synced; every reader sanitizes (store/ai.ts readDeviceAI). Written by nobody in slice 1.
    */
   ai?: DeviceAI
+  /** Automatic team onboarding choices/consent for this workspace only, not global personal preferences. */
+  workspaceAI?: DeviceAI
   /** Snapshot interval for version history in minutes */
   historyIntervalMin: number
   /**
@@ -838,6 +840,8 @@ export interface Settings {
    * updateSettings({ mcpServers }): a plaintext `token` in it is sealed into the vault there.
    */
   mcpServers?: McpServerConfig[]
+  /** This workspace on this device only; never part of the browser-wide personal preferences. */
+  workspaceMcpServers?: McpServerConfig[]
   /** The MCP instructions template added to Claude's system prompt; absent / '' = the built-in default (UI language). */
   mcpInstructions?: string
   /**

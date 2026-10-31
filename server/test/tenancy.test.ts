@@ -235,6 +235,7 @@ const ROUTES: Record<string, Entry> = {
   'GET /api/workspaces/:id/personal-guides': {scope:'workspace',req:ws=>({method:'GET',path:`${W(ws)}/personal-guides`})},
   'GET /api/workspaces/:id/readiness/participation': {scope:'workspace',req:ws=>({method:'GET',path:`${W(ws)}/readiness/participation`})},
   'POST /api/workspaces/:id/model-hosts': {scope:'workspace',req:ws=>({method:'POST',path:`${W(ws)}/model-hosts`,json:{label:'Forbidden inference host'}})},
+  'POST /api/workspaces/:id/atlas-mcp': {scope:'workspace',req:ws=>({method:'POST',path:`${W(ws)}/atlas-mcp`,json:{}})},
   'POST /api/workspaces/:id/readiness': { scope: 'workspace', req: ws=>({method:'POST',path:`${W(ws)}/readiness`,json:{signal:'sync'}}), own:200 },
   'GET /api/workspaces/:id/welcome': { scope: 'workspace', req: ws=>({method:'GET',path:`${W(ws)}/welcome`}) },
   'PUT /api/workspaces/:id/welcome': { scope: 'workspace', req: ws=>({method:'PUT',path:`${W(ws)}/welcome`,json:{}}) },

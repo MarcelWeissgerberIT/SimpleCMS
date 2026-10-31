@@ -1,3 +1,4 @@
+import { workspaceDeviceAI } from '../../../store/ai'
 import { isTestAccess } from '../../../cloud/testScope'
 import { flowAllows, flowPageVisible, flowRestrictions, assertModelFlow, flowSignature } from './dataFlow'
 import { inferencePlace } from '@/shared/ai/dataFlow'
@@ -374,7 +375,7 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     // can a build of generation `gen` enforce the stored rules? (an older tab, simulated)
     policyKnownAt: (gen: number) => {
       const st = useWorkspace.getState()
-      return policyKnown(st.ai, st.settings.ai, gen)
+      return policyKnown(st.ai, workspaceDeviceAI(st), gen)
     },
   }
 }
@@ -555,7 +556,7 @@ function world(): RouteWorld {
   const s = useWorkspace.getState()
   return {
     ws: s.ai,
-    device: s.settings.ai,
+    device: workspaceDeviceAI(s),
     aiModel: s.settings.aiModel,
     // Claude's marker is settings.aiApiKey; the others' are settings.aiKeys (store/secrets.ts)
     hasKey: (p) => isWorkerProvider(p) ? workerProviderReady(p) : p === 'anthropic' ? !!s.settings.aiApiKey.trim() : hasAIKey(p),
@@ -645,7 +646,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   checkContract(input)
   const s = useWorkspace.getState()
   // 0 · rules this build does not know
-  if (!policyKnown(s.ai, s.settings.ai, buildGen())) throw new AIError('reload')
+  if (!policyKnown(s.ai, workspaceDeviceAI(s), buildGen())) throw new AIError('reload')
   // 1 · a key typed into a request
   if (typedTexts(input.typed).some(looksLikeKey)) throw new AIError('key_in_text')
   // 2 · AUS
@@ -669,12 +670,12 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   const pool = res.pool
   const label = labelFor(route, pool)
   const shared = route.p === 'local' && route.m.startsWith(SHARED_PREFIX)
-  const sees = !shared && !flowRestrictions().length && seesEverything(route.p, s.ai, s.settings.ai) ? 'all' : 'filtered'
-  const redact = redactionFor(route.p, s.ai, s.settings.ai)
-  const hiddenForShare = (c: DataClass) => shared && MEMBER_CLASSES.some(m => m === c) && !(c === 'mcp' && res.info.caps.mcp)
-  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => hiddenForShare(c) || !allowedFor(route.p, c, s.ai, s.settings.ai))
+  const sees = !shared && !flowRestrictions().length && seesEverything(route.p, s.ai, workspaceDeviceAI(s)) ? 'all' : 'filtered'
+  const redact = redactionFor(route.p, s.ai, workspaceDeviceAI(s))
+  const hiddenForShare = (c: DataClass) => shared && !s.ai?.sharedMemberContext && MEMBER_CLASSES.some(m => m === c) && !(c === 'mcp' && res.info.caps.mcp)
+  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => hiddenForShare(c) || !allowedFor(route.p, c, s.ai, workspaceDeviceAI(s)))
   const visible = (id: ID): boolean => flowPageVisible(route.p, id) && (!hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c)))
-  const allows = (c: DataClass): boolean => !hiddenForShare(c) && allowedFor(route.p, c, s.ai, s.settings.ai)
+  const allows = (c: DataClass): boolean => !hiddenForShare(c) && allowedFor(route.p, c, s.ai, workspaceDeviceAI(s))
   // 5 · the backstop (D-S2-5): text built without the route's redaction / filter never goes to a route that may not see it
   const concerned = held || backstopToo ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
   if (concerned) throw new AIError('policy', concerned, undefined, label, [{ kind: 'step', step: 'data', provider: route.p, data: concerned }])
@@ -801,7 +802,7 @@ export interface AIStatus {
 /** Can a request of this purpose go out on this device now, and where to? (no sources: the purpose's needs only) */
 export function aiStatus(purposeId: PurposeId): AIStatus {
   const s = useWorkspace.getState()
-  if (!policyKnown(s.ai, s.settings.ai, buildGen())) return { ready: false, route: null, demo: false, reason: 'reload' }
+  if (!policyKnown(s.ai, workspaceDeviceAI(s), buildGen())) return { ready: false, route: null, demo: false, reason: 'reload' }
   if (offHook()) return { ready: false, route: null, demo: false, reason: 'off' }
   const purpose = purposeOf(purposeId)
   const res = resolveFor(purpose.cls, { caps: purpose.caps, classes: [...purpose.needs] })
@@ -890,7 +891,7 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   const now = nowRes.ok && flowAllows(nowRes.route.p, o.sources ?? []) ? nowRes.route : null
   if (now) add({ ...row(now, 'now'), ok: true, ...(nowRes.ok && nowRes.pool ? { pool: nowRes.pool } : {}) })
   // this kind of work's rule (the device's, else the workspace's)
-  const rule = s.settings.ai?.routes?.[purpose.cls] ?? s.ai?.routes?.[purpose.cls] ?? []
+  const rule = workspaceDeviceAI(s)?.routes?.[purpose.cls] ?? s.ai?.routes?.[purpose.cls] ?? []
   for (const pin of rule) if (!isJevRouter(pin.m)) add(row(pin, 'rule'))
   // Claude's models (a key here)
   const claudeKey = !!s.settings.aiApiKey.trim()

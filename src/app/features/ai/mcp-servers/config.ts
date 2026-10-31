@@ -120,7 +120,9 @@ export function deriveName(url: string, others: string[]): string {
 
 /** The stored list, sanitized (bad entries are left out, never "fixed" into something else). */
 export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspace.getState().settings): McpServerConfig[] {
-  const list = Array.isArray(settings.mcpServers) ? settings.mcpServers : []
+  const active = useWorkspace.getState()
+  const scoped = active.ai?.onboarding && settings.mcpServers === active.settings.mcpServers
+  const list = scoped ? (active.settings.workspaceMcpServers ?? []) : Array.isArray(settings.mcpServers) ? settings.mcpServers : []
   const seen = new Set<string>()
   const words: string[] = []
   const out: McpServerConfig[] = []
@@ -156,7 +158,8 @@ export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspac
 
 /** Write the list (a plaintext `token` on an entry is sealed by the store; markers stay as they are). */
 export function writeServers(list: McpServerConfig[]): void {
-  useWorkspace.getState().updateSettings({ mcpServers: list })
+  const s = useWorkspace.getState()
+  s.updateSettings(s.ai?.onboarding ? { workspaceMcpServers: list } : { mcpServers: list })
 }
 
 /** Change one server. */
@@ -423,7 +426,7 @@ export function onRefusedChanged(fn: () => void): () => void {
   refusedListeners.add(fn)
   if (!refusedWatch) {
     refusedWatch = useWorkspace.subscribe((s, prev) => {
-      if (s.settings.mcpServers !== prev.settings.mcpServers) forgetStale()
+      if (s.settings.mcpServers !== prev.settings.mcpServers || s.settings.workspaceMcpServers !== prev.settings.workspaceMcpServers) forgetStale()
     })
   }
   return () => {

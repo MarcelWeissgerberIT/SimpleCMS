@@ -28,7 +28,7 @@ export const tokenLamp: LampSourceDef = {
   thresholds: { amber: null, red: 1 },
   tick: true,
   fitted: () => enabled().length > 0,
-  subscribe: (changed) => all(watch(useWorkspace, (s) => [s.settings.mcpServers], changed), onRefusedChanged(changed), watch(useMcpSignIn, (s) => [s.byServer], changed)),
+  subscribe: (changed) => all(watch(useWorkspace, (s) => [s.settings.mcpServers,s.settings.workspaceMcpServers], changed), onRefusedChanged(changed), watch(useMcpSignIn, (s) => [s.byServer], changed)),
   read({ now }): LampReading {
     const ids: string[] = []
     const names: string[] = []

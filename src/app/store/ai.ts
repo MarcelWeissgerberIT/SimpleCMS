@@ -46,17 +46,26 @@ export function sameWorkspaceAI(a: WorkspaceAI | null | undefined, b: WorkspaceA
 export function withCleanAISettings(s: Settings): Settings {
   const keys = readAIKeys(s.aiKeys)
   const ai = readDeviceAI(s.ai)
-  if (keys === s.aiKeys && ai === s.ai) return s
+  const workspaceAI = readDeviceAI(s.workspaceAI)
+  if (keys === s.aiKeys && ai === s.ai && workspaceAI === s.workspaceAI) return s
   const out: Settings = { ...s }
   delete out.aiKeys
   delete out.ai
+  delete out.workspaceAI
   if (keys) out.aiKeys = keys
   if (ai) out.ai = ai
+  if (workspaceAI) out.workspaceAI = workspaceAI
   return out
 }
 
 /** The stored policy generation of this workspace + device (1 without any rule). */
-export const aiOf = (ws: Pick<Workspace, 'ai' | 'settings'>): { ws: WorkspaceAI | undefined; device: DeviceAI | undefined } => ({ ws: ws.ai, device: ws.settings.ai })
+export function workspaceDeviceAI(ws: Pick<Workspace, 'ai' | 'settings'>): DeviceAI | undefined {
+  const base = ws.settings.ai, scoped = ws.ai?.onboarding ? readDeviceAI(ws.settings.workspaceAI) : undefined
+  if (!ws.ai?.onboarding) return base
+  const defaults = Object.fromEntries(Object.entries(ws.ai.routes??{}).filter(([k])=>k!=='*'))
+  return {...base,...scoped,default:scoped?.default??ws.ai.routes?.['*']??base?.default,allow:{...base?.allow,...scoped?.allow},narrow:{...base?.narrow,...scoped?.narrow},routes:{...base?.routes,...defaults,...scoped?.routes},gen:Math.max(base?.gen??1,scoped?.gen??1)}
+}
+export const aiOf = (ws: Pick<Workspace, 'ai' | 'settings'>): { ws: WorkspaceAI | undefined; device: DeviceAI | undefined } => ({ ws: ws.ai, device: workspaceDeviceAI(ws) })
 
 /* ------------------------------------------------------------------ */
 /* Who may write the workspace's rules (the team binding registers)     */

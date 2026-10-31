@@ -37,7 +37,7 @@ export function TaskMcp({ taskId, repo }: { taskId: ID; repo: string | null }) {
   const readOnly=useCloud(s=>s.readOnly)
   const page = useWorkspace((s) => s.pages[taskId])
   const db=useWorkspace(s=>page?.databaseId?s.databases[page.databaseId]:null)
-  useWorkspace((s) => s.settings.mcpServers)
+  useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   if (!connected || !worker || !page || readOnly) return null
   const claude=!!db&&codingAgentOf(db,page)==='claude'
   const list = taskMcpServers(worker, repo)

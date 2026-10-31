@@ -49,7 +49,7 @@ export default function HandDrawnPanel({ editor, pageId, request, onClose }: { e
   const task = useRef<AbortController | null>(null)
   const saving = useRef(false)
   const bookmark = useRef<SelectionBookmark>(editor.state.selection.getBookmark())
-  const rawServers = useWorkspace(s => s.settings.mcpServers)
+  const rawServers = useWorkspace(s => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const servers = generateServers('image', rawServers)
   const chosen = servers.find(s => s.server.id === spec.serverId) ?? servers[0]
   const url = useFileUrl(src || null)

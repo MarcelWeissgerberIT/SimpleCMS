@@ -120,7 +120,8 @@ export function withSealedKey(settings: Settings, current: string, epoch: string
  * changes.
  */
 export function withSealedKeys(settings: Settings, current: Settings, epoch: string | undefined): Settings {
-  const out = withSealedKey(settings, current.aiApiKey, epoch)
+  let out = withSealedKey(settings, current.aiApiKey, epoch)
+  if (Array.isArray(settings.workspaceMcpServers) && settings.workspaceMcpServers.some(s => s.token && !isSecretMarker(s.token))) out = {...out, workspaceMcpServers:mcpServersValue(settings.workspaceMcpServers,current.workspaceMcpServers,epoch)}
   const slots = settings.aiKeys
   if (!slots || typeof slots !== 'object') return out
   let next: NonNullable<Settings['aiKeys']> | null = null

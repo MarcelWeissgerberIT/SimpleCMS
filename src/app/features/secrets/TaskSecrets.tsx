@@ -11,7 +11,7 @@ export function TaskSecrets({ taskId, capable, worker }: { taskId: string; capab
   const { status, entries } = usePersonalVault()
   const [, render] = useState(0)
   const selected = personalSelection(taskId)
-  useWorkspace(s=>s.settings.mcpServers)
+  useWorkspace(s=>s.ai?.onboarding?s.settings.workspaceMcpServers:s.settings.mcpServers)
   const atlas=taskAtlasSelection(taskId),choices=taskAtlasChoices()
   const [error,setError]=useState('')
   return <details className="personal-task-secrets" data-testid="task-personal-secrets">
