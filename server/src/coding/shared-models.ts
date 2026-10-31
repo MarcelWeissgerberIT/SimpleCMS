@@ -43,6 +43,17 @@ export function sharedModelRoutes(s:Services) {
     if(!member(r.workspace_id,r.user_id))throw forbidden('forbidden','Worker owner must be a workspace member')
     return r
   }
+  // Infrastructure hosts have their own narrowly scoped token and do not replace a person's laptop worker.
+  app.post('/workspaces/:id/model-hosts',async c=>{
+    if(!s.config.codingRelay)throw notFound('coding_relay_off','The worker relay is disabled')
+    const {workspace,auth}=access(s,c,'admin')
+    const input=await body(c,z.object({label:z.string().trim().min(1).max(60)}).strict())
+    const wait=s.limiter.hit(`model-host:create:${auth.user.id}`,20,86400000);if(wait)throw rateLimited(Math.min(wait,3600))
+    const {row,token}=s.repo.createCodingWorker({workspaceId:workspace.id,userId:auth.user.id,label:input.label,userAgent:c.req.header('user-agent')??null,purpose:'model-host'})
+    s.repo.activateCodingWorker(row.id)
+    s.log.info('inference-only model host created',{workspace:workspace.id,host:row.id,user:auth.user.id})
+    return c.json({id:row.id,token,purpose:row.purpose},201)
+  })
   app.get('/coding/shared-model/info',c=>{const w=worker(c);return c.json({workerId:w.id})})
   app.get('/workspaces/:id/model-shares',c=>{
     const {workspace,auth}=access(s,c,'member');clean()

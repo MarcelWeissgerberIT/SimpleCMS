@@ -483,4 +483,13 @@ export const migrations: Migration[] = [
     );
     CREATE INDEX IF NOT EXISTS personal_guides_recipient ON personal_guides(workspace_id,email_hash);`,
   },
+  {
+    version: 20,
+    name: 'independent inference-only hosts without replacing personal coding workers',
+    sql: `ALTER TABLE coding_workers ADD COLUMN purpose TEXT NOT NULL DEFAULT 'coding' CHECK(purpose IN ('coding','model-host'));
+    DROP INDEX coding_workers_active;
+    DROP INDEX coding_workers_pending;
+    CREATE UNIQUE INDEX coding_workers_active ON coding_workers(workspace_id,user_id,purpose) WHERE revoked_at IS NULL AND activated_at IS NOT NULL;
+    CREATE UNIQUE INDEX coding_workers_pending ON coding_workers(workspace_id,user_id,purpose) WHERE revoked_at IS NULL AND activated_at IS NULL;`,
+  },
 ]

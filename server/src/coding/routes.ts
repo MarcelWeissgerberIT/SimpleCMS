@@ -93,6 +93,7 @@ export function codingWorkerRoutes(s: Services) {
     if (!row || !secret || !safeEqual(row.token_hash, s.repo.hash(secret))) {
       throw failedAttempt(s, c, new ApiError(401, 'unauthenticated', 'This worker token is not valid: revoked, replaced by a newer download, or never created', { headers: { 'WWW-Authenticate': 'Bearer realm="SimpleCMS One coding relay"' } }))
     }
+    if (row.purpose !== 'coding') throw forbidden('model_host_only', 'This token is for model inference only, not a personal coding worker')
     const role = s.repo.memberRole(row.workspace_id, row.user_id)
     if (!role) throw forbidden('forbidden', 'The person this worker belongs to is no longer a member of the workspace')
     if (role === 'viewer') throw forbidden('viewer', 'Viewers cannot run coding tasks in this workspace')

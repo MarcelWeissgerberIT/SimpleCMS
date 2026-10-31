@@ -1,0 +1,54 @@
+{
+  "project": "one-cms-510718",
+  "instance": "atlas-flow-frankfurt",
+  "zone": "europe-west3-b",
+  "machineType": "g2-custom-4-32768",
+  "gpu": {"type": "nvidia-l4", "count": 1, "vramGiB": 24},
+  "bootDisk": {"type": "pd-balanced", "sizeGiB": 80},
+  "provisioning": "STANDARD",
+  "firstRun": {"maxRunDuration": "4h", "terminationAction": "STOP"},
+  "model": {
+    "name": "atlas-flow:latest",
+    "base": "qwen3-coder:30b",
+    "parameters": "30.5B / 3B active",
+    "quantization": "Q4_K_M",
+    "weightBytes": 18556717117,
+    "contextTokens": 32768,
+    "maxOutputTokens": 4096,
+    "parallel": 1,
+    "maxQueue": 12
+  },
+  "service": {
+    "publicBaseUrl": "https://onecms.eh-atlas.com/model/v1",
+    "gatewayPort": 8081,
+    "ollamaBind": "127.0.0.1:11434",
+    "auth": "per-client revocable bearer keys; SHA256 hashes at rest",
+    "gatewayIngress": "ONE proxy internal IPv4 only",
+    "sshIngress": "IAP only",
+    "vmServiceAccount": null,
+    "promptLogging": false,
+    "externalProviderFallback": false
+  },
+  "one": {
+    "workspaces": ["Analytik Jena · CNSx", "Analytik Jena · FeliX"],
+    "hostMode": "one-worker --model-host",
+    "workspaceIsolation": "separate worker credentials and model shares",
+    "repositoriesOnModelHost": false,
+    "atlasCredentialsOnModelHost": false
+  },
+  "estimate": {
+    "currency": "EUR",
+    "asOf": "2026-10-31",
+    "source": "Google Cloud Billing Catalog, Frankfurt on-demand EUR SKUs",
+    "gpuPerHour": 0.580824451,
+    "cpuPerCoreHour": 0.025915574,
+    "ramPerGiBHour": 0.003036092,
+    "computePerHour": 0.781641691,
+    "diskPerMonth": 8.448,
+    "compute730Hours": 570.59843443,
+    "continuousTotalApproxPerMonth": 585,
+    "firstFourHoursCompute": 3.126566764,
+    "excludes": ["tax", "data egress"],
+    "notes": "Disk remains billable when VM stops. IPv4 price in total is approximate. No committed use discount. Capacity and observed latency unverified."
+  }
+}
