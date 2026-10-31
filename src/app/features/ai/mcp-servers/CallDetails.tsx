@@ -8,7 +8,8 @@ export function McpCallDetails({ call }: { call: Pick<McpCall, 'server' | 'tool'
   const t = useT()
   const parts = call.tool.split(/[_.:-]+/).filter(Boolean)
   const operation = parts.at(-1)?.toLowerCase() ?? ''
-  const key = ({ inspect: 'inspect', read: 'read', get: 'read', search: 'search', resolve: 'search', status: 'status', connect: 'connect', list: 'list' } as Record<string, string>)[operation]
+  const changeKey = ({ atlas_polarion_prepare_change: 'preview', atlas_polarion_apply_change: 'apply' } as Record<string, string>)[call.tool]
+  const key = changeKey ?? ({ inspect: 'inspect', read: 'read', get: 'read', search: 'search', resolve: 'search', status: 'status', connect: 'connect', list: 'list' } as Record<string, string>)[operation]
   const polarion = call.tool.startsWith('atlas_polarion_')
   const action = key ? t(`features.ai.mcp.action.${polarion ? 'polarion.' : ''}${key}`) : t('features.ai.mcp.action.generic')
   // Older stored steps may still contain a prefixed connection or job UUID.
