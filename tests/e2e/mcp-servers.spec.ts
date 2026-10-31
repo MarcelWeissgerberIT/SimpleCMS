@@ -991,17 +991,23 @@ test('Polarion activity hides prefixed transport UUIDs while preserving item IDs
     // This generic argument also exercises presentation of legacy stored labels.
     { type: 'mcp_tool_use', id: 'status', server: 'archive', name: 'atlas_polarion_status', input: { legacy: connection } },
     { type: 'mcp_tool_result', id: 'status', text: '{"status":"done"}' },
+    { type: 'mcp_tool_use', id: 'preview', server: 'archive', name: 'atlas_polarion_prepare_change', input: { id: 'CASE-23028' } },
+    { type: 'mcp_tool_result', id: 'preview', text: '{"status":"prepared"}' },
+    { type: 'mcp_tool_use', id: 'apply', server: 'archive', name: 'atlas_polarion_apply_change', input: { preview: connection } },
+    { type: 'mcp_tool_result', id: 'apply', text: '{"status":"saved"}' },
     { type: 'text', text: 'Inspection complete.' },
   ]) } : undefined)
   await openApp(page)
   await setKey(page)
-  await setServers(page, [archive({ tools: ['atlas_polarion_inspect', 'atlas_polarion_status'] })])
+  await setServers(page, [archive({ tools: ['atlas_polarion_inspect', 'atlas_polarion_status', 'atlas_polarion_prepare_change', 'atlas_polarion_apply_change'] })])
   const agent = await openAgent(page)
   await runAgentTask(page, 'Inspect CASE-23028 in Polarion')
   const details = agent.locator('.mcp-call-details')
-  await expect(details).toHaveCount(2)
+  await expect(details).toHaveCount(4)
   await expect(details.nth(0).locator('summary')).toContainText('Inspect Polarion fields and tables')
   await expect(details.nth(0).locator('summary')).toContainText('CASE-23028')
+  await expect(details.nth(2).locator('summary')).toContainText('Preview Polarion changes')
+  await expect(details.nth(3).locator('summary')).toContainText('Save Polarion changes')
   await details.nth(0).locator('summary').hover()
   await expect(page.locator('.tooltip')).toContainText('Inspect Polarion fields and tables')
   await expect(page.locator('.tooltip')).toContainText('atlas_polarion_inspect')
@@ -1013,11 +1019,16 @@ test('Polarion activity hides prefixed transport UUIDs while preserving item IDs
   await expect(agent).not.toContainText(connection, { useInnerText: true })
   await details.nth(0).scrollIntoViewIfNeeded()
   await agent.screenshot({ path: testInfo.outputPath('polarion-readable-desktop.png') })
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark')
+  await agent.screenshot({ path: testInfo.outputPath('polarion-write-desktop-dark.png') })
   await page.setViewportSize({ width: 390, height: 844 })
   await uiEval(page, s => s.setMobileSidebar(false))
   await details.nth(0).scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
   await agent.screenshot({ path: testInfo.outputPath('polarion-readable-mobile.png') })
+  await agent.screenshot({ path: testInfo.outputPath('polarion-write-mobile-dark.png') })
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light')
+  await agent.screenshot({ path: testInfo.outputPath('polarion-write-mobile-light.png') })
   await details.nth(1).locator('summary').click()
   await expect(details.nth(1).locator('pre')).toContainText(connection)
 })
