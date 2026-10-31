@@ -61,6 +61,8 @@ The harness discovers relevant tools, reads sources and stages changes for accep
 With a shared model, the host performs inference. ONE tools execute in your browser; Atlas MCP uses your personal worker. The host receives approved context and tool results, never tokens. Private pages, mail and personal memory are not shared automatically. Moving the model host to a controlled VM later keeps this separation and does not require publicly exposing Ollama.
 
 ## Analytik Jena · Direct start with Atlas Flow
+At the top of **Settings → AI**, the dedicated **Atlas Flow · Frankfurt – our own model** card shows live status, the model and queue. Its availability check sends only a short test message without page or Atlas context. The card also opens your personal Atlas setup.
+
 Prepared CNSx and FeliX team-workspace invite links lead straight to the start page. **Atlas Flow · Frankfurt** is already selected and the introductory tour offer is skipped.
 
 1. Enter your **personal AJ-Atlas token** or personal AJ-Atlas link on the start plate. The workspace owner also starts with an empty input. Connections from other workspaces are not inherited.

@@ -44,6 +44,7 @@ import { GateSetting } from '../decide/ui/GateRow'
 import { isJevModel } from '@/shared/ai/jev'
 import { WorkerModelsSettings } from './WorkerModelsSettings'
 import { listedWorkerModelRows, workerModelInfo, useWorkerModels } from '../core/workerModels'
+import { FrankfurtModelCard } from './FrankfurtModelCard'
 import { CostSettings } from './CostSettings'
 import './plates.css'
 import './settings.css'
@@ -106,6 +107,7 @@ export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memo
           {t('features.ai.prov.tab.setup')}
         </button>
       </div>
+      <FrankfurtModelCard />
       <CostSettings />
       <Plates />
       <OllamaCloudSettings />

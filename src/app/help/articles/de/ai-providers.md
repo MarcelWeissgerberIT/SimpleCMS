@@ -61,6 +61,8 @@ Das lokale Modell findet passende Werkzeuge über den Harness, liest Quellen und
 Beim geteilten Modell rechnet der freigegebene Host. ONE-Werkzeuge laufen in deinem Browser, Atlas-MCP über deinen persönlichen Worker. Der Modellhost erhält freigegebenen Kontext und Werkzeugergebnisse, keine Tokens. Private Seiten, Mail und persönliches Gedächtnis werden nicht automatisch geteilt. Zum Modellhost-Ausbau auf einer eigenen VM bleibt dieser Ablauf gleich; Ollama wird nicht öffentlich geöffnet.
 
 ## Analytik Jena · Direktstart mit Atlas Flow
+Unter **Einstellungen → KI** steht oben die eigene Karte **Atlas Flow · Frankfurt – unser eigenes Modell**. Sie zeigt den Live-Status, das Modell und die Warteschlange. **Verfügbarkeit testen** sendet nur einen kurzen Testtext ohne Seiten- oder Atlas-Kontext; der persönliche Atlas-Einstieg ist direkt von der Karte erreichbar.
+
 In vorbereiteten CNSx- und FeliX-Team-Workspaces führt der Einladungslink direkt zur Startseite. Dort ist **Atlas Flow · Frankfurt** schon ausgewählt; das Einführungstour-Angebot entfällt.
 
 1. Gib auf der Startplatte deinen **persönlichen AJ-Atlas-Token** oder den persönlichen AJ-Atlas-Link ein. Auch der Workspace-Inhaber beginnt mit einer leeren Eingabe. Vorhandene Verbindungen aus anderen Workspaces werden nicht übernommen.

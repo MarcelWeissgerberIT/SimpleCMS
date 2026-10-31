@@ -19,3 +19,10 @@
 .model-share__probe [role=status]{font-size:13px;overflow-wrap:anywhere}
 .model-share__probe [data-state=ready]{color:var(--c-green,#298743)}
 .model-share__probe [data-state=failed],.model-share__probe [data-state=missing]{color:var(--c-accent,#f50)}
+.frankfurt-model{border-top:3px solid var(--signal,#ff5100)}
+.frankfurt-model h4{display:flex;align-items:center;gap:10px}
+.frankfurt-model__state{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:8px 0 18px}
+.frankfurt-model__facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px;margin:16px 0;padding:14px 0;border-block:1px solid var(--rule,#ccc)}
+.frankfurt-model__facts div{min-width:0}.frankfurt-model__facts dt{font:11px var(--font-mono,monospace);color:var(--ink-2,#666);margin-bottom:6px}.frankfurt-model__facts dd{margin:0;font-size:13px;overflow-wrap:anywhere}
+.frankfurt-model .frankfurt-model__note{font-size:12px;color:var(--ink-2,#666)}
+.frankfurt-model .model-share__probe{margin-top:18px;padding-top:16px;border-top:1px solid var(--rule,#ccc)}
