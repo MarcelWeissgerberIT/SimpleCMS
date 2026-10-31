@@ -80,3 +80,12 @@ test('client cancellation aborts upstream work and releases its queue slot',asyn
  for(let i=0;i<30&&!aborted;i++)await new Promise(r=>setTimeout(r,10))
  assert.equal(aborted,true)
 })
+
+test('native follow-up rounds preserve the worker adapter’s tool_name result field',async t=>{
+ const f=await fixture(t,{internal:true})
+ const messages=[{role:'user',content:'Identify me'}, {role:'assistant',content:'',tool_calls:[{id:'call1',type:'function',function:{name:'one_mcp_search',arguments:{query:'atlas_whoami'}}}]},{role:'tool',tool_call_id:'call1',tool_name:'one_mcp_search',content:'{"tools":[]}'}]
+ const r=await f.request('/api/chat',{model:'atlas-flow:latest',messages,options:{num_predict:128}},null)
+ assert.equal(r.status,200);assert.equal(JSON.parse(f.calls[0].body).messages[2].tool_name,'one_mcp_search')
+ assert.equal((await f.request('/v1/chat/completions',{...body,messages})).status,400)
+ assert.equal((await f.request('/api/chat',{model:'atlas-flow:latest',messages:[{role:'user',content:'invalid',tool_name:'one_mcp_search'}]},null)).status,400)
+})
