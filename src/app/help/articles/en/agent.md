@@ -108,3 +108,5 @@ Open the target page and ask, for example: **“Rewrite this page using this EAR
 The guided path pins the existing page, checks exact source quotations and preserves existing ticket references. EARS drafts need concrete requirement sentences linked to original page quotations and acceptance checks; a table of feature labels is insufficient. An invalid draft gets one correction attempt. If minimum checks still fail, no substitute document is staged.
 
 These checks establish source retrieval, quotation matches, the page target and minimum structure. They do not establish semantic correctness or team approval. You still review the diff and apply it yourself. If a URL cannot be read, import its original text as an external source; ONE does not silently substitute model knowledge.
+
+For grounded rewrites ONE supplies numbered original passages, copies their actual text and renders the requirement/acceptance/original-passage table itself. Valid reference IDs prove origin, not semantic support. Existing ticket links and branch references are retained.

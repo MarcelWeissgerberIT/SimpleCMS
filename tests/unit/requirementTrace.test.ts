@@ -1,0 +1,7 @@
+import {test} from 'node:test'
+import assert from 'node:assert/strict'
+import {requirementTraceIssues} from '../../src/shared/ai/requirementTrace.ts'
+test('actual method example cannot become project scope',()=>{const example='The mobile phone shall have a mass of less than 150 grams.';assert(requirementTraceIssues(example,'Weigh the phone.','Stream updates use snapshot reload.',example).some(x=>x.includes('method-source example')))})
+test('a requirement already stated by the project is not rejected just because a method also uses it',()=>{const r='The logger shall retain the original timestamp.';assert.deepEqual(requirementTraceIssues(r,'Inspect the recorded original timestamp.',r,r),[])})
+test('notation-only acceptance checks are rejected while missing precision can remain open',()=>{assert(requirementTraceIssues('When a stream changes, the client shall reload its snapshot.','Die Anforderung muss die korrekte Verwendung der EARS-Syntax beinhalten.','','').length);assert.deepEqual(requirementTraceIssues('When a stream changes, the client shall reload its snapshot.','Change a stream; check snapshot reload. Exact latency is unspecified.','Stream reload.',''),[])})
+test('internal read refs are not requirement text',()=>assert(requirementTraceIssues('⟦b1⟧ The logger shall retain the original timestamp.','Inspect output.','','').length))
