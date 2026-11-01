@@ -1,12 +1,12 @@
 {
   "project": "one-cms-510718",
-  "instance": "atlas-flow-frankfurt",
+  "instance": "atlas-flow-frankfurt-week",
   "zone": "europe-west3-b",
-  "machineType": "g2-custom-4-32768",
+  "machineType": "n1-highmem-4",
   "gpu": {
-    "type": "nvidia-l4",
+    "type": "nvidia-tesla-t4",
     "count": 1,
-    "vramGiB": 24
+    "vramGiB": 16
   },
   "bootDisk": {
     "type": "pd-balanced",
@@ -37,46 +37,51 @@
     "sshIngress": "IAP only",
     "vmServiceAccount": null,
     "promptLogging": false,
-    "externalProviderFallback": false
+    "externalProviderFallback": false,
+    "privateIPv4": "10.38.0.11"
   },
   "one": {
     "workspaces": [
       "Analytik Jena · CNSx",
       "Analytik Jena · FeliX"
     ],
-    "hostMode": "one-worker --model-host",
+    "hostMode": "standalone one-host.ts; inference polling only",
     "workspaceIsolation": "separate worker credentials and model shares",
     "repositoriesOnModelHost": false,
     "atlasCredentialsOnModelHost": false
   },
   "estimate": {
     "currency": "EUR",
-    "asOf": "2026-10-31",
+    "asOf": "2026-11-01",
     "source": "Google Cloud Billing Catalog, Frankfurt on-demand EUR SKUs",
-    "gpuPerHour": 0.580824451,
-    "cpuPerCoreHour": 0.025915574,
-    "ramPerGiBHour": 0.003036092,
-    "computePerHour": 0.781641691,
+    "gpuPerHour": 0.360799999,
+    "cpuPerCoreHour": 0.035842399,
+    "ramPerGiBHour": 0.004803039,
+    "computePerHour": 0.629048609,
     "diskPerMonth": 8.448,
-    "compute730Hours": 570.59843443,
-    "continuousTotalApproxPerMonth": 585,
+    "compute730Hours": 459.20548457,
+    "continuousTotalApproxPerMonth": 471,
     "firstFourHoursCompute": 3.126566764,
     "excludes": [
       "tax",
       "data egress"
     ],
-    "notes": "Disk remains billable when VM stops. IPv4 price in total is approximate. No committed use discount. Model and tool round-trip were verified on 2026-10-31; capacity is checked again at each restart."
+    "notes": "Original four-hour L4 trial cost recorded separately. Weekly replacement uses N1 predefined CPU/RAM and T4 Frankfurt EUR SKUs effective 2026-10-31. Disk, snapshots and IPv4 remain separate; no commitment or scheduled restart. Warm T4 measurement used a cached prompt and is not a latency guarantee.",
+    "weekCompute": 105.680166312
   },
   "weekTest": {
     "authorizedOn": "2026-11-01",
     "maxRunDuration": "7d",
     "terminationAction": "STOP",
-    "computeEstimateEUR": 131.32,
+    "computeEstimateEUR": 105.68,
     "scope": [
       "Analytik Jena · CNSx",
       "Analytik Jena · FeliX"
     ],
-    "startStatus": "capacity-blocked-in-europe-west3-b"
+    "startStatus": "verified: public API and both encrypted ONE shares, including tool follow-up",
+    "startedUTC": "2026-11-01T06:16:28.560Z",
+    "automaticStopUTC": "2026-11-08T06:16:28.560Z",
+    "reasonForHardwareChange": "No L4 capacity available in Frankfurt zones a/b; zone c does not offer G2."
   },
   "auditPlan": {
     "status": "proposed-not-enabled",
@@ -116,5 +121,33 @@
     ],
     "cost": "VM runtime separately; API token price zero does not mean hardware is free",
     "participantNotice": "visible test-log notice before first request, no extra modal per run"
+  },
+  "originalInstance": {
+    "name": "atlas-flow-frankfurt",
+    "machineType": "g2-custom-4-32768",
+    "gpu": {
+      "type": "nvidia-l4",
+      "count": 1,
+      "vramGiB": 24
+    },
+    "status": "retired; recoverable from snapshot",
+    "recoverySnapshot": "atlas-flow-week-20261101"
+  },
+  "ramGiB": 26,
+  "measurements": {
+    "warmT4": {
+      "outputTokens": 74,
+      "outputTokensPerSecond": 19.92,
+      "promptTokens": 931,
+      "promptSeconds": 0.06,
+      "totalSeconds": 3.79,
+      "promptCached": true
+    },
+    "coldT4": {
+      "outputTokens": 87,
+      "outputTokensPerSecond": 7.17,
+      "totalSeconds": 78.97,
+      "loadSeconds": 30.11
+    }
   }
 }

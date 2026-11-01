@@ -1,6 +1,7 @@
 # Atlas Flow in Frankfurt
 
-One L4 (24 GB), `g2-custom-4-32768`, 80 GB balanced disk, `europe-west3-b`.
+Initial trial: one L4 (24 GB), `g2-custom-4-32768`, 80 GB balanced disk, `europe-west3-b`.
+Weekly replacement after Frankfurt L4 stockouts: `atlas-flow-frankfurt-week`, `n1-highmem-4` (4 vCPU / 26 GiB), one T4 (16 GB), same disk size and model weights, same zone. The snapshot `atlas-flow-week-20261101` preserves the prior installation. The model uses CPU expert offload on T4; do not assume L4 throughput.
 The initial trial used a **4-hour maximum runtime and STOP action**. On 2026-11-01 the owner authorized a seven-day test; the VM scheduling cap was changed to **7d, STOP**. A restart still needs available zonal L4 capacity. Confirm RUNNING and model readiness before calling it online.
 Stopping retains the disk and its charges. There is no always-on commitment or scheduled restart.
 `frankfurt-plan.json` records the dated EUR estimate; recheck prices before making a long-term commitment.
@@ -39,7 +40,7 @@ node --test deploy/model-service/gateway.test.mjs
 
 An uploaded root-owned `/opt/atlas-flow` bundle contains the gateway, built host, installer, model creation JSON, hashed key store and private per-workspace presets. `bootstrap.sh` installs systemd services; native worker inference reaches the same gateway through loopback. Keep owner-only permissions on staged bundles and remove transport copies after installation.
 
-The HTTPS proxy uses `handle_path /model/*` to strip `/model` and forward to `10.38.0.10:8081`, with streaming enabled. All other paths retain the normal ONE upstream. Back up and validate Caddy configuration before reloading.
+The HTTPS proxy uses `handle_path /model/*` to strip `/model` and forward to `10.38.0.11:8081`, with streaming enabled. All other paths retain the normal ONE upstream. Back up and validate Caddy configuration before reloading.
 
 ## Keys and operations
 
@@ -54,6 +55,8 @@ Create/revoke commands run as root against `/etc/atlas-flow/api-keys.json`; pres
 
 Inspect `atlas-flow-gateway`, `atlas-flow-cnsx`, `atlas-flow-felix` and `ollama` with `systemctl`. `/model/healthz` is gateway liveness only, not model readiness. Check authenticated model inference and ONE model-share status for readiness.
 
-Use `gcloud compute instances stop atlas-flow-frankfurt --project=one-cms-510718 --zone=europe-west3-b` to stop early. The authorized weekly test has a seven-day runtime cap per start. Do not silently remove or extend that cap, or schedule repeated starts beyond the authorized week. The owner requested full request/answer evaluation visible only to Marcel; frankfurt-plan.json records the proposed audit design. Content logging remains disabled until that design is implemented with test-lead-only access and secret exclusion.
+Use `gcloud compute instances stop atlas-flow-frankfurt-week --project=one-cms-510718 --zone=europe-west3-b` to stop early. The authorized weekly test has a seven-day runtime cap per start. Do not silently remove or extend that cap, or schedule repeated starts beyond the authorized week. The owner requested full request/answer evaluation visible only to Marcel; frankfurt-plan.json records the proposed audit design. Content logging remains disabled until that design is implemented with test-lead-only access and secret exclusion.
 
 Verify actual GPU offload, peak VRAM, prompt/generation throughput, JSON and function-call output, both encrypted ONE routes, key rejection/revocation, and cross-workspace isolation before calling a deployment ready. Record measurements, not assumed performance.
+
+The weekly VM started at 2026-11-01 06:16:28 UTC; its 7d STOP cap ends around 2026-11-08 06:16:28 UTC (07:16 Berlin). The first T4 response needed warming; a repeated, cached prompt returned 74 output tokens at 19.92 tokens/s in 3.79 seconds. Treat this as a measurement, not a universal latency promise. The weekly compute estimate is EUR 105.68, excluding disk, snapshots, IPv4, egress and tax. Request/answer content logging is still only a proposed design.
