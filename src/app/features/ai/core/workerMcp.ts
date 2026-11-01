@@ -45,10 +45,11 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     if(!workerOnline()&&!cloudAtlasMcpReady(servers))throw new AIError('capability','features.ai.local.mcpWorker')
     if(name==='one_mcp_search'){
       if(typeof args.query!=='string'||args.query.length>200)throw new AIError('mcp','Invalid discovery query.')
-      const activity:McpCall={id,server:'MCP',tool:'one_mcp_search',arg:args.query,state:'run'}
+      const query=task?.discoveryQuery(args.query)??args.query
+      const activity:McpCall={id,server:'MCP',tool:'one_mcp_search',arg:query,state:'run'}
       event(activity)
       try {
-        const found=await request({action:'search',servers,query:args.query}) as {tools:DiscoveredMcpTool[];guides?:Array<{server:string;instructions:string}>;projectDirectory?:{server:string;tenant:string;projects:Array<{slug:string;parentSlug:string|null}>};unavailable?:string[]}
+        const found=await request({action:'search',servers,query}) as {tools:DiscoveredMcpTool[];guides?:Array<{server:string;instructions:string}>;projectDirectory?:{server:string;tenant:string;projects:Array<{slug:string;parentSlug:string|null}>};unavailable?:string[]}
         if(!Array.isArray(found?.tools)||found.tools.length>6)throw new AIError('mcp')
         for(const server of servers)if(server.name.toLowerCase().includes('atlas')||found.tools.some(t=>t.server===server.name&&t.name.startsWith('atlas_')))facts.noteDiscovery(server.name,!(found.unavailable??[]).some(s=>s.startsWith(server.name+':')))
         const exposed=selectMcpSchemas(found.tools,maxChars)
@@ -59,7 +60,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         const guides=(found.guides??[]).filter(g=>!shownGuides.has(g.server))
         guides.forEach(g=>shownGuides.add(g.server))
         event({...activity,state:'ok'})
-        return JSON.stringify({tools:exposed.map(t=>({server:t.server,name:t.name,nativeFunction:bindings.functionName(t.server,t.name)})),...(guides.length?{serverUsageGuides:guides}:{}),discoveryOnly:true,note:MCP_DISCOVERY_NOTE,...(found.unavailable?.length?{unavailable:found.unavailable.slice(0,12).map(s=>connectionProblem(new Error(s)))}:{}),...(exposed.length<found.tools.length?{schemasOmitted:'Search a narrower or exact tool name.'}:{})})
+        return JSON.stringify({tools:exposed.map(t=>({server:t.server,name:t.name,nativeFunction:bindings.functionName(t.server,t.name)})),...(guides.length?{serverUsageGuides:guides}:{}),discoveryOnly:true,...(query!==args.query?{requestedQuery:args.query,resolution:'The trusted task explicitly names an Atlas record Ref. ONE resolved this bare catalogue request to atlas_get; no record has been read and no permission changed.'}:{}),note:MCP_DISCOVERY_NOTE,...(found.unavailable?.length?{unavailable:found.unavailable.slice(0,12).map(s=>connectionProblem(new Error(s)))}:{}),...(exposed.length<found.tools.length?{schemasOmitted:'Search a narrower or exact tool name.'}:{})})
       } catch(e) { for(const server of servers)if(/atlas/i.test(server.name+server.url))facts.noteDiscovery(server.name,false);task?.observe('atlas',false,true,false,true,'connection / discovery unavailable');if(e instanceof LiveAuditError)throw e;const error=connectionProblem(e);event({...activity,state:'err',error});throw new AIError('mcp',error) }
     }
     if(name!=='one_mcp_call'||typeof args.server!=='string'||typeof args.name!=='string'||!args.arguments||typeof args.arguments!=='object'||Array.isArray(args.arguments)||!discovered.has(JSON.stringify([args.server,args.name])))throw new AIError('mcp','Discover the permitted exact tool before calling it.')
@@ -106,5 +107,5 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       return receipt||evidence.hint()?JSON.stringify({...JSON.parse(packed),...(receipt?{oneObservedFacts:modelAtlasReceipt(receipt)}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
     }catch(e){if(e instanceof LiveAuditError)throw e;if(e instanceof TaskBlocked){event({...activity,state:'err',error:e.message});throw new AIError('policy',e.message)}if(dispatched)task?.observe(String(args.name).startsWith('atlas_')?'atlas':'other',false,atlasTaskEffect(String(args.name),args.arguments as Record<string,unknown>)==='read',false,true,String(args.name));if(signal?.aborted)throw new AIError('aborted');if(e instanceof AIError&&e.code==='policy'){event({...activity,state:'err',error:e.message});throw e}const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':mcpConnectionMessage(e,'call');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
   }
-  return Object.assign(invoke,{evidence,facts,attempted:()=>attempts>0,schema:(server:string,name:string)=>schemas.get(JSON.stringify([server,name])),functions:()=>bindings.functions(maxChars),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
+  return Object.assign(invoke,{evidence,facts,materializeResult:(packed:string)=>results.materialize(packed),attempted:()=>attempts>0,schema:(server:string,name:string)=>schemas.get(JSON.stringify([server,name])),functions:()=>bindings.functions(maxChars),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
 }

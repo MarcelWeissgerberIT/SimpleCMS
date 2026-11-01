@@ -78,6 +78,8 @@ Open **Compiled task** below your request. The task compiler binds the goal, rol
 
 For missing prerequisites the model first inspects available ONE and Atlas sources. Tool discovery is not a source read. If a prerequisite remains open or a source is unavailable, the decision cube asks a precise question and names the dependent step. Choose an option or enter your specification. Only your UI answer resolves the question and binds a new revision; permissions do not expand. Independent reads remain permitted and dependent effects stay blocked. Background agents stop for human decisions: specify their missing input and run them again.
 
+An analysis can list unresolved questions in its answer without interrupting you. The decision cube is for an answer that the requested next action cannot proceed without. If the model asks before inspecting the available sources, it receives a bounded correction result. This opens no decision, supplies no answer for you and grants no additional permissions.
+
 **Ready for review** confirms technical task bounds, observed tool data and output format. It does not prove every statement or domain completeness. **I reviewed the result** records your review without applying proposals. Existing data and tool permissions still apply. Unknown effects or stale actor, workspace and provider bindings block execution.
 
 ## Repeat saved compiled programs

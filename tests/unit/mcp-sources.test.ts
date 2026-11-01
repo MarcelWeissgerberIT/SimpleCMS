@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {discoverMcpTools} from '../../src/shared/mcp/discovery.ts'
+import {discoverMcpTools,taskMcpDiscoveryQuery} from '../../src/shared/mcp/discovery.ts'
 import {McpResults,unwrapMcpText} from '../../src/shared/mcp/results.ts'
 const tools=['atlas_get','atlas_get_details','atlas_search','atlas_query','atlas_project_list','atlas_delete','atlas_whoami'].map(name=>({name,description:name==='atlas_search'?'Search records by q':'Generic tool'}))
 test('Atlas topic/date discovery finds general read tools without requiring topic words in schemas',()=>{
@@ -119,4 +119,22 @@ test('non-empty Atlas source facts survive paging and contradict false global ab
  e.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:{q:'narrow'}})
  assert.equal(e.searchResult()?.count,0);assert.equal(e.contradictsSearch('Keine Ergebnisse gefunden.')?.count,39)
  assert.equal(new McpEvidence().contradictsSearch('Keine Ergebnisse gefunden.'),null)
+})
+
+
+test('fixed programs restore the fresh bounded MCP response instead of generating from a paging overview',()=>{
+ const cache=new McpResults(),body='SOURCE START '+('a'.repeat(7000))+' SOURCE END',raw=envelope({item:{ref:42,body}})
+ const packed=JSON.parse(cache.pack(raw));assert.equal(typeof packed.result_id,'string');assert(!JSON.stringify(packed).includes('SOURCE END'))
+ const decorated=JSON.stringify({...packed,oneObservedFacts:{refs:[42],outcome:'ok'},oneSourceLinks:'https://atlas.example/r/42'})
+ const full=JSON.parse(cache.materialize(decorated));assert.equal(JSON.parse(full.content[0].text).item.body,body);assert.deepEqual(full.oneObservedFacts,{refs:[42],outcome:'ok'});assert.equal(full.oneSourceLinks,'https://atlas.example/r/42')
+ assert.equal(cache.materialize(envelope({item:{ref:7}})),envelope({item:{ref:7}}))
+ assert.throws(()=>new McpResults().materialize(decorated),/expired/);assert.throws(()=>cache.pack('x'.repeat(180001)),/bounded source cache/)
+})
+
+
+test('only a bare catalogue request resolves from an explicit trusted Atlas record reference',()=>{
+ assert.equal(taskMcpDiscoveryQuery('Read AJ-Atlas Record Ref 36029. Only read.','atlas'),'atlas_get')
+ assert.equal(taskMcpDiscoveryQuery('Lies Atlas Datensatz #42 und zeige den Widerspruch.','AJ-Atlas'),'atlas_get')
+ for(const query of ['atlas_whoami','atlas_agent_list','atlas_search','atlas requirement'])assert.equal(taskMcpDiscoveryQuery('Read Atlas Ref 42.',query),query)
+ for(const goal of ['Search Atlas for documents.','Analyse Ref 42 in ONE.','Atlas: explain the example "Record Ref 42".'])assert.equal(taskMcpDiscoveryQuery(goal,'atlas'),'atlas')
 })

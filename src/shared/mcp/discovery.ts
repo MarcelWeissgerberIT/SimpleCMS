@@ -21,4 +21,10 @@ export function discoverMcpTools<T extends {name:string;description?:string;serv
  }).filter(v=>v.score>0).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,6).map(v=>v.t)
 }
 
-export const MCP_DISCOVERY_NOTE='Tool discovery only: no Atlas records have been searched yet. Use atlas_search with the topic in q, or atlas_query with project/date/status filters. Empty tool discovery is not evidence of missing records. For Atlas questions, ONE coding tasks/pipelines are not Atlas records. Discover exact tool names for specialised operations.'
+/** An exact user-supplied record target resolves a bare Atlas catalogue request, not permissions or content. */
+export function taskMcpDiscoveryQuery(goal:string,query:string):string {
+ const text=goal.replace(/["“„`][^"“”„`]*["”`]/g,'')
+ const known=/\batlas\b/iu.test(text)&&/\b(?:ref|record|datensatz)\s*[:#]?\s*\d+\b|\/r\/\d+\b/iu.test(text)
+ return known&&/^(?:aj[- ]?)?atlas$/iu.test(query.trim())?'atlas_get':query
+}
+export const MCP_DISCOVERY_NOTE='Tool discovery only, not a content read. Use the returned exact function for the requested operation. For a known numeric Atlas Ref, call atlas_get(ref); do not full-text search its digits. Request parts [body] for a bounded body analysis. Only topic searches use atlas_search q; date/status searches may use atlas_query. Empty discovery is not evidence of missing records. ONE coding tasks/pipelines are not Atlas records. Discover exact tool names for specialised operations.'

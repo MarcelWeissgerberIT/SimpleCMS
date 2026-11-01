@@ -61,4 +61,16 @@ test.describe('Saved executable compiled programs',()=>{
   const wire=host?host.requests.map(r=>r.body):fake.textAsked;expect(wire).toHaveLength(1);expect(wire.every(r=>!r.tools?.length)).toBe(true);expect(await page.evaluate(()=>(window as any).__oneTerm.state.getState().usage.requests)).toBe(1)
  })
 
+ test('a large fresh Atlas response reaches fixed generation as source text, without another model tool or old result IDs',async({page})=>{
+  const body='RECORDED SOURCE START '+('Bounded current source. '.repeat(260))+' RECORDED SOURCE END'
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:schema}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:42,body}})}]})}
+  const term=page.getByRole('region',{name:'AI terminal'});await term.getByRole('button',{name:'Saved compiled programs'}).click();const dialog=page.getByRole('dialog',{name:'Saved compiled programs'});await dialog.getByRole('button',{name:'New program',exact:true}).click()
+  const editor=dialog.getByRole('textbox',{name:'Executable JSON definition'}),p=JSON.parse(await editor.inputValue())
+  p.goal='Summarize the current Atlas source without making decisions.';p.parameters={ref:{schema:{type:'integer'},default:42}};p.steps=[{id:'atlas',kind:'tool',server:'atlas',endpoint:'https://atlas.example.org/mcp',tool:'atlas_get',schema,effect:'read',args:{object:{ref:{input:'ref'}}}},{id:'answer',kind:'generate',instruction:'Use only the fresh Atlas source.',context:{result:'atlas',path:[]}}];p.output={result:'answer',path:[]}
+  await editor.fill(JSON.stringify(p,null,2));await dialog.getByLabel('Name',{exact:true}).fill('Large fresh source');await dialog.getByRole('button',{name:'Compile and save'}).click();await dialog.getByRole('button',{name:'Run this version'}).click()
+  await expect(term.locator('.term-answer').last()).toContainText('Fresh source briefing',{timeout:25000});await expect(term).toContainText('Program run receipt saved')
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1);expect(fake.textAsked).toHaveLength(1);expect(fake.textAsked[0].tools??[]).toHaveLength(0)
+  const wire=JSON.stringify(fake.textAsked[0]);expect(wire).toContain('RECORDED SOURCE START');expect(wire).toContain('RECORDED SOURCE END');expect(wire).not.toContain('mcp-result-')
+ })
+
 })

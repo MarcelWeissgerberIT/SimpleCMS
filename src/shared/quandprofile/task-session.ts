@@ -1,3 +1,4 @@
+import {taskMcpDiscoveryQuery} from '../mcp/discovery.ts'
 import {atlasIdentityTask} from './task.ts'
 import type {CapturedStep} from './program.ts'
 import type {TaskCompiled,TaskContract,TaskEffect,TaskPhase,TaskQuestion,TaskReport,TaskRequest} from './task.ts'
@@ -33,6 +34,7 @@ export class TaskSession {
   }
   capture(step:CapturedStep){if(this.trace.length<40)this.trace.push(structuredClone(step))}
   captured(){return structuredClone(this.trace)}
+  discoveryQuery(query:string){return taskMcpDiscoveryQuery(this.contract.goal,query)}
   identityOnly(){return atlasIdentityTask(this.contract.goal)}
   report():TaskReport{return structuredClone({id:this.contract.id,at:Date.now(),phase:this.phase,compiled:this.compiled,observations:this.observations,questions:this.questions,evidence:this.evidence})}
   private publish(){this.host.report?.(this.report())}

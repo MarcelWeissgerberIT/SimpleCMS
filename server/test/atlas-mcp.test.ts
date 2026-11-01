@@ -45,7 +45,7 @@ test('topic discovery returns generic Atlas search/query while respecting denied
  for(const query of ['atlas document lab notebook','atlas work items last week']){
   const result:any=await runAtlasMcp({action:'search',servers:[{...server,deny:['atlas_delete']}],query} as WorkerMcpRequest,new AbortController().signal,factory)
   assert.ok(result.tools.some((t:any)=>t.name==='atlas_search'));assert.ok(result.tools.some((t:any)=>t.name==='atlas_query'))
-  assert.ok(!result.tools.some((t:any)=>t.name==='atlas_delete'));assert.match(result.note,/no Atlas records have been searched/)
+  assert.ok(!result.tools.some((t:any)=>t.name==='atlas_delete'));assert.match(result.note,/Tool discovery only, not a content read/)
  }
 })
 

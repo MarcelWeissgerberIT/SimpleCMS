@@ -78,6 +78,8 @@ Der Chip der offenen Seite sagt, wie viel Claude davon lesen darf: nur der Titel
 
 Fehlt eine Voraussetzung, prüft die KI zuerst die verfügbaren ONE- und Atlas-Quellen. Werkzeugsuche ist kein Quellenabruf. Bleibt die Information offen oder eine Quelle unerreichbar, fragt der Entscheidungswürfel konkret nach und benennt den abhängigen Schritt. Wähle eine Option oder formuliere deine Spezifikation. Nur eure Eingabe löst die Frage auf und bindet eine neue Vertragsversion; sie erweitert keine Werkzeugrechte. Unabhängige Lesezugriffe bleiben erlaubt, abhängige Wirkungen sind blockiert. Hintergrundagenten halten bei solchen Fragen an: Ergänze ihre Aufgabe und starte sie erneut.
 
+Eine Analyse darf offene Fragen als Ergebnis benennen, ohne dich dafür anzuhalten. Der Entscheidungswürfel ist für eine Antwort nötig, ohne die der angeforderte nächste Schritt nicht fortgesetzt werden kann. Fordert das Modell die Entscheidung vor der Quellenprüfung an, erhält es einen begrenzten Korrekturhinweis. Das öffnet keine Entscheidung, beantwortet nichts für dich und gewährt keine zusätzlichen Rechte.
+
 **Bereit zur Prüfung** bestätigt technische Auftragsgrenzen, beobachtete Werkzeugdaten und das Ausgabeformat. Es beweist weder jede Aussage noch fachliche Vollständigkeit. **Ergebnis von mir geprüft** zeichnet eure Prüfung auf und wendet Vorschläge nicht automatisch an. Bestehende Datenschutz- und Werkzeugfreigaben gelten zusätzlich. Unbekannte Wirkungen oder veraltete Nutzer-, Workspace- und Anbieterbindungen sperren die Ausführung.
 
 ## Gespeicherte Kompilate wiederholen

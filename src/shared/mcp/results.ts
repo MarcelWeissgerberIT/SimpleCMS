@@ -10,7 +10,7 @@ const descriptor=(value:unknown,path:string):unknown=>{
  return value
 }
 export class McpResults {
- private entries=new Map<string,{data:unknown;size:number;error:boolean}>()
+ private entries=new Map<string,{data:unknown;raw:string;size:number;error:boolean}>()
  private prefix=crypto.randomUUID().slice(0,8)
  private seq=0
  private bytes=0
@@ -24,8 +24,21 @@ export class McpResults {
   }
   while(this.entries.size>=8||this.bytes+raw.length>720000){const oldest=this.entries.entries().next().value;if(!oldest)break;this.entries.delete(oldest[0]);this.bytes-=oldest[1].size}
   const id='mcp-result-'+this.prefix+'-'+(++this.seq)
-  this.entries.set(id,{data,size:raw.length,error:object(envelope)&&envelope.isError===true});this.bytes+=raw.length
+  this.entries.set(id,{data,raw,size:raw.length,error:object(envelope)&&envelope.isError===true});this.bytes+=raw.length
   return this.read({result_id:id})
+ }
+ /** Host-only fixed-program input. A tool-free generation cannot follow interactive cache pointers.
+  * Restore the bounded, freshly observed response; the normal model/context gate still applies. */
+ materialize(packed:string):string {
+  const page=JSON.parse(packed)
+  if(!object(page)||typeof page.result_id!=='string')return packed
+  const entry=this.entries.get(page.result_id)
+  if(!entry)throw new Error('Program source expired; make a fresh permitted source request.')
+  const original=JSON.parse(entry.raw)
+  if(!object(original))throw new Error('Program source is not an MCP response object.')
+  const source={...original}
+  for(const key of ['oneObservedFacts','oneSourceLinks','oneSearchEvidence'])if(Object.hasOwn(page,key))source[key]=page[key]
+  return JSON.stringify(source)
  }
  read(args:Record<string,unknown>):string {
   const id=args.result_id,path=args.path??'',offset=args.offset??0
