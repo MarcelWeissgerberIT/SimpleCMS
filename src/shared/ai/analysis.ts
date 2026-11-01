@@ -9,17 +9,25 @@ const arr=(items:unknown,min=0,max=3)=>({type:'array',minItems:min,maxItems:max,
 const obj=(properties:Record<string,unknown>)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false})
 export function baSchema(refs:AnalysisRef[]){return obj({requirements:arr(obj({statement:str(20),source_refs:arr({type:'string',enum:refs.map(r=>r.ref)},1,3),checks:arr(obj({observation:str(15),conforms:{type:'boolean'}}),2,3)})),questions:arr(obj({question:str(10),reason:str(10),source_refs:arr({type:'string',enum:refs.map(r=>r.ref)},1,3)}),0,5)})}
 export function poSchema(draft:BADraft,refs:AnalysisRef[]){return obj({reviews:arr(obj({requirement:{type:'string',enum:(draft.requirements.length?draft.requirements.map((_,i)=>'R'+(i+1)):['R-none'])},support:{type:'string',enum:['supported','partial','unsupported']},check_support:{type:'string',enum:['supported','partial','unsupported']},finding:str(15)}),draft.requirements.length,draft.requirements.length),contradictions:arr(obj({left_ref:{type:'string',enum:refs.map(r=>r.ref)},right_ref:{type:'string',enum:refs.map(r=>r.ref)},reason:str(15)})),questions:arr(str(10),0,5)})}
+const behaviorRef=(r:AnalysisRef)=>!/^\s*#/u.test(r.quote)&&!/^\s*(?:[-|]\s*)?(?:\*\*)?(?:status|verification|überprüfung|project|projekt|frontend[- ]implementierung|frontend[- ]implementation)(?:\*\*)?\s*[:|]/iu.test(r.quote)
+/** A cited behavior inherits the context of its actual owning source section. Headings alone are not evidence. */
+export function analysisEvidence(refs:AnalysisRef[],ids:string[]):string{
+ const indices=new Set<number>()
+ for(const id of ids){const i=refs.findIndex(r=>r.ref===id);if(i<0||!behaviorRef(refs[i]))continue;let start=i;while(start>=0&&!/^\s*#{1,6}\s/u.test(refs[start].quote))start--;const level=start<0?0:/^\s*(#{1,6})/u.exec(refs[start].quote)![1].length;start=Math.max(0,start);let end=start+1;while(end<refs.length){const h=/^\s*(#{1,6})\s/u.exec(refs[end].quote);if(h&&(level===0||h[1].length<=level))break;end++}for(let n=start;n<end;n++)indices.add(n)}
+ return [...indices].sort((a,b)=>a-b).map(i=>refs[i].quote).join('\n')
+}
 export function baIssues(draft:BADraft,refs:AnalysisRef[]):string[]{
  const issues:string[]=[]
- const source=refs.map(r=>r.quote).join('\n'),proposals=draft.requirements.map(r=>r.statement).join('\n')
+ const source=analysisEvidence(refs,draft.requirements.flatMap(r=>r.source_refs)),proposals=draft.requirements.map(r=>r.statement).join('\n')
  if(draft.requirements.length&&/\b(?:mit\s+(?:einem\s+)?Grund\s+und\s+(?:einem\s+)?Audit|with\s+(?:a\s+)?reason\s+and\s+(?:an?\s+)?audit)\b/iu.test(source)&&(!/\b(?:Grund|reason)\b/iu.test(proposals)||!/\baudit\b/iu.test(proposals)))issues.push('Preserve the explicit source obligation with reason AND audit in the requirement drafts; do not silently omit it.')
  if(!draft.requirements.length&&!draft.questions.length)issues.push('Return a grounded requirement or a specific missing-specification question; an empty analysis is not useful.')
  for(const r of draft.requirements){
   if(new Set(r.source_refs).size!==r.source_refs.length||r.source_refs.some(id=>!refs.some(x=>x.ref===id)))issues.push('Use distinct actual source references.')
-  const evidence=r.source_refs.map(id=>refs.find(x=>x.ref===id)?.quote??'').join('\n')
+  if(!r.source_refs.some(id=>{const ref=refs.find(x=>x.ref===id);return ref&&behaviorRef(ref)}))issues.push('Cite an actual behavioral source passage, not just a heading, status or project field.')
+  const evidence=analysisEvidence(refs,r.source_refs)
   const response=r.statement.split(/\b(?:muss|soll|shall)\b/iu).slice(1).join(' ')
   if(/(?:ermöglich|erlaub|zulass|übernehmen|allow|permit|take\s*over)/iu.test(response)&&/(?:nur nachdem|only after)\s+(?:alle|sämtliche|all|every)\b/iu.test(evidence)&&! /\b(?:alle[nrms]?|sämtliche[nrms]?|all|every)\b/iu.test(r.statement))issues.push('Preserve the source prerequisite covering ALL associated items; do not weaken it to some items.')
-  if(/bestätig|confirm/iu.test(response)&&!/bestätig|confirm/iu.test(evidence))issues.push('A confirmation response was invented. The source requires verification but does not state that the system confirms it. Preserve source obligations instead.')
+  if(/bestätig|confirm/iu.test(response)&&!/bestätig|confirm/iu.test(evidence))issues.push('A confirmation response was invented. The owning source section does not state this confirmation response. Preserve source obligations instead.')
   const reportError=/(?:fehler|error).{0,60}(?:meld|anzeig|report|display)|(?:meld|anzeig|report|display).{0,60}(?:fehler|error)/iu
   if(reportError.test(response)&&!reportError.test(evidence))issues.push('An error-reporting reaction was invented. A prerequisite does not specify an error message. Leave the reaction open and formulate the source invariant.')
   if(/capacity[- ]?409/iu.test(evidence)&&/\b409\b/u.test(r.statement)&&!/capacity|kapazit[äa]t/iu.test(r.statement))issues.push('Capacity-409 is a qualified conflict, not every HTTP 409. Preserve the capacity qualifier from the source.')
