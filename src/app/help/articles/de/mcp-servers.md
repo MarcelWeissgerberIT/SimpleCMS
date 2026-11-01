@@ -85,3 +85,14 @@ Unter [Meine Secrets](help:personal-secrets) speicherst du Atlas- und Agenten-To
 
 ## Modell und Freigabe direkt beim Verbindungstest
 Öffne beim Server **Erweitert**. Im Bereich für Verbindungstests und Anleitungen lässt sich ein verfügbares MCP-fähiges Modell wählen; diese Wahl wird für diesen Zweck auf deinem Gerät gespeichert. Für Copilot und lokale Modelle steht daneben eine getrennte persönliche MCP-Erlaubnis. Die Modellwahl allein erteilt keine Datenfreigabe. Eine Workspace-Sperre bleibt wirksam. Dein eigener Worker und persönlicher Atlas-Zugang sind auch beim geteilten Atlas Flow nötig; der Modellhost bekommt keine Zugangstokens.
+
+
+## Atlas Flow in Frankfurt
+
+Das Frankfurter Modell kann die ausgewählten Atlas-Werkzeuge über dieselbe persönliche MCP-Verbindung nutzen: Records lesen und ändern, Agenten und Flows verwalten sowie die verfügbaren Polarion-Werkzeuge aufrufen. Nach der Suche nach einem Werkzeug bekommt das Modell dessen vollständiges Funktionsschema. Auch große Schreibschemas dürfen nicht als „nicht verfügbar“ verschwinden. Die Serverhinweise beschreiben den Aufruf; Rechte und Freigaben gelten weiter.
+
+Eine erfolgreiche Werkzeugauswahl beweist noch keine Ausführung. Prüfe im KI-Terminal den tatsächlichen Aufruf und das Ergebnis. Ein angelegter Flow-Job ist eingereihte Arbeit; ein Agent muss ihn mit seiner eigenen autorisierten Verbindung ausführen. Ein Personentoken macht aus dem Modell keinen Agenten. Schreibrechte, Constraints, Signaturen und menschliche Freigaben werden durch die Modellwahl nicht umgangen.
+
+Polarion Connect benötigt zusätzlich einen erreichbaren, für das Projekt freigegebenen Polarion-Worker und dessen Browser-Anmeldung. Beginne mit `atlas_polarion_status`; eine Atlas-Anmeldung allein beweist keine Polarion-Verbindung. `atlas_polarion_resolve` findet vorhandene Referenzen in Atlas und beweist ebenfalls keine aktuelle Browser-Verbindung. Ein Entwurf von `atlas_polarion_prepare_change` ist noch nicht gespeichert. `atlas_polarion_apply_change` benötigt die ausdrückliche Freigabe der konkreten Vorschau und einen schreibfähigen Worker.
+
+Die technische Anbindung und die Ergebnisqualität werden getrennt geprüft. Ein erfolgreicher Identitäts- oder Suchtest qualifiziert nicht automatisch Agentenläufe, Änderungen oder Polarion. Bei einem Fehler die konkrete fehlende Voraussetzung zeigen; niemals Erfolg oder fehlende Daten aus einem gescheiterten Aufruf ableiten.

@@ -85,3 +85,14 @@ Requests go to `api.anthropic.com`; Anthropic connects to the server while Claud
 
 ## Model and permission beside the connection test
 Open a server’s **Details**. Choose an available MCP-capable model in the connection-check and guide section; ONE remembers this choice for this purpose on your device. Copilot and local models have a separate personal MCP permission beside it. Choosing a model grants no data access. Workspace restrictions still apply. Your own worker and personal Atlas access remain necessary with shared Atlas Flow; the model host receives no access tokens.
+
+
+## Atlas Flow in Frankfurt
+
+The Frankfurt model uses the selected personal Atlas MCP connection for records, agents, flows, and available Polarion operations. After discovery the model receives the complete native function schema, including large write schemas. Server usage guidance explains the protocol; it grants no additional permissions.
+
+Discovery is not execution. Check the actual tool call and result in the AI terminal. A queued flow job still needs a runner using the agent's own authorized connection. A personal token does not turn the model into that agent. Model selection never bypasses write permissions, constraints, signatures, or human approvals.
+
+Polarion Connect also needs an online, project-authorized Polarion worker and its browser sign-in. Start with `atlas_polarion_status`. Atlas sign-in and `atlas_polarion_resolve` do not prove a live Polarion browser connection. `atlas_polarion_prepare_change` previews a change; `atlas_polarion_apply_change` needs explicit approval of that exact preview and a write-enabled worker.
+
+Transport support and result quality are qualified separately. Identity or search success does not qualify agent execution, writes, or Polarion. Report the specific missing prerequisite; never infer success or absent records from a failed call.

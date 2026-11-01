@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.2 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -21165,7 +21165,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.1" : "dev";
+var VERSION = true ? "1.35.2" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -21683,7 +21683,8 @@ function discoverMcpTools(tools, query) {
   const terms = q.split(" ").filter((t) => t.length > 1 && !["atlas", "mcp", "tool", "tools", "server", "the", "in", "nach", "zum", "von", "aus"].includes(t));
   const atlas = /\batlas\b/.test(q) || tools.length > 0 && tools.every((t) => t.name.startsWith("atlas_"));
   const reads = /work|week|woche|updated|recent|arbeit|task|aufgab|priorit/.test(q);
-  const defaults = reads ? ["atlas_query", "atlas_search", "atlas_project_list", "atlas_get"] : ["atlas_search", "atlas_query", "atlas_project_list", "atlas_get"];
+  const hasRef = /\/r\/\d+|\b(?:ref|record|dokument|testdokument|datensatz)\s*#?\s*\d+\b/i.test(query);
+  const defaults = hasRef ? ["atlas_get", "atlas_search", "atlas_query", "atlas_project_list"] : reads ? ["atlas_query", "atlas_search", "atlas_project_list", "atlas_get"] : ["atlas_search", "atlas_query", "atlas_project_list", "atlas_get"];
   return tools.map((t, i2) => {
     const name = norm2(t.name), desc = norm2(t.description ?? "");
     let score = (atlas && t.name.startsWith("atlas_") ? 1 : 0) + terms.reduce((s, w) => s + (name.split(" ").includes(w) ? 48 : desc.includes(w) ? 1 : 0), 0);
@@ -39718,7 +39719,7 @@ var strings2 = (v) => object5(v) && Object.values(v).every((s) => typeof s === "
 var expand = (s, env) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => {
   throw new Error("Required MCP environment variable is missing.");
 })());
-var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list"]);
+var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
 var LocalMcp = class {
   clients = /* @__PURE__ */ new Map();
   tools = [];
@@ -39798,16 +39799,20 @@ var LocalMcp = class {
         await client.connect(transport, { timeout: 1e4, signal });
         let cursor;
         let count3 = 0;
+        const cursors = /* @__PURE__ */ new Set();
         do {
           const listed = await client.listTools(cursor ? { cursor } : {}, { timeout: 1e4, signal });
           for (const tool of listed.tools) {
-            if (++count3 > 600) break;
+            if (++count3 > 600) throw new Error("MCP catalogue exceeds 600 tools; no partial catalogue was used.");
             if (Array.isArray(entry.oneAllowedTools) && !entry.oneAllowedTools.includes(tool.name)) continue;
             if (Array.isArray(entry.oneDeniedTools) && entry.oneDeniedTools.includes(tool.name)) continue;
-            const readOnly = tool.annotations?.readOnlyHint === true || Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name) || tool.annotations?.readOnlyHint === void 0 && ATLAS_READ.has(tool.name);
-            if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, annotations: { ...tool.annotations, readOnlyHint: readOnly } } });
+            const flowReadOnly = this.readOnly && tool.name === "atlas_agent_flow";
+            const readOnly = flowReadOnly || tool.annotations?.readOnlyHint === true || Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name) || tool.annotations?.readOnlyHint === void 0 && ATLAS_READ.has(tool.name);
+            if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, ...flowReadOnly ? { description: "This read-only stage supports action list/get only. " + (tool.description ?? ""), inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties, action: { type: "string", enum: ["list", "get"] } } } } : {}, annotations: { ...tool.annotations, readOnlyHint: readOnly } } });
           }
           cursor = listed.nextCursor;
+          if (cursor && cursors.has(cursor)) throw new Error("Repeated MCP catalogue cursor.");
+          if (cursor) cursors.add(cursor);
         } while (cursor && count3 <= 600);
         this.clients.set(name, client);
         noteCertificateFailure(name, false);
@@ -39825,6 +39830,12 @@ var LocalMcp = class {
       }
     }
   }
+  guides() {
+    return [...this.clients.entries()].filter(([server]) => !this.memoryOnly.has(server)).flatMap(([server, client]) => {
+      const instructions = client.getInstructions();
+      return instructions ? [{ server, instructions: this.redact(instructions) }] : [];
+    });
+  }
   failureReason(server) {
     return this.failureKinds.get(server) ?? "Connection or tool discovery failed.";
   }
@@ -39834,10 +39845,10 @@ var LocalMcp = class {
   }
   search(query) {
     if (typeof query !== "string" || query.length > 200) throw new Error("Search MCP tools with up to 200 characters.");
-    return discoverMcpTools(this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true })), query);
+    return discoverMcpTools(this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description, inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true })), query);
   }
   catalog() {
-    return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema }));
+    return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
   }
   probe(server, names2) {
     if (typeof server !== "string" || !Array.isArray(names2) || names2.length > 30 || names2.some((n) => typeof n !== "string" || n.length > 120)) throw new Error("Supply a configured server and up to 30 exact tool names.");
@@ -39888,6 +39899,7 @@ var LocalMcp = class {
   }
   async call(server, name, args, signal, taskMemory = false, fullResult = false) {
     if (typeof server !== "string" || typeof name !== "string" || !object5(args) || JSON.stringify(args).length > 2e4) throw new Error("Supply a known server/tool and an arguments object up to 20,000 characters.");
+    if (this.readOnly && name === "atlas_agent_flow" && !["list", "get"].includes(String(args.action))) throw new Error("This read-only stage allows only list/get for Atlas flows.");
     const client = this.clients.get(server);
     if (this.memoryOnly.has(server) && !taskMemory) throw new Error("This connection is reserved for private task memory. Use the scoped memory tools.");
     if (!client || !this.tools.some((t) => t.server === server && t.tool.name === name)) throw new Error("This MCP tool is unavailable in this stage. Discover it first.");
@@ -41372,6 +41384,261 @@ var PersonalMcp = class {
   }
 };
 
+// ../src/shared/mcp/tables.ts
+var MCP_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "person",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+  "files",
+  "relation",
+  "rating",
+  "created_time",
+  "last_edited_time",
+  "created_by",
+  "last_edited_by",
+  "unique_id"
+];
+var MCP_FILTER_OPS = [
+  "equals",
+  "not_equals",
+  "contains",
+  "not_contains",
+  "is_empty",
+  "is_not_empty",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "starts_with",
+  "ends_with",
+  "is_checked",
+  "is_not_checked",
+  // aliases
+  "eq",
+  "neq",
+  "is",
+  "is_not",
+  "before",
+  "after",
+  "on_or_before",
+  "on_or_after"
+];
+var MCP_VIEW_TYPES = ["table", "board", "list", "gallery", "calendar", "timeline", "feed"];
+var MCP_TYPE_CHANGES = {
+  text: ["url", "email", "phone", "select", "multi_select"],
+  url: ["text", "email", "phone"],
+  email: ["text", "url", "phone"],
+  phone: ["text", "url", "email"],
+  select: ["multi_select", "status", "text"],
+  status: ["select", "multi_select", "text"],
+  multi_select: ["text"],
+  number: ["text"]
+};
+var MCP_PAGE_KINDS = ["page", "database", "row"];
+var MCP_BULK_MAX = 50;
+var MCP_QUERY_ROWS = 100;
+var KB = 1024;
+var MB2 = 1024 * KB;
+var MCP_LIMITS = {
+  /** one result part, measured on its serialized (compact JSON) text */
+  part: 4e4,
+  /** blocks in one part of a page read */
+  partBlocks: 400,
+  /** list tools: default and most items per answer */
+  listDefault: 50,
+  listMax: 200,
+  /** one_create_page `pages`: entries and Markdown in all */
+  pages: 50,
+  pagesChars: 6e5,
+  /** rows per create / update / upsert call */
+  rows: 50,
+  /** a title (page, row, database): at most this many characters, whitespace collapsed — both ways in alike */
+  title: 300,
+  /** a property's name (and a two-way relation's reverse name) */
+  propertyName: 100,
+  /** an option's name: a longer one is cut there */
+  optionName: 60,
+  /** one page's or row's Markdown */
+  text: 2e5,
+  /** one upserted row's Markdown */
+  upsertText: 1e5,
+  /** a row batch of at least this many rows that starts paid AI work or outward automations is always asked */
+  rowsAsk: 5,
+  /** one_edit_blocks: edits and their text per call */
+  edits: 30,
+  editsChars: 2e5,
+  /** block specs per call */
+  blockSpecs: 200,
+  /** spreadsheet writes */
+  sheets: 5,
+  sheetCells: 1e4,
+  /** chart data points */
+  chartPoints: 500,
+  /** file text extraction: characters in all, wall clock */
+  extractChars: 4e5,
+  extractMs: 1e4,
+  /** image reads: edge, bytes, decode size (megapixels × 10⁶) */
+  imagePx: 1568,
+  imageBytes: 5 * MB2,
+  imageDecodePx: 5e7,
+  /** a PDF as a resource (the B1 spike decides — moved to T-b / B5; at most this) */
+  pdfBytes: 10 * MB2,
+  /** a base64 upload from the model */
+  base64Bytes: 256 * KB,
+  /** web files fetched for an attach */
+  urlImage: 50 * MB2,
+  urlMedia: 200 * MB2,
+  urlPdf: 25 * MB2,
+  /** one_download_file: per file, per bridge process and day */
+  downloadFile: 200 * MB2,
+  downloadDay: 1024 * MB2,
+  /** attach quotas per day: bridge process · server token · server workspace */
+  attachBridgeDay: 500 * MB2,
+  attachTokenDay: 100 * MB2,
+  attachWorkspaceDay: 500 * MB2,
+  /** team server request bodies: read tokens · write tokens */
+  bodyRead: 256 * KB,
+  bodyWrite: 512 * KB,
+  /** `$content` entries per result (images, PDF resources) */
+  content: 4,
+  /** duplicate calls: the window and the entries kept per MCP session */
+  duplicateMs: 12e4,
+  duplicateEntries: 50,
+  /** team server pre-images of MCP writes, days */
+  preimageDays: 14,
+  /** bridge ⇄ tab WebSocket frames and their chunks */
+  frame: 16 * MB2,
+  chunk: 4 * MB2,
+  /** properties of one_create_database */
+  properties: 40,
+  /** the model-facing budget: tools/list (serialized) and the instructions */
+  toolsList: 55e3,
+  instructions: 3500
+};
+var MCP_CONTRACT_REV = 2;
+var MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`;
+var MCP_ARGS_V1 = Object.freeze({
+  one_overview: [],
+  one_list_workspaces: [],
+  one_search: ["query", "limit"],
+  one_get_page: ["id", "title"],
+  one_list_databases: [],
+  one_get_database: ["id"],
+  one_query_database: ["databaseId", "filter", "sort", "limit", "cursor"],
+  one_create_page: ["title", "parentId", "markdown", "icon"],
+  one_update_page: ["id", "title", "icon", "markdown", "mode"],
+  one_create_row: ["databaseId", "title", "properties", "markdown"],
+  one_update_row: ["id", "properties"],
+  one_create_property: ["databaseId", "name", "type", "options", "relation"],
+  one_update_property: ["databaseId", "property", "name", "description", "type", "options"],
+  one_delete_property: ["databaseId", "property"],
+  one_create_database: ["title", "parentId", "properties"],
+  one_update_database: ["id", "title", "icon", "locked"],
+  one_create_view: ["databaseId", "type", "name", "groupBy", "dateProperty", "filter", "sort", "properties"],
+  one_update_view: ["databaseId", "view", "type", "name", "groupBy", "dateProperty", "filter", "sort", "properties"],
+  one_delete_view: ["databaseId", "view"],
+  one_move_page: ["id", "parentId", "before", "after", "index"],
+  one_move_row: ["id", "databaseId"],
+  one_trash_page: ["id", "ids"],
+  one_restore_page: ["id", "ids"],
+  one_run_query: ["code", "limit"],
+  one_run_script: ["script", "pageId", "dryRun"],
+  one_list_work_items: ["status", "person", "pageId", "blocked", "overdue", "dueBefore", "query", "limit"],
+  one_update_work_item: ["updates"]
+});
+
+// ../src/shared/mcp/sha256.ts
+var K = new Uint32Array([
+  1116352408,
+  1899447441,
+  3049323471,
+  3921009573,
+  961987163,
+  1508970993,
+  2453635748,
+  2870763221,
+  3624381080,
+  310598401,
+  607225278,
+  1426881987,
+  1925078388,
+  2162078206,
+  2614888103,
+  3248222580,
+  3835390401,
+  4022224774,
+  264347078,
+  604807628,
+  770255983,
+  1249150122,
+  1555081692,
+  1996064986,
+  2554220882,
+  2821834349,
+  2952996808,
+  3210313671,
+  3336571891,
+  3584528711,
+  113926993,
+  338241895,
+  666307205,
+  773529912,
+  1294757372,
+  1396182291,
+  1695183700,
+  1986661051,
+  2177026350,
+  2456956037,
+  2730485921,
+  2820302411,
+  3259730800,
+  3345764771,
+  3516065817,
+  3600352804,
+  4094571909,
+  275423344,
+  430227734,
+  506948616,
+  659060556,
+  883997877,
+  958139571,
+  1322822218,
+  1537002063,
+  1747873779,
+  1955562222,
+  2024104815,
+  2227730452,
+  2361852424,
+  2428436474,
+  2756734187,
+  3204031479,
+  3329325298
+]);
+var encoder = new TextEncoder();
+var W = new Uint32Array(64);
+
+// ../src/shared/mcp/duplicates.ts
+var DUPLICATE_MS = MCP_LIMITS.duplicateMs;
+
+// ../src/shared/mcp/bindings.ts
+function selectMcpSchemas(tools, budget) {
+  let size = 0;
+  return tools.filter((tool, index) => {
+    const length = JSON.stringify(tool).length;
+    if (index > 0 && size + length > budget) return false;
+    size += length;
+    return true;
+  });
+}
+
 // src/worker/model-mcp.ts
 var object6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var names = (v) => Array.isArray(v) && v.length <= 600 && v.every((n) => typeof n === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(n));
@@ -41394,14 +41661,8 @@ async function modelMcp(raw, signal) {
     const unavailable = failed.map((s) => `MCP connection ${s.name}: ${client.failureReason(s.name)}`);
     if (failed.length === r.servers.length) throw new Error(unavailable[0]);
     if (r.action === "search") {
-      let chars = 0;
-      const tools2 = client.search(r.query).filter((t) => {
-        const size = JSON.stringify(t).length;
-        if (chars + size > 12e3) return false;
-        chars += size;
-        return true;
-      });
-      return { tools: JSON.parse(client.redact(JSON.stringify(tools2))), note: MCP_DISCOVERY_NOTE, ...unavailable.length ? { unavailable } : {} };
+      const tools2 = selectMcpSchemas(client.search(r.query), 12e3);
+      return { tools: JSON.parse(client.redact(JSON.stringify(tools2))), guides: client.guides(), note: MCP_DISCOVERY_NOTE, ...unavailable.length ? { unavailable } : {} };
     }
     if (r.action === "call") {
       if (failed.some((s) => s.name === r.server)) throw new Error(`MCP connection ${r.server}: ${client.failureReason(r.server)}`);
@@ -46760,177 +47021,6 @@ for t in due {
 }
 notify("{due.count} tasks raised")`;
 
-// ../src/shared/mcp/tables.ts
-var MCP_PROPERTY_TYPES = [
-  "text",
-  "number",
-  "select",
-  "multi_select",
-  "status",
-  "date",
-  "person",
-  "checkbox",
-  "url",
-  "email",
-  "phone",
-  "files",
-  "relation",
-  "rating",
-  "created_time",
-  "last_edited_time",
-  "created_by",
-  "last_edited_by",
-  "unique_id"
-];
-var MCP_FILTER_OPS = [
-  "equals",
-  "not_equals",
-  "contains",
-  "not_contains",
-  "is_empty",
-  "is_not_empty",
-  "gt",
-  "gte",
-  "lt",
-  "lte",
-  "starts_with",
-  "ends_with",
-  "is_checked",
-  "is_not_checked",
-  // aliases
-  "eq",
-  "neq",
-  "is",
-  "is_not",
-  "before",
-  "after",
-  "on_or_before",
-  "on_or_after"
-];
-var MCP_VIEW_TYPES = ["table", "board", "list", "gallery", "calendar", "timeline", "feed"];
-var MCP_TYPE_CHANGES = {
-  text: ["url", "email", "phone", "select", "multi_select"],
-  url: ["text", "email", "phone"],
-  email: ["text", "url", "phone"],
-  phone: ["text", "url", "email"],
-  select: ["multi_select", "status", "text"],
-  status: ["select", "multi_select", "text"],
-  multi_select: ["text"],
-  number: ["text"]
-};
-var MCP_PAGE_KINDS = ["page", "database", "row"];
-var MCP_BULK_MAX = 50;
-var MCP_QUERY_ROWS = 100;
-var KB = 1024;
-var MB2 = 1024 * KB;
-var MCP_LIMITS = {
-  /** one result part, measured on its serialized (compact JSON) text */
-  part: 4e4,
-  /** blocks in one part of a page read */
-  partBlocks: 400,
-  /** list tools: default and most items per answer */
-  listDefault: 50,
-  listMax: 200,
-  /** one_create_page `pages`: entries and Markdown in all */
-  pages: 50,
-  pagesChars: 6e5,
-  /** rows per create / update / upsert call */
-  rows: 50,
-  /** a title (page, row, database): at most this many characters, whitespace collapsed — both ways in alike */
-  title: 300,
-  /** a property's name (and a two-way relation's reverse name) */
-  propertyName: 100,
-  /** an option's name: a longer one is cut there */
-  optionName: 60,
-  /** one page's or row's Markdown */
-  text: 2e5,
-  /** one upserted row's Markdown */
-  upsertText: 1e5,
-  /** a row batch of at least this many rows that starts paid AI work or outward automations is always asked */
-  rowsAsk: 5,
-  /** one_edit_blocks: edits and their text per call */
-  edits: 30,
-  editsChars: 2e5,
-  /** block specs per call */
-  blockSpecs: 200,
-  /** spreadsheet writes */
-  sheets: 5,
-  sheetCells: 1e4,
-  /** chart data points */
-  chartPoints: 500,
-  /** file text extraction: characters in all, wall clock */
-  extractChars: 4e5,
-  extractMs: 1e4,
-  /** image reads: edge, bytes, decode size (megapixels × 10⁶) */
-  imagePx: 1568,
-  imageBytes: 5 * MB2,
-  imageDecodePx: 5e7,
-  /** a PDF as a resource (the B1 spike decides — moved to T-b / B5; at most this) */
-  pdfBytes: 10 * MB2,
-  /** a base64 upload from the model */
-  base64Bytes: 256 * KB,
-  /** web files fetched for an attach */
-  urlImage: 50 * MB2,
-  urlMedia: 200 * MB2,
-  urlPdf: 25 * MB2,
-  /** one_download_file: per file, per bridge process and day */
-  downloadFile: 200 * MB2,
-  downloadDay: 1024 * MB2,
-  /** attach quotas per day: bridge process · server token · server workspace */
-  attachBridgeDay: 500 * MB2,
-  attachTokenDay: 100 * MB2,
-  attachWorkspaceDay: 500 * MB2,
-  /** team server request bodies: read tokens · write tokens */
-  bodyRead: 256 * KB,
-  bodyWrite: 512 * KB,
-  /** `$content` entries per result (images, PDF resources) */
-  content: 4,
-  /** duplicate calls: the window and the entries kept per MCP session */
-  duplicateMs: 12e4,
-  duplicateEntries: 50,
-  /** team server pre-images of MCP writes, days */
-  preimageDays: 14,
-  /** bridge ⇄ tab WebSocket frames and their chunks */
-  frame: 16 * MB2,
-  chunk: 4 * MB2,
-  /** properties of one_create_database */
-  properties: 40,
-  /** the model-facing budget: tools/list (serialized) and the instructions */
-  toolsList: 55e3,
-  instructions: 3500
-};
-var MCP_CONTRACT_REV = 2;
-var MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`;
-var MCP_ARGS_V1 = Object.freeze({
-  one_overview: [],
-  one_list_workspaces: [],
-  one_search: ["query", "limit"],
-  one_get_page: ["id", "title"],
-  one_list_databases: [],
-  one_get_database: ["id"],
-  one_query_database: ["databaseId", "filter", "sort", "limit", "cursor"],
-  one_create_page: ["title", "parentId", "markdown", "icon"],
-  one_update_page: ["id", "title", "icon", "markdown", "mode"],
-  one_create_row: ["databaseId", "title", "properties", "markdown"],
-  one_update_row: ["id", "properties"],
-  one_create_property: ["databaseId", "name", "type", "options", "relation"],
-  one_update_property: ["databaseId", "property", "name", "description", "type", "options"],
-  one_delete_property: ["databaseId", "property"],
-  one_create_database: ["title", "parentId", "properties"],
-  one_update_database: ["id", "title", "icon", "locked"],
-  one_create_view: ["databaseId", "type", "name", "groupBy", "dateProperty", "filter", "sort", "properties"],
-  one_update_view: ["databaseId", "view", "type", "name", "groupBy", "dateProperty", "filter", "sort", "properties"],
-  one_delete_view: ["databaseId", "view"],
-  one_move_page: ["id", "parentId", "before", "after", "index"],
-  one_move_row: ["id", "databaseId"],
-  one_trash_page: ["id", "ids"],
-  one_restore_page: ["id", "ids"],
-  one_run_query: ["code", "limit"],
-  one_run_script: ["script", "pageId", "dryRun"],
-  one_list_work_items: ["status", "person", "pageId", "blocked", "overdue", "dueBefore", "query", "limit"],
-  one_update_work_item: ["updates"]
-});
-
 // ../src/shared/mcp/contract.ts
 var ICON = 'An emoji, "asset:<name>" or "lucide:<IconName>".';
 var COLORS = "gray, brown, orange, yellow, green, blue, purple, pink, red";
@@ -50070,7 +50160,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.1" : "dev";
+var VERSION2 = true ? "1.35.2" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

@@ -16,7 +16,7 @@ const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'ob
 const strings = (v: unknown): v is Record<string, string> => object(v) && Object.values(v).every(s => typeof s === 'string')
 const expand = (s: string, env: NodeJS.ProcessEnv) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => { throw new Error('Required MCP environment variable is missing.') })())
 // Older Atlas deployments omit MCP annotations. Only these known reading operations are admitted in a plan.
-const ATLAS_READ = new Set(['atlas_whoami', 'atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search', 'atlas_agent_list'])
+const ATLAS_READ = new Set(['atlas_whoami', 'atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search', 'atlas_agent_list', 'atlas_project_list', 'atlas_record_kinds', 'atlas_graph', 'atlas_similar', 'atlas_flow_list', 'atlas_agent_inbox', 'atlas_agent_approvals', 'atlas_my_agent_jobs', 'atlas_polarion_status', 'atlas_polarion_resolve', 'atlas_polarion_read', 'atlas_polarion_inspect', 'atlas_polarion_search'])
 
 /** Named personal MCP connections only. Never loads a repository's executable .mcp.json. */
 export class LocalMcp {
@@ -93,16 +93,20 @@ export class LocalMcp {
         await client.connect(transport, { timeout: 10000, signal })
         let cursor: string | undefined
         let count = 0
+        const cursors=new Set<string>()
         do {
           const listed = await client.listTools(cursor ? { cursor } : {}, { timeout: 10000, signal })
           for (const tool of listed.tools) {
-            if (++count > 600) break
+            if (++count > 600) throw new Error('MCP catalogue exceeds 600 tools; no partial catalogue was used.')
             if (Array.isArray(entry.oneAllowedTools) && !entry.oneAllowedTools.includes(tool.name)) continue
             if (Array.isArray(entry.oneDeniedTools) && entry.oneDeniedTools.includes(tool.name)) continue
-            const readOnly = tool.annotations?.readOnlyHint === true || (Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name)) || (tool.annotations?.readOnlyHint === undefined && ATLAS_READ.has(tool.name))
-            if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, annotations: { ...tool.annotations, readOnlyHint: readOnly } } })
+            const flowReadOnly=this.readOnly&&tool.name==='atlas_agent_flow'
+            const readOnly = flowReadOnly || tool.annotations?.readOnlyHint === true || (Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name)) || (tool.annotations?.readOnlyHint === undefined && ATLAS_READ.has(tool.name))
+            if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, ...(flowReadOnly?{description:'This read-only stage supports action list/get only. '+(tool.description??''),inputSchema:{...tool.inputSchema,properties:{...tool.inputSchema.properties,action:{type:'string',enum:['list','get']}}}}:{}), annotations: { ...tool.annotations, readOnlyHint: readOnly } } })
           }
           cursor = listed.nextCursor
+          if(cursor&&cursors.has(cursor))throw new Error('Repeated MCP catalogue cursor.')
+          if(cursor)cursors.add(cursor)
         } while (cursor && count <= 600)
         this.clients.set(name, client)
         noteCertificateFailure(name, false)
@@ -120,6 +124,7 @@ export class LocalMcp {
       }
     }
   }
+  guides(){return [...this.clients.entries()].filter(([server])=>!this.memoryOnly.has(server)).flatMap(([server,client])=>{const instructions=client.getInstructions();return instructions?[{server,instructions:this.redact(instructions)}]:[]})}
   failureReason(server:string){return this.failureKinds.get(server)??'Connection or tool discovery failed.'}
   description() {
     const available = [...this.clients.keys()].map(name => this.memoryOnly.has(name) ? `${name} (private task checkpoint transport; use memory_atlas_recall for saved refs)` : `${name} (${this.tools.filter(t => t.server === name).length} tools allowed in this stage)`).join(', ')
@@ -127,10 +132,10 @@ export class LocalMcp {
   }
   search(query: unknown) {
     if (typeof query !== 'string' || query.length > 200) throw new Error('Search MCP tools with up to 200 characters.')
-    return discoverMcpTools(this.tools.filter(t => !this.memoryOnly.has(t.server)).map(({server,tool})=>({server,name:tool.name,description:tool.description?.slice(0,1500),inputSchema:tool.inputSchema,readOnly:tool.annotations?.readOnlyHint===true})),query)
+    return discoverMcpTools(this.tools.filter(t => !this.memoryOnly.has(t.server)).map(({server,tool})=>({server,name:tool.name,description:tool.description,inputSchema:tool.inputSchema,readOnly:tool.annotations?.readOnlyHint===true})),query)
   }
   catalog() {
-    return this.tools.filter(t => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema }))
+    return this.tools.filter(t => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description, inputSchema: tool.inputSchema }))
   }
   probe(server: unknown, names: unknown) {
     if (typeof server !== 'string' || !Array.isArray(names) || names.length > 30 || names.some(n => typeof n !== 'string' || n.length > 120)) throw new Error('Supply a configured server and up to 30 exact tool names.')
@@ -172,6 +177,7 @@ export class LocalMcp {
   }
   async call(server: unknown, name: unknown, args: unknown, signal: AbortSignal, taskMemory = false, fullResult = false) {
     if (typeof server !== 'string' || typeof name !== 'string' || !object(args) || JSON.stringify(args).length > 20000) throw new Error('Supply a known server/tool and an arguments object up to 20,000 characters.')
+    if(this.readOnly&&name==='atlas_agent_flow'&&!['list','get'].includes(String(args.action)))throw new Error('This read-only stage allows only list/get for Atlas flows.')
     const client = this.clients.get(server)
     if (this.memoryOnly.has(server) && !taskMemory) throw new Error('This connection is reserved for private task memory. Use the scoped memory tools.')
     if (!client || !this.tools.some(t => t.server === server && t.tool.name === name)) throw new Error('This MCP tool is unavailable in this stage. Discover it first.')

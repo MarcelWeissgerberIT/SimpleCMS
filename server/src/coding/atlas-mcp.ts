@@ -1,3 +1,4 @@
+import {selectMcpSchemas} from '../../../src/shared/mcp/bindings.ts'
 /** Personal AJ-Atlas handoff for cloud workspaces. Credentials exist only for this request. */
 import {Hono} from 'hono'
 import {Client} from '@modelcontextprotocol/sdk/client/index.js'
@@ -38,7 +39,18 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
  const scrub=(s:string)=>s.replaceAll(selected.token,'[redacted]')
  try{
   await client.connect(transport,{signal})
-  const found=await client.listTools({}, {signal}),tools=found.tools.slice(0,200).filter(t=>(selected.allow===null||selected.allow.includes(t.name))&&!selected.deny.includes(t.name))
+  const catalogue:Awaited<ReturnType<typeof client.listTools>>['tools']=[]
+  let cursor:string|undefined
+  const seen=new Set<string>()
+  do{
+   const page=await client.listTools(cursor?{cursor}:{},{signal})
+   catalogue.push(...page.tools)
+   if(catalogue.length>600)throw new ApiError(502,'mcp_catalogue_limit','The MCP catalogue exceeds 600 tools; no partial catalogue was used.')
+   cursor=page.nextCursor
+   if(cursor&&seen.has(cursor))throw new ApiError(502,'mcp_catalogue_loop','MCP returned a repeated catalogue cursor.')
+   if(cursor)seen.add(cursor)
+  }while(cursor)
+  const tools=catalogue.filter(t=>(selected.allow===null||selected.allow.includes(t.name))&&!selected.deny.includes(t.name))
   if(request.action==='call'){
    const tool=tools.find(t=>t.name===request.name)
    if(!tool||!new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(request.arguments).valid)throw badRequest('mcp_tool_unavailable','Tool unavailable or arguments invalid; nothing was executed.')
@@ -47,9 +59,10 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
    return {result:scrub(raw)}
   }
   if(request.action==='search'){
-   let size=0
-   const rows=discoverMcpTools(tools,request.query).map(t=>({server:selected.name,name:t.name,description:t.description?.slice(0,1600)??'',inputSchema:t.inputSchema})).filter(t=>{size+=JSON.stringify(t).length;return size<=12000})
-   return JSON.parse(scrub(JSON.stringify({tools:rows,note:MCP_DISCOVERY_NOTE})))
+   const rows=selectMcpSchemas(discoverMcpTools(tools,request.query).map(t=>({server:selected.name,name:t.name,description:t.description??'',inputSchema:t.inputSchema})),12000)
+   const instructions=client.getInstructions?.()
+   const guides=instructions?[{server:selected.name,instructions}]:[]
+   return JSON.parse(scrub(JSON.stringify({tools:rows,guides,note:MCP_DISCOVERY_NOTE})))
   }
   return JSON.parse(scrub(JSON.stringify({tools:tools.map((t,i)=>({name:'remote_mcp_'+i,server:selected.name,tool:t.name,description:`[${selected.name} / ${t.name}] ${(t.description??'').slice(0,1600)}`,parameters:t.inputSchema}))})))
  }catch(e){

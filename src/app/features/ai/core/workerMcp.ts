@@ -1,3 +1,4 @@
+import {McpBindings,selectMcpSchemas,type DiscoveredMcpTool} from '@/shared/mcp/bindings'
 import {McpEvidence} from '@/shared/mcp/evidence'
 import {McpResults} from '@/shared/mcp/results'
 import {MCP_DISCOVERY_NOTE} from '@/shared/mcp/discovery'
@@ -16,8 +17,10 @@ export const isWorkerMcpFunction = (name:string) => WORKER_MCP_FUNCTIONS.some(t=
 const connectionProblem=(e:unknown)=>e instanceof Error&&/^AJ-Atlas (hat diesen persönlichen Token abgelehnt\. Bitte Token und Rechte prüfen\.|ist nicht erreichbar oder hat die Anfrage abgelehnt\. Es wurde kein anderer Server verwendet\.)$/.test(e.message)?e.message:e instanceof Error&&/^MCP connection [a-z][a-z0-9_-]{0,31}: (?:Authentication rejected by this endpoint\. Check the Atlas instance and personal token\.|TLS certificate verification failed\. Check the company certificate setup for Node; do not disable verification\.|Connection timed out\. Check VPN, proxy and network access from this worker\.|Network connection failed\. Check VPN, proxy, DNS and network access from this worker\.|Connection or tool discovery failed\. Check the endpoint and worker connectivity\.)$/.test(e.message)?e.message:'MCP discovery failed. Check the personal worker and connection.'
 export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000) {
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
-  const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence()
+  const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),bindings=new McpBindings(),shownGuides=new Set<string>()
+  let attempts=0
   const invoke=async(name:string,args:Record<string,unknown>,id:string):Promise<string>=>{
+    if(bindings.has(name)){args=bindings.resolve(name,args);name='one_mcp_call'}
     assertMcpFlow(servers.map(s => s.url))
     if(signal?.aborted)throw new AIError('aborted')
     if(name==='one_mcp_read_result'){
@@ -30,19 +33,22 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const activity:McpCall={id,server:'MCP',tool:'one_mcp_search',arg:args.query,state:'run'}
       event(activity)
       try {
-        const found=await requestWorkerMcp({action:'search',servers,query:args.query},signal) as {tools:Array<{server:string;name:string}>;unavailable?:string[]}
+        const found=await requestWorkerMcp({action:'search',servers,query:args.query},signal) as {tools:DiscoveredMcpTool[];guides?:Array<{server:string;instructions:string}>;unavailable?:string[]}
         if(!Array.isArray(found?.tools)||found.tools.length>6)throw new AIError('mcp')
-        let size=0
-        const exposed=found.tools.filter(t=>{const n=JSON.stringify(t).length;if(size+n>maxChars)return false;size+=n;return true})
+        const exposed=selectMcpSchemas(found.tools,maxChars)
+        bindings.expose(exposed)
         for(const t of exposed)discovered.add(JSON.stringify([t.server,t.name]))
+        const guides=(found.guides??[]).filter(g=>!shownGuides.has(g.server))
+        guides.forEach(g=>shownGuides.add(g.server))
         event({...activity,state:'ok'})
-        return JSON.stringify({tools:exposed,discoveryOnly:true,note:MCP_DISCOVERY_NOTE,...(found.unavailable?.length?{unavailable:found.unavailable.slice(0,12).map(s=>connectionProblem(new Error(s)))}:{}),...(exposed.length<found.tools.length?{schemasOmitted:'Search a narrower or exact tool name.'}:{})})
+        return JSON.stringify({tools:exposed.map(t=>({server:t.server,name:t.name,nativeFunction:bindings.functionName(t.server,t.name)})),...(guides.length?{serverUsageGuides:guides}:{}),discoveryOnly:true,note:MCP_DISCOVERY_NOTE,...(found.unavailable?.length?{unavailable:found.unavailable.slice(0,12).map(s=>connectionProblem(new Error(s)))}:{}),...(exposed.length<found.tools.length?{schemasOmitted:'Search a narrower or exact tool name.'}:{})})
       } catch(e) { const error=connectionProblem(e);event({...activity,state:'err',error});throw new AIError('mcp',error) }
     }
     if(name!=='one_mcp_call'||typeof args.server!=='string'||typeof args.name!=='string'||!args.arguments||typeof args.arguments!=='object'||Array.isArray(args.arguments)||!discovered.has(JSON.stringify([args.server,args.name])))throw new AIError('mcp','Discover the permitted exact tool before calling it.')
     const activity:McpCall={id,server:args.server,tool:args.name,arg:JSON.stringify(args.arguments).slice(0,100),state:'run'}
     event(activity)
     try{
+      attempts++
       const out=await requestWorkerMcp({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},signal) as {result:string}
       if(typeof out?.result!=='string')throw new AIError('mcp')
       const packed=results.pack(out.result)
@@ -52,5 +58,5 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       return evidence.hint()?JSON.stringify({...JSON.parse(packed),oneSourceLinks:evidence.hint()}):packed
     }catch(e){if(signal?.aborted)throw new AIError('aborted');const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');event({...activity,state:'err',error});throw new AIError('mcp',error)}
   }
-  return Object.assign(invoke,{evidence})
+  return Object.assign(invoke,{evidence,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
 }

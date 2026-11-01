@@ -1,3 +1,4 @@
+import {unverifiedMcpDenial,MCP_ATTEMPT_REPAIR} from '@/shared/mcp/execution'
 import {closeToolBatch,type ToolReceipt} from '@/shared/ai/tool-batch'
 import {t} from '../../../i18n'
 import {unwrapMcpText} from '@/shared/mcp/results'
@@ -15,7 +16,7 @@ import { CopilotContent } from '../core/copilotContent'
 import { sendWorkerText } from '../core/workerModels'
 import type { Turn } from '@/shared/ai/types'
 import type { WorkerFunction } from '@/shared/ai/worker'
-import { WORKER_MCP_FUNCTIONS, isWorkerMcpFunction, workerMcpSession } from '../core/workerMcp'
+import { WORKER_MCP_FUNCTIONS, workerMcpSession } from '../core/workerMcp'
 import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_DISCOVERY_REPAIR } from '../core/toolFormat'
 import { AGENT_SYSTEM, type runAgent, type RunEnd } from './run'
 import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
@@ -48,7 +49,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, atlasDiscovered = false, atlasQueried = false
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, attemptRepairs=0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
@@ -73,7 +74,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       assertPreparedFlow(prepared)
       if (signal.aborted) throw new AIError('aborted')
       const transcript = await copilotMessages(messages, material)
-      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
+      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? [...definitions,...(remote?.functions()??[])] : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const answerText=unwrapMcpText(result.text)
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: answerText }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
@@ -81,6 +82,11 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       if (entry) { spent += entry.usd ?? 0; used.push(entry.usage); hooks.usage(entry.usage, entry) }
       const repair = !!local && !result.calls?.length && hasTextToolCall(result.text)
       if (repair && formatRepairs++ >= 1) throw new AIError('capability', 'features.ai.local.toolFormat')
+      if(remote&&!remote.attempted()&&!result.calls?.length&&!repair&&unverifiedMcpDenial(answerText)){
+        if(!await proceed())return 'held' as const
+        if(attemptRepairs++>=1)throw new AIError('mcp','The model reported unavailable MCP tools without attempting a selected call.')
+        messages.push({role:'user',content:MCP_ATTEMPT_REPAIR});continue
+      }
       const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
       if(emptySearch){if(!await proceed())return 'held' as const;if(queryRepairs++>=1)throw new AIError('mcp','Only a narrow kind-filtered Atlas search completed; a broader content check is still missing.');hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:'The actual Atlas read returned zero records with '+JSON.stringify(emptySearch)+'. Words such as Dokumente or Arbeiten do not establish an Atlas record kind: documents may have kind=null; work need not have kind=work. Make ONE broader read without the inferred kind restriction, preserving tenant, project and date restrictions. For retrospective work consider archived IN (true, false). Do not ask permission for this read. Distinguish strict filtered results from related records, and do not infer global absence from a narrow filter. This is the only empty-search correction attempt.'});continue}
       const invalidLinks=!result.calls?.length&&!repair?remote?.evidence.check(answerText)??[]:[]
@@ -98,10 +104,10 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       try { for (const c of result.calls ?? []) {
         assertPreparedFlow(prepared)
         if (signal.aborted) throw new AIError('aborted')
-        const key = JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
+        const key = remote?.hasFunction(c.name)?remote.callKey(c.name,c.arguments):JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
         repeated.set(key, n)
         if (++calls > MAX_TOOL_CALLS) { hooks.limit(); return 'limit' as const }
-        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || isWorkerMcpFunction(c.name) || c.name==='one_workspace_call')) throw new AIError(isWorkerMcpFunction(c.name)?'mcp':'unknown',t('features.agent.err.repeatedTool'))
+        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || remote?.hasFunction(c.name) || c.name==='one_workspace_call')) throw new AIError(remote?.hasFunction(c.name)?'mcp':'unknown',t('features.agent.err.repeatedTool'))
         let content: string, failed = false
         let resolved: ReturnType<ReturnType<typeof localWorkspaceTools>['resolve']> | null = null
         try { resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null }
@@ -124,8 +130,8 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
             hooks.toolEnd(id, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - start })
             content = clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
           } catch (e) { failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: '', ms: performance.now() - start }) }
-        } else if (remote && isWorkerMcpFunction(c.name)) {
-          try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;content = raw; if(c.name==='one_mcp_search'){const found=JSON.parse(raw);atlasDiscovered ||= found.tools?.some((t:{name:string})=>t.name==='atlas_search'||t.name==='atlas_query')===true}if(c.name==='one_mcp_call'&&String(c.arguments.name).startsWith('atlas_'))atlasQueried=true }
+        } else if (remote && remote.hasFunction(c.name)) {
+          try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;content = raw; if(c.name==='one_mcp_search'){const found=JSON.parse(raw);atlasDiscovered ||= found.tools?.some((t:{name:string})=>t.name==='atlas_search'||t.name==='atlas_query')===true}if(String(remote.resolve(c.name,c.arguments)?.name??'').startsWith('atlas_'))atlasQueried=true }
           catch (e) { if (connectionProblem(e) === 'tls') throw e; failed=true;content=e instanceof AIError?e.detail??e.message:'MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
         } else throw new AIError('capability', 'Unknown model function.')
         results.push({ type: 'tool_result' as const, tool_use_id: c.id, content, ...(failed ? { is_error: true } : {}) })

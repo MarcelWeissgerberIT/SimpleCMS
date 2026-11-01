@@ -6,6 +6,8 @@ const tools=['atlas_get','atlas_get_details','atlas_search','atlas_query','atlas
 test('Atlas topic/date discovery finds general read tools without requiring topic words in schemas',()=>{
  assert.equal(discoverMcpTools(tools,'atlas document lab notebook')[0]?.name,'atlas_search')
  assert.equal(discoverMcpTools(tools,'atlas work items last week')[0]?.name,'atlas_query')
+ assert.equal(discoverMcpTools(tools,'Testdokument 35854')[0]?.name,'atlas_get')
+ assert.equal(discoverMcpTools(tools,'record /r/31259')[0]?.name,'atlas_get')
  assert.deepEqual(discoverMcpTools(tools,'atlas_get_details').map(t=>t.name),['atlas_get_details'])
  assert.deepEqual(discoverMcpTools(tools,'atlas whoami').map(t=>t.name),['atlas_whoami'])
  assert.ok(!discoverMcpTools(tools.filter(t=>t.name!=='atlas_search'),'atlas document notebook').some(t=>t.name==='atlas_search'))

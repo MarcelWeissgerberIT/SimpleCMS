@@ -1,3 +1,4 @@
+import {selectMcpSchemas} from '../../../src/shared/mcp/bindings.ts'
 import {MCP_DISCOVERY_NOTE} from '../../../src/shared/mcp/discovery.ts'
 /** Remote MCP for browser-owned tool loops. No model, launcher, environment or credential files. */
 import { connectionUrl } from '../../../src/shared/personalVault.ts'
@@ -16,7 +17,7 @@ export function checkModelMcp(raw: unknown): WorkerMcpRequest {
   if (raw.action === 'call' && (typeof raw.server !== 'string' || typeof raw.name !== 'string' || !object(raw.arguments) || JSON.stringify(raw.arguments).length > 20000)) throw new Error('Invalid MCP call.')
   return raw as WorkerMcpRequest
 }
-export async function modelMcp(raw: unknown, signal: AbortSignal):Promise<{tools?:Array<WorkerMcpTool|ReturnType<LocalMcp['catalog']>[number]>;result?:string;unavailable?:string[];note?:string}> {
+export async function modelMcp(raw: unknown, signal: AbortSignal):Promise<{tools?:Array<WorkerMcpTool|ReturnType<LocalMcp['catalog']>[number]>;result?:string;unavailable?:string[];note?:string;guides?:Array<{server:string;instructions:string}>}> {
   const r = checkModelMcp(raw), client = new LocalMcp(false)
   try {
     const config = Object.fromEntries(r.servers.map(s => [s.name, { type: 'http', url: s.url, headers: s.token ? { Authorization: 'Bearer ' + s.token } : {}, ...(s.allow ? { oneAllowedTools: s.allow } : {}), oneDeniedTools: s.deny }]))
@@ -25,9 +26,8 @@ export async function modelMcp(raw: unknown, signal: AbortSignal):Promise<{tools
     const unavailable=failed.map(s=>`MCP connection ${s.name}: ${client.failureReason(s.name)}`)
     if (failed.length===r.servers.length) throw new Error(unavailable[0])
     if (r.action === 'search') {
-      let chars=0
-      const tools=client.search(r.query).filter(t => { const size=JSON.stringify(t).length; if(chars+size>12000)return false;chars+=size;return true })
-      return { tools: JSON.parse(client.redact(JSON.stringify(tools))),note:MCP_DISCOVERY_NOTE,...(unavailable.length?{unavailable}: {}) }
+      const tools=selectMcpSchemas(client.search(r.query),12000)
+      return { tools: JSON.parse(client.redact(JSON.stringify(tools))),guides:client.guides(),note:MCP_DISCOVERY_NOTE,...(unavailable.length?{unavailable}: {}) }
     }
     if (r.action === 'call') {
       if(failed.some(s=>s.name===r.server))throw new Error(`MCP connection ${r.server}: ${client.failureReason(r.server)}`)

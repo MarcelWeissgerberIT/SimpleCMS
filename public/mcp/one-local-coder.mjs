@@ -39967,7 +39967,8 @@ function discoverMcpTools(tools, query) {
   const terms = q.split(" ").filter((t) => t.length > 1 && !["atlas", "mcp", "tool", "tools", "server", "the", "in", "nach", "zum", "von", "aus"].includes(t));
   const atlas = /\batlas\b/.test(q) || tools.length > 0 && tools.every((t) => t.name.startsWith("atlas_"));
   const reads = /work|week|woche|updated|recent|arbeit|task|aufgab|priorit/.test(q);
-  const defaults = reads ? ["atlas_query", "atlas_search", "atlas_project_list", "atlas_get"] : ["atlas_search", "atlas_query", "atlas_project_list", "atlas_get"];
+  const hasRef = /\/r\/\d+|\b(?:ref|record|dokument|testdokument|datensatz)\s*#?\s*\d+\b/i.test(query);
+  const defaults = hasRef ? ["atlas_get", "atlas_search", "atlas_query", "atlas_project_list"] : reads ? ["atlas_query", "atlas_search", "atlas_project_list", "atlas_get"] : ["atlas_search", "atlas_query", "atlas_project_list", "atlas_get"];
   return tools.map((t, i) => {
     const name = norm(t.name), desc = norm(t.description ?? "");
     let score = (atlas && t.name.startsWith("atlas_") ? 1 : 0) + terms.reduce((s, w) => s + (name.split(" ").includes(w) ? 48 : desc.includes(w) ? 1 : 0), 0);
@@ -43601,7 +43602,7 @@ var strings = (v) => object4(v) && Object.values(v).every((s) => typeof s === "s
 var expand = (s, env) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => {
   throw new Error("Required MCP environment variable is missing.");
 })());
-var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list"]);
+var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
 var LocalMcp = class {
   clients = /* @__PURE__ */ new Map();
   tools = [];
@@ -43681,16 +43682,20 @@ var LocalMcp = class {
         await client.connect(transport, { timeout: 1e4, signal });
         let cursor;
         let count = 0;
+        const cursors = /* @__PURE__ */ new Set();
         do {
           const listed = await client.listTools(cursor ? { cursor } : {}, { timeout: 1e4, signal });
           for (const tool of listed.tools) {
-            if (++count > 600) break;
+            if (++count > 600) throw new Error("MCP catalogue exceeds 600 tools; no partial catalogue was used.");
             if (Array.isArray(entry.oneAllowedTools) && !entry.oneAllowedTools.includes(tool.name)) continue;
             if (Array.isArray(entry.oneDeniedTools) && entry.oneDeniedTools.includes(tool.name)) continue;
-            const readOnly = tool.annotations?.readOnlyHint === true || Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name) || tool.annotations?.readOnlyHint === void 0 && ATLAS_READ.has(tool.name);
-            if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, annotations: { ...tool.annotations, readOnlyHint: readOnly } } });
+            const flowReadOnly = this.readOnly && tool.name === "atlas_agent_flow";
+            const readOnly = flowReadOnly || tool.annotations?.readOnlyHint === true || Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name) || tool.annotations?.readOnlyHint === void 0 && ATLAS_READ.has(tool.name);
+            if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, ...flowReadOnly ? { description: "This read-only stage supports action list/get only. " + (tool.description ?? ""), inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties, action: { type: "string", enum: ["list", "get"] } } } } : {}, annotations: { ...tool.annotations, readOnlyHint: readOnly } } });
           }
           cursor = listed.nextCursor;
+          if (cursor && cursors.has(cursor)) throw new Error("Repeated MCP catalogue cursor.");
+          if (cursor) cursors.add(cursor);
         } while (cursor && count <= 600);
         this.clients.set(name, client);
         noteCertificateFailure(name, false);
@@ -43708,6 +43713,12 @@ var LocalMcp = class {
       }
     }
   }
+  guides() {
+    return [...this.clients.entries()].filter(([server]) => !this.memoryOnly.has(server)).flatMap(([server, client]) => {
+      const instructions = client.getInstructions();
+      return instructions ? [{ server, instructions: this.redact(instructions) }] : [];
+    });
+  }
   failureReason(server) {
     return this.failureKinds.get(server) ?? "Connection or tool discovery failed.";
   }
@@ -43717,10 +43728,10 @@ var LocalMcp = class {
   }
   search(query) {
     if (typeof query !== "string" || query.length > 200) throw new Error("Search MCP tools with up to 200 characters.");
-    return discoverMcpTools(this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true })), query);
+    return discoverMcpTools(this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description, inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true })), query);
   }
   catalog() {
-    return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema }));
+    return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
   }
   probe(server, names) {
     if (typeof server !== "string" || !Array.isArray(names) || names.length > 30 || names.some((n) => typeof n !== "string" || n.length > 120)) throw new Error("Supply a configured server and up to 30 exact tool names.");
@@ -43771,6 +43782,7 @@ var LocalMcp = class {
   }
   async call(server, name, args, signal, taskMemory = false, fullResult = false) {
     if (typeof server !== "string" || typeof name !== "string" || !object4(args) || JSON.stringify(args).length > 2e4) throw new Error("Supply a known server/tool and an arguments object up to 20,000 characters.");
+    if (this.readOnly && name === "atlas_agent_flow" && !["list", "get"].includes(String(args.action))) throw new Error("This read-only stage allows only list/get for Atlas flows.");
     const client = this.clients.get(server);
     if (this.memoryOnly.has(server) && !taskMemory) throw new Error("This connection is reserved for private task memory. Use the scoped memory tools.");
     if (!client || !this.tools.some((t) => t.server === server && t.tool.name === name)) throw new Error("This MCP tool is unavailable in this stage. Discover it first.");

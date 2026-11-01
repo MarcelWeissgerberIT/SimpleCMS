@@ -24,7 +24,7 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
   const server = createServer(async (req, res) => {
     assert.equal(req.headers.authorization, `Bearer ${secret}`)
     if (req.method !== 'POST') { res.writeHead(405); res.end(); return }
-    const mcp = new McpServer({ name: 'atlas-fixture', version: '1' })
+    const mcp = new McpServer({ name: 'atlas-fixture', version: '1' },{instructions:'Atlas usage guide: '+secret})
     mcp.registerTool('atlas_whoami', { annotations: { readOnlyHint: true }, inputSchema: {} }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ shadowScope: shadowEnabled ? 'fixture-owner' : null }) }] }))
     mcp.registerTool('atlas_tenant_select', { inputSchema: { tenant: z.string() } }, async ({ tenant }) => {
       assert.equal(tenant, 'fixture-tenant'); calls.push('memory-tenant'); return { content: [{ type: 'text', text: '{}' }] }
@@ -45,6 +45,8 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
       return memoryFails ? { isError: true, content: [{ type: 'text', text: 'Shadow permission missing' }] } : { content: [{ type: 'text', text: JSON.stringify({ ref: 700 }) }] }
     })
     mcp.registerTool('atlas_large', { annotations: { readOnlyHint: true }, inputSchema: {} }, async () => ({ content: [{ type: 'text', text: '\n"'.repeat(20000) }] }))
+    mcp.registerTool('atlas_agent_flow',{inputSchema:{action:z.enum(['list','get','create'])}},async({action})=>{calls.push('flow:'+action);return{content:[{type:'text',text:'[]'}]}})
+    for (const name of ['atlas_project_list','atlas_record_kinds','atlas_flow_list','atlas_polarion_status','atlas_polarion_resolve'])mcp.registerTool(name,{inputSchema:{}},async()=>({content:[{type:'text',text:'[]'}]}))
     for (const name of agentTools) mcp.registerTool(name, { description: name, inputSchema: {} }, async () => {
       calls.push(name); return { content: [{ type: 'text', text: '[]' }] }
     })
@@ -70,6 +72,12 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     await readOnly.connect(['atlas', 'docs'], env, AbortSignal.timeout(10000))
     assert.equal(readOnly.search('atlas_get')[0]?.name, 'atlas_get')
     assert.equal(readOnly.search('atlas_create').length, 0)
+    assert.match(readOnly.guides()[0]!.instructions,/Atlas usage guide/);assert.ok(!JSON.stringify(readOnly.guides()).includes(secret))
+    assert.deepEqual(readOnly.search('atlas_agent_flow')[0]?.inputSchema.properties?.action,{type:'string',enum:['list','get']})
+    await readOnly.call('atlas','atlas_agent_flow',{action:'list'},new AbortController().signal)
+    await assert.rejects(readOnly.call('atlas','atlas_agent_flow',{action:'create'},new AbortController().signal),/read-only/)
+    assert.ok(!calls.includes('flow:create'))
+    for(const name of ['atlas_project_list','atlas_record_kinds','atlas_flow_list','atlas_polarion_status','atlas_polarion_resolve'])assert.ok(readOnly.search(name).some(t=>t.name===name))
     const beforeProbe = calls.length
     const probe = readOnly.probe('atlas', agentTools)
     assert.equal(probe.connected, true)

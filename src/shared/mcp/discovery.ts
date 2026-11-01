@@ -9,7 +9,8 @@ export function discoverMcpTools<T extends {name:string;description?:string;serv
  const terms=q.split(' ').filter(t=>t.length>1&&!['atlas','mcp','tool','tools','server','the','in','nach','zum','von','aus'].includes(t))
  const atlas=/\batlas\b/.test(q)||tools.length>0&&tools.every(t=>t.name.startsWith('atlas_'))
  const reads=/work|week|woche|updated|recent|arbeit|task|aufgab|priorit/.test(q)
- const defaults=reads?['atlas_query','atlas_search','atlas_project_list','atlas_get']:['atlas_search','atlas_query','atlas_project_list','atlas_get']
+ const hasRef=/\/r\/\d+|\b(?:ref|record|dokument|testdokument|datensatz)\s*#?\s*\d+\b/i.test(query)
+ const defaults=hasRef?['atlas_get','atlas_search','atlas_query','atlas_project_list']:reads?['atlas_query','atlas_search','atlas_project_list','atlas_get']:['atlas_search','atlas_query','atlas_project_list','atlas_get']
  return tools.map((t,i)=>{
   const name=norm(t.name),desc=norm(t.description??'')
   let score=(atlas&&t.name.startsWith('atlas_')?1:0)+terms.reduce((s,w)=>s+(name.split(' ').includes(w)?48:desc.includes(w)?1:0),0)

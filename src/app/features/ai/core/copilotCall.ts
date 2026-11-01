@@ -1,3 +1,4 @@
+import {unverifiedMcpDenial,MCP_ATTEMPT_REPAIR} from '@/shared/mcp/execution'
 import {unwrapMcpText} from '@/shared/mcp/results'
 import { priceFor } from './registry'
 import { assertPreparedFlow } from './gate'
@@ -17,15 +18,16 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   if (req.tools?.length) throw new AIError('capability')
   const material = new CopilotContent(o.signal)
   const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
-  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0
+  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, attemptRepairs=0
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
   if (o.mcp) {
     if (!prepared.allows('mcp') || !o.mcp.worker) throw new AIError('policy', 'mcp')
     remote = workerMcpSession(o.mcp.worker, o.signal, c => { const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity]) }, prepared.provider==='local'?6000:12000)
   }
-  const tools = remote ? WORKER_MCP_FUNCTIONS : []
+
   for (let round = 0; round < 12; round++) {
     assertPreparedFlow(prepared)
+    const tools=remote?[...WORKER_MCP_FUNCTIONS,...remote.functions()]:[]
     const result = await sendWorkerText(req.route, messages, Math.min(req.maxTokens, 8192), o.signal, { ...(material.attachments.length ? { attachments: material.attachments } : {}), ...(tools.length ? { tools } : {}), ...(req.output.kind === 'json' ? { schema: req.output.schema } : {}) })
     if(req.output.kind!=='json')result.text=unwrapMcpText(result.text)
     const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
@@ -34,6 +36,12 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
     if (entry) { used.push(entry.usage); spent += entry.usd ?? 0 }
     const repair = prepared.provider==='local' && tools.length>0 && !result.calls?.length && hasTextToolCall(result.text)
     if (repair && formatRepairs++ >= 1) throw new AIError('capability','features.ai.local.toolFormat')
+    if(remote&&!remote.attempted()&&!result.calls?.length&&!repair&&unverifiedMcpDenial(result.text)){
+      const verdict=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true}
+      if(!('go' in verdict))throw new AIError('budget')
+      if(attemptRepairs++>=1)throw new AIError('mcp','The model reported unavailable MCP tools without attempting a selected call.')
+      messages.push({role:'user',content:MCP_ATTEMPT_REPAIR});continue
+    }
     const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
     if(emptySearch){const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true};if(!('go' in check))throw new AIError('budget');if(queryRepairs++>=1)throw new AIError('mcp','Only a narrow kind-filtered Atlas search completed.');messages.push({role:'user',content:'Actual Atlas search returned zero records with '+JSON.stringify(emptySearch)+'. Natural words documents/work do not establish record kinds. Make one broader read without the inferred kind, preserving project/tenant/date restrictions. For retrospective work include archived records. Distinguish strict results from related records; no global absence claim from an inferred filter.'});continue}
     const invalidLinks=req.output.kind!=='json'&&!result.calls?.length&&!repair?remote?.evidence.check(result.text)??[]:[]
@@ -45,7 +53,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
     if (repair) { messages.push({role:'user',content:TOOL_FORMAT_REPAIR}); continue }
     for (const c of result.calls ?? []) {
       if (o.signal?.aborted) throw new AIError('aborted')
-      const key = JSON.stringify([c.name,c.arguments])
+      const key = remote?.callKey(c.name,c.arguments)??JSON.stringify([c.name,c.arguments])
       if(!remote)throw new AIError('capability')
       if(repeated.has(key))throw new AIError('mcp','Repeated identical MCP call; stopped before executing again.')
       repeated.add(key)

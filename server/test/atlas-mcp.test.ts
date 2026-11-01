@@ -48,3 +48,17 @@ test('topic discovery returns generic Atlas search/query while respecting denied
   assert.ok(!result.tools.some((t:any)=>t.name==='atlas_delete'));assert.match(result.note,/no Atlas records have been searched/)
  }
 })
+
+test('every selected MCP page and complete server usage guide remains available, including large write schemas',async()=>{
+ let pages=0
+ const schema={type:'object',properties:{body:{type:'string',description:'Do not truncate semantics. '.repeat(600)}},required:['body']}
+ const instructions='Atlas AQL uses field filters. Agent identity and Polarion approvals remain separate. '+secret
+ const factory=()=>({connect:async()=>{},getInstructions:()=>instructions,listTools:async(args:any)=>{pages++;return args.cursor?{tools:[{name:'atlas_update',description:'Full write operation. '.repeat(100),inputSchema:schema}]}:{tools:[{name:'atlas_whoami',inputSchema:{type:'object'}}],nextCursor:'second'}},close:async()=>{}})as any
+ const result:any=await runAtlasMcp({action:'search',servers:[server],query:'atlas_update'}as WorkerMcpRequest,new AbortController().signal,factory)
+ assert.equal(pages,2);assert.equal(result.tools.length,1);assert.deepEqual(result.tools[0].inputSchema,schema);assert.equal(result.tools[0].description.length,2200)
+ assert.match(result.guides[0].instructions,/AQL/);assert.ok(!JSON.stringify(result).includes(secret))
+})
+test('a looping catalogue fails explicitly instead of pretending unavailable tools are absent',async()=>{
+ const factory=()=>({connect:async()=>{},listTools:async()=>({tools:[],nextCursor:'same'}),close:async()=>{}})as any
+ await assert.rejects(runAtlasMcp({action:'search',servers:[server],query:'atlas_agent_flow'}as WorkerMcpRequest,new AbortController().signal,factory),/repeated catalogue/)
+})
