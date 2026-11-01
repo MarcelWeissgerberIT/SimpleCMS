@@ -22,6 +22,8 @@ Der gewählte Anbieter bleibt aktiv — auch **Atlas Flow · Frankfurt**. Zwei g
 1. **BA:** bis zu drei konkrete Anforderungsentwürfe, Originalstellen, unterscheidbare Prüffälle und fehlende Angaben.
 2. **PO:** Prüfung jeder Anforderung und ihrer Prüffälle gegen dieselben Originalstellen; offene Spezifikation und mögliche Widersprüche bleiben sichtbar.
 
+Bei den Prüffällen gilt dieselbe Anforderungsbedingung: Eine hypothetische Beobachtung erfüllt die Anforderung, eine andere verletzt sie. Aus „Wenn A, dann B“ folgt kein „Wenn nicht A, dann nicht B“. Fehlerreaktionen, für die die Quelle keine Vorgabe enthält, bleiben offen.
+
 Die Fortschrittszeilen zeigen **1/2 · BA** und **2/2 · PO**. ONE prüft die Struktur, echte Quellenverweise, unbelegte Zahlenwerte und den Seitenstand. Eine technisch fehlerhafte Antwort darf sich einmal pro Runde korrigieren. Gesperrter Kontext oder eine inzwischen geänderte Quelle hält den Lauf an.
 
 Der Bericht ist **nur ein Entwurf im Terminal**. Es werden keine Seiten geändert, keine Atlas-Einträge angelegt und keine Entscheidungen freigegeben. Quelle ist der gelesene ONE-Schnappschuss mit Zeit und Fingerabdruck; **Atlas wird in diesem Ablauf nicht neu abgefragt**. Eine zweite Anfrage beim selben Modell ist keine unabhängige fachliche Abnahme. Prüffälle sind Vorschläge, keine ausgeführten Tests. Wiederhole den Ablauf mit `/ba` oder `/po`; die Modellantwort darf dabei unterschiedlich ausfallen.

@@ -11,6 +11,7 @@ import { isWorkerProvider } from '@/shared/ai/providers'
 import { WORKER_TEXT_BYTES_PER_TOKEN, validWorkerModel, validWorkerVision, type WorkerModel, type WorkerFunction, type WorkerAttachment } from '@/shared/ai/worker'
 import { useCoding } from '../../coding'
 import { AIError } from './errors'
+import { CloudError } from '../../../cloud'
 
 const TEXT_CAPS: Caps = { structured: false, tools: false, vision: false, pdf: false, mcp: false, mcpListing: false, cache: false, effort: false, reasoning: false, web: false, notes: false, refusalFallback: false, context: 32768, maxOutput: 16384 }
 let rows: ModelInfo[] = []
@@ -75,7 +76,7 @@ export async function sendWorkerText(route: Route, messages: Array<{ role: 'syst
   }
   if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {
     if (extra.attachments?.length) throw new AIError('capability')
-    try { return await sendSharedText(route.m, messages, maxTokens, signal, undefined, extra) } catch (e) { throw new AIError(signal?.aborted ? 'aborted' : 'unknown', e instanceof Error ? e.message : String(e)) }
+    try { return await sendSharedText(route.m, messages, maxTokens, signal, undefined, extra) } catch (e) { if(!signal?.aborted&&e instanceof CloudError&&e.status===429)throw new AIError('rate_limit','features.ai.local.queueFull');throw new AIError(signal?.aborted ? 'aborted' : 'unknown', e instanceof Error ? e.message : String(e)) }
   }
   const {auditRun:_auditRun,...workerExtra}=extra
   const api = await import('../../coding')

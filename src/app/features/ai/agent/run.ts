@@ -317,16 +317,16 @@ export async function runAgent(opts: {
   try {
     // the gate: nothing is sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
     // its size: the system prompt (+ the servers' part), the conversation and the tool definitions; the answer budget
-    const defs = offeredTools.map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
+    const defs = (delivery.analysis?offeredTools.filter(t=>t.name==='read_page'):offeredTools).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
     // the brake judges the first request on FIRST_STEP_OUT (prompt + 4 096 output): the wire keeps its 64 000 — a capped
     // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
     const fixed = 12000+(opts.typed?.length??0)+reviewSystem.length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
     // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
-    const size = { promptChars: fixed + messagesChars(messages), maxTokens: (caps: import('@/shared/ai/types').Caps | null) => Math.min(LOOP_MAX_TOKENS, caps?.maxOutput ?? LOOP_MAX_TOKENS), bandOut: FIRST_STEP_OUT }
+    const size = { promptChars: fixed + messagesChars(delivery.analysis?[opts.user]:messages), maxTokens: (caps: import('@/shared/ai/types').Caps | null) => Math.min(LOOP_MAX_TOKENS, caps?.maxOutput ?? LOOP_MAX_TOKENS), bandOut: FIRST_STEP_OUT }
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
     // the conversation's MCP servers: the first response may loop at the provider (its context read per iteration) —
     // the brake counts their rounds; every further request is braked by beforeRound
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, route: opts.route, size, applied: opts.applied, ...(run ? { run } : {}), ...(mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, route: opts.route, size, applied: opts.applied, ...(run ? { run } : {}), ...(!delivery.analysis&&mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const observed=await delivery.prepare(prepared)
     if(observed){const last=messages.at(-1)!;last.content=typeof last.content==='string'?last.content+observed:[...(last.content??[]),{type:'text',text:observed}]}

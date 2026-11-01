@@ -22,6 +22,8 @@ Your selected provider stays active, including **Atlas Flow · Frankfurt**. Two 
 1. **BA:** up to three concrete requirement drafts, original passages, discriminating proposed checks and missing specifications.
 2. **PO:** review of every requirement and its checks against the same passages, with open questions and possible contradictions.
 
+Conformance checks hold the same requirement condition: one hypothetical observation conforms, another violates it. “If A then B” does not imply “if not A then not B”. Error reactions absent from the source remain unspecified.
+
 Progress notes show **1/2 · BA** and **2/2 · PO**. ONE checks structure, actual references, unsupported numeric values and the page version. Each round permits one correction of a technically invalid response. Excluded context or a changed source stops the run.
 
 The report is **a draft in the terminal**. It changes no pages, creates no Atlas records and approves no decisions. Its source is the read ONE snapshot with timestamp and fingerprint; **Atlas is not refreshed in this workflow**. A second request to the same model is not independent acceptance. Proposed checks are not executed tests. Repeat with `/ba` or `/po`; model wording can vary between runs.
