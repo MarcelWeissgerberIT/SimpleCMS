@@ -34,7 +34,7 @@ test('catalogue is restricted and valid text reaches exactly the pinned upstream
 })
 test('foreign models, image input, oversize context, output and raw management APIs are refused',async t=>{
  const f=await fixture(t)
- for(const invalid of [{...body,model:'qwen3:8b'},{...body,messages:[{role:'user',content:[{type:'image_url',image_url:{url:'https://bad.invalid/a.png'}}]}]},{...body,messages:[{role:'user',content:'x'.repeat(22001)}]},{...body,max_tokens:4097},{...body,stream:'yes'}])assert.equal((await f.request('/v1/chat/completions',invalid)).status,400)
+ for(const invalid of [{...body,model:'qwen3:8b'},{...body,messages:[{role:'user',content:[{type:'image_url',image_url:{url:'https://bad.invalid/a.png'}}]}]},{...body,messages:[{role:'user',content:'x'.repeat(36001)}]},{...body,max_tokens:4097},{...body,stream:'yes'}])assert.equal((await f.request('/v1/chat/completions',invalid)).status,400)
  assert.equal((await f.request('/api/pull',{model:'anything'})).status,404)
  assert.equal((await f.request('/api/show',{model:'atlas-flow:latest'})).status,404)
  assert.equal(f.calls.length,0)
@@ -88,4 +88,10 @@ test('native follow-up rounds preserve the worker adapter’s tool_name result f
  assert.equal(r.status,200);assert.equal(JSON.parse(f.calls[0].body).messages[2].tool_name,'one_mcp_search')
  assert.equal((await f.request('/v1/chat/completions',{...body,messages})).status,400)
  assert.equal((await f.request('/api/chat',{model:'atlas-flow:latest',messages:[{role:'user',content:'invalid',tool_name:'one_mcp_search'}]},null)).status,400)
+})
+
+test('complete function schemas fit the 36 KB bound while the model and output limits stay pinned',async t=>{
+ const f=await fixture(t)
+ const r=await f.request('/v1/chat/completions',{...body,messages:[{role:'user',content:'x'.repeat(24000)}]})
+ assert.equal(r.status,200);assert.equal(f.calls.length,1)
 })

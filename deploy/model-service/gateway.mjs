@@ -53,7 +53,7 @@ function chat(raw,native){
   const out=native?(raw.options?.num_predict??4096):(raw.max_completion_tokens??raw.max_tokens??4096)
   if(!Number.isSafeInteger(out)||out<1||out>4096)throw fault(400,'output_limit','Output must be between 1 and 4096 tokens.')
   // A deliberately conservative byte bound. The model's own profile also occupies context.
-  if(Buffer.byteLength(JSON.stringify([raw.messages,raw.tools,raw.format,raw.response_format]))>22000)throw fault(400,'context_limit','Select a smaller context: 22 KB maximum, including function definitions.')
+  if(Buffer.byteLength(JSON.stringify([raw.messages,raw.tools,raw.format,raw.response_format]))>36000)throw fault(400,'context_limit','Select a smaller context: 36 KB maximum, including function definitions.')
   const r={...raw,model:MODEL}
   if(native){r.options={num_ctx:32768,num_predict:out,temperature:0.2};r.keep_alive='30m'}
   else{delete r.max_completion_tokens;r.max_tokens=out}

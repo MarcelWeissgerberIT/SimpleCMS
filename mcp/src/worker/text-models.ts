@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isWorkerProvider } from '../../../src/shared/ai/providers.ts'
-import { WORKER_TEXT_MAX, validWorkerModel, type WorkerModel, type WorkerTextRequest, type WorkerTextResult } from '../../../src/shared/ai/worker.ts'
+import { WORKER_TEXT_MAX, WORKER_TEXT_BYTES_PER_TOKEN, validWorkerModel, type WorkerModel, type WorkerTextRequest, type WorkerTextResult } from '../../../src/shared/ai/worker.ts'
 import { readMiniMax, MINIMAX_MODEL } from './minimax-config.ts'
 import { readOllamaCloud } from './ollama-cloud-config.ts'
 import { miniMaxInference } from './minimax-inference.ts'
@@ -93,7 +93,7 @@ export async function textRequest(file: string, raw: unknown, signal: AbortSigna
   const r = checkTextRequest(raw)
   const model = (await (r.provider === 'copilot' ? copilotModels() : textModels(file))).find(m => m.provider === r.provider && m.model === r.model)
   if (!model) throw new Error('This model is no longer available on the worker. Refresh the model list.')
-  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === 'copilot' ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === 'copilot' ? 8192 : 16384) + 2048 > model.context) throw new Error('The text exceeds this model’s conservative context limit. Select a smaller passage.')
+  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (['copilot','local'].includes(r.provider) ? WORKER_TEXT_BYTES_PER_TOKEN : 1)) + Math.min(r.maxTokens, r.provider === 'copilot' ? 8192 : 16384) + 2048 > model.context) throw new Error('The text exceeds this model’s conservative context limit. Select a smaller passage.')
   if (r.provider === 'copilot') {
     const attachments = checkAttachments(r.attachments, model.vision)
     const tools = (r.tools ?? []).map(t => ({ type: 'function', function: t }))

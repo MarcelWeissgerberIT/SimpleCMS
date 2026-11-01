@@ -1,13 +1,14 @@
+import {sharedWireLimit} from './sharedModels'
 import { assertModelFlow } from './dataFlow'
 import { sharedModelRows, sharedModels, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
 import { flowChoices } from './flowChoices'
-import { SHARED_INPUT_MAX, SHARED_PREFIX } from '@/shared/ai/shared-model'
+import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 import { fitLocalToolContext } from '@/shared/ai/local-context'
 /** Request-only routes discovered from the paired worker. No credentials or persisted model claims. */
 import { useEffect, useSyncExternalStore } from 'react'
 import type { Caps, ModelInfo, Route } from '@/shared/ai/types'
 import { isWorkerProvider } from '@/shared/ai/providers'
-import { validWorkerModel, validWorkerVision, type WorkerModel, type WorkerFunction, type WorkerAttachment } from '@/shared/ai/worker'
+import { WORKER_TEXT_BYTES_PER_TOKEN, validWorkerModel, validWorkerVision, type WorkerModel, type WorkerFunction, type WorkerAttachment } from '@/shared/ai/worker'
 import { useCoding } from '../../coding'
 import { AIError } from './errors'
 
@@ -63,12 +64,13 @@ export async function sendWorkerText(route: Route, messages: Array<{ role: 'syst
   if (route.p === 'local' || route.p === 'copilot') {
     const context = workerModelInfo(route)?.caps.context ?? 32768
     const reserve = Math.min(maxTokens, route.p === 'copilot' ? 8192 : 16384) + 2048 + (extra.attachments?.length??0)*4096
-    const budget = Math.min(context - reserve - 512, route.p==='local'&&route.m.startsWith(SHARED_PREFIX) ? SHARED_INPUT_MAX - 512 : Infinity)
+    const budget=context-reserve-512
+    const wire=route.p==='local'&&route.m.startsWith(SHARED_PREFIX)?sharedWireLimit(route.m)-512:Infinity
     try {
       // Match the worker's conservative UTF-8 wire estimate, including escaped
       // tool results. Only linked tool results are excerpted; source/task/history
       // remain intact. This also works with an already installed older worker.
-      messages = fitLocalToolContext(messages, next => Math.ceil(new TextEncoder().encode(JSON.stringify([next, extra.tools, extra.schema])).length/(route.p==='copilot'?1.5:1)) <= budget,history)
+      messages = fitLocalToolContext(messages,next=>{const bytes=new TextEncoder().encode(JSON.stringify([next,extra.tools,extra.schema])).length;return bytes<=wire&&Math.ceil(bytes/WORKER_TEXT_BYTES_PER_TOKEN)<=budget},history)
     } catch (e) { throw new AIError('context', e instanceof Error ? e.message : String(e)) }
   }
   if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {

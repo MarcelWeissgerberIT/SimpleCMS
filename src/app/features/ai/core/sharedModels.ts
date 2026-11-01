@@ -2,7 +2,7 @@ import {useWorkspace} from '../../../store/store'
 import {hasFlowLimits} from '@/shared/ai/dataFlow'
 import {useEffect,useSyncExternalStore} from 'react'
 import {useCloud,cloudRequest} from '../../../cloud'
-import {SHARED_PREFIX,SHARED_INPUT_MAX,sharedRequestBox,openShared,type SharedModel,type SharedBox} from '@/shared/ai/shared-model'
+import {SHARED_PREFIX,sharedInputMax,sharedRequestBox,openShared,type SharedModel,type SharedBox} from '@/shared/ai/shared-model'
 import type {ModelInfo} from '@/shared/ai/types'
 import type {WorkerFunction,WorkerTextResult} from '@/shared/ai/worker'
 
@@ -13,6 +13,7 @@ let timer:ReturnType<typeof setInterval>|undefined
 const publish=()=>{revision++;for(const fn of listeners)fn()}
 export const sharedScope=()=>{const c=useCloud.getState();return c.active.kind==='cloud'&&c.user&&!c.readOnly?c.active.id+':'+c.user.id:''}
 export const sharedModels=()=>scope===sharedScope()?rows:[]
+export const sharedWireLimit=(model:string)=>sharedInputMax(sharedModels().find(r=>SHARED_PREFIX+r.id===model)?.inputMax)
 export const sharedModelRows=():ModelInfo[]=>sharedModels().filter(r=>r.enabled&&r.online&&r.publicKey).map(r=>({route:{p:'local',m:SHARED_PREFIX+r.id},label:r.label+' · '+r.model,short:r.label.toUpperCase().slice(0,22),vendor:'local',caps:{structured:r.tools===true,tools:r.tools===true,vision:false,pdf:false,mcp:r.tools?'allow-only':false,mcpListing:r.tools===true,cache:false,effort:false,reasoning:false,web:false,notes:false,refusalFallback:false,context:32768,maxOutput:4096},price:{input:0,output:0,cacheRead:0,cacheWrite:0,source:'table',at:'local'}}))
 export async function refreshSharedModels(){
   const want=sharedScope()
@@ -42,7 +43,7 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
   if((extra.tools?.length||extra.schema)&&!share.tools)throw new Error('Update the shared model host for function support.')
   signal?.throwIfAborted()
   const id=crypto.randomUUID(),payload={model:share.model,messages,maxTokens:Math.min(maxTokens,4096),...extra}
-  if(new TextEncoder().encode(JSON.stringify(payload)).length>SHARED_INPUT_MAX)throw new Error('Shared model: select a smaller passage (22 KB maximum).')
+  if(new TextEncoder().encode(JSON.stringify(payload)).length>sharedInputMax(share.inputMax))throw new Error('Shared model: select a smaller passage ('+Math.floor(sharedInputMax(share.inputMax)/1000)+' KB maximum for this host).')
   const {key,box}=await sharedRequestBox(payload,share.publicKey,share.id,id)
   const path=`api/workspaces/${workspace}/model-jobs/${id}`
   let created=false,finished=false

@@ -66,7 +66,7 @@ export class SharedModelHost {
       if(Date.now()-this.checked>30000){const selected=(await textModels(this.config.file)).find(m=>m.provider==='local'&&m.model===this.choice!.model);this.available=!!selected;this.tools=selected?.chat===true;this.checked=Date.now()}
       const keys=await this.keys,publicKey=await globalThis.crypto.subtle.exportKey('jwk',keys.publicKey)
       const sent=this.outcome
-      const reply=await this.api('poll',{publicKey,dataFlow:true,tools:this.tools,busy:this.draining||this.occupied()||!!this.active,available:this.available,active:this.active?.id??null,...(sent?{outcome:sent}:{})})
+      const reply=await this.api('poll',{publicKey,dataFlow:true,tools:this.tools,inputMax:SHARED_INPUT_MAX,busy:this.draining||this.occupied()||!!this.active,available:this.available,active:this.active?.id??null,...(sent?{outcome:sent}:{})})
       if(this.outcome===sent)this.outcome=undefined
       if(!reply.enabled){this.choice.enabled=false;this.save();this.active?.abort.abort();return}
       if(reply.model!==this.choice.model){this.active?.abort.abort();return}

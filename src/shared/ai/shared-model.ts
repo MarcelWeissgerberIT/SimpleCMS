@@ -2,7 +2,7 @@ type ShareCryptoKey = Awaited<ReturnType<typeof globalThis.crypto.subtle.importK
 export interface SharedPublicKey {kty?:string;n?:string;e?:string;alg?:string;ext?:boolean;key_ops?:string[]}
 /** Workspace-scoped text inference. The relay queues ciphertext, never worker credentials or tools. */
 export const SHARED_PREFIX = 'one-shared/'
-export const SHARED_INPUT_MAX = 22000
+export const SHARED_INPUT_MAX = 36000
 export const SHARED_QUEUE_MAX = 12
 export interface SharedModel {
   id: string; workspace: string; model: string; label: string; owner: string; mine: boolean;
@@ -10,6 +10,8 @@ export interface SharedModel {
   dataFlow?: boolean;
   /** Function inference only; tools run in the requesting member’s browser/worker. */
   tools?: boolean;
+  /** Host-advertised wire bound; older hosts retain the original 22 KB limit. */
+  inputMax?: number;
   /** Fresh outbound host heartbeat, separate from installed-model availability. Older servers omit these. */
   hostOnline?: boolean; modelAvailable?: boolean | null;
   enabled: boolean; online: boolean; queued: number; running: boolean; publicKey: SharedPublicKey | null
@@ -43,3 +45,5 @@ export async function sharedWorkerKey(box:SharedBox,key:ShareCryptoKey) {
   if(!box.key)throw new Error('Missing request key')
   return globalThis.crypto.subtle.unwrapKey('raw',bytes(box.key),key,{name:'RSA-OAEP'},{name:'AES-GCM',length:256},false,['encrypt','decrypt'])
 }
+
+export const sharedInputMax=(advertised?:number)=>Number.isSafeInteger(advertised)&&advertised!>=4096?Math.min(advertised!,SHARED_INPUT_MAX):22000

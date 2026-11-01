@@ -19,6 +19,12 @@ test('workspace model sharing: isolated encrypted FIFO, cancellation, revocation
   const path=`/api/workspaces/${ws}/model-shares`,id=worker.id
   const listed=(await alice.get(path)).body
   assert.equal(listed[0].dataFlow,false);assert.equal(listed[0].online,true);assert.equal(listed[0].mine,false);assert.equal(listed[0].model,config.model)
+  assert.equal(listed[0].inputMax,22000)
+  assert.equal((await poll({inputMax:36000})).status,200)
+  assert.equal((await alice.get(path)).body[0].inputMax,36000)
+  assert.equal((await poll({inputMax:36001})).status,400)
+  assert.equal((await poll()).status,200)
+  assert.equal((await alice.get(path)).body[0].inputMax,22000)
   assert.equal(listed[0].hostOnline,true);assert.equal(listed[0].modelAvailable,true)
   // A live host can be reachable while Ollama or its selected model is unavailable.
   await poll({available:false})

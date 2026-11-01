@@ -19,5 +19,7 @@ export interface WorkerTextResult { copilotReceipt?: import('../copilot').Copilo
 export interface WorkerMcpServer { name: string; url: string; token: string; allow: string[] | null; deny: string[] }
 export type WorkerMcpRequest = { servers: WorkerMcpServer[]; action: 'list' } | { servers: WorkerMcpServer[]; action: 'search'; query: string } | { servers: WorkerMcpServer[]; action: 'call'; server: string; name: string; arguments: Record<string, unknown> }
 export interface WorkerMcpTool extends WorkerFunction { server: string; tool: string }
+/** Shared conservative UTF-8 estimate for tool-capable text models; context and wire limits stay separate. */
+export const WORKER_TEXT_BYTES_PER_TOKEN = 1.5
 export const WORKER_TEXT_MAX = 180000
 export const validWorkerModel = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(v)

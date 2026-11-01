@@ -51,3 +51,8 @@ test('native and wrapper aliases cannot replay the same mutation, including reor
  assert.equal(key,bindings.callKey('one_mcp_call',{server:'atlas',name:'atlas_update',arguments:{fields:{b:2,a:1},ref:123}}))
  assert.notEqual(key,bindings.callKey(native,{ref:124,fields:{a:1,b:2}}))
 })
+
+test('shared wire limits negotiate with each host and keep old hosts at their original bound',async()=>{
+ const {sharedInputMax}=await import('../../src/shared/ai/shared-model.ts')
+ assert.equal(sharedInputMax(),22000);assert.equal(sharedInputMax(36000),36000);assert.equal(sharedInputMax(99999),36000);assert.equal(sharedInputMax(-1),22000)
+})

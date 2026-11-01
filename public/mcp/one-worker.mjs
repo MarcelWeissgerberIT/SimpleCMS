@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.2 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.3 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -17288,6 +17288,7 @@ var isWorkerProvider = (p) => WORKER_PROVIDERS.includes(p);
 // ../src/shared/ai/worker.ts
 var WORKER_MEDIA_BYTES = 3 * 1024 * 1024;
 var WORKER_MEDIA_COUNT = 4;
+var WORKER_TEXT_BYTES_PER_TOKEN = 1.5;
 var WORKER_TEXT_MAX = 18e4;
 var validWorkerModel = (v) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(v);
 
@@ -18995,7 +18996,7 @@ async function textRequest(file, raw, signal) {
   const r = checkTextRequest(raw);
   const model2 = (await (r.provider === "copilot" ? copilotModels() : textModels(file))).find((m) => m.provider === r.provider && m.model === r.model);
   if (!model2) throw new Error("This model is no longer available on the worker. Refresh the model list.");
-  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === "copilot" ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model2.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
+  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (["copilot", "local"].includes(r.provider) ? WORKER_TEXT_BYTES_PER_TOKEN : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model2.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
   if (r.provider === "copilot") {
     const attachments = checkAttachments(r.attachments, model2.vision);
     const tools = (r.tools ?? []).map((t) => ({ type: "function", function: t }));
@@ -20600,7 +20601,7 @@ async function taskRepoFiles(text2, repo, root, branch) {
 }
 
 // ../src/shared/ai/shared-model.ts
-var SHARED_INPUT_MAX = 22e3;
+var SHARED_INPUT_MAX = 36e3;
 var bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 var b64 = (b) => {
   let s = "";
@@ -21165,7 +21166,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.2" : "dev";
+var VERSION = true ? "1.35.3" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -41283,7 +41284,7 @@ var SharedModelHost = class {
       }
       const keys = await this.keys, publicKey = await globalThis.crypto.subtle.exportKey("jwk", keys.publicKey);
       const sent = this.outcome;
-      const reply = await this.api("poll", { publicKey, dataFlow: true, tools: this.tools, busy: this.draining || this.occupied() || !!this.active, available: this.available, active: this.active?.id ?? null, ...sent ? { outcome: sent } : {} });
+      const reply = await this.api("poll", { publicKey, dataFlow: true, tools: this.tools, inputMax: SHARED_INPUT_MAX, busy: this.draining || this.occupied() || !!this.active, available: this.available, active: this.active?.id ?? null, ...sent ? { outcome: sent } : {} });
       if (this.outcome === sent) this.outcome = void 0;
       if (!reply.enabled) {
         this.choice.enabled = false;
@@ -50160,7 +50161,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.2" : "dev";
+var VERSION2 = true ? "1.35.3" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
