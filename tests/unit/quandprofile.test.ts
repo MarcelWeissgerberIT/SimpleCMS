@@ -1,7 +1,9 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
-import {QuandRuntime,providerSnapshot,stateHash} from '../../src/shared/quandprofile/runtime.ts'
+import {QuandRuntime,providerSnapshot,stateHash,compactQuantumProof} from '../../src/shared/quandprofile/runtime.ts'
+import {inspectQuantumProof} from '../../src/shared/quandprofile/inspection.ts'
+import {modelAtlasReceipt} from '../../src/shared/mcp/facts.ts'
 import {allowedFor,DATA_CLASSES} from '../../src/shared/ai/policy.ts'
 import {PROVIDER_ORDER} from '../../src/shared/ai/providers.ts'
 const {instance}=await WebAssembly.instantiate(await readFile(new URL('../../src/shared/quandprofile/quandprofile.wasm',import.meta.url)),{})
@@ -28,7 +30,7 @@ test('fresh policy, actor, state and concrete action change evidence; no importe
  assert.notEqual(runtime.check({...a,scope:{...scope,actor:'other'}}).profileHash,first.profileHash)
  assert.notEqual(runtime.check({...a,scope:{...scope,operation_digest:stateHash({body:'changed'})}}).operationHash,first.operationHash)
  assert.throws(()=>runtime.check({...a,snapshot:{...a.snapshot,device_narrow:['page']}}))
- assert.doesNotMatch(JSON.stringify(first),/synthetic-user|synthetic-one/)
+ assert.doesNotMatch(JSON.stringify(compactQuantumProof(first)),/synthetic-user|synthetic-one/)
 })
 test('MCP writes require selected tool, allowed origin and an observed target',()=>{
  const r={gate:'one_mcp' as const,scope,snapshot:{origin:'https://atlas.example',allowed_origins:['https://atlas.example'],tool:'atlas_update',allowed_tools:['atlas_update'],denied_tools:[],target_ref:42,observed_refs:[] as number[]}}
@@ -47,4 +49,26 @@ test('WASM has no host imports and bounded inputs cannot trigger arbitrary host 
  assert.deepEqual(WebAssembly.Module.imports(module),[])
  assert.throws(()=>runtime.check(provider('anthropic',['x'.repeat(270000)])),/limit/)
  assert.throws(()=>runtime.check({...provider('anthropic',['page']),gate:'shell' as any}))
+})
+test('recorded compiler evidence preserves actual dimension findings, snapshots and hashes across serialization',()=>{
+ const r={gate:'one_mcp' as const,scope,snapshot:{origin:'https://atlas.example',allowed_origins:['https://atlas.example'],tool:'atlas_update',allowed_tools:['atlas_update'],denied_tools:[],target_ref:42,observed_refs:[42]}}
+ const proof=runtime.check(r),saved=JSON.parse(JSON.stringify(proof)),view=inspectQuantumProof(saved)
+ assert.equal(view.kind,'detailed');assert.ok(view.inspection)
+ assert.deepEqual(view.inspection.result.quanta[0].dimensions,['permission','provenance'])
+ assert.equal(view.inspection.result.quanta[0].id,proof.quantumIds[0])
+ assert.equal(view.inspection.result.request_digest,proof.requestHash)
+ assert.deepEqual(view.inspection.request.snapshot,r.snapshot)
+ r.snapshot.observed_refs.push(99)
+ assert.deepEqual(view.inspection.request.snapshot.observed_refs,[42])
+ const receipt=modelAtlasReceipt({tool:'atlas_update',effect:'write_accepted',outcome:'ok',refs:[42],ids:[],counts:[],quantum:proof})
+ assert.equal(receipt.quantum?.inspection,undefined)
+ assert.doesNotMatch(JSON.stringify(receipt),/synthetic-user|synthetic-one|allowed_origins/)
+})
+test('historical compact receipts remain partial and mismatched detail never becomes confirmed evidence',()=>{
+ const proof=runtime.check(provider('anthropic',['page']))
+ assert.equal(inspectQuantumProof(compactQuantumProof(proof)).kind,'legacy')
+ assert.equal(inspectQuantumProof({...proof,profileHash:'changed'}).kind,'mismatch')
+ assert.equal(inspectQuantumProof({...proof,quantumIds:['different']} ).kind,'mismatch')
+ assert.equal(inspectQuantumProof({...proof,inspection:{} as any}).kind,'mismatch')
+ assert.deepEqual(proof.inspection?.result.quanta[0].dimensions,['permission','privacy'])
 })

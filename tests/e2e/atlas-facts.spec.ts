@@ -3,6 +3,7 @@ import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 import {mockClaudeScript,text} from './helpers/providers'
 import {DEFAULT_CLAUDE_MODEL} from '../../src/shared/ai/models'
+import {readFile} from 'node:fs/promises'
 const PORT=47434,LOCAL='atlas-flow:latest',COPILOT='gpt-6.1-sol'
 const envelope=(data:unknown)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(data)}]})
 test.describe('Atlas source facts in the real browser-owned harness',()=>{
@@ -20,6 +21,33 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
  })
  test.afterEach(async()=>{await fake?.close()})
  for(const provider of ['local','copilot'] as const){
+  test(`${provider}: actual compiler receipt opens glass evidence, exact dimensions and a complete export without another call`,async({page},info)=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Recorded test source'}})}
+   let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n>=2?'Ref: 42 gelesen.':'',calls:n===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_get'}}]:n===1?[{id:'read',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]:[],inputTokens:200,outputTokens:40,usd:0}}
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:COPILOT})
+   await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+   await input.fill('Read Atlas ref 42.');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('Ref: 42 gelesen.')
+   const facts=term.locator('.atlas-facts');await facts.locator('summary').click()
+   const opener=facts.getByRole('button',{name:/Compiled dispatch check/});await opener.focus();await page.keyboard.press('Enter')
+   const dialog=page.getByRole('dialog',{name:'Evidence cube · dispatch check'});await expect(dialog).toBeVisible()
+   await expect(dialog.getByRole('button',{name:'Permission',exact:true})).toHaveAttribute('aria-pressed','true')
+   await dialog.getByRole('button',{name:'Provenance',exact:true}).click();await expect(dialog).toContainText('selected MCP origin')
+   const before=await dialog.locator('svg[role=img] path').first().getAttribute('d');await dialog.getByRole('button',{name:'Rotate cube right'}).click();expect(await dialog.locator('svg[role=img] path').first().getAttribute('d')).not.toBe(before)
+   await dialog.getByText('Bound values and dependencies',{exact:true}).click();await expect(dialog).toContainText('https://atlas.example.org');await expect(dialog).toContainText('atlas_get')
+   for(const theme of ['light','dark'])for(const width of [1440,390]){
+    await page.setViewportSize({width,height:900});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
+    await dialog.locator('.modal__body').evaluate(el=>el.scrollTop=0)
+    expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+    await dialog.screenshot({path:info.outputPath(`quantum-${provider}-${theme}-${width}.png`),animations:'disabled'})
+   }
+   const download=page.waitForEvent('download');await dialog.getByRole('button',{name:'Download compiler receipt as JSON'}).click();const file=await download
+   const proof=JSON.parse(await readFile((await file.path())!,'utf8'))
+   expect(proof.inspection.result.quanta[0].id).toBe(proof.quantumIds[0]);expect(proof.inspection.result.quanta[0].dimensions).toEqual(['permission','provenance']);expect(proof.inspection.request.snapshot.tool).toBe('atlas_get')
+   expect(JSON.stringify(proof)).not.toContain('private-facts-token')
+   expect(JSON.stringify(fake.textAsked)).not.toContain('dimension_definitions');expect(JSON.stringify(fake.textAsked)).not.toContain('state_revision')
+   expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call']);expect(fake.textAsked).toHaveLength(3)
+   await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(opener).toBeFocused()
+  })
   test(`${provider}: wrong count is corrected once without executing another tool`,async({page})=>{
    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_record_kinds',inputSchema:{type:'object',properties:{}}}]}:{result:envelope({kinds:Array.from({length:36},(_,i)=>({name:'kind-'+i}))})}
    let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n===2?'29 Record-Kinds erstellt.':n===3?'36 Record-Kinds gelesen.':'',...(n<2?{calls:[n===0?{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_record_kinds'}}:{id:'read',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_record_kinds',arguments:{}}}]}:{}),inputTokens:200,outputTokens:40,usd:0}}
@@ -41,6 +69,16 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
    for(const width of [1440,390]){await page.setViewportSize({width,height:900});expect(await facts.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);await page.screenshot({path:info.outputPath(`atlas-facts-${provider}-${width}.png`),animations:'disabled'})}
   })
  }
+ test('passed dispatch evidence stays separate from an Atlas server failure',async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({isError:true,content:[{type:'text',text:'Synthetic server failure'}]})}
+  let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n>=2?'Atlas request failed.':'',calls:n===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_get'}}]:n===1?[{id:'read',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]:[],inputTokens:200,outputTokens:40,usd:0}}
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Read Atlas ref 42.');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('Atlas request failed.')
+  const facts=term.locator('.atlas-facts');await expect(facts).toHaveAttribute('data-outcome','error');await facts.locator('summary').click();await facts.getByRole('button',{name:/Compiled dispatch check/}).click()
+  const dialog=page.getByRole('dialog',{name:'Evidence cube · dispatch check'});await expect(dialog).toContainText('Dispatch check passed · recorded');await expect(dialog.locator('.quantum-inspector__facts').first()).toContainText('Failed')
+  expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call'])
+ })
  test('target must be observed before writing; ONE reads back the actual changed fields',async({page})=>{
   let written=false
   fake.onModelMcp=r=>{

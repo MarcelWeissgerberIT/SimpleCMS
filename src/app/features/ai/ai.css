@@ -405,6 +405,7 @@
   overflow-wrap: anywhere;
 }
 .atlas-facts summary { cursor: pointer; }
+.atlas-facts > button { max-width: 100%; height: auto; min-height: var(--sp-8); white-space: normal; overflow-wrap: anywhere; text-align: start; }
 .atlas-facts[data-outcome='error'] { border-inline-start-color: #c43b42; }
 .ai-mcp__chip {
   display: inline-flex;

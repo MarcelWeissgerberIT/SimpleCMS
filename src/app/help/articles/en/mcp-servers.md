@@ -98,3 +98,11 @@ Polarion Connect also needs an online, project-authorized Polarion worker and it
 Transport support and result quality are qualified separately. Identity or search success does not qualify agent execution, writes, or Polarion. Report the specific missing prerequisite; never infer success or absent records from a failed call.
 
 The prepared AJ workspace carries an explicit default Atlas tenant. It applies per call unless you specify another accessible tenant. Your global Atlas selection stays unchanged; a different selected tenant does not prove that project data is absent.
+
+## Compiled dispatch checks and evidence cubes
+
+Expand **Actual Atlas result** beneath an actual Atlas call, then click **Compiled dispatch check · …**. The short hash identifies the check profile, not the individual evidence cube. The inspector shows a glass cube, its complete quantum ID and the compiler-returned dimensions. Select a dimension to see its check status and associated rule. Drag the cube or use the two rotation buttons.
+
+Expand **Bound values and dependencies**, **Full hashes** or **Original compiler receipt data** to inspect the recorded check. **Download compiler receipt as JSON** exports it. Opening and exporting make no new AI or Atlas request. Detailed compiler data is not added to model context.
+
+A stored receipt describes the historical check. It does not recheck current permissions or establish factual correctness or success of an Atlas action; the action result and any read-back are displayed separately. Older compact receipts have no original compiler output. Their dimensions are labelled as catalogue mappings; historical detail is never invented afterwards.

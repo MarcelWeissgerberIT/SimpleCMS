@@ -171,6 +171,8 @@ export default function AgentSheet() {
   }, [])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Portaled inspectors belong to the React tree, but their keys belong to the modal, not this terminal.
+    if (e.target instanceof Node && !e.currentTarget.contains(e.target)) return
     if (e.nativeEvent.isComposing) return
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('[data-popover]')) {
       e.preventDefault()

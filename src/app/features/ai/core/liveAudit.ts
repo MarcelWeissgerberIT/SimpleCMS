@@ -1,6 +1,7 @@
 import type {Route} from '@/shared/ai/types'
 import {SHARED_PREFIX} from '@/shared/ai/shared-model'
 import {cloudRequest,useCloud,CloudError} from '../../../cloud'
+import type {QuantumProof} from '@/shared/quandprofile/runtime'
 
 export class LiveAuditError extends Error {}
 
@@ -21,12 +22,13 @@ export async function beginLiveAudit(route:Route,prompt:string,purpose:string){
  }
  return {
   runId,
-  async tool<T>(server:string,name:string,args:unknown,execute:()=>T|Promise<T>):Promise<T>{
+  async tool<T>(server:string,name:string,args:unknown,execute:()=>T|Promise<T>,proof?:QuantumProof):Promise<T>{
    if(!runId)return execute()
    const callId=crypto.randomUUID();await event({type:'tool-call',callId,server,name,arguments:args})
    let result:T
    try{result=await execute()}catch(error){await event({type:'tool-error',callId,server,name,error:error instanceof Error?error.message:'Tool failed'});throw error}
-   await event({type:'tool-result',callId,server,name,result});return result
+   // The transport result stays unchanged for callers. Host-owned evidence is a separate field in the audit wrapper.
+   await event({type:'tool-result',callId,server,name,result:proof?{...result,oneDispatchProof:proof}:result});return result
   },
   async blocked(server:string,name:string,args:unknown,error:string){await event({type:'tool-blocked',callId:crypto.randomUUID(),server,name,arguments:args,error})},
   async end(state:string,answer?:unknown,error?:unknown){await event({type:'run-end',state,...(answer!==undefined?{answer}:{}),...(error?{error:error instanceof Error?error.message:String(error)}:{})})},

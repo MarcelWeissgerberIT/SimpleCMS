@@ -1,0 +1,37 @@
+.quantum-inspector .modal__body { display: grid; gap: var(--sp-4); min-width: 0; }
+.quantum-inspector__status { border-inline-start: 3px solid var(--signal); padding-inline-start: var(--sp-3); }
+.quantum-inspector__status > span { display: block; color: var(--ink-2); font-size: var(--text-sm); margin-block-start: var(--sp-1); }
+.quantum-inspector p { margin: var(--sp-2) 0 0; font-size: var(--text-sm); line-height: 1.6; }
+.quantum-inspector__facts { display: grid; gap: var(--sp-2); margin: 0; font-size: var(--text-sm); min-width: 0; }
+.quantum-inspector__facts > div { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 3fr); gap: var(--sp-3); }
+.quantum-inspector__facts dt { color: var(--ink-2); overflow-wrap: anywhere; }
+.quantum-inspector__facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.quantum-inspector code { font-family: var(--font-mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.quantum-inspector__notice { padding: var(--sp-3); background: var(--surface-2); border-inline-start: 2px solid var(--ink-3); }
+.quantum-inspector__picker { display: grid; gap: var(--sp-2); font-size: var(--text-sm); }
+.quantum-inspector__picker select { max-width: 100%; }
+.quantum-cube { position: relative; background: var(--surface-2); border: 1px solid var(--rule-strong); border-radius: var(--radius-2); min-width: 0; }
+.quantum-cube__caption { display: flex; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-3) var(--sp-4) 0; color: var(--ink-2); }
+.quantum-cube svg { display: block; width: 100%; overflow: hidden; touch-action: pan-y; cursor: grab; }
+.quantum-cube svg:active { cursor: grabbing; }
+.quantum-cube__plane { fill: var(--ink); fill-opacity: .018; stroke: var(--rule-strong); stroke-width: 1; }
+.quantum-cube__plane[data-selected='true'] { fill: var(--signal); fill-opacity: .06; stroke: var(--signal); stroke-opacity: .65; }
+.quantum-cube__glass { fill: var(--ink); fill-opacity: .055; stroke: var(--ink-2); stroke-opacity: .7; stroke-width: 1; }
+.quantum-cube__nucleus { fill: var(--signal); fill-opacity: .32; stroke: var(--signal); stroke-width: 1; }
+.quantum-cube__evidence { fill: var(--signal); fill-opacity: .08; stroke: var(--signal); stroke-width: 1.2; }
+.quantum-cube__binding { stroke: var(--signal); stroke-width: 1.5; fill: none; }
+.quantum-cube__controls { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-2); }
+.quantum-cube__controls > span { flex: 1; color: var(--ink-2); font-size: var(--text-xs); }
+.quantum-inspector__dimensions { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-3); border-block-start: 1px solid var(--rule); }
+.quantum-inspector__dimensions button[aria-pressed='true'] { border-color: var(--signal); box-shadow: inset 0 -2px var(--signal); }
+.quantum-inspector__dimension { padding: var(--sp-3); background: var(--surface-2); border-inline-start: 2px solid var(--signal); }
+.quantum-inspector__dimension header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.quantum-inspector__dimension .quantum-inspector__facts { margin-block-start: var(--sp-3); }
+.quantum-inspector details { min-width: 0; border-block-start: 1px solid var(--rule); padding-block-start: var(--sp-3); }
+.quantum-inspector summary { cursor: pointer; font-size: var(--text-sm); }
+.quantum-inspector details[open] summary { margin-block-end: var(--sp-3); }
+.quantum-inspector__raw pre { white-space: pre-wrap; overflow-wrap: anywhere; font: var(--text-xs)/1.6 var(--font-mono); margin: 0; }
+@media (max-width: 480px) {
+  .quantum-inspector__facts > div { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
+  .quantum-cube__caption { flex-wrap: wrap; }
+}

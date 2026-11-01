@@ -2,8 +2,9 @@ import {LiveAuditError,type LiveAudit} from './liveAudit'
 import {McpBindings,selectMcpSchemas,type DiscoveredMcpTool} from '@/shared/mcp/bindings'
 import {McpEvidence} from '@/shared/mcp/evidence'
 import {McpResults} from '@/shared/mcp/results'
-import {AtlasFacts,checkAtlasReadback} from '@/shared/mcp/facts'
+import {AtlasFacts,checkAtlasReadback,modelAtlasReceipt} from '@/shared/mcp/facts'
 import {checkQuantum} from './quandprofile'
+import type {QuantumProof} from '@/shared/quandprofile/runtime'
 import {useWorkspace} from '../../../store/store'
 import {MCP_DISCOVERY_NOTE} from '@/shared/mcp/discovery'
 import { assertMcpFlow } from './dataFlow'
@@ -22,7 +23,7 @@ const connectionProblem=(e:unknown)=>e instanceof Error&&/^AJ-Atlas (hat diesen 
 export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000,audit?:LiveAudit) {
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
   const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
-  const request=(input:Parameters<typeof requestWorkerMcp>[0])=>audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal)):requestWorkerMcp(input,signal)
+  const request=(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
   let attempts=0
   const signature=()=>JSON.stringify([useWorkspace.getState().epoch,useWorkspace.getState().settings.mcpServers])
   const pinned=signature()
@@ -68,7 +69,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       if(!selected)throw new AIError('policy','features.ai.quantum.blocked')
       const proof=dispatchProof(selected,actual.name,actual.arguments)
       attempts++
-      const out=await request({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}) as {result:string}
+      const out=await request({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},proof) as {result:string}
       if(typeof out?.result!=='string')throw new AIError('mcp')
       const failed=JSON.parse(out.result).isError===true
       const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
@@ -82,8 +83,8 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         event(verifyActivity)
         try{
           if(signature()!==pinned)throw new AIError('policy','features.ai.quantum.blocked')
-          dispatchProof(server,'atlas_get',{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'})
-          const read=await request({action:'call',servers,server:args.server,name:'atlas_get',arguments:{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'}}) as {result:string}
+          const readProof=dispatchProof(server,'atlas_get',{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'})
+          const read=await request({action:'call',servers,server:args.server,name:'atlas_get',arguments:{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'}},readProof) as {result:string}
           receipt.verification=checkAtlasReadback(actual,receipt,read.result)
           event({...verifyActivity,state:receipt.verification==='unavailable'||receipt.verification==='read_back_differs'?'err':'ok'})
         }catch(e){if(e instanceof LiveAuditError)throw e;if(signal?.aborted)throw new AIError('aborted');receipt.verification='unavailable';event({...verifyActivity,state:'err'})}
@@ -92,7 +93,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       if(!failed&&args.name.startsWith('atlas_')){const server=servers.find(s=>s.name===args.server);if(server)evidence.observe(out.result,new URL(server.url).origin,{server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>})}
       event({...activity,state:failed?'err':'ok',...(receipt?{receipt}:{})})
       const searchEvidence=['atlas_search','atlas_query'].includes(args.name)?evidence.searchResult():null
-      return receipt||evidence.hint()?JSON.stringify({...JSON.parse(packed),...(receipt?{oneObservedFacts:receipt}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
+      return receipt||evidence.hint()?JSON.stringify({...JSON.parse(packed),...(receipt?{oneObservedFacts:modelAtlasReceipt(receipt)}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
     }catch(e){if(e instanceof LiveAuditError)throw e;if(signal?.aborted)throw new AIError('aborted');if(e instanceof AIError&&e.code==='policy'){event({...activity,state:'err',error:e.message});throw e}const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
   }
   return Object.assign(invoke,{evidence,facts,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})

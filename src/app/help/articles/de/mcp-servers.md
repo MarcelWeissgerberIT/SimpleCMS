@@ -98,3 +98,11 @@ Polarion Connect benötigt zusätzlich einen erreichbaren, für das Projekt frei
 Die technische Anbindung und die Ergebnisqualität werden getrennt geprüft. Ein erfolgreicher Identitäts- oder Suchtest qualifiziert nicht automatisch Agentenläufe, Änderungen oder Polarion. Bei einem Fehler die konkrete fehlende Voraussetzung zeigen; niemals Erfolg oder fehlende Daten aus einem gescheiterten Aufruf ableiten.
 
 Der vorbereitete AJ-Workspace führt den Atlas-Mandanten als expliziten Standard mit. Dieser gilt pro Aufruf, sofern du keinen anderen zugänglichen Mandanten nennst. Deine globale Atlas-Auswahl bleibt erhalten; ein anderer dort ausgewählter Mandant beweist keine fehlenden Projektdaten.
+
+## Kompilierte Aufrufprüfung und Nachweiswürfel
+
+Klappe unter einem tatsächlichen Atlas-Aufruf **Tatsächliches Atlas-Ergebnis** auf und klicke auf **Kompilierte Aufrufprüfung · …**. Der kurze Hash bezeichnet das Prüfprofil, nicht den einzelnen Nachweiswürfel. Die Detailansicht zeigt den gläsernen Würfel, seine vollständige Quantum-ID und die vom Compiler gelieferten Dimensionen. Wähle eine Dimension, um ihren Prüfstatus und die zugehörige Regel zu sehen. Der Würfel lässt sich durch Ziehen oder mit den beiden Drehtasten bewegen.
+
+Unter **Gebundene Werte und Abhängigkeiten**, **Vollständige Hashes** und **Originaldaten des Prüfbelegs** findest du die gespeicherten Prüfdaten. **Prüfbeleg als JSON herunterladen** exportiert sie. Öffnen und Exportieren senden keine neue KI- oder Atlas-Anfrage. Die ausführlichen Compiler-Daten werden nicht zusätzlich als Modellkontext übertragen.
+
+Ein gespeicherter Nachweis beschreibt die damalige Prüfung. Er ist keine erneute Rechteprüfung und belegt weder fachliche Richtigkeit noch den Erfolg einer Atlas-Aktion; deren Rückgabe und gegebenenfalls Rückleseprüfung stehen getrennt daneben. Ältere Kurzbelege enthalten keine Originalausgabe. Ihre Dimensionen werden nur als Katalogzuordnung gezeigt; historische Detaildaten werden nicht nachträglich erfunden.
