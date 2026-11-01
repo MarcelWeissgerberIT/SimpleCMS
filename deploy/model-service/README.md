@@ -55,7 +55,7 @@ Create/revoke commands run as root against `/etc/atlas-flow/api-keys.json`; pres
 
 Inspect `atlas-flow-gateway`, `atlas-flow-cnsx`, `atlas-flow-felix` and `ollama` with `systemctl`. `/model/healthz` is gateway liveness only, not model readiness. Check authenticated model inference and ONE model-share status for readiness.
 
-Use `gcloud compute instances stop atlas-flow-frankfurt-week --project=one-cms-510718 --zone=europe-west3-b` to stop early. The authorized weekly test has a seven-day runtime cap per start. Do not silently remove or extend that cap, or schedule repeated starts beyond the authorized week. The owner requested full request/answer evaluation visible only to Marcel; frankfurt-plan.json records the proposed audit design. Content logging remains disabled until that design is implemented with test-lead-only access and secret exclusion.
+Use `gcloud compute instances stop atlas-flow-frankfurt-week --project=one-cms-510718 --zone=europe-west3-b` to stop early. The authorized weekly test has a seven-day runtime cap per start. Do not silently remove or extend that cap, or schedule repeated starts beyond the authorized week. The owner requested full request/answer evaluation visible only to Marcel; frankfurt-plan.json records the proposed audit design. Content logging is enabled in deployments configured with the separate audit credential and designated test-lead identity, with recognized credentials redacted before encrypted storage.
 
 Verify actual GPU offload, peak VRAM, prompt/generation throughput, JSON and function-call output, both encrypted ONE routes, key rejection/revocation, and cross-workspace isolation before calling a deployment ready. Record measurements, not assumed performance.
 
