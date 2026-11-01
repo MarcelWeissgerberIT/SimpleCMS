@@ -75,6 +75,7 @@ export function sharedModelRoutes(s:Services) {
     const exporting=c.req.query('export')==='1'
     const url=new URL(audit.url);if(exporting)url.searchParams.set('export','1');else if(run)url.searchParams.set('run',run);else if(id)url.searchParams.set('id',id);else if(before)url.searchParams.set('before',before)
     if(c.req.query('runs')==='1')url.searchParams.set('runs','1')
+    if(c.req.query('costs')==='1')url.searchParams.set('costs','1')
     const r=await fetch(url,{redirect:'error',headers:{authorization:'Bearer '+audit.token},signal:AbortSignal.any([c.req.raw.signal,AbortSignal.timeout(exporting?120000:15000)])})
     if(!r.ok)throw new ApiError(503,'audit_host_unavailable','The model-host log is currently unavailable')
     if(exporting)return new Response(r.body,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'no-store','Content-Disposition':'attachment; filename=atlas-flow-frankfurt.jsonl'}})

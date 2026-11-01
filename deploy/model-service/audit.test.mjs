@@ -7,7 +7,19 @@ import {randomUUID} from 'node:crypto'
 import {once} from 'node:events'
 import {ModelAudit,redactAudit} from './audit.mjs'
 import {createGateway} from './gateway.mjs'
+import {hostCosts} from './costs.mjs'
 const token='synthetic-test-only-audit-credential-32-chars'
+test('host cost endpoint is lead-credential-only, uses metadata and fails explicitly without a plan',async t=>{
+ const audit=fixture(t),from=Date.now()-10000,to=Date.now(),plan={currency:'EUR',computePerHour:1,diskPerMonth:1,asOf:'2026-11-01',source:'Synthetic endpoint test'}
+ audit.write({auditId:from+'-'+randomUUID(),receivedAt:from,processingAt:from+1000,finishedAt:to,state:'processed',trace:{workspace:'ws',user:'lead',run:'task'},request:{messages:[{content:'Do not include this private prompt'}]},response:'Do not include this private answer'})
+ const {server}=createGateway({audit,costPlan:plan,costWindow:()=>({from,to}),keys:[]});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close()})
+ const url='http://127.0.0.1:'+server.address().port+'/admin/audit?costs=1'
+ assert.equal((await fetch(url)).status,404)
+ const r=await fetch(url,{headers:{authorization:'Bearer '+token}});assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'no-store');const data=await r.json()
+ assert.deepEqual(data,hostCosts(audit.index.values(),{plan,from,to}));assert.ok(!JSON.stringify(data).includes('private'))
+ const missing=createGateway({audit,keys:[]}).server;missing.listen(0,'127.0.0.1');await once(missing,'listening');t.after(()=>{missing.closeAllConnections();missing.close()})
+ assert.equal((await fetch('http://127.0.0.1:'+missing.address().port+'/admin/audit?costs=1',{headers:{authorization:'Bearer '+token}})).status,503)
+})
 function fixture(t){const dir=mkdtempSync(join(tmpdir(),'one-audit-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));return new ModelAudit({dir,keyFile:join(dir,'key'),token})}
 test('encrypted full records, authenticated reads, redaction and retention',t=>{
  const audit=fixture(t),id=Date.now()+'-'+randomUUID(),record={auditId:id,request:{messages:[{content:'private synthetic prompt Bearer test-secret'}],token:'hidden'},modelInput:{role:'user'},response:'full synthetic answer'}

@@ -1,0 +1,7 @@
+{
+  "currency": "EUR",
+  "asOf": "2026-11-01",
+  "source": "Frankfurt deployment estimate: n1-highmem-4 + T4, Google Cloud Billing Catalog snapshot 2026-11-01",
+  "computePerHour": 0.629048609,
+  "diskPerMonth": 8.448
+}

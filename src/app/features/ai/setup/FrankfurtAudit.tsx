@@ -4,6 +4,8 @@ import {cloudRequest,useCloud} from '../../../cloud'
 import {useLang} from '../../../i18n'
 import './frankfurt-audit.css'
 import {LiveAuditRuns} from './LiveAuditRuns'
+import {FrankfurtCosts} from './FrankfurtCosts'
+import {useT} from '../../../i18n'
 
 type Row={auditId:string;requestId:string;trace?:{job?:string;workspace?:string;user?:string};receivedAt:number;queuedAt:number|null;processingAt:number|null;finishedAt:number|null;state:string;status:number|null;model:string;error?:string;responseBytes:number}
 type Entry=Row&{request:unknown;modelInput:unknown;response:string}
@@ -11,7 +13,7 @@ const pretty=(x:unknown)=>JSON.stringify(x,null,2)
 /** Full contents never enter shared pages, the workspace document or local storage. */
 export function FrankfurtAudit(){
  const active=useCloud(s=>s.active),user=useCloud(s=>s.user),lang=useLang(),tr=(de:string,en:string)=>lang==='de'?de:en
- const [mode,setMode]=useState<'runs'|'rounds'>('runs')
+ const t=useT(),[mode,setMode]=useState<'runs'|'rounds'|'costs'>('runs')
  const [allowed,setAllowed]=useState(false),[allowedScope,setAllowedScope]=useState(''),[open,setOpen]=useState(false),[rows,setRows]=useState<Row[]>([]),[entry,setEntry]=useState<Entry|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[cursor,setCursor]=useState<string|null>(null),[before,setBefore]=useState('')
  const scope=active.kind==='cloud'&&user?active.id+':'+user.id:''
  const path=`api/workspaces/${active.id}/model-audit`
@@ -47,8 +49,8 @@ export function FrankfurtAudit(){
    <button className="btn btn--sm" disabled={exportBusy} onClick={()=>void downloadAll()}><Download size={14}/>{exportBusy?tr('Gesamtexport wird geprüft …','Checking entire export …'):tr('Gesamtes Protokoll herunterladen (.jsonl)','Download entire log (.jsonl)')}</button>
    <p>{tr('Anfragen, tatsächlich übergebener Modellkontext und rohe Antworten ab Aktivierung der Protokollierung. 30 Tage Aufbewahrung, verschlüsselte Ablage. Erkannte Zugangsdaten sind geschwärzt. Eine empfangene Antwort belegt keine fachliche Richtigkeit und keine erfolgreiche Atlas-Änderung.','Requests, actual model context and raw responses since logging was activated. Encrypted storage, 30-day retention. Recognized credentials are redacted. Receiving a response does not prove factual correctness or a successful Atlas change.')}</p>
    {error&&mode==='runs'&&<p role="alert">{error}</p>}
-   <div className="frankfurt-audit__toolbar" role="group" aria-label={tr('Protokollansicht','Log view')}><button className="btn btn--sm" aria-pressed={mode==='runs'} onClick={()=>setMode('runs')}>{tr('Live-Tests','Live tests')}</button><button className="btn btn--sm" aria-pressed={mode==='rounds'} onClick={()=>setMode('rounds')}>{tr('Modellrunden','Model rounds')}</button></div>
-   {mode==='runs'?<LiveAuditRuns key={scope} path={path} scope={scope}/>:<>
+   <div className="frankfurt-audit__toolbar" role="group" aria-label={tr('Protokollansicht','Log view')}><button className="btn btn--sm" aria-pressed={mode==='runs'} onClick={()=>setMode('runs')}>{tr('Live-Tests','Live tests')}</button><button className="btn btn--sm" aria-pressed={mode==='rounds'} onClick={()=>setMode('rounds')}>{tr('Modellrunden','Model rounds')}</button><button className="btn btn--sm" aria-pressed={mode==='costs'} onClick={()=>setMode('costs')}>{t('features.ai.hostCosts.tab')}</button></div>
+   {mode==='costs'?<FrankfurtCosts key={scope} path={path} scope={scope}/>:mode==='runs'?<LiveAuditRuns key={scope} path={path} scope={scope}/>:<>
    {error&&<p role="alert">{error}</p>}{busy&&<p role="status">{tr('Protokoll wird geladen …','Loading log …')}</p>}
    {selected?<><button className="btn btn--sm" onClick={()=>setSelected('')}>{tr('Zur Übersicht','Back to overview')}</button>{entry&&<>
     <h5>{state(entry.state)} · HTTP {entry.status??'—'}</h5>

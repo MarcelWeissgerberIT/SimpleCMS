@@ -99,7 +99,7 @@ EOF
 done
 chmod 0755 /opt/atlas-flow
 chmod 0755 /opt/atlas-flow/cnsx /opt/atlas-flow/felix
-chmod 0644 /opt/atlas-flow/gateway.mjs /opt/atlas-flow/keys.mjs
+chmod 0644 /opt/atlas-flow/gateway.mjs /opt/atlas-flow/keys.mjs /opt/atlas-flow/costs.mjs /opt/atlas-flow/cost-plan.json
 chmod 0644 /opt/atlas-flow/one-host.mjs
 systemctl daemon-reload
 systemctl enable --now atlas-flow-gateway atlas-flow-cnsx atlas-flow-felix

@@ -39,6 +39,8 @@ test('live audit writes derive scope from the signed-in lead, validate input and
   assert.equal((await lead.post(path,{action:'event',runId:'../x',event})).status,400)
   assert.equal((await lead.post(path,{action:'event',runId,event:{...event,type:'invented'}})).status,400)
   assert.equal((await lead.get(path+'?runs=1')).status,200);assert.ok(queries.at(-1)!.includes('runs=1'))
+  assert.equal((await lead.get(path+'?costs=1')).status,200);assert.ok(queries.at(-1)!.includes('costs=1'))
+  const prior=queries.length;assert.equal((await other.get(path+'?costs=1')).status,404);assert.equal(queries.length,prior)
   assert.equal((await lead.get(path+'?run='+runId)).status,200);assert.ok(queries.at(-1)!.includes('run='+runId))
   assert.equal((await lead.get(path+'?run=..%2Fx')).status,400)
  }finally{await server.stop();upstream.closeAllConnections();upstream.close()}

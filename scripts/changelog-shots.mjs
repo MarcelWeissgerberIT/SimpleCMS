@@ -942,6 +942,31 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'frankfurt-costs'(browser) {
+    const {ctx,page}=await freshPage(browser,{setup:async ctx=>{
+      await ctx.route(`${LOCAL}/api/config`,route=>route.fulfill({json:{version:'shot',signup:{mode:'open'},max_upload_mb:25,dev_mode:true,source_url:'https://example.test/source',supports:['ai']}}))
+      await ctx.route(`${LOCAL}/api/session`,route=>route.fulfill({json:{user:null,workspaces:[]}}))
+    }})
+    await page.route('**/api/workspaces/cost-shot/model-audit*',async route=>{const url=new URL(route.request().url());return route.fulfill({json:url.searchParams.has('status')?{enabled:true}:url.searchParams.has('costs')?await page.evaluate(()=>window.__oneCostShot):{entries:[]}})})
+    await page.evaluate(()=>{
+      const workspace={id:'cost-shot',name:'Atlas Flow team',role:'owner',icon:null},user={id:'lead',name:'Test lead',email:'lead@example.test'},from=Date.UTC(2026,10,1,6)
+      const report={schema:'one.host-costs.v1',basis:'estimate',window:{from,to:from+3600000,kind:'current-vm-boot'},rate:{currency:'EUR',asOf:'2026-11-01',source:'Synthetic screenshot estimate',computePerHour:.6,diskPerMonth:8},totals:{computeEUR:.6,diskEUR:.0111,estimatedEUR:.6111,allocatedComputeEUR:.06,unallocatedComputeEUR:.54,busyMs:360000,rounds:3,incompleteRounds:0,overlapMs:0},workspaces:[{workspace:workspace.id,tasks:1,rounds:3,failedRounds:0,occupancyMs:360000,allocatedMs:360000,queueMs:30000,computeEUR:.06}],tasks:[],excludes:['ipv4','snapshots','egress','tax'],method:'Screenshot fixture'}
+      report.tasks=[{workspace:workspace.id,user:user.id,task:'briefing-source-check',rounds:3,failedRounds:0,occupancyMs:360000,allocatedMs:360000,queueMs:30000,computeEUR:.06}]
+      window.__oneCostShot=report
+      window.__oneCloud.mock({cloudRequest:async(_method,path)=>path.includes('status=1')?{enabled:true}:path.includes('costs=1')?report:path.includes('model-audit')?{entries:[]}:[]})
+      window.__one.workspace.getState().setWorkspaceAI({routes:{'*':[{p:'local',m:'one-shared/shot'}]},onboarding:{startPageId:'welcome',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',mcpName:'atlas',project:'Demo',skipIntro:true}})
+      window.__oneCloud.set({available:true,status:'online',active:{kind:'cloud',id:workspace.id},user,role:'owner',readOnly:false,workspaces:[workspace],supports:['ai']})
+      window.__one.ui.getState().openModal({type:'settings'})
+    })
+    await page.getByRole('tab',{name:/AI$/}).click()
+    const panel=page.getByTestId('frankfurt-audit')
+    await panel.getByRole('button',{name:'My complete test log'}).click()
+    await panel.getByRole('button',{name:'Operating costs',exact:true}).click()
+    const costs=page.getByTestId('frankfurt-costs');await costs.getByText('Estimated subtotal',{exact:false}).waitFor()
+    await costs.evaluate(el=>el.scrollIntoView({block:'start'}));await rest(page)
+    await save(page,'frankfurt-costs')
+    await ctx.close()
+  },
   async 'compiled-programs'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+j' : 'Control+j')

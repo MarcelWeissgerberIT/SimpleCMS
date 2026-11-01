@@ -5,6 +5,8 @@ import {createHash,randomUUID} from 'node:crypto'
 import {once} from 'node:events'
 import {pathToFileURL} from 'node:url'
 import {ModelAudit} from './audit.mjs'
+import {uptime} from 'node:os'
+import {hostCosts,readCostPlan} from './costs.mjs'
 
 const MODEL='atlas-flow:latest', BODY_MAX=256*1024
 const loopback=ip=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(ip)
@@ -61,7 +63,8 @@ function chat(raw,native){
   return r
 }
 
-export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,log=()=>{},audit=null,internal=true,queue=new Queue(),inferenceTimeout=180000,queueTimeout=480000,fetchImpl=fetch}={}){
+export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,log=()=>{},audit=null,costPlan=null,costWindow=()=>{const to=Date.now();return {from:Math.max(0,to-uptime()*1000),to}},internal=true,queue=new Queue(),inferenceTimeout=180000,queueTimeout=480000,fetchImpl=fetch}={}){
+  if(costPlan)costPlan=readCostPlan(costPlan)
   const base=new URL(upstream)
   if(base.protocol!=='http:'||!loopback(base.hostname)||base.port==='8081')throw new Error('Gateway upstream must be a separate loopback Ollama server.')
   const rates=new Map()
@@ -83,6 +86,10 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
         if(req.method==='POST'){const input=await jsonBody(req,1024*1024);status=200;send(res,200,input.action==='start'?audit.startRun(input):input.action==='event'?audit.appendRun(input):(()=>{throw fault(400,'invalid_audit_action','Invalid action')})());return}
         if(req.method!=='GET')throw fault(405,'method_not_allowed','Read only.')
         const url=new URL(req.url,'http://localhost'),entry=url.searchParams.get('id'),run=url.searchParams.get('run')
+        if(url.searchParams.get('costs')==='1'){
+          if(!costPlan)throw fault(503,'cost_plan_unavailable','No dated host cost plan is configured.')
+          audit.prune();status=200;send(res,200,hostCosts(audit.index.values(),{plan:costPlan,...costWindow()}));return
+        }
         if(run){status=200;send(res,200,audit.run(run));return}
         if(url.searchParams.get('export')==='1'){
           status=200;res.writeHead(200,{'content-type':'application/x-ndjson','cache-control':'no-store','x-content-type-options':'nosniff'})
@@ -168,7 +175,8 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const audit=process.env.ATLAS_FLOW_AUDIT_TOKEN_FILE?new ModelAudit({dir:process.env.ATLAS_FLOW_AUDIT_DIR??'/var/lib/atlas-flow/audit',keyFile:process.env.ATLAS_FLOW_AUDIT_KEY_FILE??'/var/lib/atlas-flow/audit.key',token:readFileSync(process.env.ATLAS_FLOW_AUDIT_TOKEN_FILE,'utf8').trim()}):null
   if(audit)setInterval(()=>{try{audit.prune()}catch{process.stderr.write('Audit retention cleanup failed\n')}},3600000).unref()
-  const {server}=createGateway({audit,keyFile:process.env.ATLAS_FLOW_KEYS??'/etc/atlas-flow/api-keys.json',log:r=>process.stdout.write(JSON.stringify(r)+'\n')})
+  const costPlan=process.env.ATLAS_FLOW_COST_PLAN?JSON.parse(readFileSync(process.env.ATLAS_FLOW_COST_PLAN,'utf8')):null
+  const {server}=createGateway({audit,costPlan,keyFile:process.env.ATLAS_FLOW_KEYS??'/etc/atlas-flow/api-keys.json',log:r=>process.stdout.write(JSON.stringify(r)+'\n')})
   server.listen(Number(process.env.PORT??8081),process.env.HOST??'0.0.0.0')
   const stop=()=>{server.close();setTimeout(()=>{server.closeAllConnections();process.exit(0)},10000).unref()}
   process.on('SIGTERM',stop);process.on('SIGINT',stop)

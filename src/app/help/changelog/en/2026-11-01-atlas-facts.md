@@ -1,7 +1,7 @@
 ---
 id: 2026-11-01-atlas-facts
 date: 2026-11-01
-order: 2
+order: 3
 help: coding-harness
 title: Check Atlas answers against actual results
 summary: Result receipts, bounded answer correction and read-back for individual changes.

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-01-compiled-programs
 date: 2026-11-01
-order: 1
+order: 2
 title: Kompilate speichern und mit frischen Eingaben wiederholen
 summary: Feste Werkzeugschritte, unveränderliche Versionen und ein eigener Nachweis je Lauf.
 image: assets/shots/changelog/compiled-programs.webp

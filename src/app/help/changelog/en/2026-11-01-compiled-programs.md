@@ -1,7 +1,7 @@
 ---
 id: 2026-11-01-compiled-programs
 date: 2026-11-01
-order: 1
+order: 2
 title: Save compiled programs and repeat with fresh inputs
 summary: Fixed tool steps, immutable versions and an individual receipt for each run.
 image: assets/shots/changelog/compiled-programs.webp
