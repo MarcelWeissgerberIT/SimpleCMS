@@ -99,7 +99,8 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         if (signal.aborted) throw new AIError('aborted')
         const key = JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
         repeated.set(key, n)
-        if (++calls > MAX_TOOL_CALLS || n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || isWorkerMcpFunction(c.name) || c.name==='one_workspace_call')) { hooks.limit(); return 'limit' as const }
+        if (++calls > MAX_TOOL_CALLS) { hooks.limit(); return 'limit' as const }
+        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || isWorkerMcpFunction(c.name) || c.name==='one_workspace_call')) throw new AIError(isWorkerMcpFunction(c.name)?'mcp':'unknown',t('features.agent.err.repeatedTool'))
         let content: string, failed = false
         let resolved: ReturnType<ReturnType<typeof localWorkspaceTools>['resolve']> | null = null
         try { resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null }
