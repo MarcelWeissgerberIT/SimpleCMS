@@ -1,7 +1,7 @@
 # Atlas Flow in Frankfurt
 
 One L4 (24 GB), `g2-custom-4-32768`, 80 GB balanced disk, `europe-west3-b`.
-The trial has a **4-hour maximum runtime and STOP action**, including subsequent starts.
+The initial trial used a **4-hour maximum runtime and STOP action**. On 2026-11-01 the owner authorized a seven-day test; the VM scheduling cap was changed to **7d, STOP**. A restart still needs available zonal L4 capacity. Confirm RUNNING and model readiness before calling it online.
 Stopping retains the disk and its charges. There is no always-on commitment or scheduled restart.
 `frankfurt-plan.json` records the dated EUR estimate; recheck prices before making a long-term commitment.
 
@@ -54,6 +54,6 @@ Create/revoke commands run as root against `/etc/atlas-flow/api-keys.json`; pres
 
 Inspect `atlas-flow-gateway`, `atlas-flow-cnsx`, `atlas-flow-felix` and `ollama` with `systemctl`. `/model/healthz` is gateway liveness only, not model readiness. Check authenticated model inference and ONE model-share status for readiness.
 
-Use `gcloud compute instances stop atlas-flow-frankfurt --project=one-cms-510718 --zone=europe-west3-b` to stop early. A deliberate later start retains the 4-hour cap. Do not remove that cap or schedule repeated starts without authorizing the resulting ongoing costs.
+Use `gcloud compute instances stop atlas-flow-frankfurt --project=one-cms-510718 --zone=europe-west3-b` to stop early. The authorized weekly test has a seven-day runtime cap per start. Do not silently remove or extend that cap, or schedule repeated starts beyond the authorized week. The owner requested full request/answer evaluation visible only to Marcel; frankfurt-plan.json records the proposed audit design. Content logging remains disabled until that design is implemented with test-lead-only access and secret exclusion.
 
 Verify actual GPU offload, peak VRAM, prompt/generation throughput, JSON and function-call output, both encrypted ONE routes, key rejection/revocation, and cross-workspace isolation before calling a deployment ready. Record measurements, not assumed performance.

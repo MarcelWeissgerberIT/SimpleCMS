@@ -3,10 +3,20 @@
   "instance": "atlas-flow-frankfurt",
   "zone": "europe-west3-b",
   "machineType": "g2-custom-4-32768",
-  "gpu": {"type": "nvidia-l4", "count": 1, "vramGiB": 24},
-  "bootDisk": {"type": "pd-balanced", "sizeGiB": 80},
+  "gpu": {
+    "type": "nvidia-l4",
+    "count": 1,
+    "vramGiB": 24
+  },
+  "bootDisk": {
+    "type": "pd-balanced",
+    "sizeGiB": 80
+  },
   "provisioning": "STANDARD",
-  "firstRun": {"maxRunDuration": "4h", "terminationAction": "STOP"},
+  "firstRun": {
+    "maxRunDuration": "4h",
+    "terminationAction": "STOP"
+  },
   "model": {
     "name": "atlas-flow:latest",
     "base": "qwen3-coder:30b",
@@ -30,7 +40,10 @@
     "externalProviderFallback": false
   },
   "one": {
-    "workspaces": ["Analytik Jena · CNSx", "Analytik Jena · FeliX"],
+    "workspaces": [
+      "Analytik Jena · CNSx",
+      "Analytik Jena · FeliX"
+    ],
     "hostMode": "one-worker --model-host",
     "workspaceIsolation": "separate worker credentials and model shares",
     "repositoriesOnModelHost": false,
@@ -48,7 +61,60 @@
     "compute730Hours": 570.59843443,
     "continuousTotalApproxPerMonth": 585,
     "firstFourHoursCompute": 3.126566764,
-    "excludes": ["tax", "data egress"],
-    "notes": "Disk remains billable when VM stops. IPv4 price in total is approximate. No committed use discount. Capacity and observed latency unverified."
+    "excludes": [
+      "tax",
+      "data egress"
+    ],
+    "notes": "Disk remains billable when VM stops. IPv4 price in total is approximate. No committed use discount. Model and tool round-trip were verified on 2026-10-31; capacity is checked again at each restart."
+  },
+  "weekTest": {
+    "authorizedOn": "2026-11-01",
+    "maxRunDuration": "7d",
+    "terminationAction": "STOP",
+    "computeEstimateEUR": 131.32,
+    "scope": [
+      "Analytik Jena · CNSx",
+      "Analytik Jena · FeliX"
+    ],
+    "startStatus": "capacity-blocked-in-europe-west3-b"
+  },
+  "auditPlan": {
+    "status": "proposed-not-enabled",
+    "fullTextReaders": "Marcel Weissgerber only, as test lead; no team/admin role inheritance",
+    "records": [
+      "task/run correlation id",
+      "workspace",
+      "requesting user id",
+      "requested and served model",
+      "original user request",
+      "final model answer",
+      "tool names/status/duration with source references",
+      "queue, time to first response, total duration",
+      "input/output tokens when reported",
+      "error category and request id",
+      "human quality rating and correction note"
+    ],
+    "exclude": [
+      "authorization headers",
+      "API keys",
+      "Atlas tokens",
+      "cookies",
+      "complete raw MCP payloads by default",
+      "unrequested repository files"
+    ],
+    "storage": "workspace-separated encrypted store on ONE server, separate from operational logs; no readable content in cloud logs",
+    "access": "authenticated dedicated test-lead-only endpoint, membership and workspace scope checked server-side on every read/export",
+    "export": "redacted JSONL for analysis and CSV/XLSX summary; a multi-round task remains one trace",
+    "retentionProposal": "delete text payloads after 30 days; keep aggregate metrics without text; requires choosing retention before activation",
+    "quality": [
+      "helpful",
+      "needs correction",
+      "wrong or unsupported",
+      "wrong project/tenant",
+      "no source",
+      "privacy/security issue"
+    ],
+    "cost": "VM runtime separately; API token price zero does not mean hardware is free",
+    "participantNotice": "visible test-log notice before first request, no extra modal per run"
   }
 }
