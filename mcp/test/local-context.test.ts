@@ -48,3 +48,25 @@ test('an oversized task or unrelated JSON cannot be silently removed to fit loca
   assert.throws(() => fitLocalToolContext(task, next => size(next) <= 2000), /fresh task or select a smaller/)
   assert.equal(task[0]!.content.length > 10000, true)
 })
+
+test('only completed earlier drafts/traces fold, while every human message and current tool call remain',()=>{
+ const human='Original human instruction: no changes; only Atlas sources.'
+ const messages=[
+  {role:'system' as const,content:'All permissions unchanged.'},
+  {role:'user' as const,content:human},
+  {role:'assistant' as const,content:JSON.stringify([{type:'tool_use',id:'old',name:'one_mcp_call',input:{ref:43}}])},
+  {role:'user' as const,content:JSON.stringify([{type:'tool_result',tool_use_id:'old',content:'Old source. '.repeat(1000)}])},
+  {role:'assistant' as const,content:'Old draft answer. '.repeat(500)},
+  {role:'user' as const,content:'This week as a table, please.'},
+  {role:'assistant' as const,content:JSON.stringify([{type:'tool_use',id:'new',name:'one_mcp_search',input:{query:'atlas_query'}}])},
+  {role:'user' as const,content:JSON.stringify([{type:'tool_result',tool_use_id:'new',content:'Actual new source schema.'}])},
+ ]
+ const original=structuredClone(messages);let notified=0
+ const result=fitLocalToolContext(messages,next=>size(next)<2500,{completedBefore:5,onCompact:()=>notified++})
+ assert.equal(notified,1);assert.deepEqual(messages,original)
+ assert.equal(result[0]!.content,messages[0]!.content);assert.equal(result[1]!.content,human)
+ assert.match(result[2]!.content,/Harness history boundary/)
+ assert.deepEqual(result.slice(3),messages.slice(5))
+ assert.throws(()=>fitLocalToolContext(messages,next=>size(next)<500,{completedBefore:1}),/fresh task/)
+ assert.throws(()=>fitLocalToolContext(messages.map(m=>m.role==='user'?{...m,content:human.repeat(500)}:m),next=>size(next)<2500,{completedBefore:5}),/fresh task/)
+})

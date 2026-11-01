@@ -6,7 +6,7 @@ const SMALL=4500
 const descriptor=(value:unknown,path:string):unknown=>{
  if(typeof value==='string')return value.length<=120?value:{type:'text',path,characters:value.length}
  if(Array.isArray(value))return {type:'array',path,count:value.length}
- if(object(value))return {type:'object',path,fields:Object.keys(value).length}
+ if(object(value))return {type:'object',path,fields:Object.keys(value).length,metadata:Object.fromEntries(['ref','title','project','kind','status','priority','assignee','updatedAt','updated'].filter(key=>Object.hasOwn(value,key)&&!object(value[key])&&!Array.isArray(value[key])).map(key=>[key,descriptor(value[key],path+'/'+pointer(key))]))}
  return value
 }
 export class McpResults {

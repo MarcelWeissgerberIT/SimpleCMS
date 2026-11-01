@@ -57,7 +57,7 @@ export function useWorkerModels(): number {
   }, [conn, can])
   return sharedRevision + useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => revision)
 }
-export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[] } = {}) {
+export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[] } = {}, history?:{completedBefore:number;onCompact?:()=>void}) {
   assertModelFlow(route.p)
   if (!isWorkerProvider(route.p)) throw new AIError('capability')
   if (route.p === 'local' || route.p === 'copilot') {
@@ -68,7 +68,7 @@ export async function sendWorkerText(route: Route, messages: Array<{ role: 'syst
       // Match the worker's conservative UTF-8 wire estimate, including escaped
       // tool results. Only linked tool results are excerpted; source/task/history
       // remain intact. This also works with an already installed older worker.
-      messages = fitLocalToolContext(messages, next => Math.ceil(new TextEncoder().encode(JSON.stringify([next, extra.tools, extra.schema])).length/(route.p==='copilot'?1.5:1)) <= budget)
+      messages = fitLocalToolContext(messages, next => Math.ceil(new TextEncoder().encode(JSON.stringify([next, extra.tools, extra.schema])).length/(route.p==='copilot'?1.5:1)) <= budget,history)
     } catch (e) { throw new AIError('context', e instanceof Error ? e.message : String(e)) }
   }
   if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {

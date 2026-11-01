@@ -17,6 +17,8 @@ test('large Atlas context keeps exact source fields available instead of truncat
  const root=JSON.parse(cache.pack(envelope({items:[{ref:23166,body}],nextCursor:'cursor',count:1})))
  assert.equal(root.isError,false);assert.equal(root.partial,true)
  assert.ok(JSON.stringify(root).length<4500)
+ const rows=JSON.parse(cache.read({result_id:root.result_id,path:'/items'}))
+ assert.equal(rows.content[0].overview.metadata.ref,23166)
  const item=JSON.parse(cache.read({result_id:root.result_id,path:'/items/0'}))
  assert.ok(item.content.some((v:any)=>v.key==='ref'&&v.value===23166))
  let offset=0,restored=''
@@ -50,4 +52,15 @@ test('only complete text envelopes unwrap; arbitrary structured output is preser
  assert.equal(unwrapMcpText('[{"type":"text","text":"Hallo"}]'),'Hallo')
  assert.equal(unwrapMcpText('{"content":[{"type":"text","text":"Hallo"}]}'),'Hallo')
  for(const raw of ['{"task":"hello"}','[{"type":"text","text":"x","ref":1}]','[{"type":"image","data":"x"}]','Normal prose'])assert.equal(unwrapMcpText(raw),raw)
+})
+
+test('Atlas link checks use only real response refs and URLs, never a guessed docs slug',async()=>{
+ const {McpEvidence}=await import('../../src/shared/mcp/evidence.ts')
+ const evidence=new McpEvidence()
+ evidence.observe(envelope({items:[{ref:31259,title:'SOP',url:'https://aj-atlas.com/docs/real-source'}]}),'https://aj-atlas.com')
+ assert.deepEqual(evidence.check('[SOP](https://aj-atlas.com/r/31259) https://aj-atlas.com/docs/real-source'),[])
+ assert.deepEqual(evidence.check('https://aj-atlas.com/docs/invented https://aj-atlas.com/r/999'),['https://aj-atlas.com/docs/invented','https://aj-atlas.com/r/999'])
+ assert.deepEqual(evidence.check('https://unrelated.example/anything'),[])
+ assert.match(evidence.hint(),/\/r\/<actual numeric ref/)
+ assert.deepEqual(new McpEvidence().check('https://aj-atlas.com/r/31259'),[])
 })

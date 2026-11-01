@@ -46,3 +46,12 @@ A discovery-only answer receives one correction attempt, then fails explicitly i
 content call runs. Unresolved MCP failures mark a terminal task incomplete rather than green;
 a successful later call to the same tool clears its error. Known text-only envelopes emitted
 as final prose are unwrapped, while structured completion output stays unchanged.
+
+A run-local source-link check permits Atlas record links only when their numeric ref or exact
+URL occurred in a real result. Invented `/docs/` slugs receive one metered correction attempt,
+then fail explicitly. This checks record links, not every factual statement in an answer.
+
+If linked-result excerpts cannot fit a later terminal task, only completed earlier assistant
+drafts and closed tool traces fold, with an explicit harness marker and visible progress note.
+All original human messages, current task calls and the full visible history remain intact.
+An oversized human task still stops before inference; no limits or permissions are raised.

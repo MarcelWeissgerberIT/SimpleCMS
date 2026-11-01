@@ -1,3 +1,4 @@
+import {t} from '../../../i18n'
 import {unwrapMcpText} from '@/shared/mcp/results'
 import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, LOCAL_DISCOVERY_REPAIR, localWorkspaceTools } from './localTools'
 import { priceFor } from '../core/registry'
@@ -46,7 +47,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, atlasDiscovered = false, atlasQueried = false
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
@@ -57,13 +58,21 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
     remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000)
   }
   const definitions: WorkerFunction[] = [...(local ? LOCAL_WORKSPACE_FUNCTIONS : tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema }))), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
+  let contextNoted=false
+  const contextHistory={completedBefore:1+opts.history.length,onCompact:()=>{if(!contextNoted){contextNoted=true;hooks.note(t('features.agent.context.compacted'))}}}
+  const proceed=async()=>{
+    if(!used.length)return true
+    const verdict=await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>false,mcpAttached:false})
+    if('stop' in verdict||'halt' in verdict){if('stop' in verdict)hooks.held?.(verdict);return false}
+    return true
+  }
   const material = new CopilotContent(signal)
   const run = async () => {
     while (++rounds <= 40) {
       assertPreparedFlow(prepared)
       if (signal.aborted) throw new AIError('aborted')
       const transcript = await copilotMessages(messages, material)
-      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) })
+      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const answerText=unwrapMcpText(result.text)
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: answerText }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
@@ -71,17 +80,16 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       if (entry) { spent += entry.usd ?? 0; used.push(entry.usage); hooks.usage(entry.usage, entry) }
       const repair = !!local && !result.calls?.length && hasTextToolCall(result.text)
       if (repair && formatRepairs++ >= 1) throw new AIError('capability', 'features.ai.local.toolFormat')
+      const invalidLinks=!result.calls?.length&&!repair?remote?.evidence.check(answerText)??[]:[]
+      if(invalidLinks.length){if(!await proceed())return 'held' as const;if(citationRepairs++>=1)throw new AIError('mcp','The answer contains Atlas links not supported by the returned sources.');messages.push({role:'user',content:'Your draft answer used unsupported Atlas URLs: '+JSON.stringify(invalidLinks)+'. Correct the answer using actual numeric refs and the oneSourceLinks template from the tool results. Never invent document paths. Do not rerun the same query; this is the only source-link correction attempt.'});continue}
       const discoveryOnly=!!remote&&atlasDiscovered&&!atlasQueried&&!result.calls?.length&&!repair
-      if(discoveryOnly&&atlasRepairs++<1){messages.push({role:'user',content:ATLAS_DISCOVERY_REPAIR});continue}
+      if(discoveryOnly&&atlasRepairs++<1){if(!await proceed())return 'held' as const;messages.push({role:'user',content:ATLAS_DISCOVERY_REPAIR});continue}
       if(discoveryOnly)throw new AIError('mcp','Only tool discovery completed. No Atlas content query was executed.')
       if (answerText && !repair) hooks.text(answerText)
       if (!repair) hooks.textDone(result.calls?.length ? 'note' : 'answer')
       messages.push({ role: 'assistant', content: [...(result.text ? [{ type: 'text' as const, text: answerText }] : []), ...(result.calls ?? []).map(c => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.arguments }))] })
       if (!result.calls?.length && !repair) return calls >= MAX_TOOL_CALLS ? 'limit' as const : 'done' as const
-      if (used.length) {
-        const verdict = await beforeRound({ prepared, spent, last: used[used.length - 1]!, steps: used, pending: { low: 0, high: 0 }, mcpIterations: 0, cold: true, history: () => messages, thinks: () => false, mcpAttached: false })
-        if ('stop' in verdict || 'halt' in verdict) { if ('stop' in verdict) hooks.held?.(verdict); return 'held' as const }
-      }
+      if(!await proceed())return 'held' as const
       if (repair) { messages.push({role:'user',content:TOOL_FORMAT_REPAIR}); continue }
       const results = []
       for (const c of result.calls ?? []) {

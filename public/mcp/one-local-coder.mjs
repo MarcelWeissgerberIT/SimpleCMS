@@ -39966,7 +39966,7 @@ function discoverMcpTools(tools, query) {
   if (exact.length) return exact.slice(0, 6);
   const terms = q.split(" ").filter((t) => t.length > 1 && !["atlas", "mcp", "tool", "tools", "server", "the", "in", "nach", "zum", "von", "aus"].includes(t));
   const atlas = /\batlas\b/.test(q) || tools.length > 0 && tools.every((t) => t.name.startsWith("atlas_"));
-  const reads = /week|woche|updated|recent|arbeit|task|aufgab|priorit/.test(q);
+  const reads = /work|week|woche|updated|recent|arbeit|task|aufgab|priorit/.test(q);
   const defaults = reads ? ["atlas_query", "atlas_search", "atlas_project_list", "atlas_get"] : ["atlas_search", "atlas_query", "atlas_project_list", "atlas_get"];
   return tools.map((t, i) => {
     const name = norm(t.name), desc = norm(t.description ?? "");
