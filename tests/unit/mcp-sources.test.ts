@@ -104,3 +104,19 @@ test('a product subproject fallback names only a verified same-server parent and
  e.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'other',name:'atlas_search',arguments:args});assert.equal(e.emptySearch(),null)
  e.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:{...args,project:'flux-client'}});assert.equal(e.emptySearch(),null)
 })
+
+
+test('non-empty Atlas source facts survive paging and contradict false global absence without inventing content',async()=>{
+ const {McpEvidence}=await import('../../src/shared/mcp/evidence.ts')
+ const e=new McpEvidence(),rows=Array.from({length:39},(_,i)=>({ref:574+i,title:'Verified source '+i,project:'flux-client',summary:'Actual source summary '+i}))
+ e.observe(envelope({items:rows}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:{q:'Laborbuch',project:'flux-client'}})
+ assert.equal(e.searchResult()?.count,39);assert.equal(e.searchResult()?.records.length,3)
+ assert.equal(e.contradictsSearch('Es wurden keine FeliX-Dokumente zum Laborbuch gefunden.')?.records[0].ref,574)
+ assert.equal(e.contradictsSearch('No matching documents were found.')?.count,39)
+ assert.equal(e.contradictsSearch('Drei verwandte Quellen im Elternprojekt wurden gefunden.'),null)
+ assert.equal(e.contradictsSearch('Keine Dokumente im Teilprojekt. Verwandte Quelle: https://aj-atlas.com/r/574'),null)
+ assert.equal(e.contradictsSearch('Keine weiteren Dokumente gefunden.'),null)
+ e.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:{q:'narrow'}})
+ assert.equal(e.searchResult()?.count,0);assert.equal(e.contradictsSearch('Keine Ergebnisse gefunden.')?.count,39)
+ assert.equal(new McpEvidence().contradictsSearch('Keine Ergebnisse gefunden.'),null)
+})

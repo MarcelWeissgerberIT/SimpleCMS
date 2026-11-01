@@ -17,7 +17,7 @@ import { sendWorkerText } from '../core/workerModels'
 import type { Turn } from '@/shared/ai/types'
 import type { WorkerFunction } from '@/shared/ai/worker'
 import { WORKER_MCP_FUNCTIONS, workerMcpSession } from '../core/workerMcp'
-import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_DISCOVERY_REPAIR, ATLAS_EMPTY_TOPIC_REPAIR, ATLAS_PARENT_REPAIR } from '../core/toolFormat'
+import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_DISCOVERY_REPAIR, ATLAS_EMPTY_TOPIC_REPAIR, ATLAS_PARENT_REPAIR, ATLAS_NONEMPTY_REPAIR } from '../core/toolFormat'
 import { AGENT_SYSTEM, type runAgent, type RunEnd } from './run'
 import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
 
@@ -49,7 +49,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, attemptRepairs=0, atlasDiscovered = false, atlasQueried = false
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
@@ -87,6 +87,8 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         if(attemptRepairs++>=1)throw new AIError('mcp','The model reported unavailable MCP tools without attempting a selected call.')
         messages.push({role:'user',content:MCP_ATTEMPT_REPAIR});continue
       }
+      const contradiction=!result.calls?.length&&!repair?remote?.evidence.contradictsSearch(answerText):null
+      if(contradiction){if(!await proceed())return 'held' as const;if(absenceRepairs++>=1)throw new AIError('mcp','The answer contradicts non-empty Atlas source results; no absence claim was accepted.');messages.push({role:'user',content:ATLAS_NONEMPTY_REPAIR+' Actual source evidence: '+JSON.stringify(contradiction)});continue}
       const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
       if(emptySearch?.parent&&parentRepairs++<1){if(!await proceed())return 'held' as const;hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:ATLAS_PARENT_REPAIR+' Verified source pair: '+JSON.stringify(emptySearch)});continue}
       if(emptySearch?.query){if(!await proceed())return 'held' as const;if(topicRepairs++>=1)throw new AIError('mcp','An empty composite Atlas search still needs a topic check.');hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:ATLAS_EMPTY_TOPIC_REPAIR+' Original search evidence: '+JSON.stringify(emptySearch)});continue}

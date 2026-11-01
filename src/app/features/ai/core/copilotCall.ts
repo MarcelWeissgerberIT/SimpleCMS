@@ -13,12 +13,12 @@ import { sendWorkerText } from './workerModels'
 import { neutralResponse } from './meter'
 import type { NeutralOpts } from './call'
 import type { McpCall } from '../mcp-servers/activity'
-import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_EMPTY_TOPIC_REPAIR, ATLAS_PARENT_REPAIR } from './toolFormat'
+import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_EMPTY_TOPIC_REPAIR, ATLAS_PARENT_REPAIR, ATLAS_NONEMPTY_REPAIR } from './toolFormat'
 export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   if (req.tools?.length) throw new AIError('capability')
   const material = new CopilotContent(o.signal)
   const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
-  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, attemptRepairs=0
+  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
   if (o.mcp) {
     if (!prepared.allows('mcp') || !o.mcp.worker) throw new AIError('policy', 'mcp')
@@ -42,6 +42,8 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
       if(attemptRepairs++>=1)throw new AIError('mcp','The model reported unavailable MCP tools without attempting a selected call.')
       messages.push({role:'user',content:MCP_ATTEMPT_REPAIR});continue
     }
+    const contradiction=!result.calls?.length&&!repair?remote?.evidence.contradictsSearch(result.text):null
+    if(contradiction){const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true};if(!('go' in check))throw new AIError('budget');if(absenceRepairs++>=1)throw new AIError('mcp','The answer contradicts non-empty Atlas source results; no absence claim was accepted.');messages.push({role:'user',content:ATLAS_NONEMPTY_REPAIR+' Actual source evidence: '+JSON.stringify(contradiction)});continue}
     const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
     if(emptySearch?.parent&&parentRepairs++<1){const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true};if(!('go' in check))throw new AIError('budget');messages.push({role:'user',content:ATLAS_PARENT_REPAIR+' Verified source pair: '+JSON.stringify(emptySearch)});continue}
     if(emptySearch?.query){const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true};if(!('go' in check))throw new AIError('budget');if(topicRepairs++>=1)throw new AIError('mcp','An empty composite Atlas search still needs a topic check.');messages.push({role:'user',content:ATLAS_EMPTY_TOPIC_REPAIR+' Original search evidence: '+JSON.stringify(emptySearch)});continue}

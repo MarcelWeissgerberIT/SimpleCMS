@@ -56,7 +56,8 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const failed=JSON.parse(out.result).isError===true
       if(!failed&&args.name.startsWith('atlas_')){const server=servers.find(s=>s.name===args.server);if(server)evidence.observe(out.result,new URL(server.url).origin,{server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>})}
       event({...activity,state:failed?'err':'ok'})
-      return evidence.hint()?JSON.stringify({...JSON.parse(packed),oneSourceLinks:evidence.hint()}):packed
+      const searchEvidence=['atlas_search','atlas_query'].includes(args.name)?evidence.searchResult():null
+      return evidence.hint()?JSON.stringify({...JSON.parse(packed),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
     }catch(e){if(signal?.aborted)throw new AIError('aborted');const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');event({...activity,state:'err',error});throw new AIError('mcp',error)}
   }
   return Object.assign(invoke,{evidence,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
