@@ -613,6 +613,23 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     expect(sent[sent.length - 1].body.mcp_servers).toBeUndefined()
   })
 
+  test('native MCP checks distinguish permission denial from actual authentication rejection', async ({page,context,errors})=>{
+    errors.allow(/status of 400/)
+    let denied=true
+    await mockApi(context,r=>r.body.mcp_servers?mcpError(denied?`MCP server 'archive' returned 403 Forbidden: project permission denied; ${TOKEN}`:`MCP server 'archive' returned 401 Unauthorized: token ${TOKEN} is expired`):undefined)
+    await openApp(page);await setKey(page);await openAISettings(page);await addServer(page,URL1,TOKEN)
+    await expect(row(page,'archive').getByTestId('mcp-status')).toHaveText('Error')
+    await expect(row(page,'archive').locator('.mcps-card__reason')).toContainText('Permission denied')
+    await expect(row(page,'archive')).not.toContainText(TOKEN)
+    expect(await wsEval(page,s=>s.settings.mcpServers?.find((x:any)=>x.name==='archive')?.checkAuth)).not.toBe(true)
+    denied=false
+    await row(page,'archive').locator('.mcps-card__toggle').click()
+    await row(page,'archive').getByRole('button',{name:'Test connection',exact:true}).click()
+    await expect(row(page,'archive').locator('.mcps-card__reason')).toContainText('The server rejected the token')
+    expect(await wsEval(page,s=>s.settings.mcpServers?.find((x:any)=>x.name==='archive')?.checkAuth)).toBe(true)
+    await expect(row(page,'archive')).not.toContainText(TOKEN)
+  })
+
   test('errors: a rejected token and an unreachable server become friendly messages naming the server — never the token; a server that rejected its token is left out of requests that did not address it', async ({ page, context, errors }) => {
     errors.allow(/status of 400/)
     let mode: 'auth' | 'down' = 'auth'
@@ -661,7 +678,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     mode = 'down'
     await second.panel.getByRole('option', { name: /Try again/ }).click()
     await expect(err.locator('.ai-error__code')).toHaveText('ERR · MCP')
-    await expect(err).toContainText('Claude could not use the MCP server “archive” (Connection error while communicating with MCP server')
+    await expect(err).toContainText('Claude could not use the MCP server “archive” (Connection timed out.')
     await page.keyboard.press('Escape')
 
     // the agent: a fresh token (not rejected yet), the server unreachable — the same friendly error, with a way to the settings

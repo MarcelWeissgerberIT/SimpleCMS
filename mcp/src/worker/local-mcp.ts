@@ -1,3 +1,4 @@
+import {mcpConnectionMessage} from '../../../src/shared/ai/connection-problem.ts'
 import {discoverMcpTools} from '../../../src/shared/mcp/discovery.ts'
 import { mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { readFile } from 'node:fs/promises'
@@ -116,7 +117,7 @@ export class LocalMcp {
         const e=error as {message?:string;code?:unknown;cause?:{code?:unknown;message?:string}}
         const hint=[e?.message,e?.code,e?.cause?.code,e?.cause?.message].join(' ').toLowerCase()
         if (/certificate|cert_|self.signed|tls|issuer/.test(hint)) noteCertificateFailure(name, true)
-        this.failureKinds.set(name,/\b(?:401|403)\b|unauthorized|forbidden|invalid.token/.test(hint)?'Authentication rejected by this endpoint. Check the Atlas instance and personal token.':/certificate|cert_|self.signed|tls|issuer/.test(hint)?'TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification.':/timeout|timed.out|aborted/.test(hint)?'Connection timed out. Check VPN, proxy and network access from this worker.':/enotfound|econn|eai_again|fetch failed|network|socket/.test(hint)?'Network connection failed. Check VPN, proxy, DNS and network access from this worker.':'Connection or tool discovery failed. Check the endpoint and worker connectivity.')
+        this.failureKinds.set(name,mcpConnectionMessage(e))
         await client?.close().catch(() => {})
         await transport?.close().catch(() => {})
         // Do not keep a partially discovered server's tools after a failed handshake/list.

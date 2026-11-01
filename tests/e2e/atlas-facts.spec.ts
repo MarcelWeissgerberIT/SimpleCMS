@@ -123,4 +123,51 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
   const answer=await page.evaluate(async model=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read Atlas ref 42.',structured:true,pick:{server:'atlas',reads:['atlas_get']},route:{p:'anthropic',m:model}}),DEFAULT_CLAUDE_MODEL)
   expect(answer).toMatchObject({ok:false,detail:'features.ai.local.unverifiedFacts'});expect(host.requests).toHaveLength(3)
  })
+ for(const provider of ['local','copilot','anthropic'] as const){
+  test(`${provider}: a failed search plus successful identity cannot invent an empty project`,async({page},info)=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:r.query,inputSchema:{type:'object',properties:{q:{type:'string'}}}}]}:r.name==='atlas_search'?{result:JSON.stringify({isError:true,content:[{type:'text',text:'403 Forbidden: project permission denied'}]})}:{result:envelope({person:'Test Member'})}
+   const requests=[{name:'one_mcp_search',input:{query:'atlas_search'}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_search',arguments:{q:'source'}}},{name:'one_mcp_search',input:{query:'atlas_whoami'}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_whoami',arguments:{}}}]
+   let round=0
+   fake.onText=r=>{const c=requests[round++];return{model:r.model,text:c?'':'Es gibt keine offenen Aufgaben in Atlas.',calls:c?[{id:'c'+round,name:c.name,arguments:c.input}]:[],inputTokens:100,outputTokens:20,usd:0}}
+   const host=provider==='anthropic'?await mockClaudeScript(page,[...requests.map((c,i)=>({blocks:[{type:'tool_use' as const,id:'c'+i,name:c.name,input:c.input}]})),text('Es gibt keine offenen Aufgaben in Atlas.'),text('Es gibt keine offenen Aufgaben in Atlas.')]):null
+   if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+   await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+   await input.fill('Read Atlas tasks. If the search fails, report only that blocker.');await input.press('Enter')
+   await expect(term.locator('.task-contract')).toContainText('Blocked',{timeout:20000})
+   await expect(term.locator('.term-answer')).toHaveCount(0)
+   await expect(term.getByTestId('worker-connection-help')).toHaveAttribute('data-problem','permission')
+   await expect(term.getByTestId('worker-connection-help')).toContainText('does not prove an invalid token')
+   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_search','atlas_whoami'])
+   const wire=host?.requests.map(r=>r.body)??fake.textAsked
+   expect(wire.at(-1)?.tools??[]).toEqual([])
+   for(const theme of ['light','dark'])for(const width of [1440,390]){await page.setViewportSize({width,height:844});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);const help=term.getByTestId('worker-connection-help');expect(await help.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);await help.screenshot({path:info.outputPath(`permission-${provider}-${theme}-${width}.png`)})}
+  })
+  test(`${provider}: real nonempty results correct false absence without rerunning a query`,async({page})=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_search',inputSchema:{type:'object',properties:{q:{type:'string'}}}}]}:{result:envelope({items:[{ref:42,title:'Actual returned source'}],total:7})}
+   const calls=[{name:'one_mcp_search',input:{query:'atlas_search'}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_search',arguments:{q:'source'}}}]
+   let round=0;fake.onText=r=>{const n=round++,c=calls[n];return{model:r.model,text:c?'':n===2?'Keine Dokumente gefunden.':'Quelle Ref 42 wurde zurückgegeben.',calls:c?[{id:'q'+n,name:c.name,arguments:c.input}]:[],inputTokens:100,outputTokens:20,usd:0}}
+   const host=provider==='anthropic'?await mockClaudeScript(page,[...calls.map((c,i)=>({blocks:[{type:'tool_use' as const,id:'q'+i,name:c.name,input:c.input}]})),text('Keine Dokumente gefunden.'),text('Quelle Ref 42 wurde zurückgegeben.')]):null
+   if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+   const answer=await page.evaluate(async route=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Find actual Atlas source records.',mcp:'fixed',route}),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+   expect(answer).toEqual({ok:true,text:'Quelle Ref 42 wurde zurückgegeben.'})
+   expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
+   expect((host?.requests.map(r=>r.body)??fake.textAsked).at(-1)?.tools??[]).toEqual([])
+  })
+ }
+
+ for(const provider of ['local','copilot','anthropic'] as const)for(const identityOnly of [true,false]){
+  test(`${provider}: identity-only evidence ${identityOnly?'completes identity check':'cannot complete a content briefing'}`,async({page})=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_whoami',inputSchema:{type:'object',properties:{}}}]}:{result:envelope({person:'Test Member'})}
+   const calls=[{name:'one_mcp_search',input:{query:'atlas_whoami'}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_whoami',arguments:{}}}]
+   let round=0;fake.onText=r=>{const c=calls[round++];return{model:r.model,text:c?'':'Atlas identity: Test Member.',calls:c?[{id:'identity'+round,name:c.name,arguments:c.input}]:[],inputTokens:100,outputTokens:20,usd:0}}
+   const host=provider==='anthropic'?await mockClaudeScript(page,[...calls.map((c,i)=>({blocks:[{type:'tool_use' as const,id:'identity'+i,name:c.name,input:c.input}]})),text('Atlas identity: Test Member.')]):null
+   if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+   const answer=await page.evaluate(async ({route,prompt})=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt,mcp:'fixed',route}),{route:{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL},prompt:identityOnly?'Check my Atlas identity. Read only.':'Read Atlas project tasks and provide a content briefing.'})
+   expect(answer).toMatchObject({ok:identityOnly})
+   if(identityOnly)expect(answer.text).toBe('Atlas identity: Test Member.')
+   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_whoami'])
+  })
+ }
+
 })

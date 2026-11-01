@@ -308,7 +308,7 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
             ? t('features.ai.mcp.noTools')
             : ''
   const led = state === 'ok' ? 'led led--ok' : state === 'checking' ? 'led led--on mcps-led--live' : state === 'error' || state === 'missing' ? 'led mcps-led--warn' : 'led'
-  // the server turned the request down (401 / 403): a sign-in instead of a token, right under the address
+  // An actual authentication rejection offers sign-in; missing project/tool permissions do not.
   const wantsSignIn = server.enabled && !!server.checkAuth && state === 'error'
   return (
     <li className="mcps-card" data-state={state} data-open={open || undefined} data-server={server.name} data-id={server.id}>

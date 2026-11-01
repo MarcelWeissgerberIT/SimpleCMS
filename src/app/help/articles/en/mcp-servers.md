@@ -106,3 +106,17 @@ Expand **Actual Atlas result** beneath an actual Atlas call, then click **Compil
 Expand **Bound values and dependencies**, **Full hashes** or **Original compiler receipt data** to inspect the recorded check. **Download compiler receipt as JSON** exports it. Opening and exporting make no new AI or Atlas request. Detailed compiler data is not added to model context.
 
 A stored receipt describes the historical check. It does not recheck current permissions or establish factual correctness or success of an Atlas action; the action result and any read-back are displayed separately. Older compact receipts have no original compiler output. Their dimensions are labelled as catalogue mappings; historical detail is never invented afterwards.
+
+
+## Fix the actual failure
+
+In the AI terminal and direct source handoff, ONE shows a short repair card for a failed call. **Check connection** opens the affected personal connection; it grants no additional permissions.
+
+- **401 / authentication rejected:** Check the Atlas instance and personal access. Replace a token only if it is actually invalid.
+- **403 / permission denied:** Check project membership and tool permissions. This does not prove an invalid token.
+- **TLS / certificate:** Check the worker's company certificate setup; certificate verification stays enabled.
+- **Timeout / network:** Check reachability from the executing worker or proxy, VPN and DNS.
+- **Tool or schema:** Check the current catalogue and exact arguments. Do not blindly repeat an effect.
+- **Result or context too large:** Read fewer records or specific sections; preserve the original source.
+
+Discovery and identity checks do not establish project content. A failed search means “not checked”, not “no data exists”. ONE checks recognizable false references, counts and success claims and allows at most one answer correction without further tools. This does not replace domain review.

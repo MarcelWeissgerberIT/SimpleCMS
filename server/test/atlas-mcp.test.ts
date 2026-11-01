@@ -17,7 +17,7 @@ test('calls are selected from the actual allowed catalogue, schema checked and t
  assert.equal(called,1);assert.equal(closed,true);assert.equal(JSON.stringify(r).includes(secret),false)
  await assert.rejects(runAtlasMcp({...request,name:'atlas_delete'} as WorkerMcpRequest,new AbortController().signal,factory),/unavailable/)
  await assert.rejects(runAtlasMcp({...request,servers:[{...server,deny:['atlas_whoami']}]} as WorkerMcpRequest,new AbortController().signal,factory),/unavailable/)
- await assert.rejects(runAtlasMcp({...request,arguments:{unexpected:true}} as WorkerMcpRequest,new AbortController().signal,factory),/invalid/)
+ await assert.rejects(runAtlasMcp({...request,arguments:{unexpected:true}} as WorkerMcpRequest,new AbortController().signal,factory),(e:any)=>e.code==='mcp_arguments_invalid')
  assert.equal(called,1)
 })
 test('Atlas authorization failures are sanitized and never become ONE session 401s',async()=>{
@@ -88,4 +88,12 @@ test('search discovery includes only the permitted real workspace project direct
  called.length=0
  await runAtlasMcp({action:'search',servers:[{...server,deny:['atlas_project_list']}],query:'atlas_search'},new AbortController().signal,factory,'analytik-jena')
  assert.deepEqual(called,[])
+})
+
+
+test('stability: 403, TLS and timeouts do not become invalid-token claims',async()=>{
+ for(const [message,code] of [['403 Forbidden','mcp_permission'],['self signed certificate','mcp_tls'],['Connection timed out.','mcp_timeout']] as const){
+  const factory=()=>({connect:async()=>{throw Error(message+' '+secret)},close:async()=>{}}) as any
+  await assert.rejects(runAtlasMcp(request,new AbortController().signal,factory),(e:any)=>e.code===code&&!e.message.includes(secret))
+ }
 })

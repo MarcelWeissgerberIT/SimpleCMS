@@ -1,4 +1,4 @@
-import {test,expect,openApp,wsEval} from './fixtures'
+import {test,expect,openApp,wsEval,reloadApp} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 const PORT=47461
@@ -53,6 +53,17 @@ test.describe('Human-reviewed Atlas source handoff',()=>{
   const download=page.waitForEvent('download');await dialog.getByRole('button',{name:'Download handoff receipt'}).click()
   const path=await (await download).path();const fs=await import('node:fs/promises');const receipt=await fs.readFile(path!,'utf8')
   expect(receipt).toContain('read_back_matches');expect(receipt).not.toContain('source-fixture-token')
+  await dialog.getByRole('button',{name:'Close',exact:true}).click()
+  await reloadApp(page)
+  await page.evaluate(id=>(window as any).__one.ui.getState().openModal({type:'sourceAtlas',pageId:id}),pageId)
+  const reopened=await review(page)
+  await expect(reopened.getByTestId('source-handoff-previous')).toContainText('already handed over')
+  await expect(reopened.getByRole('button',{name:'Create in Atlas now',exact:true})).toBeDisabled()
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(1)
+  const localReceipts=await page.evaluate(async()=>{const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('one-source-handoffs');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});try{return await new Promise<unknown[]>((resolve,reject)=>{const r=db.transaction('attempts').objectStore('attempts').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}finally{db.close()}})
+  expect(JSON.stringify(localReceipts)).not.toContain('source-fixture-token')
+  expect(JSON.stringify(localReceipts)).not.toContain('Reviewed original source text.')
+
  })
  test('changed constraints block a previously reviewed write',async({page})=>{
   const dialog=await review(page);constraints='New constraint requires a different source classification.'
@@ -97,6 +108,24 @@ test.describe('Human-reviewed Atlas source handoff',()=>{
   await dialog.getByRole('button',{name:'Check access and projects',exact:true}).click()
   await expect(dialog.getByRole('alert')).toContainText('Atlas refused the operation')
   await expect(dialog.getByLabel('Target project (read from Atlas)')).toHaveCount(0)
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(0)
+ })
+
+ test('escaped payloads respect the real worker limit before any write',async({page})=>{
+  const dialog=await access(page)
+  await dialog.getByLabel('Target project (read from Atlas)').selectOption('demo-source')
+  await dialog.getByLabel(/Source excerpt for Atlas/).fill('\\'.repeat(15000))
+  await dialog.getByRole('button',{name:'Check constraints and handoff',exact:true}).click()
+  await expect(dialog.getByRole('alert')).toContainText('exceeds 20,000 characters')
+  await expect(dialog.getByRole('button',{name:'Create in Atlas now',exact:true})).toHaveCount(0)
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(0)
+ })
+
+ test('a schema change during final rediscovery cannot dispatch the previously reviewed write',async({page})=>{
+  const dialog=await review(page),original=fake.onModelMcp!;let discoveries=0
+  fake.onModelMcp=r=>r.action==='search'&&r.query==='atlas_create'&&++discoveries===2?{tools:[{server:'atlas',name:'atlas_create',inputSchema:{...createSchema,description:'Changed contract after the review'}}]}:original(r)
+  await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'Create in Atlas now',exact:true}).click()
+  await expect(dialog.getByRole('alert').first()).toContainText('Atlas tool schema changed')
   expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(0)
  })
 

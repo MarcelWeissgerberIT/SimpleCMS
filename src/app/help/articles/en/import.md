@@ -37,10 +37,10 @@ Review the title and original text, select an excerpt if needed, and add the int
 For a direct handoff, choose **Review Atlas handoff** after import, or the page’s **••• → Hand source to Atlas…**:
 
 1. Select your personal Atlas connection and **Check access and projects**. A reachable personal worker or existing team-server MCP access is required.
-2. Explicitly select a project from the actual Atlas response. Review title and excerpt (up to 80,000 characters).
+2. Explicitly select a project from the actual Atlas response. Review title and excerpt (up to 18,000 characters; the complete tool payload, including metadata and escaping, must fit 20,000 characters).
 3. **Check constraints and handoff** reads the Atlas constraints and shows the exact outgoing payload and hash. Nothing has been written yet.
 4. Review and confirm **Create in Atlas now**. This creates a new dossier (`doc`) with a ONE source link and content hash. It does not overwrite existing records or create confirmed requirements or decisions.
-5. The receipt names the actual returned Atlas ref and read-back verification result. Download it if needed. Inspect Atlas before retrying a lost response; ONE never retries writes automatically.
+5. The receipt names the actual returned Atlas ref and read-back verification result. Download it if needed. Inspect Atlas before retrying a lost response; ONE never retries writes automatically. A personal local receipt also blocks the same exact payload after closing or reloading the dialog. If a previous attempt is unresolved, inspect Atlas first; only explicitly acknowledge a missing record before preparing again. The local receipt stores hashes and returned refs, not the source text or token.
 
 No AI, other person’s token or additional permissions are used. Existing outbound data rules, tool permissions and Atlas constraints still apply. Missing access or projects must be resolved in your personal connection.
 

@@ -20,3 +20,10 @@ export function taskBoundaries(goal:string){
   const execute=!readOnly&&!negative&&/(?:^|[.!?;]\s*|\b(?:und|and)\s+)(?:bitte\s+)?(?:starte|führe|fuehre|start|execute|run)\b/u.test(text.trim())
   return {readOnly,externalWrite,execute}
 }
+
+
+/** Explicit identity-only requests need a real identity read, not an unrelated content query. */
+export function atlasIdentityTask(goal:string):boolean {
+ const text=goal.trim().replace(/[.;]\s*(?:nur lesen|read only|keine änderungen|do not change anything)[.!]?$/iu,'').replace(/[.!?]+$/,'').trim()
+ return /^(?:atlas[ :]+)?(?:atlas_)?whoami$/iu.test(text)||/^(?:who am i (?:in|on) atlas|wer bin ich (?:in|bei) atlas)$/iu.test(text)||/^(?:prüfe|pruefe|check|verify|read|zeige|show) (?:bitte )?(?:(?:meine|my) )?(?:atlas[- ](?:identität|identitaet|identity)|(?:identität|identitaet|identity) (?:in|bei|on) atlas)$/iu.test(text)
+}

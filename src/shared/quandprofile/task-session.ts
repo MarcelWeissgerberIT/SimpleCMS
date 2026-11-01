@@ -1,3 +1,4 @@
+import {atlasIdentityTask} from './task.ts'
 import type {CapturedStep} from './program.ts'
 import type {TaskCompiled,TaskContract,TaskEffect,TaskPhase,TaskQuestion,TaskReport,TaskRequest} from './task.ts'
 import {taskEvidence} from './task.ts'
@@ -30,9 +31,16 @@ export class TaskSession {
   }
   capture(step:CapturedStep){if(this.trace.length<40)this.trace.push(structuredClone(step))}
   captured(){return structuredClone(this.trace)}
+  identityOnly(){return atlasIdentityTask(this.contract.goal)}
   report():TaskReport{return structuredClone({id:this.contract.id,at:Date.now(),phase:this.phase,compiled:this.compiled,observations:this.observations,questions:this.questions,evidence:this.evidence})}
   private publish(){this.host.report?.(this.report())}
-  packet(){const c=this.check('compile');if(c.decision!=='allow')throw new TaskBlocked('Compiled task binding is no longer valid.');return JSON.stringify(c.model_context)}
+  packet(){
+    const c=this.check('compile');if(c.decision!=='allow')throw new TaskBlocked('Compiled task binding is no longer valid.')
+    // Keep the complete compiler output, but put changing evidence after the stable instruction prefix.
+    // Otherwise every exposed tool/revision invalidates Ollama's prefix cache before the long role instructions.
+    const {contract_hash,revision,human_decisions,requirements,...stable}=c.model_context
+    return JSON.stringify({...stable,contract_hash,revision,human_decisions,requirements})
+  }
   /** Only selected host definitions can extend the exact tool catalogue. */
   expose(names:string[]){const next=[...new Set([...this.contract.allowed_tools,...names])].sort();if(next.length>256)throw new TaskBlocked('Compiled tool catalogue limit.');if(JSON.stringify(next)!==JSON.stringify(this.contract.allowed_tools)){this.contract.allowed_tools=next;this.contract.revision++}}
   dispatch(tool:string,effect:TaskEffect){

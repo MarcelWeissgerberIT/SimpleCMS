@@ -77,3 +77,39 @@ test('agent flow list/get receipts describe a read rather than an accepted mutat
  assert.equal(receipt.effect,'read');assert.equal(receipt.verification,undefined)
  assert.equal(facts.check('Der Flow wurde erstellt.')[0]?.kind,'effect')
 })
+
+test('stability: failed reads remain unavailable after an unrelated successful identity check',()=>{
+ const facts=new AtlasFacts()
+ observe(facts,'atlas_search',{error:'permission denied'},{q:'Laborbuch'},true)
+ observe(facts,'atlas_whoami',{person:'Test Member'})
+ for(const text of ['Es gibt keine offenen Aufgaben in Atlas.','Keine Dokumente vorhanden.','No records are available.'])assert.ok(facts.check(text).some(i=>i.kind==='outcome'),text)
+ assert.deepEqual(facts.check('Die Identität wurde geprüft. Die Suche konnte nicht ausgeführt werden; ob Aufgaben existieren, bleibt offen.'),[])
+})
+test('stability: positive search evidence cannot become an empty result',()=>{
+ const facts=new AtlasFacts();observe(facts,'atlas_search',{items:[{ref:42,title:'Actual source'}],total:1},{q:'source'})
+ assert.ok(facts.check('Keine Dokumente gefunden.').length)
+ assert.deepEqual(facts.check('Ein Treffer: Ref 42. Die fachliche Relevanz ist noch zu prüfen.'),[])
+})
+test('stability: an accepted write without matching readback cannot be called independently verified',()=>{
+ for(const verification of ['not_checked','unavailable','read_back_differs'] as const){
+  const facts=new AtlasFacts(),receipt=observe(facts,'atlas_create',{item:{ref:42,title:'Test'}})
+  receipt.verification=verification
+  assert.ok(facts.check('Datensatz Ref 42 wurde unabhängig zurückgelesen und verifiziert.').length,verification)
+  assert.deepEqual(facts.check('Atlas hat Ref 42 angenommen. Die unabhängige Rückleseprüfung ist noch offen.'),[])
+ }
+ const facts=new AtlasFacts();observe(facts,'atlas_create',{item:{ref:42}}).verification='read_back_matches'
+ assert.deepEqual(facts.check('Datensatz Ref 42 wurde unabhängig zurückgelesen und verifiziert.'),[])
+})
+
+test('stability: discovery-only and malformed query results never establish absence; a real zero result stays scoped evidence',()=>{
+ const discovery=new AtlasFacts();discovery.noteDiscovery('atlas',true)
+ assert.ok(discovery.check('Keine Dokumente gefunden.').length)
+ assert.match(discovery.fallback({heading:'Observed',failed:'Failed',discovery:'No content read'}),/No content read/)
+ const zero=new AtlasFacts();observe(zero,'atlas_query',{rows:[],total:0},{aql:'project = demo'})
+ assert.deepEqual(zero.check('Im abgefragten Projekt wurden keine Dokumente gefunden.'),[])
+ assert.deepEqual(zero.check('Es ist nicht nachgewiesen, dass keine Aufgaben vorhanden sind.'),[])
+ const malformed=new AtlasFacts();observe(malformed,'atlas_query',{message:'not a record result'})
+ assert.ok(malformed.check('No records are available.').length)
+ const counts=atlasReceipt('atlas_query',envelope({rows:[{ref:42}],total:20})).counts
+ assert.deepEqual(counts,[{unit:'records',value:1,scope:'returned'},{unit:'records',value:20,scope:'total'}])
+})

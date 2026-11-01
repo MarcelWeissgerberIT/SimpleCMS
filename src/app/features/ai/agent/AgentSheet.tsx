@@ -781,7 +781,7 @@ function McpRow({ step }: { step: AgentStep }) {
           {call.error ? t('features.ai.mcp.callErr', { server, tool: call.tool, error: call.error }) : t('features.ai.mcp.callErrBare', { server, tool: call.tool })} {t('features.ai.mcp.callErrNote')}
         </p>
       )}
-      {step.state === 'err' && <WorkerConnectionHelp error={new Error(call.error ?? '')} />}
+      {step.state === 'err' && <WorkerConnectionHelp error={new Error(call.error ?? '')} server={call.server} />}
     </li>
   )
 }

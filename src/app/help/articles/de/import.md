@@ -37,10 +37,10 @@ Prüfe Titel und Originaltext, wähle bei Bedarf einen Auszug und notiere, wofü
 Die Quelle bleibt eine **externe Referenz**, keine bestätigte Anforderung. Du kannst sie als Kontext für eine KI-Aufgabe nutzen. Für die direkte Übergabe wähle nach dem Import **Atlas-Übergabe prüfen** oder auf der Seite **••• → Als Quelle nach Atlas übergeben…**:
 
 1. Wähle deine persönliche Atlas-Verbindung und **Zugang und Projekte prüfen**. Die Verbindung braucht einen erreichbaren persönlichen Worker bzw. einen vorhandenen MCP-Zugang über den Teamserver.
-2. Wähle ausdrücklich eines der tatsächlich von Atlas gelieferten Projekte. Prüfe Titel und Auszug (höchstens 80.000 Zeichen).
+2. Wähle ausdrücklich eines der tatsächlich von Atlas gelieferten Projekte. Prüfe Titel und Auszug (höchstens 18.000 Zeichen; der vollständige Aufruf einschließlich Metadaten und Maskierung muss in 20.000 Zeichen passen).
 3. **Vorgaben und Übergabe prüfen** liest die Atlas-Constraints und zeigt die exakten ausgehenden Daten samt Prüfsumme. Es wird noch nichts geschrieben.
 4. Prüfe diese Vorschau und bestätige **Jetzt in Atlas anlegen**. Es entsteht ein neues Dossier (`doc`) mit ONE-Quellenlink und Inhalts-Hash. Keine bestehenden Records werden überschrieben; es entstehen keine bestätigten Requirements oder Entscheidungen.
-5. Der Nachweis nennt die tatsächlich von Atlas zurückgegebene Ref und das Ergebnis der Rückleseprüfung. Lade ihn bei Bedarf herunter. Bei verlorener Antwort prüfe zuerst Atlas; ONE wiederholt Schreibversuche nicht automatisch.
+5. Der Nachweis nennt die tatsächlich von Atlas zurückgegebene Ref und das Ergebnis der Rückleseprüfung. Lade ihn bei Bedarf herunter. Bei verlorener Antwort prüfe zuerst Atlas; ONE wiederholt Schreibversuche nicht automatisch. Ein persönlicher lokaler Nachweis sperrt denselben Inhalt auch nach Schließen oder Neuladen des Dialogs. Bei einem ungeklärten Versuch zuerst Atlas prüfen; erst nach bewusster Bestätigung eines fehlenden Datensatzes neu vorbereiten. Lokal werden nur Hashes und zurückgegebene Refs gespeichert, kein Quelltext und kein Token.
 
 Die Übergabe nutzt keine KI, keinen fremden Token und keine zusätzlichen Rechte. Bestehende Datenausgangsregeln, Werkzeugfreigaben und Atlas-Vorgaben gelten weiterhin. Bei verweigertem Zugang oder fehlendem Projekt muss der persönliche Zugang angepasst werden.
 

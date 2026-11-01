@@ -61,7 +61,7 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
           : e instanceof Error
             ? e.message
             : String(e)
-    // a refused token (401 / 403): Settings offers "Sign in" next to the address. Only a check that went out may set or
+    // An authentication failure (not a generic 403): Settings offers "Sign in". Only a check that went out may set or
     // clear that mark: one the gate stopped, or one without the token in this browser, never reached the server
     const auth = e instanceof AIError && e.code === 'mcp_auth'
     patchServer(id, { checkError: msg.length > 300 ? `${msg.slice(0, 299)}…` : msg, ...(sentNothing(e) ? {} : { checkAuth: auth || undefined }) })

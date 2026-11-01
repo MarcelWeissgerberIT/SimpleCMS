@@ -39602,7 +39602,7 @@ function withModelProfile(instructions, profile) {
   const boundary = "\n\nOne owns the parent work order, decomposition, role handoffs and approvals. Execute only this assigned stage. Profile roles do not require simulating a whole team or asking again for already authorized work. After completing this package use finish_task when available, or give a final answer. Report concrete blockers instead of repeating discovery. The task permissions, available tools and verification requirements above remain authoritative. Use only actual tool results as evidence. The profile does not grant additional access or authorize work outside the current user task.";
   return instructions + (profile ? "\n\nOwner-selected model profile (workflow and style guidance):\n" + profile : "") + boundary;
 }
-function ollamaInference(base) {
+function ollamaInference(base, traceHeaders = {}) {
   if (!["http:", "https:"].includes(base.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname) || base.username || base.password || base.search || base.hash) throw new Error("Ollama must run at a loopback URL.");
   const inference = async (request) => {
     const metadata = await show(request.model, request.signal);
@@ -39611,7 +39611,7 @@ function ollamaInference(base) {
       method: "POST",
       redirect: "error",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(18e4)]),
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...traceHeaders },
       body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, ...request.schema ? { format: request.schema } : {}, stream: false, keep_alive: "30m", options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } })
     });
     if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
@@ -39955,6 +39955,47 @@ ${textFile.slice(0, 3500)}
     return (await this.projectReferences()).map((ref) => ref.text).join("");
   }
 };
+
+// ../src/shared/ai/connection-problem.ts
+function connectionProblem(error62) {
+  const e = error62;
+  const text2 = (typeof error62 === "string" ? error62 : [e?.message, e?.detail, e?.code, e?.status, e?.cause?.code].filter((v) => typeof v === "string" || typeof v === "number").join(" ")).toLowerCase();
+  if (e?.status === 401) return "auth";
+  if (e?.status === 403) return "permission";
+  if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text2)) return "tls";
+  if (/\b401\b|\bmcp_auth\b/.test(text2)) return "auth";
+  if (/\b403\b|mcp_permission|permission denied|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text2)) return "permission";
+  if (/authenticat.{0,20}(?:fail|reject|required)|unauthoriz|invalid.token|(?:expired|revoked)[ _-]?token|token.{0,30}(?:refused|rejected|abgelehnt|expired|revoked|invalid)/.test(text2) || text2 === "token") return "auth";
+  if (/timeout|timed.out|zeitüberschreitung/.test(text2)) return "timeout";
+  if (/network|netzwerk|enotfound|eai_again|econn|dns|fetch failed/.test(text2)) return "network";
+  if (text2 === "worker" || /mcpworker|worker.{0,25}(?:unavailable|not connected|nicht verbunden)/.test(text2)) return "worker";
+  if (text2 === "identity" || /atlas identity does not match/.test(text2)) return "identity";
+  if (/\bpolicy\b|destination|datenregel|mcp-required|quantum.blocked/.test(text2)) return "policy";
+  if (/mcp_arguments_invalid|unsupported schema|schema (?:changed|validation)|arguments.{0,30}(?:invalid|match)|invalid arguments/.test(text2)) return "schema";
+  if (/response_limit|catalogue_limit|bounded source cache|exceed the bounded limit|result.{0,20}too large|up to 20,000|exceeds.{0,20}20,000|180 kb/.test(text2)) return "limit";
+  if (/invalid.{0,15}(?:mcp|tool).{0,15}response|malformed response|invalid json/.test(text2)) return "response";
+  if (text2 === "tools" || /tool_unavailable|tool.{0,25}(?:unavailable|not available|not permitted)|werkzeug.{0,25}nicht freigegeben/.test(text2)) return "tools";
+  return "unknown";
+}
+function mcpConnectionMessage(error62, phase = "discovery") {
+  const problem = connectionProblem(error62);
+  const details = {
+    tls: "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification.",
+    auth: "Authentication rejected by this endpoint. Check the Atlas instance and personal token.",
+    permission: "Permission denied. Check project membership and tool permissions; this does not prove an invalid token.",
+    timeout: "Connection timed out. Check VPN, proxy and network access from this worker.",
+    network: "Network connection failed. Check VPN, proxy, DNS and network access.",
+    worker: "Personal worker unavailable. Start the existing worker or check the prepared Atlas proxy.",
+    identity: "Atlas identity does not match the personal access.",
+    policy: "A data policy blocks the selected MCP destination or tool.",
+    tools: "The selected tool is unavailable or not permitted. Check the actual tool catalogue and permissions.",
+    schema: "MCP arguments do not match the current tool schema. Refresh discovery and review the arguments; nothing should be repeated blindly.",
+    response: "Invalid MCP tool response. No successful source result was verified.",
+    limit: "MCP result or arguments exceed the bounded limit. Select a smaller source excerpt or narrower query.",
+    unknown: `MCP ${phase} failed. Check the personal worker, endpoint and selected tool. No source result was verified.`
+  };
+  return details[problem];
+}
 
 // ../src/shared/mcp/discovery.ts
 function discoverMcpTools(tools, query) {
@@ -43704,7 +43745,7 @@ var LocalMcp = class {
         const e = error62;
         const hint = [e?.message, e?.code, e?.cause?.code, e?.cause?.message].join(" ").toLowerCase();
         if (/certificate|cert_|self.signed|tls|issuer/.test(hint)) noteCertificateFailure(name, true);
-        this.failureKinds.set(name, /\b(?:401|403)\b|unauthorized|forbidden|invalid.token/.test(hint) ? "Authentication rejected by this endpoint. Check the Atlas instance and personal token." : /certificate|cert_|self.signed|tls|issuer/.test(hint) ? "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification." : /timeout|timed.out|aborted/.test(hint) ? "Connection timed out. Check VPN, proxy and network access from this worker." : /enotfound|econn|eai_again|fetch failed|network|socket/.test(hint) ? "Network connection failed. Check VPN, proxy, DNS and network access from this worker." : "Connection or tool discovery failed. Check the endpoint and worker connectivity.");
+        this.failureKinds.set(name, mcpConnectionMessage(e));
         await client?.close().catch(() => {
         });
         await transport?.close().catch(() => {

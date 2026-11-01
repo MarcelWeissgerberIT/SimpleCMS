@@ -1,4 +1,5 @@
 import {createTaskContract,TASK_QUESTION} from '../core/taskContract'
+import {connectionProblem,mcpConnectionMessage} from '@/shared/ai/connection-problem'
 import {workerMcpSession,WORKER_MCP_FUNCTIONS} from '../core/workerMcp'
 import {WORKER_MCP_GUIDE} from '../core/toolFormat'
 import {closeToolBatch,type ToolReceipt} from '@/shared/ai/tool-batch'
@@ -158,12 +159,13 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
       const server = mcpServerOf(e.message, mcp.names)
       if (server !== null) {
         const detail = cleanMessage(e.message)
-        if (MCP_AUTH_RE.test(detail)) {
+        const problem=connectionProblem(detail)
+        if (problem==='auth') {
           // left out of later requests that don't address it, until its token changes (config.ts)
           if (server) noteRefused(server)
           return new AIError('mcp_auth', undefined, server)
         }
-        return new AIError('mcp', detail.length > 240 ? `${detail.slice(0, 239)}…` : detail, server)
+        return new AIError('mcp', problem==='unknown'?(detail.length > 240 ? `${detail.slice(0, 239)}…` : detail):mcpConnectionMessage(detail,'call'), server)
       }
     }
     if (e instanceof A.AuthenticationError) return new AIError('invalid_key', e.message)
@@ -179,9 +181,6 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
   if (e instanceof TypeError) return new AIError('offline', e.message)
   return new AIError('unknown', e instanceof Error ? e.message : String(e))
 }
-
-/** An MCP server turned the token down. */
-const MCP_AUTH_RE = /\b(401|403)\b|unauthori[sz]ed|forbidden|authenticat|invalid[^.]{0,40}token|token[^.]{0,40}(invalid|expired|revoked|rejected)|expired/i
 
 /** The server an API error message is about: its name, '' (MCP, but which one is unclear), null (not about MCP). */
 function mcpServerOf(msg: string, names: string[]): string | null {

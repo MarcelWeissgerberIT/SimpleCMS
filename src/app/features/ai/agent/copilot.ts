@@ -61,7 +61,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
-  const local = route.p === 'local' ? localWorkspaceTools(tools) : null
+  const local = route.p === 'local' || (prepared.caps?.context ?? 32768) < 64000 ? localWorkspaceTools(tools) : null
   const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
   task=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:system,input:messages,tools:tools.map(t=>t.name),one:tools.some(t=>t.name==='search_pages'),atlas:!!opts.mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.

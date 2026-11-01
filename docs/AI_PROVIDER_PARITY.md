@@ -7,7 +7,7 @@ ONE shares page/table editing, proposals, task handoffs and review semantics acr
 | Text questions and writing | Yes | Yes | Yes | Yes | Yes |
 | Selected existing table cells, reviewed apply | Yes | Yes | Yes | Yes | Yes |
 | ONE terminal tools, custom browser agents | Yes | Yes | Yes | Not currently routed | Not currently routed |
-| Personal Atlas in ONE terminal | Connector | Own paired worker | Own paired worker | Not currently supported | Not supported by the text route |
+| Personal Atlas in ONE terminal | Host-owned MCP via worker / prepared proxy | Own paired worker / prepared proxy | Own paired worker / prepared proxy | Not currently supported | Not supported by the text route |
 | Coding and task handoffs | Worker | Worker | Worker | No dedicated coding engine | Worker engines support their selected capabilities |
 | Configured personal Atlas read grant in a coding task | Yes | Yes | Yes | — | Yes, for available worker coding engines |
 | Images/PDF | Model capability | Advertised vision / local PDF extraction | No native image route currently | Catalogue capability | Text-only route |
@@ -64,3 +64,12 @@ results must be distinguished from related records. No automatic write or scope 
 Repeated identical calls stop with their actual reason, separately from the 40-call cap.
 Stopped batches close every requested native call in history; missing receipts explicitly mark
 execution unverified and prohibit automatic write retries. Existing successful/error receipts remain intact.
+
+
+## Stabilization — 1 November 2026
+
+Small-context Copilot terminal routes use the same deferred ONE catalogue as local models. Exact permitted schemas are loaded as needed; this does not raise context limits or drop the user task. Compiler packets preserve every field while placing changing evidence after stable instructions to allow prefix-cache reuse where the provider supports it.
+
+Observed Atlas facts now distinguish returned rows from reported totals. Discovery-only, failed or malformed searches cannot establish absence. A later successful identity read cannot erase a content failure; identity-only tasks may finish after actual whoami, while content briefings need an actual content read. Accepted creates/updates cannot be called independently verified without a matching read-back. These are bounded metadata/prose checks, not a semantic truth guarantee.
+
+Connection guidance distinguishes authentication, permission, TLS, timeout, network, tool, schema, response and size failures without echoing raw transport secrets. Worker 1.35.4 shares the classifier with the cloud proxy. The human-reviewed source handoff stores a personal IndexedDB attempt receipt before dispatch; pending, unknown and accepted attempts block identical retries after reload. Only hashes and actual refs persist. This does not provide cross-device exactly-once delivery; lost responses require inspection in Atlas. Exact escaped arguments must fit the existing 20,000-character transport bound.

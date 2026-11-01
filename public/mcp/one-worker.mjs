@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.3 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.4 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -17432,7 +17432,7 @@ function withModelProfile(instructions, profile) {
   const boundary = "\n\nOne owns the parent work order, decomposition, role handoffs and approvals. Execute only this assigned stage. Profile roles do not require simulating a whole team or asking again for already authorized work. After completing this package use finish_task when available, or give a final answer. Report concrete blockers instead of repeating discovery. The task permissions, available tools and verification requirements above remain authoritative. Use only actual tool results as evidence. The profile does not grant additional access or authorize work outside the current user task.";
   return instructions + (profile ? "\n\nOwner-selected model profile (workflow and style guidance):\n" + profile : "") + boundary;
 }
-function ollamaInference(base) {
+function ollamaInference(base, traceHeaders = {}) {
   if (!["http:", "https:"].includes(base.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname) || base.username || base.password || base.search || base.hash) throw new Error("Ollama must run at a loopback URL.");
   const inference = async (request3) => {
     const metadata = await show(request3.model, request3.signal);
@@ -17441,7 +17441,7 @@ function ollamaInference(base) {
       method: "POST",
       redirect: "error",
       signal: AbortSignal.any([request3.signal, AbortSignal.timeout(18e4)]),
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...traceHeaders },
       body: JSON.stringify({ model: request3.model, messages: request3.messages, tools: request3.tools, ...request3.schema ? { format: request3.schema } : {}, stream: false, keep_alive: "30m", options: { num_ctx: request3.contextTokens, num_predict: request3.outputTokens, temperature: 0.2 } })
     });
     if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
@@ -18992,7 +18992,7 @@ function checkTextRequest(raw) {
   if (size > WORKER_TEXT_MAX) throw new Error("Text request is too large. Select a smaller passage.");
   return r;
 }
-async function textRequest(file, raw, signal) {
+async function textRequest(file, raw, signal, trace) {
   const r = checkTextRequest(raw);
   const model2 = (await (r.provider === "copilot" ? copilotModels() : textModels(file))).find((m) => m.provider === r.provider && m.model === r.model);
   if (!model2) throw new Error("This model is no longer available on the worker. Refresh the model list.");
@@ -19032,7 +19032,8 @@ async function textRequest(file, raw, signal) {
       await rm3(cwd, { recursive: true, force: true });
     }
   }
-  const inference = r.provider === "ollama" ? ollamaCloudInference({ ...readOllamaCloud(file), model: r.model }) : r.provider === "minimax" ? miniMaxInference(readMiniMax(file), 1) : ollamaInference(localBase());
+  const traceHeaders = trace ? { "x-one-job-id": trace.job, "x-one-queued-at": String(trace.created ?? ""), "x-one-workspace": trace.workspace ?? "", "x-one-user-id": trace.user ?? "", "x-one-run-id": trace.auditRun ?? "" } : void 0;
+  const inference = r.provider === "ollama" ? ollamaCloudInference({ ...readOllamaCloud(file), model: r.model }) : r.provider === "minimax" ? miniMaxInference(readMiniMax(file), 1) : ollamaInference(localBase(), traceHeaders);
   if (r.provider === "local") {
     const res = await fetch(new URL("/api/show", localBase()), { method: "POST", redirect: "error", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: r.model }), signal });
     if (!res.ok) throw new Error("Local model metadata is unavailable.");
@@ -21166,7 +21167,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.3" : "dev";
+var VERSION = true ? "1.35.4" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -21672,6 +21673,47 @@ function localContext(env) {
 
 // src/worker/local-agent.ts
 import { realpath as realpath5 } from "node:fs/promises";
+
+// ../src/shared/ai/connection-problem.ts
+function connectionProblem(error2) {
+  const e = error2;
+  const text2 = (typeof error2 === "string" ? error2 : [e?.message, e?.detail, e?.code, e?.status, e?.cause?.code].filter((v) => typeof v === "string" || typeof v === "number").join(" ")).toLowerCase();
+  if (e?.status === 401) return "auth";
+  if (e?.status === 403) return "permission";
+  if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text2)) return "tls";
+  if (/\b401\b|\bmcp_auth\b/.test(text2)) return "auth";
+  if (/\b403\b|mcp_permission|permission denied|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text2)) return "permission";
+  if (/authenticat.{0,20}(?:fail|reject|required)|unauthoriz|invalid.token|(?:expired|revoked)[ _-]?token|token.{0,30}(?:refused|rejected|abgelehnt|expired|revoked|invalid)/.test(text2) || text2 === "token") return "auth";
+  if (/timeout|timed.out|zeitüberschreitung/.test(text2)) return "timeout";
+  if (/network|netzwerk|enotfound|eai_again|econn|dns|fetch failed/.test(text2)) return "network";
+  if (text2 === "worker" || /mcpworker|worker.{0,25}(?:unavailable|not connected|nicht verbunden)/.test(text2)) return "worker";
+  if (text2 === "identity" || /atlas identity does not match/.test(text2)) return "identity";
+  if (/\bpolicy\b|destination|datenregel|mcp-required|quantum.blocked/.test(text2)) return "policy";
+  if (/mcp_arguments_invalid|unsupported schema|schema (?:changed|validation)|arguments.{0,30}(?:invalid|match)|invalid arguments/.test(text2)) return "schema";
+  if (/response_limit|catalogue_limit|bounded source cache|exceed the bounded limit|result.{0,20}too large|up to 20,000|exceeds.{0,20}20,000|180 kb/.test(text2)) return "limit";
+  if (/invalid.{0,15}(?:mcp|tool).{0,15}response|malformed response|invalid json/.test(text2)) return "response";
+  if (text2 === "tools" || /tool_unavailable|tool.{0,25}(?:unavailable|not available|not permitted)|werkzeug.{0,25}nicht freigegeben/.test(text2)) return "tools";
+  return "unknown";
+}
+function mcpConnectionMessage(error2, phase = "discovery") {
+  const problem = connectionProblem(error2);
+  const details = {
+    tls: "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification.",
+    auth: "Authentication rejected by this endpoint. Check the Atlas instance and personal token.",
+    permission: "Permission denied. Check project membership and tool permissions; this does not prove an invalid token.",
+    timeout: "Connection timed out. Check VPN, proxy and network access from this worker.",
+    network: "Network connection failed. Check VPN, proxy, DNS and network access.",
+    worker: "Personal worker unavailable. Start the existing worker or check the prepared Atlas proxy.",
+    identity: "Atlas identity does not match the personal access.",
+    policy: "A data policy blocks the selected MCP destination or tool.",
+    tools: "The selected tool is unavailable or not permitted. Check the actual tool catalogue and permissions.",
+    schema: "MCP arguments do not match the current tool schema. Refresh discovery and review the arguments; nothing should be repeated blindly.",
+    response: "Invalid MCP tool response. No successful source result was verified.",
+    limit: "MCP result or arguments exceed the bounded limit. Select a smaller source excerpt or narrower query.",
+    unknown: `MCP ${phase} failed. Check the personal worker, endpoint and selected tool. No source result was verified.`
+  };
+  return details[problem];
+}
 
 // ../src/shared/mcp/discovery.ts
 function discoverMcpTools(tools, query) {
@@ -39822,7 +39864,7 @@ var LocalMcp = class {
         const e = error2;
         const hint = [e?.message, e?.code, e?.cause?.code, e?.cause?.message].join(" ").toLowerCase();
         if (/certificate|cert_|self.signed|tls|issuer/.test(hint)) noteCertificateFailure(name, true);
-        this.failureKinds.set(name, /\b(?:401|403)\b|unauthorized|forbidden|invalid.token/.test(hint) ? "Authentication rejected by this endpoint. Check the Atlas instance and personal token." : /certificate|cert_|self.signed|tls|issuer/.test(hint) ? "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification." : /timeout|timed.out|aborted/.test(hint) ? "Connection timed out. Check VPN, proxy and network access from this worker." : /enotfound|econn|eai_again|fetch failed|network|socket/.test(hint) ? "Network connection failed. Check VPN, proxy, DNS and network access from this worker." : "Connection or tool discovery failed. Check the endpoint and worker connectivity.");
+        this.failureKinds.set(name, mcpConnectionMessage(e));
         await client?.close().catch(() => {
         });
         await transport?.close().catch(() => {
@@ -41300,7 +41342,7 @@ var SharedModelHost = class {
       if (reply.job && !this.active) {
         const id = reply.job.id, abort = new AbortController();
         this.active = { id, abort };
-        void this.run(id, reply.job.box, abort);
+        void this.run(id, reply.job.box, abort, reply.job);
       }
     } catch {
     } finally {
@@ -41308,7 +41350,7 @@ var SharedModelHost = class {
       if (!this.stopped) this.timer = setTimeout(() => void this.poll(), 2e3);
     }
   }
-  async run(id, box, abort) {
+  async run(id, box, abort, trace) {
     const timer = setTimeout(() => abort.abort(), 18e4);
     try {
       const key = await sharedWorkerKey(box, (await this.keys).privateKey);
@@ -41317,7 +41359,7 @@ var SharedModelHost = class {
       if (!this.choice?.enabled || request3.model !== this.choice.model || Buffer.byteLength(JSON.stringify(request3)) > SHARED_INPUT_MAX || Object.keys(request3).some((k) => !["model", "messages", "maxTokens", "tools", "schema"].includes(k)) || request3.maxTokens > 4096) throw new Error("Shared request outside the allowed model or size");
       if ((request3.tools?.length || request3.schema) && !this.tools) throw new Error("Shared model has no verified function support");
       const r = checkTextRequest({ ...request3, provider: "local" });
-      const result = await textRequest(this.config.file, r, abort.signal);
+      const result = await textRequest(this.config.file, r, abort.signal, { job: id, ...trace });
       if (Buffer.byteLength(JSON.stringify(result)) > 12e4) throw new Error("Answer too large");
       const sealed = await sealShared({ ok: true, result }, key, share, id);
       if (!abort.signal.aborted) this.outcome = { id, box: sealed };
@@ -50161,7 +50203,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.3" : "dev";
+var VERSION2 = true ? "1.35.4" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

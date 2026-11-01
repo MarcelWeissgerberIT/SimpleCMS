@@ -1,3 +1,5 @@
+import {SOURCE_ATLAS_TEXT_MAX,clearSourceHandoff} from './import/sourceHandoffs'
+import {WorkerConnectionHelp} from '../ai/mcp-servers/WorkerConnectionHelp'
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from '../../ui/Modal'
 import { useLang } from '../../i18n'
@@ -16,7 +18,10 @@ const sourceErrorDe=(message:string):string=>{
     'Personal Atlas access is not configured. Open Settings → AI → MCP.':'Dein Atlas-Zugang fehlt. Richte ihn unter Einstellungen → KI → MCP ein.',
     'Atlas did not return a project selection.':'Atlas hat keine Projektauswahl geliefert. Prüfe deinen persönlichen Zugang und die Projektmitgliedschaft.',
     'Select a project from the actual Atlas result.':'Wähle ein eindeutiges Projekt aus der Atlas-Auswahl.',
-    'Supply a title and a source excerpt up to 80,000 characters.':'Gib einen Titel und einen Quellenauszug bis 80.000 Zeichen ein.',
+    'Supply a title and a source excerpt up to 18,000 characters.':'Gib einen Titel und einen Quellenauszug bis 18.000 Zeichen ein.',
+    'The exact Atlas payload exceeds 20,000 characters including metadata and escaping. Select a smaller excerpt; the full source remains in ONE.':'Der genaue Atlas-Aufruf überschreitet 20.000 Zeichen einschließlich Metadaten und Maskierung. Kürze den Auszug; die vollständige Quelle bleibt in ONE.',
+    'The personal handoff receipt cannot be saved on this device. Allow local browser storage and prepare again; nothing was written to Atlas.':'Der persönliche Übergabenachweis kann auf diesem Gerät nicht gespeichert werden. Erlaube lokale Browser-Speicherung und bereite erneut vor; in Atlas wurde nichts geschrieben.',
+    'This exact handoff was already attempted. Inspect its saved receipt and Atlas before another write.':'Diese Übergabe wurde bereits versucht. Prüfe den gespeicherten Nachweis und Atlas vor einem weiteren Schreibzugriff.',
     'Atlas tool schema changed. Prepare again.':'Die Atlas-Werkzeugvorgaben haben sich geändert. Prüfe die Übergabe erneut.',
     'Atlas constraints changed. Prepare and review again.':'Die Atlas-Constraints haben sich geändert. Wähle erneut „Vorgaben und Übergabe prüfen“. Es wurde nichts geschrieben.',
     'Atlas did not return an unambiguous saved record. Inspect Atlas; do not repeat the write blindly.':'Atlas hat keinen eindeutig gespeicherten Datensatz zurückgemeldet. Prüfe Atlas vor einem erneuten Versuch.',
@@ -47,7 +52,7 @@ export function SourceAtlasHandoff({pageId,onClose}:{pageId:string;onClose:()=>v
   })
   const prepare=()=>void run(async()=>{if(!session)return;resetReview();const result=await session.prepare(project,title,excerpt);valid();setPreview(result)})
   const commit=()=>void run(async()=>{
-    if(!session||!preview||!reviewed||readOnly||uncertain||receipt)return
+    if(!session||!preview||preview.previous||!reviewed||readOnly||uncertain||receipt)return
     valid()
     try {const result=await session.commit(preview.hash);setReceipt(result);setReviewed(false)}
     catch(e){setUncertain(session.attempted());throw e}
@@ -69,20 +74,21 @@ export function SourceAtlasHandoff({pageId,onClose}:{pageId:string;onClose:()=>v
           {!session.projects.length&&<p role="note">{de?'Atlas hat keine erreichbaren Projekte geliefert. Prüfe deine Projektmitgliedschaft und Token-Rechte in Atlas.':'Atlas returned no accessible projects. Check your project membership and token permissions in Atlas.'}</p>}
           <label className="io-source__field"><span className="label">{de?'Zielprojekt (aus Atlas gelesen)':'Target project (read from Atlas)'}</span><select className="input" value={project} disabled={busy||uncertain} onChange={e=>{setProject(e.target.value);resetReview()}}><option value="">{de?'Projekt bewusst auswählen':'Choose project explicitly'}</option>{session.projects.map(p=><option key={p.tenant+'/'+p.slug} value={p.slug}>{p.tenant} / {p.title} ({p.slug})</option>)}</select></label>
           <label className="io-source__field"><span className="label">{de?'Dossier-Titel':'Dossier title'}</span><input className="input" value={title} maxLength={200} disabled={busy||uncertain} onChange={e=>{setTitle(e.target.value);resetReview()}} /></label>
-          <label className="io-source__field"><span className="label">{de?'Quellenauszug für Atlas':'Source excerpt for Atlas'} · {excerpt.length.toLocaleString()} / 80.000</span><textarea className="input io-source__text" value={excerpt} disabled={busy||uncertain} maxLength={80000} onChange={e=>{setExcerpt(e.target.value);resetReview()}} /></label>
-          <button type="button" className="btn" disabled={!project||!title.trim()||!excerpt.trim()||excerpt.length>80000||busy||uncertain} onClick={prepare}>{de?'Vorgaben und Übergabe prüfen':'Check constraints and handoff'}</button>
+          <label className="io-source__field"><span className="label">{de?'Quellenauszug für Atlas':'Source excerpt for Atlas'} · {excerpt.length.toLocaleString()} / 18.000</span><textarea className="input io-source__text" value={excerpt} disabled={busy||uncertain} maxLength={SOURCE_ATLAS_TEXT_MAX} onChange={e=>{setExcerpt(e.target.value);resetReview()}} /></label>
+          <button type="button" className="btn" disabled={!project||!title.trim()||!excerpt.trim()||excerpt.length>SOURCE_ATLAS_TEXT_MAX||busy||uncertain} onClick={prepare}>{de?'Vorgaben und Übergabe prüfen':'Check constraints and handoff'}</button>
         </>}
         {preview&&<div className="io-source__preview">
           <p><strong>{preview.project.tenant} / {preview.project.title}</strong> · doc · {preview.hash.slice(0,12)}</p>
           <details><summary>{de?'Aktuelle Atlas-Vorgaben':'Current Atlas constraints'}</summary><pre className="io-source__json">{JSON.stringify(preview.constraints,null,2)}</pre></details>
           <details open><summary>{de?'Genau diese Daten werden geschrieben':'Exact outgoing data'}</summary><pre className="io-source__json">{JSON.stringify(preview.args,null,2)}</pre></details>
-          <label className="io-source__review"><input type="checkbox" checked={reviewed} disabled={busy||uncertain} onChange={e=>setReviewed(e.target.checked)} />{de?'Zielprojekt, Vorgaben und Quellenauszug geprüft. Als externe Referenz anlegen.':'Target, constraints and source excerpt reviewed. Create an external reference.'}</label>
-          <button type="button" className="btn btn--ink" disabled={!reviewed||busy||readOnly||uncertain} onClick={commit}>{de?'Jetzt in Atlas anlegen':'Create in Atlas now'}</button>
+          {preview.previous&&<div role="status" className="io-source__head" data-testid="source-handoff-previous"><strong>{preview.previous.state==='accepted'?(de?'Diese Quelle wurde bereits übergeben':'This source was already handed over'):(de?'Ein früherer Schreibversuch ist noch ungeklärt':'An earlier write attempt is unresolved')}</strong><p>{new Date(preview.previous.startedAt).toLocaleString()} · {preview.previous.ref?<a href={session!.origin+'/r/'+preview.previous.ref} target="_blank" rel="noreferrer">Ref {preview.previous.ref}</a>:(de?'Zuerst Atlas prüfen. Es wird nichts automatisch wiederholt.':'Inspect Atlas first. Nothing is retried automatically.')}</p>{preview.previous.state!=='accepted'&&<button type="button" className="btn" disabled={busy} onClick={()=>void run(async()=>{if(!preview.previous)return;await clearSourceHandoff(preview.key,preview.previous.id);resetReview()})}>{de?'In Atlas geprüft: kein Datensatz vorhanden. Neu vorbereiten.':'Checked Atlas: no record exists. Prepare again.'}</button>}</div>}
+          <label className="io-source__review"><input type="checkbox" checked={reviewed} disabled={busy||uncertain||!!preview.previous} onChange={e=>setReviewed(e.target.checked)} />{de?'Zielprojekt, Vorgaben und Quellenauszug geprüft. Als externe Referenz anlegen.':'Target, constraints and source excerpt reviewed. Create an external reference.'}</label>
+          <button type="button" className="btn btn--ink" disabled={!reviewed||busy||readOnly||uncertain||!!preview.previous} onClick={commit}>{de?'Jetzt in Atlas anlegen':'Create in Atlas now'}</button>
         </div>}
       </>}
-      {error&&<p role="alert" className="io-source__error">{error}</p>}
+      {error&&<><p role="alert" className="io-source__error">{error}</p><WorkerConnectionHelp error={error} server={server}/></>}
       {uncertain&&error&&<p role="alert">{de?'Der Schreibversuch wird nicht automatisch wiederholt. Prüfe zuerst in Atlas, ob das Dossier bereits angelegt wurde; bei einer verlorenen Antwort könnte es trotzdem gespeichert sein.':'The write attempt will not be retried automatically. Inspect Atlas first: a lost response may still mean the dossier was saved.'}</p>}
-      {receipt&&<div role="status"><h3>{de?'Atlas hat die Referenz angenommen':'Atlas accepted the reference'}</h3><p><a href={session!.origin+'/r/'+receipt.receipt.refs[0]} target="_blank" rel="noreferrer">Ref {receipt.receipt.refs[0]}</a> · {receipt.project.tenant} / {receipt.project.slug}</p><p>{receipt.receipt.verification==='read_back_matches'?(de?'Titel und Inhalt zurückgelesen und passend verifiziert.':'Title and content read back and verified.'):(de?'Schreiben angenommen; die unabhängige Rückleseprüfung ist offen oder weicht ab. Prüfe den Datensatz in Atlas.':'Write accepted; independent read-back is unavailable or differs. Inspect the record in Atlas.')}</p><button type="button" className="btn" onClick={download}>{de?'Übergabenachweis herunterladen':'Download handoff receipt'}</button></div>}
+      {receipt&&<div role="status">{!receipt.receiptSaved&&<p role="alert">{de?'Der Nachweis konnte auf diesem Gerät nicht gesichert werden. Lade ihn jetzt herunter und prüfe Atlas vor einem erneuten Versuch.':'The receipt could not be saved on this device. Download it now and inspect Atlas before retrying.'}</p>}<h3>{de?'Atlas hat die Referenz angenommen':'Atlas accepted the reference'}</h3><p><a href={session!.origin+'/r/'+receipt.receipt.refs[0]} target="_blank" rel="noreferrer">Ref {receipt.receipt.refs[0]}</a> · {receipt.project.tenant} / {receipt.project.slug}</p><p>{receipt.receipt.verification==='read_back_matches'?(de?'Titel und Inhalt zurückgelesen und passend verifiziert.':'Title and content read back and verified.'):(de?'Schreiben angenommen; die unabhängige Rückleseprüfung ist offen oder weicht ab. Prüfe den Datensatz in Atlas.':'Write accepted; independent read-back is unavailable or differs. Inspect the record in Atlas.')}</p><button type="button" className="btn" onClick={download}>{de?'Übergabenachweis herunterladen':'Download handoff receipt'}</button></div>}
       {!!events.length&&<details><summary>{de?'Tatsächliche Werkzeugaufrufe':'Actual tool calls'}</summary><ol>{events.map(e=><li key={e.id}>{e.server} · {e.tool} · {e.state}{e.error?' · '+e.error:''}</li>)}</ol></details>}
       <div className="io-actions"><button type="button" className="btn" onClick={onClose}>{de?'Schließen':'Close'}</button></div>
     </div>

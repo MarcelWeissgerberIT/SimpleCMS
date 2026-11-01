@@ -2654,7 +2654,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
         <div key={c.id} className="ai-mcp__err">
           {c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
           {t('features.ai.mcp.callErrNote')}
-          <WorkerConnectionHelp error={new Error(c.error ?? '')} />
+          <WorkerConnectionHelp error={new Error(c.error ?? '')} server={c.server} />
         </div>
       ))}
     </div>

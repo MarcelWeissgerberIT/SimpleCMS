@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {QuandRuntime} from '../../src/shared/quandprofile/runtime.ts'
-import {taskEvidence,taskBoundaries,type TaskContract,type TaskReport} from '../../src/shared/quandprofile/task.ts'
+import {taskEvidence,taskBoundaries,atlasIdentityTask,type TaskContract,type TaskReport} from '../../src/shared/quandprofile/task.ts'
 import {TaskSession,TaskBlocked} from '../../src/shared/quandprofile/task-session.ts'
 const {instance}=await WebAssembly.instantiate(await readFile(new URL('../../src/shared/quandprofile/quandprofile.wasm',import.meta.url)),{})
 const runtime=new QuandRuntime(instance)
@@ -19,3 +19,18 @@ test('successful Atlas observation cannot replace required JSON or literal check
 test('human answer changes the actual compiled contract and is passed as data, not new permissions',async()=>{const reports:TaskReport[]=[];let scope='v1';const ac=new AbortController();const task=new TaskSession(contract(),{compile:r=>runtime.task(r),signature:()=>scope,check:()=>{},signal:ac.signal,interactive:true,report:r=>reports.push(r)});task.observe('one',true,true);task.observe('atlas',true,true);const pending=task.question({question:'Which project is authoritative?',needed_for:'Save the spec',options:[{label:'A',effect:'Use A'}]});assert.equal(reports.at(-1)?.phase,'decision');assert.throws(()=>task.dispatch('stage','stage'),TaskBlocked);const before=task.report().compiled.contract_hash;assert.equal(task.answer('made-up','self approval'),false);assert(task.answer(reports.at(-1)!.questions[0].id,'Project A'));const response=JSON.parse(await pending);assert.equal(response.permissions_unchanged,true);assert.notEqual(task.report().compiled.contract_hash,before);assert.equal(task.report().compiled.contract.external_write,false);assert.equal(JSON.parse(task.packet()).human_decisions[0].answer,'Project A');task.dispatch('stage','stage');task.finish('Draft for Project A');assert.equal(task.report().phase,'ready');assert.equal(task.report().evidence.human_accepted,false);assert(task.accept());assert.equal(task.report().phase,'accepted');scope='v2';assert.throws(()=>task.dispatch('read','read'));task.close()})
 test('a stale UI, abort or a headless model cannot answer a decision',async()=>{let scope='v1';const ac=new AbortController(),task=new TaskSession({...contract(),search_one:false,search_atlas:false},{compile:r=>runtime.task(r),signature:()=>scope,check:()=>{},signal:ac.signal,interactive:true});const pending=task.question({question:'Missing input?',needed_for:'Dependent write'});scope='v2';assert.equal(task.answer(task.report().questions[0].id,'guess'),false);ac.abort();await assert.rejects(pending,/stopped/);const headless=new TaskSession({...contract(),search_one:false,search_atlas:false},{compile:r=>runtime.task(r),signature:()=>'',check:()=>{}});await assert.rejects(headless.question({question:'Missing input?',needed_for:'Dependent write'}),/human prerequisite/);assert.equal(headless.report().phase,'decision');headless.close()})
 test('negated and quoted commands never grant remote write/execute authority',()=>{for(const goal of ['Nur lesen. Erstelle keine Records.','Do not create anything.','Erkläre den Text „create a record“.','Nicht starten und nicht speichern.']){const b=taskBoundaries(goal);assert.equal(b.externalWrite,false,goal);assert.equal(b.execute,false,goal)}assert.equal(taskBoundaries('Erstelle einen Atlas-Entwurf.').externalWrite,true);assert.equal(taskBoundaries('Read Atlas ref 42 and replace its body.').externalWrite,true)})
+
+
+test('identity evidence applies only to an explicitly bounded identity task, never an Atlas briefing',()=>{
+ for(const goal of ['atlas whoami','atlas_whoami','atlas: whoami. Nur lesen.','Who am I in Atlas?','Wer bin ich in Atlas?','Prüfe meine Atlas-Identität.','Read Atlas identity.'])assert.equal(atlasIdentityTask(goal),true,goal)
+ for(const goal of ['Call atlas_whoami then list all tasks.','Read Atlas sources, then prepare a proposal.','Show my Atlas identity and brief me on CNSX.','Do not call atlas_whoami'])assert.equal(atlasIdentityTask(goal),false,goal)
+})
+test('packet ordering preserves every compiler value and a stable instruction prefix across tool discovery',()=>{
+ const task=new TaskSession({...contract(),instruction_context:'Unchanged verified role instructions. '.repeat(200)},{compile:r=>runtime.task(r),signature:()=>'scope',check:()=>{}})
+ const before=task.packet();assert.deepEqual(JSON.parse(before),task.report().compiled.model_context)
+ task.expose(['atlas:atlas_get']);const after=task.packet()
+ assert.deepEqual(JSON.parse(after),task.report().compiled.model_context)
+ assert.notEqual(JSON.parse(before).contract_hash,JSON.parse(after).contract_hash)
+ const prefix=before.slice(0,before.indexOf('"contract_hash"'))
+ assert(prefix.length>7500);assert(after.startsWith(prefix));task.close()
+})

@@ -1,3 +1,4 @@
+import {connectionProblem,mcpConnectionMessage} from '../../../src/shared/ai/connection-problem.ts'
 import {atlasScopedArgs,atlasTenantHint} from '../../../src/shared/mcp/scope.ts'
 import {selectMcpSchemas} from '../../../src/shared/mcp/bindings.ts'
 /** Personal AJ-Atlas handoff for cloud workspaces. Credentials exist only for this request. */
@@ -55,7 +56,8 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
   if(request.action==='call'){
    const tool=tools.find(t=>t.name===request.name)
    const args=tool?atlasScopedArgs(request.arguments??{},tool.inputSchema,defaultTenant):request.arguments
-   if(!tool||!new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(args).valid)throw badRequest('mcp_tool_unavailable','Tool unavailable or arguments invalid; nothing was executed.')
+   if(!tool)throw badRequest('mcp_tool_unavailable','Tool unavailable or not permitted; nothing was executed.')
+   if(!new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(args).valid)throw badRequest('mcp_arguments_invalid','MCP arguments do not match the current tool schema; nothing was executed.')
    const result=await client.callTool({name:request.name,arguments:args},undefined,{signal})
    const raw=JSON.stringify(result);if(Buffer.byteLength(raw)>180000)throw new ApiError(502,'mcp_response_limit','Atlas result exceeds 180 KB; request a smaller result.')
    return {result:scrub(raw)}
@@ -83,9 +85,8 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
  }catch(e){
   if(e instanceof ApiError)throw e
   // Do not echo provider errors, URLs or tokens; an Atlas 401 must never sign the caller out of ONE.
-  const message=e instanceof Error?e.message:''
-  if(/401|403|unauthoriz|forbidden/i.test(message))throw new ApiError(502,'mcp_auth','AJ-Atlas hat diesen persönlichen Token abgelehnt. Bitte Token und Rechte prüfen.')
-  throw new ApiError(502,'mcp_unavailable','AJ-Atlas ist nicht erreichbar oder hat die Anfrage abgelehnt. Es wurde kein anderer Server verwendet.')
+  const problem=connectionProblem(e)
+  throw new ApiError(502,problem==='auth'?'mcp_auth':problem==='permission'?'mcp_permission':'mcp_'+problem,mcpConnectionMessage(e,'call'))
  }finally{await client.close().catch(()=>{})}
 }
 

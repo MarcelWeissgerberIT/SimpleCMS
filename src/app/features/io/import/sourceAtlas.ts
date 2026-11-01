@@ -1,3 +1,4 @@
+import {readSourceHandoff,claimSourceHandoff,finishSourceHandoff,sourceHandoffKey,SOURCE_ATLAS_TEXT_MAX,SOURCE_ATLAS_ARGS_MAX} from './sourceHandoffs'
 import { attachMcp, currentSetup } from '../../ai/mcp-servers/config'
 import { workerMcpSession } from '../../ai/core/workerMcp'
 import { loadQuandProfile } from '../../ai/core/quandprofile'
@@ -46,34 +47,44 @@ export async function sourceAtlas(serverName:string,pageId:string,signal:AbortSi
     }while(true)
     return out
   }
-  const call=async(name:string,args:Record<string,unknown>)=>{const schema=await discover(name);validateValue(args,schema);check();const raw=await remote('one_mcp_call',{server:serverName,name,arguments:args},crypto.randomUUID());check();return unpack(raw)}
+  const call=async(name:string,args:Record<string,unknown>,expectedSchemaHash?:string)=>{const schema=await discover(name);if(expectedSchemaHash&&programDigest(schema)!==expectedSchemaHash)throw Error('Atlas tool schema changed. Prepare again.');validateValue(args,schema);check();const raw=await remote('one_mcp_call',{server:serverName,name,arguments:args},crypto.randomUUID());check();return unpack(raw)}
   const identity=await call('atlas_whoami',{}),listed=await call('atlas_project_list',{})
   if(!Array.isArray(listed.projects))throw Error('Atlas did not return a project selection.')
   const projects:SourceProject[]=listed.projects.filter((p:any)=>typeof p.slug==='string'&&typeof p.tenant==='string').map((p:any)=>({slug:p.slug,title:typeof p.title==='string'?p.title:p.slug,tenant:p.tenant}))
-  let prepared:{args:{kind:string;project:string;title:string;body:string};hash:string;schemaHash:string;constraintsHash:string;project:SourceProject}|null=null
+  let prepared:{args:{kind:string;project:string;title:string;body:string};hash:string;schemaHash:string;constraintsHash:string;project:SourceProject;key:string}|null=null
   let attempted=false
   return {
     identity,projects,origin:new URL(server.url).origin,attempted:()=>attempted,
     async prepare(projectSlug:string,title:string,excerpt:string){
       if(attempted)throw Error('A write was already attempted. Inspect Atlas before preparing another handoff.')
       check();const matches=projects.filter(p=>p.slug===projectSlug),project=matches[0];if(matches.length!==1||!project)throw Error('Select a project from the actual Atlas result.')
-      if(!title.trim()||title.length>200||!excerpt.trim()||excerpt.length>80000)throw Error('Supply a title and a source excerpt up to 80,000 characters.')
+      if(!title.trim()||title.length>200||!excerpt.trim()||excerpt.length>SOURCE_ATLAS_TEXT_MAX)throw Error('Supply a title and a source excerpt up to 18,000 characters.')
       const constraints=await call('atlas_constraints',{project:project.slug,kind:'doc'})
       const schema=await discover('atlas_create'),args={kind:'doc',project:project.slug,title:title.trim(),body:sourceBody(pageId,excerpt)}
-      validateValue(args,schema);prepared={args,hash:programDigest(args),schemaHash:programDigest(schema),constraintsHash:programDigest(constraints),project}
-      return {args,hash:prepared.hash,project,constraints}
+      if(JSON.stringify(args).length>SOURCE_ATLAS_ARGS_MAX)throw Error('The exact Atlas payload exceeds 20,000 characters including metadata and escaping. Select a smaller excerpt; the full source remains in ONE.')
+      validateValue(args,schema);const hash=programDigest(args),key=sourceHandoffKey(pageId,serverName,server.url,hash);prepared={args,hash,schemaHash:programDigest(schema),constraintsHash:programDigest(constraints),project,key}
+      const previous=await readSourceHandoff(key);check()
+      return {args,hash:prepared.hash,project,constraints,previous,key}
     },
-    async commit(hash:string):Promise<{receipt:AtlasReceipt;result:unknown;hash:string;project:SourceProject}>{
+    async commit(hash:string):Promise<{receipt:AtlasReceipt;result:unknown;hash:string;project:SourceProject;receiptSaved:boolean}>{
       if(attempted||!prepared||prepared.hash!==hash)throw Error('Prepare and review this exact handoff before writing.')
       check();const schema=await discover('atlas_create');if(programDigest(schema)!==prepared.schemaHash)throw Error('Atlas tool schema changed. Prepare again.')
       const currentConstraints=await call('atlas_constraints',{project:prepared.project.slug,kind:'doc'})
       if(programDigest(currentConstraints)!==prepared.constraintsHash)throw Error('Atlas constraints changed. Prepare and review again.')
-      // Once dispatched, never silently retry. A lost response may still mean the record was created.
-      attempted=true
-      const result=await call('atlas_create',prepared.args)
-      const receipt=remote.facts.snapshot().filter(r=>r.tool==='atlas_create').at(-1)
-      if(!receipt||receipt.outcome!=='ok'||receipt.refs.length!==1)throw Error('Atlas did not return an unambiguous saved record. Inspect Atlas; do not repeat the write blindly.')
-      return {receipt,result,hash:prepared.hash,project:prepared.project}
+      // Reserve durably before dispatch so closing/reloading another tab cannot duplicate an uncertain effect.
+      let attempt:Awaited<ReturnType<typeof claimSourceHandoff>>
+      try{attempt=await claimSourceHandoff(prepared.key,hash)}catch{throw Error('The personal handoff receipt cannot be saved on this device. Allow local browser storage and prepare again; nothing was written to Atlas.')}
+      if(!attempt)throw Error('This exact handoff was already attempted. Inspect its saved receipt and Atlas before another write.')
+      let result:unknown,receipt:AtlasReceipt|undefined
+      try {
+        check()
+        attempted=true
+        result=await call('atlas_create',prepared.args,prepared.schemaHash)
+        receipt=remote.facts.snapshot().filter(r=>r.tool==='atlas_create').at(-1)
+        if(!receipt||receipt.outcome!=='ok'||receipt.refs.length!==1)throw Error('Atlas did not return an unambiguous saved record. Inspect Atlas; do not repeat the write blindly.')
+      }catch(e){await finishSourceHandoff(prepared.key,attempt,{state:'unknown'}).catch(()=>false);throw e}
+      const receiptSaved=await finishSourceHandoff(prepared.key,attempt,{state:'accepted',ref:receipt.refs[0],verification:receipt.verification}).catch(()=>false)
+      check();return {receipt,result,hash:prepared.hash,project:prepared.project,receiptSaved}
     },
   }
 }

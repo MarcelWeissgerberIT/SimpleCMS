@@ -1,15 +1,25 @@
 import { connectionProblem } from '@/shared/ai/connection-problem'
 import { useLang, useT } from '../../../i18n'
 import { useState } from 'react'
+import {readServers} from './config'
 import { changeRepositories } from '../../coding/SetupCard'
 import { openCodingSettings } from '../../coding/open'
 import './connection-help.css'
 
 /** The same concrete repair path in onboarding, the terminal and page AI. Never handles secrets. */
-export function WorkerConnectionHelp({ error }: { error: unknown }) {
+export function WorkerConnectionHelp({ error,server }: { error: unknown;server?:string }) {
   const lang = useLang(), t = useT(), [opening, setOpening] = useState(false)
   const tr = (de: string, en: string) => lang === 'de' ? de : en
-  if (connectionProblem(error) !== 'tls') return null
+  const problem=connectionProblem(error)
+  if(problem!=='tls'){
+    if(!['auth','permission','timeout','network','worker','policy','tools','schema','response','limit'].includes(problem))return null
+    const connection=()=>{const id=readServers().find(s=>s.name===server)?.id;void import('../../mcp').then(m=>m.openMcpConnections({...(id?{server:id}:{}),focus:'test'}))}
+    return <div className="worker-connection-help" data-testid="worker-connection-help" data-problem={problem}>
+      <strong>{t('features.ai.connection.'+problem+'.title')}</strong>
+      <p>{t('features.ai.connection.'+problem+'.next')}</p>
+      <div className="worker-connection-help__actions"><button className="btn btn--sm" onClick={problem==='worker'?openCodingSettings:connection}>{t(problem==='worker'?'features.ai.connection.worker.open':'features.ai.connection.open')}</button></div>
+    </div>
+  }
   return <div className="worker-connection-help" data-testid="worker-tls-help">
     <strong>{tr('Sichere Verbindung blockiert · Firmenzertifikat', 'Secure connection blocked · company certificate')}</strong>
     <p>{tr('Die Zertifikatsprüfung scheitert vor der Anmeldung. Dieser Fehler sagt nicht, dass dein Atlas-Token falsch ist.', 'Certificate verification fails before sign-in. This error does not mean your Atlas token is wrong.')}</p>

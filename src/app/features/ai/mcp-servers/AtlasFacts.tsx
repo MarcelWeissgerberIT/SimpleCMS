@@ -9,7 +9,7 @@ export function AtlasFactsView({receipt}:{receipt:AtlasReceipt}){
     <summary>{t('features.ai.facts.receipt')} · {t('features.ai.facts.'+(receipt.outcome==='error'?'error':receipt.effect))}</summary>
     <div>{receipt.tool} · {t('features.ai.facts.'+receipt.outcome)}</div>
     {receipt.person&&<div>{receipt.person}</div>}
-    {receipt.counts.length>0&&<div>{receipt.counts.map(c=>`${t('features.ai.facts.unit.'+c.unit)}: ${c.value}`).join(' · ')}</div>}
+    {receipt.counts.length>0&&<div>{receipt.counts.map(c=>`${t('features.ai.facts.unit.'+c.unit)}: ${c.value}${c.scope?' ('+t('features.ai.facts.'+c.scope)+')':''}`).join(' · ')}</div>}
     {receipt.refs.length>0&&<div>Ref: {receipt.refs.join(', ')}</div>}
     {receipt.ids.length>0&&<div>ID: {receipt.ids.join(', ')}</div>}
     {receipt.status&&<div>Status: {receipt.status}</div>}

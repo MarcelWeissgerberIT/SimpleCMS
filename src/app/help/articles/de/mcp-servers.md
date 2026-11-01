@@ -106,3 +106,17 @@ Klappe unter einem tatsächlichen Atlas-Aufruf **Tatsächliches Atlas-Ergebnis**
 Unter **Gebundene Werte und Abhängigkeiten**, **Vollständige Hashes** und **Originaldaten des Prüfbelegs** findest du die gespeicherten Prüfdaten. **Prüfbeleg als JSON herunterladen** exportiert sie. Öffnen und Exportieren senden keine neue KI- oder Atlas-Anfrage. Die ausführlichen Compiler-Daten werden nicht zusätzlich als Modellkontext übertragen.
 
 Ein gespeicherter Nachweis beschreibt die damalige Prüfung. Er ist keine erneute Rechteprüfung und belegt weder fachliche Richtigkeit noch den Erfolg einer Atlas-Aktion; deren Rückgabe und gegebenenfalls Rückleseprüfung stehen getrennt daneben. Ältere Kurzbelege enthalten keine Originalausgabe. Ihre Dimensionen werden nur als Katalogzuordnung gezeigt; historische Detaildaten werden nicht nachträglich erfunden.
+
+
+## Fehler gezielt beheben
+
+Im KI-Terminal und bei der direkten Quellenübergabe zeigt ONE zu einem gescheiterten Aufruf eine kurze Reparaturkarte. **Verbindung prüfen** öffnet die betroffene persönliche Verbindung; die Schaltfläche erteilt keine zusätzlichen Rechte.
+
+- **401 / Anmeldung abgelehnt:** Atlas-Instanz und persönlichen Zugang prüfen. Ein neues Token ist erst nötig, wenn dieses tatsächlich ungültig ist.
+- **403 / Rechte fehlen:** Projektmitgliedschaft und Werkzeugrechte prüfen. Das beweist kein ungültiges Token.
+- **TLS / Zertifikat:** Firmenzertifikat im Worker prüfen; die Zertifikatsprüfung bleibt eingeschaltet.
+- **Zeitüberschreitung / Netzwerk:** Erreichbarkeit vom ausführenden Worker oder Proxy, VPN und DNS prüfen.
+- **Werkzeug oder Schema:** Aktuellen Werkzeugkatalog und genaue Argumente prüfen. Keine wirkende Aktion blind wiederholen.
+- **Ergebnis oder Kontext zu groß:** Weniger Records oder gezielte Abschnitte lesen; die Originalquelle erhalten.
+
+Werkzeugsuche und Identitätsprüfung belegen keine Projektinhalte. Eine fehlgeschlagene Suche bedeutet „nicht geprüft“, nicht „keine Daten vorhanden“. ONE prüft erkennbare falsche Referenzen, Zahlen und Erfolgsaussagen und lässt höchstens eine Antwortkorrektur ohne weitere Werkzeuge zu. Das ersetzt keine fachliche Prüfung.

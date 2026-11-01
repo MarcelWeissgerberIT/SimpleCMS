@@ -69,7 +69,12 @@ test('a guided goal runs through final QA and one human acceptance; Atlas is a d
       localStorage.setItem('one.tour', '{"off":true}')
     }, port)
     const p = { ...proposal(), context: { server: 'atlas-fixture', note: 'Approved simulator requirement.', links: ['https://aj-atlas.com/r/123'] } }
-    const mock = await mockClaudeScript(page.context(), [{ blocks: [{ type: 'mcp_tool_use', id: 'get1', server: 'atlas-fixture', name: 'atlas_get', input: { ref: 123 } }, { type: 'mcp_tool_result', id: 'get1', text: 'R1: preserve a valid timeout.' }, { type: 'text', text: JSON.stringify(p) }] }])
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas-fixture',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:123,body:'R1: preserve a valid timeout.'}})}]})}
+    const mock = await mockClaudeScript(page.context(), [
+      { blocks: [{ type: 'tool_use', id: 'discover1', name: 'one_mcp_search', input: {query:'atlas_get'} }] },
+      { blocks: [{ type: 'tool_use', id: 'get1', name: 'one_mcp_call', input: {server:'atlas-fixture',name:'atlas_get',arguments:{ref:123}} }] },
+      { blocks: [{ type: 'text', text: JSON.stringify(p) }] },
+    ])
     await openApp(page)
     await wsEval(page, s => s.updateSettings({ language: 'en', aiApiKey: 'sk-ant-e2e-test-key', mcpServers: [{ id: 'atlasfixture', name: 'atlas-fixture', url: 'https://aj-atlas.com/mcp', token: 'fixture-token', enabled: true, prompt: 'Simulator requirements', tools: ['atlas_get'], checkedAt: 1 }] }))
     await expect.poll(() => page.evaluate(() => (window as any).__onePreflight.stores.coding.getState().conn)).toBe('connected')
@@ -145,13 +150,13 @@ test('a guided goal runs through final QA and one human acceptance; Atlas is a d
     await page.getByTestId('handoff-project').fill('one-webserver')
     await page.getByTestId('handoff-verify').click()
     await expect(page.getByTestId('handoff-status')).toContainText('confirmed by readback')
-    expect(fake.mcpAsked.every(r=>r.action==='call'&&r.name==='atlas_get')).toBe(true)
+    expect(fake.mcpAsked.every(r=>r.action==='search'||r.action==='call'&&r.name==='atlas_get')).toBe(true)
     expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),packetId)).toContain('https://aj-atlas.com/r/123')
     // The public packet remains readable without this device's private run or ability to execute it.
     await gotoPage(page,packetId)
     await expect(page.locator('.ProseMirror')).toContainText('confirmed')
     await gotoPage(page,row)
-    expect(mock.requests).toHaveLength(1)
+    expect(mock.requests).toHaveLength(3)
     await page.locator('.term-prompt__input').fill('Keep my existing draft')
     await page.getByTestId('guided-atlas').click()
     await expect(page.locator('.term-prompt__input')).toHaveValue('Keep my existing draft')
