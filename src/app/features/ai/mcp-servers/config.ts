@@ -1,3 +1,4 @@
+import {atlasTenantHint} from '@/shared/mcp/scope'
 import { assertMcpFlow } from '../core/dataFlow'
 import type { WorkerMcpServer } from '@/shared/ai/worker'
 /**
@@ -494,6 +495,8 @@ export async function attachMcp(
   }
   if (!usable.length) return null
   const names = usable.map(({ s }) => s.name)
+  const onboarding=useWorkspace.getState().ai?.onboarding
+  const tenantHint=onboarding?.tenant&&usable.some(({s})=>s.name===onboarding.mcpName&&s.url===onboarding.mcpUrl)?'\n\n'+atlasTenantHint(onboarding.tenant):''
   // a picked tool that is OUT is never named to Claude (pickedTool does not pick one either)
   const picked = opts.picked && !(out[opts.picked.server] ?? []).includes(opts.picked.tool) ? opts.picked : null
   return {
@@ -507,7 +510,7 @@ export async function attachMcp(
       picked,
       allow,
       out,
-    ),
+    )+tenantHint,
     names,
   }
 }

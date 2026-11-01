@@ -96,3 +96,5 @@ Discovery is not execution. Check the actual tool call and result in the AI term
 Polarion Connect also needs an online, project-authorized Polarion worker and its browser sign-in. Start with `atlas_polarion_status`. Atlas sign-in and `atlas_polarion_resolve` do not prove a live Polarion browser connection. `atlas_polarion_prepare_change` previews a change; `atlas_polarion_apply_change` needs explicit approval of that exact preview and a write-enabled worker.
 
 Transport support and result quality are qualified separately. Identity or search success does not qualify agent execution, writes, or Polarion. Report the specific missing prerequisite; never infer success or absent records from a failed call.
+
+The prepared AJ workspace carries an explicit default Atlas tenant. It applies per call unless you specify another accessible tenant. Your global Atlas selection stays unchanged; a different selected tenant does not prove that project data is absent.

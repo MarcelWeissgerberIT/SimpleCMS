@@ -62,3 +62,19 @@ test('a looping catalogue fails explicitly instead of pretending unavailable too
  const factory=()=>({connect:async()=>{},listTools:async()=>({tools:[],nextCursor:'same'}),close:async()=>{}})as any
  await assert.rejects(runAtlasMcp({action:'search',servers:[server],query:'atlas_agent_flow'}as WorkerMcpRequest,new AbortController().signal,factory),/repeated catalogue/)
 })
+
+
+test('workspace tenant defaults are stateless, schema-aware and never overwrite an explicit tenant',async()=>{
+ const calls:any[]=[]
+ const factory=()=>({connect:async()=>{},listTools:async()=>({tools:[{name:'atlas_search',inputSchema:{type:'object',properties:{q:{type:'string'},tenant:{type:'string'}},additionalProperties:false}},{name:'atlas_whoami',inputSchema:{type:'object',additionalProperties:false}}]}),callTool:async(v:any)=>{calls.push(v);return {content:[{type:'text',text:'{"items":[]}'}]}},close:async()=>{}})as any
+ const args={q:'Laborbuch'},signal=new AbortController().signal
+ await runAtlasMcp({...request,name:'atlas_search',arguments:args} as WorkerMcpRequest,signal,factory,'analytik-jena')
+ assert.deepEqual(calls[0].arguments,{q:'Laborbuch',tenant:'analytik-jena'});assert.deepEqual(args,{q:'Laborbuch'})
+ await runAtlasMcp({...request,name:'atlas_search',arguments:{...args,tenant:'explicit-other'}} as WorkerMcpRequest,signal,factory,'analytik-jena')
+ assert.equal(calls[1].arguments.tenant,'explicit-other')
+ await runAtlasMcp(request,signal,factory,'analytik-jena');assert.deepEqual(calls[2].arguments,{})
+ const discovery:any=await runAtlasMcp({action:'search',servers:[server],query:'atlas_search'},signal,factory,'analytik-jena')
+ assert.match(discovery.guides[0].instructions,/Workspace Atlas tenant default: analytik-jena/)
+ assert.match(discovery.guides[0].instructions,/Do not change the person's global tenant/)
+ assert.equal(calls.some(c=>c.name==='atlas_tenant_select'),false)
+})
