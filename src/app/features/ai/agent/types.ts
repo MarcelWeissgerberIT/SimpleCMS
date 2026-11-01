@@ -335,6 +335,7 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  program?:{id:string;version:number;hash:string}
   contract?:import('@/shared/quandprofile/task').TaskReport
   n: number
   task: string

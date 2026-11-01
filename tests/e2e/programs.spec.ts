@@ -58,7 +58,7 @@ test.describe('Saved executable compiled programs',()=>{
   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='copilot'?'gpt-6.1-sol':DEFAULT_CLAUDE_MODEL})
   fake.onText=r=>({model:r.model,text:'Bounded program answer.',inputTokens:200,outputTokens:40,usd:0})
   const term=page.getByRole('region',{name:'AI terminal'});await term.getByRole('button',{name:'Saved compiled programs'}).click();const dialog=page.getByRole('dialog',{name:'Saved compiled programs'});await dialog.getByRole('button',{name:'New program',exact:true}).click();const editor=dialog.getByRole('textbox',{name:'Executable JSON definition'}),p=JSON.parse(await editor.inputValue());p.parameters.page_id.default=await page.evaluate(()=>Object.keys((window as any).__one.workspace.getState().pages)[0]);await editor.fill(JSON.stringify(p,null,2));await dialog.getByLabel('Name',{exact:true}).fill('Bounded '+provider);await dialog.getByRole('button',{name:'Compile and save'}).click();await dialog.getByRole('button',{name:'Run this version'}).click();await expect(term.locator('.term-answer').last()).toContainText('Bounded program answer.',{timeout:25000});await expect(term).toContainText('Program run receipt saved');expect(fake.mcpAsked).toHaveLength(0)
-  const wire=host?host.requests.map(r=>r.body):fake.textAsked;expect(wire).toHaveLength(1);expect(wire.every(r=>!r.tools?.length)).toBe(true)
+  const wire=host?host.requests.map(r=>r.body):fake.textAsked;expect(wire).toHaveLength(1);expect(wire.every(r=>!r.tools?.length)).toBe(true);expect(await page.evaluate(()=>(window as any).__oneTerm.state.getState().usage.requests)).toBe(1)
  })
 
 })

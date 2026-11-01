@@ -8,6 +8,14 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    "features.ai.program.status.done": "Executed",
+    "features.ai.program.status.failed": "Failed",
+    "features.ai.program.status.stopped": "Stopped",
+    "features.ai.program.effect.read": "Read",
+    "features.ai.program.effect.stage": "ONE proposal",
+    "features.ai.program.effect.write": "External write",
+    "features.ai.program.effect.execute": "Execute",
+
     "features.ai.program.short": "Programs",
     "features.ai.program.title": "Saved compiled programs",
     "features.ai.program.intro": "Personal library for this workspace. Each version fixes tools, order and bindings. Runs read fresh sources, check current access and ask prerequisite decisions again. A model may generate fresh content inside a fixed step; its wording is not deterministic.",
@@ -292,6 +300,14 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
+    "features.ai.program.status.done": "Ausgeführt",
+    "features.ai.program.status.failed": "Fehlgeschlagen",
+    "features.ai.program.status.stopped": "Gestoppt",
+    "features.ai.program.effect.read": "Lesen",
+    "features.ai.program.effect.stage": "ONE-Vorschlag",
+    "features.ai.program.effect.write": "Extern schreiben",
+    "features.ai.program.effect.execute": "Ausführen",
+
     "features.ai.program.short": "Kompilate",
     "features.ai.program.title": "Gespeicherte Kompilate",
     "features.ai.program.intro": "Persönliche Bibliothek für diesen Workspace. Jede Version legt Werkzeuge, Reihenfolge und Bindungen fest. Läufe lesen aktuelle Quellen, prüfen heutige Rechte und fragen nötige Entscheidungen erneut ab. Die KI kann innerhalb eines festen Schritts neue Inhalte erzeugen; deren Wortlaut ist nicht deterministisch.",

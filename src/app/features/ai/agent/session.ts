@@ -381,7 +381,7 @@ export function continuable(): AgentTurn | null {
 export function continueTask(): Promise<void> {
   const prev = continuable()
   if (!prev || get().status === 'running') return Promise.resolve()
-  if(prev.contract?.program){openPrograms();return Promise.resolve()}
+  if((prev.program||prev.contract?.program)){openPrograms();return Promise.resolve()}
   return runTask(prev.task, { history: false, continues: prev.continues ?? prev.n })
 }
 
@@ -436,7 +436,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     mentions: prevTurn || opts.again ? s.mentions : [],
     memOffNext: prevTurn ? s.memOffNext : false,
     // a key typed into the task is never shown again (the gate refuses it below)
-    turns: [...s.turns, { n, task: looksLikeKey(task) ? scrubSecrets(task) : task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
+    turns: [...s.turns, { n, ...(opts.program?{program:{id:opts.program.saved.id,version:opts.program.saved.version,hash:opts.program.saved.compiled.hash}}:{}), task: looksLikeKey(task) ? scrubSecrets(task) : task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
   }))
 
   let answer = ''
@@ -648,7 +648,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
         // the Regler refused the task's first request at the red line (nothing was sent): the halt card — E allows
         // +1 $ for this task and sends it, Mod+. ends the task (another model: the head's model key, then run it again)
         // (only when nothing of this attempt was answered: the task is then still as it was before it)
-        const halt = e instanceof AIError && e.code === 'budget' && !answered && !ac.signal.aborted && here() ? firstHalt(e) : null
+        const halt = !opts.program && e instanceof AIError && e.code === 'budget' && !answered && !ac.signal.aborted && here() ? firstHalt(e) : null
         if (halt) {
           const choice = await untilStopped(waitAtLine(n, halt, { label: e instanceof AIError ? (e.label ?? '') : '', provider: 'anthropic', refresh: async () => null }, () => taskUsd, ac.signal), ac.signal)
           if (choice !== 'allow' || ac.signal.aborted) throw new AIError('aborted')
@@ -1384,7 +1384,7 @@ export function rerunAfterSignIn(entryId: string): void {
   const turn = get().turns.find((x) => x.n === c.retry!.n)
   const snap = turnSnap.get(c.retry.n)
   if (!turn || !snap) return
-  if(turn.contract?.program){openPrograms();return}
+  if((turn.program||turn.contract?.program)){openPrograms();return}
   patchConnect(entryId, { retried: true })
   history = snap.before
   historyProvider = snap.provider

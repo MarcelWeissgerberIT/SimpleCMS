@@ -1,3 +1,4 @@
+import {tapSignal} from '../core/meter'
 import {bindInputs,programDigest,readProgram,resolveExpr,validateValue,type Json,type SavedProgram,type ProgramRun} from '@/shared/quandprofile/program'
 import {atlasTaskEffect} from '@/shared/mcp/facts'
 import {streamCompletion,completeStructured} from '../client'
@@ -27,6 +28,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
  const tools=o.tools??TERMINAL_TOOLS,results:Record<string,Json>={},shape=shapeOf(prepared),seen=shape?prepared.visible:null
  const check=()=>{signal.throwIfAborted();if(scope.key!==programScope().key)throw Error('Account or workspace changed. Start a new run.');assertPreparedFlow(prepared)}
  const task=(()=>{try{return createTaskContract({prepared,instructions:(o.system??'')+'\n'+(o.mcp?.system??''),goal:p.goal,input:{artifact:saved.compiled.hash,inputs},tools:p.steps.flatMap(s=>s.kind==='tool'&&!s.server?[s.tool]:[]),one:p.steps.some(s=>s.kind==='tool'&&!s.server),atlas:p.steps.some(s=>s.kind==='tool'&&!!s.server),signal,onReport:r=>hooks.contract?.({...r,program:{id:saved.id,version:saved.version,hash:saved.compiled.hash,runId:receipt.id}}),interactive:true,bounds:{readOnly:!effects,externalWrite:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='write'),execute:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='execute')}})}catch(e){settle(prepared);throw e}})()
+ const untap=tapSignal(signal,{onEntry:entry=>hooks.usage(entry.usage,entry)})
  let audit:Awaited<ReturnType<typeof beginLiveAudit>>|undefined
  try{
   audit=await beginLiveAudit(prepared.route!,p.goal+'\nProgram '+saved.compiled.hash,o.purpose)
@@ -65,7 +67,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
   task.finish(answer);receipt.answer=answer.slice(0,100000);receipt.status='done';hooks.text(answer);hooks.textDone('answer');return 'done' as const
  }catch(e){receipt.status=signal.aborted?'stopped':'failed';receipt.error=(e instanceof Error?e.message:String(e)).slice(0,4000);throw e}
  finally{
-  receipt.finishedAt=Date.now();task.release();settle(prepared)
+  receipt.finishedAt=Date.now();untap();task.release();settle(prepared)
   try{await audit?.end(receipt.status,receipt.answer??'',receipt.error)}catch(e){hooks.note(String(e))}
   try{await saveProgramRun(receipt,scope);hooks.note(t('features.ai.program.receiptSaved'))}catch(e){hooks.note(t('features.ai.program.receiptFailed')+' '+String(e))}
  }
