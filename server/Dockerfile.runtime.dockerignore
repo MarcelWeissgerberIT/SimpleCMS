@@ -1,0 +1,12 @@
+# BuildKit: only verified production artifacts and runtime metadata enter this image.
+**
+!dist/
+!dist/**
+!server/
+!server/dist/
+!server/dist/**
+!server/package.json
+!server/LICENSE
+!server/README.md
+!server/Dockerfile.runtime
+!server/Dockerfile.runtime.dockerignore

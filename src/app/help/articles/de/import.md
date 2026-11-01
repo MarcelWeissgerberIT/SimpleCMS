@@ -56,3 +56,6 @@ Wähle die Kachel **PowerPoint** oder leg eine `.pptx` ab. Sie wird auf diesem G
 - Grenzen: höchstens 300 Folien und 200 MB entpackt. Alte `.ppt`-Dateien zuerst als `.pptx` speichern.
 
 Eine `.pptx`, die schon auf einer Seite liegt (dort abgelegt oder ein Mail-Anhang): Ihre Dateitaste **KI** → **Als Seite öffnen** macht dasselbe hier auf dem Gerät; **Zusammenfassen** und **Frage zur Datei** senden ihren Text an Claude.
+
+
+Atlas kann den Inhalt beim Speichern übersetzen oder normalisieren. Dann zeigt ONE ausdrücklich „Titel oder Inhalt weichen beim Rücklesen ab“, auch wenn das Original in einem Atlas-Originalblock erhalten ist. Das ist eine angenommene Speicherung mit abweichendem Rückleseergebnis und kein Anlass, das Dossier erneut anzulegen. Vergleiche über den Link mit der Originalquelle in ONE; der frühere Nachweis behält diese Abweichung auch nach dem Neuladen bei.

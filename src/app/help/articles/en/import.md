@@ -56,3 +56,6 @@ Choose the **PowerPoint** tile or drop a `.pptx`. It is read on this device — 
 - Limits: at most 300 slides and 200 MB unpacked. Old `.ppt` files: save them as `.pptx` first.
 
 A `.pptx` already on a page (dropped there, or a mail attachment): its file key **AI** → **Open as page** does the same here on the device; **Summarise** and **Ask about the file** send its text to Claude.
+
+
+Atlas may translate or normalize content when saving it. ONE then explicitly reports a title/content mismatch, even if Atlas retains an original-language block. This is an accepted write with a differing read-back, not a reason to create the dossier again. Compare the linked record with the original source in ONE; the saved receipt retains this mismatch after reload.

@@ -129,4 +129,20 @@ test.describe('Human-reviewed Atlas source handoff',()=>{
   expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(0)
  })
 
+ test('server-transformed content stays an accepted but mismatched write after reload, never a false failure or retry',async({page})=>{
+  const original=fake.onModelMcp!
+  fake.onModelMcp=r=>r.action==='call'&&r.name==='atlas_create'?(saved={...r.arguments,title:'Server translated title',body:String(r.arguments.body)+'\nServer normalization'}, {result:envelope({item:{ref:42,...saved}})}):original(r)
+  const dialog=await review(page);await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'Create in Atlas now',exact:true}).click()
+  await expect(dialog).toContainText('Atlas accepted the reference')
+  await expect(dialog).toContainText('title or content differs on read-back')
+  await expect(dialog).not.toContainText('Title and content read back and verified.')
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(1)
+  await dialog.getByRole('button',{name:'Close',exact:true}).click();await reloadApp(page)
+  await page.evaluate(id=>(window as any).__one.ui.getState().openModal({type:'sourceAtlas',pageId:id}),pageId)
+  const reopened=await review(page)
+  await expect(reopened.getByTestId('source-handoff-verification')).toContainText('title or content differs on read-back')
+  await expect(reopened.getByRole('button',{name:'Create in Atlas now',exact:true})).toBeDisabled()
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(1)
+ })
+
 })
