@@ -24,6 +24,8 @@ test('live test viewer polls real trace endpoints, separates requested from actu
  await expect(box).toContainText('Call started · result not yet recorded');await expect(box).toContainText('Model response / requested tools')
  finished=true
  await expect(box).toContainText('Tool result received',{timeout:8000});await expect(box).toContainText('Synthetic Ada');expect(reads).toBeGreaterThan(1)
+ await expect(box.locator('.frankfurt-live__event[data-kind=tool] pre').last()).toContainText('\"result\": {')
+ await expect(box.locator('.frankfurt-live__event[data-kind=tool] pre').last()).not.toContainText('\\\"content')
  await box.getByRole('checkbox',{name:/Follow live/}).uncheck();const stopped=reads;await page.waitForTimeout(2300);expect(reads).toBe(stopped)
  const [download]=await Promise.all([page.waitForEvent('download'),box.getByRole('button',{name:'Download this entire test'}).click()]);expect(download.suggestedFilename()).toBe('atlas-flow-test-'+ID+'.json')
  await download.saveAs(info.outputPath('trace.json'))
