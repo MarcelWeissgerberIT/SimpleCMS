@@ -100,7 +100,7 @@ test.describe('Source-grounded existing-page rewrite',()=>{
  test('/ba stops after one repair of invented references; no PO, writes or approval',async({page})=>{
   fake.onText=r=>({model:r.model,text:JSON.stringify({requirements:[],questions:[{question:'What is the actual measurement precision?',reason:'The source does not state a precision.',source_refs:['T-invented']}]}),inputTokens:100,outputTokens:40,usd:0})
   await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
-  await input.fill('/ba');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.locator('.term-step[data-tool="edit_page"]')).toHaveCount(0);await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Blocked')
+  await input.fill('/ba');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.locator('.term-step[data-tool="edit_page"]')).toHaveCount(0);await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Blocked');await expect(term.locator('.term-answer')).toContainText('Requirement drafts withheld');await expect(term.locator('.term-answer')).toContainText('AICM-2065');await expect(term).not.toContainText('ERR · UNKNOWN')
  })
  test('/ba rejects a source version changed while the model was working',async({page})=>{
   let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve})

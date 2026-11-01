@@ -43,6 +43,7 @@ export function providerOfLabel(label: string): ProviderId {
 
 /** The friendly sentence for an error code (in the current UI language) — naming the company and host of the route. */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
+  if(code==='bad_request'&&v.detail==='features.ai.analysis.held')return t(v.detail)
   if(code==='rate_limit'&&v.detail==='features.ai.local.queueFull')return t(v.detail)
   if(v.detail==='features.ai.quantum.blocked')return t(v.detail)
   if(v.detail==='features.ai.local.unverifiedFacts')return t(v.detail)
