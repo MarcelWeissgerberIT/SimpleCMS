@@ -56,3 +56,16 @@ test('shared wire limits negotiate with each host and keep old hosts at their or
  const {sharedInputMax}=await import('../../src/shared/ai/shared-model.ts')
  assert.equal(sharedInputMax(),22000);assert.equal(sharedInputMax(36000),36000);assert.equal(sharedInputMax(99999),36000);assert.equal(sharedInputMax(-1),22000)
 })
+
+
+test('native function schema budget prioritizes the latest exact discovery while retaining older dispatch bindings',()=>{
+ const bindings=new McpBindings()
+ const old={server:'atlas',name:'atlas_update',description:'Old schema '.repeat(400),inputSchema:{type:'object',properties:{ref:{type:'integer'}}}}
+ bindings.expose([old]);const original=bindings.functionName('atlas','atlas_update')!
+ bindings.expose([{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}}}}])
+ const next=bindings.functions(1000)
+ assert.equal(next.length,1);assert.equal(next[0].name,bindings.functionName('atlas','atlas_get'))
+ assert.ok(JSON.stringify(next).length<1000)
+ assert.deepEqual(bindings.resolve(original,{ref:42}),{server:'atlas',name:'atlas_update',arguments:{ref:42}})
+ assert.equal(bindings.functions().length,2)
+})

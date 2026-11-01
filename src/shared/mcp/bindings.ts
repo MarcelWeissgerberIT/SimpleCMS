@@ -17,7 +17,10 @@ export function selectMcpSchemas<T>(tools:T[],budget:number):T[] {
 export class McpBindings {
   private bindings=new Map<string,{tool:DiscoveredMcpTool;native:string}>()
   private active:string[]=[]
+  private priority:string[]=[]
   expose(tools:DiscoveredMcpTool[]) {
+    const latest=tools.map(tool=>JSON.stringify([tool.server,tool.name]))
+    this.priority=[...latest,...this.priority.filter(key=>!latest.includes(key))].slice(0,6)
     for(const tool of tools){
       const key=JSON.stringify([tool.server,tool.name])
       if(!this.bindings.has(key))this.bindings.set(key,{tool,native:'one_remote_'+(this.bindings.size+1)})
@@ -28,7 +31,11 @@ export class McpBindings {
     }
   }
   functionName(server:string,name:string){return this.bindings.get(JSON.stringify([server,name]))?.native}
-  functions(){return this.active.map(key=>{const {tool,native}=this.bindings.get(key)!;return {name:native,description:`[${tool.server} / ${tool.name}] ${tool.description??''}`,parameters:tool.inputSchema}})}
+  functions(budget?:number){
+    const keys=budget===undefined?this.active:this.priority.filter(key=>this.active.includes(key))
+    const functions=keys.map(key=>{const {tool,native}=this.bindings.get(key)!;return {name:native,description:`[${tool.server} / ${tool.name}] ${tool.description??''}`,parameters:tool.inputSchema}})
+    return budget===undefined?functions:selectMcpSchemas(functions,budget)
+  }
   has(name:string){return [...this.bindings.values()].some(b=>b.native===name)}
   invocation(name:string,args:Record<string,unknown>){
     if(this.has(name))return this.resolve(name,args)
