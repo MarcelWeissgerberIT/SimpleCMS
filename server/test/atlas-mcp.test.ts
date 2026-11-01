@@ -78,3 +78,14 @@ test('workspace tenant defaults are stateless, schema-aware and never overwrite 
  assert.match(discovery.guides[0].instructions,/Do not change the person's global tenant/)
  assert.equal(calls.some(c=>c.name==='atlas_tenant_select'),false)
 })
+
+
+test('search discovery includes only the permitted real workspace project directory instead of guessed labels',async()=>{
+ const called:string[]=[]
+ const factory=()=>({connect:async()=>{},listTools:async()=>({tools:[{name:'atlas_search',inputSchema:{type:'object'}},{name:'atlas_project_list',inputSchema:{type:'object'}}]}),callTool:async(v:any)=>{called.push(v.name);return {content:[{type:'text',text:JSON.stringify({projects:[{slug:'flux-part-felix',title:'Flux Part FeliX',tenant:'analytik-jena',parentSlug:'flux-client'},{slug:'unrelated',title:'Other workspace',tenant:'other'}]})}]}},close:async()=>{}})as any
+ const r:any=await runAtlasMcp({action:'search',servers:[server],query:'atlas_search'},new AbortController().signal,factory,'analytik-jena')
+ assert.deepEqual(called,['atlas_project_list']);assert.match(r.guides[0].instructions,/flux-part-felix/);assert.match(r.guides[0].instructions,/flux-client/);assert.ok(!r.guides[0].instructions.includes('unrelated'))
+ called.length=0
+ await runAtlasMcp({action:'search',servers:[{...server,deny:['atlas_project_list']}],query:'atlas_search'},new AbortController().signal,factory,'analytik-jena')
+ assert.deepEqual(called,[])
+})
