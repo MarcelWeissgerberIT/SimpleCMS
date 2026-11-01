@@ -330,6 +330,7 @@ export async function runAgent(opts: {
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const observed=await delivery.prepare(prepared)
     if(observed){const last=messages.at(-1)!;last.content=typeof last.content==='string'?last.content+observed:[...(last.content??[]),{type:'text',text:observed}]}
+    if(delivery.analysis){const {runGroundedAnalysis}=await import('./groundedAnalysis');return await runGroundedAnalysis(opts,prepared,delivery)}
     if(delivery.boundedRewrite){const {runGroundedRewrite}=await import('./groundedRewrite');return await runGroundedRewrite(opts,prepared,delivery)}
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null

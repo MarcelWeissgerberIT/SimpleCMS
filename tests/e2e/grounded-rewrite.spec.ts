@@ -76,4 +76,44 @@ test.describe('Source-grounded existing-page rewrite',()=>{
   await input.fill('Implement a standalone C++ function parse.');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Blocked')
  })
 
+ for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: /ba runs a bounded BA draft then a PO critique with no writes`,async({page})=>{
+  const ba=JSON.stringify({requirements:[{statement:'When a measurement starts, the logger shall record its start time.',source_refs:['T01'],checks:[{action:'Start a measurement and inspect the logger.',expected:'The original start time is recorded.'},{action:'Leave the measurement unstarted and inspect the logger.',expected:'No start event is recorded for that measurement.'}]}],questions:[{question:'What timestamp precision is required?',reason:'No precision is specified by the actual source.',source_refs:['T01']}]})
+  const po=JSON.stringify({reviews:[{requirement:'R1',support:'partial',finding:'The required start-time precision is unspecified; acceptance needs that clarification.'}],contradictions:[],questions:['What timestamp precision must the team agree?']})
+  let calls=0;fake.onText=r=>{expect(r.tools??[]).toHaveLength(0);expect(JSON.stringify(r.messages)).toContain('AICM-2065');return {model:r.model,text:calls++?po:ba,inputTokens:200,outputTokens:100,usd:0}}
+  const native=provider==='anthropic'?await mockClaudeScript(page,[text(ba),text(po)]):null
+  if(native)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-analysis'}))
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?'atlas-flow:latest':provider==='copilot'?'auto':DEFAULT_CLAUDE_MODEL})
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill(provider==='copilot'?'/po measurement':'/ba measurement');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('PO · second model review',{timeout:25000})
+  expect(native?.requests.length??fake.textAsked.length).toBe(2);expect(fetches).toBe(0);expect(fake.mcpAsked).toHaveLength(0)
+  await expect(term.locator('.term-answer')).toContainText('Atlas was not queried again');await expect(term.locator('.term-answer')).toContainText('No precision is specified');await expect(term.locator('.term-step[data-tool="read_page"]')).toHaveCount(1)
+  await expect(term.locator('.term-step[data-tool="edit_page"]')).toHaveCount(0);await expect(term.locator('#term-review-title')).toHaveCount(0)
+  expect(await wsEval(page,(s,id)=>s.pages[id].plain,target)).toContain('not merged and not verified')
+  await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Ready for review')
+ })
+ test('/po refuses an excluded source before inference',async({page})=>{
+  await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('/context');await input.press('Enter');await expect(page.getByTestId('ctx-layer')).toBeVisible();await page.keyboard.press('n');await page.keyboard.press('Enter');await expect(page.getByTestId('ctx-layer')).toHaveCount(0)
+  await input.fill('/po');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});expect(fake.textAsked).toHaveLength(0);await expect(term).toContainText('page content is excluded')
+ })
+ test('/ba stops after one repair of invented references; no PO, writes or approval',async({page})=>{
+  fake.onText=r=>({model:r.model,text:JSON.stringify({requirements:[],questions:[{question:'What is the actual measurement precision?',reason:'The source does not state a precision.',source_refs:['T-invented']}]}),inputTokens:100,outputTokens:40,usd:0})
+  await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('/ba');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.locator('.term-step[data-tool="edit_page"]')).toHaveCount(0);await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Blocked')
+ })
+ test('/ba rejects a source version changed while the model was working',async({page})=>{
+  let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve})
+  fake.onText=async r=>{await held;return {model:r.model,text:JSON.stringify({requirements:[],questions:[{question:'What precision is needed for timestamps?',reason:'The original text leaves precision open.',source_refs:['T01']}]}),inputTokens:100,outputTokens:40,usd:0}}
+  await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('/ba');await input.press('Enter');await expect.poll(()=>fake.textAsked.length).toBe(1)
+  await wsEval(page,(s,id)=>s.setContent(id,{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'This actual source has changed during analysis.'}]}]},'e2e'),target);release()
+  await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});expect(fake.textAsked).toHaveLength(1);await expect(term).toContainText('source changed during analysis');await expect(term.locator('.term-answer')).toHaveCount(0)
+ })
+
+ test('/ba can return source-bound questions when the specification cannot support a requirement',async({page})=>{
+  let calls=0;fake.onText=r=>({model:r.model,text:JSON.stringify(calls++?{reviews:[],contradictions:[],questions:['Which timestamp precision must the team specify?']}:{requirements:[],questions:[{question:'Which timestamp precision is required?',reason:'No precision is present in the actual source.',source_refs:['T01']}]}),inputTokens:100,outputTokens:40,usd:0})
+  await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('/ba timestamp precision');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('No sufficiently specific requirement',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.locator('.term-answer')).toContainText('No precision is present');await expect(term.locator('#term-review-title')).toHaveCount(0)
+ })
+
 })

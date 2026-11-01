@@ -803,6 +803,7 @@ export async function submitPrompt(raw?: string): Promise<void> {
     if (withText.id === 'remember') return rememberText(input, withText.text)
     if (withText.id === 'example') return exampleDialog(input, withText.text)
     if (get().status === 'running') return info(input, 'features.agent.echo.wait')
+    if(withText.id === 'ba' || withText.id === 'po') return runTask('/'+withText.id+' '+withText.text, { history: false })
     return runTask(withText.text, { noMemory: true, history: false })
   }
   const cmd = parseCommand(input)
@@ -812,6 +813,10 @@ export async function submitPrompt(raw?: string): Promise<void> {
   const running = get().status === 'running'
   const pending = get().changes.filter((c) => c.status === 'pending' || c.status === 'failed').length
   switch (cmd) {
+    case 'ba':
+    case 'po':
+      if(running) return info(input, 'features.agent.echo.wait')
+      return runTask('/'+cmd, { history: false })
     case 'new':
       newTask()
       return
