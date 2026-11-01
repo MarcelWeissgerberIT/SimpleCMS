@@ -1,3 +1,4 @@
+import {CompiledProgramsHost} from '../../features/ai/programs/dialog'
 import { isTestAccess } from '../../cloud/testScope'
 import { useLang } from '../../i18n'
 import { Modal } from '../../ui/Modal'
@@ -23,6 +24,7 @@ export function ModalHost() {
       <HelpHost shortcuts={<ShortcutList />} />
       {/* MirrorSetup / the agent editor over any route (the Patchbay's setup lamps) — a lazy chunk, only while asked */}
       {!isTestAccess() && <AgentDialogsHost />}
+      {!isTestAccess() && <CompiledProgramsHost />}
       {modal && <ModalSwitch modal={modal} onClose={close} />}
     </>
   )

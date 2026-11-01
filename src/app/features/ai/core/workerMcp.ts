@@ -23,7 +23,7 @@ export const isWorkerMcpFunction = (name:string) => WORKER_MCP_FUNCTIONS.some(t=
 const connectionProblem=(e:unknown)=>e instanceof Error&&/^AJ-Atlas (hat diesen persönlichen Token abgelehnt\. Bitte Token und Rechte prüfen\.|ist nicht erreichbar oder hat die Anfrage abgelehnt\. Es wurde kein anderer Server verwendet\.)$/.test(e.message)?e.message:e instanceof Error&&/^MCP connection [a-z][a-z0-9_-]{0,31}: (?:Authentication rejected by this endpoint\. Check the Atlas instance and personal token\.|TLS certificate verification failed\. Check the company certificate setup for Node; do not disable verification\.|Connection timed out\. Check VPN, proxy and network access from this worker\.|Network connection failed\. Check VPN, proxy, DNS and network access from this worker\.|Connection or tool discovery failed\. Check the endpoint and worker connectivity\.)$/.test(e.message)?e.message:'MCP discovery failed. Check the personal worker and connection.'
 export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000,audit?:LiveAudit,task?:TaskSession) {
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
-  const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
+  const schemas=new Map<string,DiscoveredMcpTool>(),discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
   const request=(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
   let attempts=0
   const signature=()=>JSON.stringify([useWorkspace.getState().epoch,useWorkspace.getState().settings.mcpServers])
@@ -53,7 +53,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         bindings.expose(exposed)
         task?.expose(exposed.map(t=>t.server+':'+t.name))
         if(found.projectDirectory&&servers.some(s=>s.name===found.projectDirectory!.server)&&Array.isArray(found.projectDirectory.projects))evidence.directory(found.projectDirectory.server,found.projectDirectory.projects)
-        for(const t of exposed)discovered.add(JSON.stringify([t.server,t.name]))
+        for(const t of exposed){const key=JSON.stringify([t.server,t.name]);discovered.add(key);schemas.set(key,t)}
         const guides=(found.guides??[]).filter(g=>!shownGuides.has(g.server))
         guides.forEach(g=>shownGuides.add(g.server))
         event({...activity,state:'ok'})
@@ -77,6 +77,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       if(typeof out?.result!=='string')throw new AIError('mcp')
       const failed=JSON.parse(out.result).isError===true
       task?.observe(args.name.startsWith('atlas_')?'atlas':'other',!failed,atlasTaskEffect(actual.name,actual.arguments)==='read',false,!['atlas_whoami','atlas_record_kinds','atlas_setup_bootstrap','atlas_setup_changelog'].includes(actual.name),actual.name)
+      if(!failed){const schema=schemas.get(JSON.stringify([actual.server,actual.name]));const effect=atlasTaskEffect(actual.name,actual.arguments);if(schema&&['read','write','execute'].includes(effect))task?.capture({kind:'tool',server:actual.server,endpoint:selected.url,tool:actual.name,schema:schema.inputSchema,args:actual.arguments,effect:effect as 'read'|'write'|'execute'})}
       const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
       if(receipt)receipt.quantum=proof
       const server=servers.find(s=>s.name===args.server)
@@ -103,5 +104,5 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       return receipt||evidence.hint()?JSON.stringify({...JSON.parse(packed),...(receipt?{oneObservedFacts:modelAtlasReceipt(receipt)}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
     }catch(e){if(e instanceof LiveAuditError)throw e;if(e instanceof TaskBlocked){event({...activity,state:'err',error:e.message});throw new AIError('policy',e.message)}if(dispatched)task?.observe(String(args.name).startsWith('atlas_')?'atlas':'other',false,atlasTaskEffect(String(args.name),args.arguments as Record<string,unknown>)==='read',false,true,String(args.name));if(signal?.aborted)throw new AIError('aborted');if(e instanceof AIError&&e.code==='policy'){event({...activity,state:'err',error:e.message});throw e}const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
   }
-  return Object.assign(invoke,{evidence,facts,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
+  return Object.assign(invoke,{evidence,facts,attempted:()=>attempts>0,schema:(server:string,name:string)=>schemas.get(JSON.stringify([server,name])),functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
 }

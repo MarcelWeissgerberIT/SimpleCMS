@@ -79,3 +79,17 @@ Open **Compiled task** below your request. The task compiler binds the goal, rol
 For missing prerequisites the model first inspects available ONE and Atlas sources. Tool discovery is not a source read. If a prerequisite remains open or a source is unavailable, the decision cube asks a precise question and names the dependent step. Choose an option or enter your specification. Only your UI answer resolves the question and binds a new revision; permissions do not expand. Independent reads remain permitted and dependent effects stay blocked. Background agents stop for human decisions: specify their missing input and run them again.
 
 **Ready for review** confirms technical task bounds, observed tool data and output format. It does not prove every statement or domain completeness. **I reviewed the result** records your review without applying proposals. Existing data and tool permissions still apply. Unknown effects or stale actor, workspace and provider bindings block execution.
+
+## Repeat saved compiled programs
+
+Open **Programs** in the AI terminal header. After a successful regular task, expand **Compiled task** and choose **Save as executable program** to review a draft of the actual successful tool calls in order. Text-only tasks without tool calls cannot be captured as executable programs.
+
+1. Review the name and definition, then **Compile and save**. The library is personal to your account in this workspace. Cloud versions are encrypted and unavailable to other members; local workspaces store them on this device.
+2. Select an immutable version. Inputs use JSON syntax, such as `"page-id"`, `42` or `{"ref":42}`. Read arguments may have reviewed defaults. Effect arguments and calls following an effect require fresh inputs or explicit bindings to fresh results. Old generated content is not automatically reused as fresh input.
+3. **Run this version** uses the current terminal model and your current personal connections. Review inputs and effects before an effectful run. ONE changes remain staged; permitted external writes and execution run immediately.
+4. Each run reads fresh sources and asks prerequisite decisions again in the decision cube. Changed schemas, missing bindings or revoked access stop the program. There is no tool substitution or automatic restart of a write step.
+5. **Run receipts** retains the latest 100 runs with artifact hash, version, unique run ID, model, per-step input/output hashes and answer or error. After a partial external effect, inspect the actual state before repeating the run.
+
+**Edit as new version** never changes an earlier version. The hash identifies a canonical compiled JSON definition: fixed tools, order, data bindings and generation instructions. Execution interprets this checked intermediate representation; it never evaluates JavaScript. Generation steps have no tools and may produce different wording on each run. A repeatable program does not guarantee identical text or domain correctness; human acceptance remains necessary.
+
+In the advanced definition, `{"input":"name"}` binds an input, `{"result":"step_id","path":["id"]}` binds a field from an earlier result, and `{"literal":…}` binds a constant JSON value. `object` and `array` combine bindings. A `generate` step can require a fixed JSON schema and consume fresh source results; later tool steps can bind individual generated fields. The model cannot choose additional tools. Missing result paths or unsupported schema checks stop before the affected operation.

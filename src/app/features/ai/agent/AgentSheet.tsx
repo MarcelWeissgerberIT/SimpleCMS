@@ -1,3 +1,4 @@
+import {openPrograms} from '../programs/dialog'
 import {TaskContractCard} from '../mcp-servers/TaskContractCard'
 import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
 import {AtlasFactsView} from '../mcp-servers/AtlasFacts'
@@ -390,6 +391,7 @@ function Head() {
       <span className="term-head__status" aria-live="polite">
         {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
       </span>
+<button type="button" className="term-key" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
       <span className="term-spacer" />
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
         <RotateCcw size={13} strokeWidth={1.75} aria-hidden />

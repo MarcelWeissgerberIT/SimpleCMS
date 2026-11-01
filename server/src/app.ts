@@ -1,3 +1,4 @@
+import {programRoutes} from './routes/programs.ts'
 import { Hono, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HTTPException } from 'hono/http-exception'
@@ -89,6 +90,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/workspaces', workspaceRoutes(s))
   app.route('/api/workspaces', welcomeRoutes(s))
   app.route('/api/workspaces', readinessRoutes(s))
+  app.route('/api/workspaces', programRoutes(s))
   app.route('/api/workspaces', checkoutRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', mediaFetchRoutes(s))

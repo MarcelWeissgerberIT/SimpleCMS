@@ -38,11 +38,12 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
 
   for (let round = 0; round < 12; round++) {
     assertPreparedFlow(prepared)
-    const tools=factRepairs===0?[TASK_QUESTION,...(remote?[...WORKER_MCP_FUNCTIONS,...remote.functions()]:[])]:[]
+    const tools=factRepairs===0&&remote?[TASK_QUESTION,...WORKER_MCP_FUNCTIONS,...remote.functions()]:[]
     const compiled=task!.packet()
     await audit.tool('ONE','compiled_task',{phase:'compile'},()=>task!.report())
     const outbound=messages.map((m,i)=>i===0?{...m,content:compiled}:m)
     const result = await sendWorkerText(req.route, outbound, Math.min(req.maxTokens, 8192), o.signal, {auditRun:audit.runId, ...(material.attachments.length ? { attachments: material.attachments } : {}), ...(tools.length ? { tools } : {}), ...(req.output.kind === 'json' ? { schema: req.output.schema } : {}) })
+    if(!remote&&result.calls?.length)throw new AIError('capability','A tool-free generation step returned an unsolicited tool call. Nothing was executed.')
     if(req.output.kind!=='json')result.text=unwrapMcpText(result.text)
     const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
     const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.copilotReceipt?.models.at(-1) ?? null, streamedChars: result.text.length }

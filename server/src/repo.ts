@@ -379,6 +379,8 @@ export class Repo {
     this.db.tx(() => {
       this.db.run('DELETE FROM guest_participation WHERE workspace_id=? AND email=(SELECT email FROM users WHERE id=?)', workspaceId, userId)
       this.db.run('DELETE FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)
+      this.db.run('DELETE FROM task_program_runs WHERE workspace_id=? AND user_id=?',workspaceId,userId)
+      this.db.run('DELETE FROM task_programs WHERE workspace_id=? AND user_id=?',workspaceId,userId)
       this.revokeCodingWorkersOf(workspaceId, userId)
     })
   }

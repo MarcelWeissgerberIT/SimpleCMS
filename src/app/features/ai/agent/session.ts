@@ -1,3 +1,6 @@
+import {readProgram} from '@/shared/quandprofile/program'
+import {openPrograms} from '../programs/dialog'
+import type {ProgramInvocation} from '../programs/runner'
 import { repoFileRefs, repoFileContext } from '@/shared/repo-files'
 import { requestRepoFiles } from '../../coding/service'
 /**
@@ -378,6 +381,7 @@ export function continuable(): AgentTurn | null {
 export function continueTask(): Promise<void> {
   const prev = continuable()
   if (!prev || get().status === 'running') return Promise.resolve()
+  if(prev.contract?.program){openPrograms();return Promise.resolve()}
   return runTask(prev.task, { history: false, continues: prev.continues ?? prev.n })
 }
 
@@ -386,7 +390,7 @@ export function continueTask(): Promise<void> {
  * (/no-memory <task>); `history: false` when the prompt went into the history already; `continues`:
  * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
-export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] } } = {}): Promise<void> {
+export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
   const task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
   const n = get().turns.length + 1
@@ -402,8 +406,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   if (opts.history !== false) pushHistory(task)
   // the chips go along with this task: references, the mentions still in the text, the open page (a continuation: none again)
   // "Run the task again" (after a sign-in): the references and mentions the task had; the chips stay for the next one
-  const refs = prevTurn ? [] : opts.again ? opts.again.refs : get().refs
-  const mentions = prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
+  const refs = opts.program || prevTurn ? [] : opts.again ? opts.again.refs : get().refs
+  const mentions = opts.program || prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
   const pageId = contextPageId()
   const suffix = pageId ? contextSuffix(pageId) : ''
   const ctx: TurnContext = {
@@ -413,10 +417,11 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   }
   // the One memory: the memories that fit this task go along (/no-memory: none; a continuation: they went along already)
   // the One memory goes along only where the route may receive it (D-S2-29; the terminal runs on Claude in S2)
-  const mem = prevTurn || !mayReceive('terminal.task', 'memory', get().route) ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
+  const mem = opts.program || prevTurn || !mayReceive('terminal.task', 'memory', get().route) ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
-  const prepared = prepareTask(task)
+  const prepared = opts.program?{setup:currentSetup(),prompt:task,memTools:false,codingTools:hasPipelines()||useCoding.getState().enabled,upsert:unlocked('upsert'),taskRules:canCreateItems()}:prepareTask(task)
+  if(opts.program){const names=new Set(readProgram(opts.program.saved.compiled).steps.flatMap(s=>s.kind==='tool'&&s.server?[s.server]:[]));prepared.setup={...prepared.setup,servers:prepared.setup.servers.filter(s=>names.has(s.name))}}
   const { setup, memTools: withMemTools, codingTools: withCoding, upsert: withUpsert } = prepared
   const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
   set((s) => ({
@@ -560,7 +565,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const result = status === 'done' || status === 'limit' ? (staged.length ? tn('features.memory.result.changes', staged.length) : t('features.memory.result.answer')) : t(status === 'stopped' ? 'features.memory.result.stopped' : 'features.memory.result.failed')
     // a task refused for a key in its text was never sent: no row (the key would be its name)
     if (error?.code !== 'key_in_text') noteUse(answer, mem.use, { task, where: { kind: 'terminal' }, pageId, result })
-    if (status === 'done' && proposalsOn() && !trivialTask(task, staged.length)) void proposeFor(n, task, answer, mem.use?.items.map((x) => x.text) ?? [])
+    if (!opts.program && status === 'done' && proposalsOn() && !trivialTask(task, staged.length)) void proposeFor(n, task, answer, mem.use?.items.map((x) => x.text) ?? [])
   }
 
   // servers addressed by a codeword always join; the others are left out while they reject their token here
@@ -583,7 +588,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       note(t('features.agent.providerFresh'))
       providerChangeNoted = true
     }
-    const activeHistory = historyProvider === runProvider ? history : []
+    const activeHistory = !opts.program && historyProvider === runProvider ? history : []
     const tooling = terminalSetup(withCoding, withMemTools && pre.allows('memory'), withUpsert, prepared.taskRules)
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')
@@ -611,7 +616,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const withImages = await withRefImages(taskMessage(activeHistory, prompt, text + repoText), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
-    return runAgent({
+    const execute=opts.program?(await import('../programs/runner')).runCompiledProgram:runAgent
+    return execute({
       purpose: 'terminal.task',
       route: pre.route,
       sources,
@@ -630,7 +636,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       tools: tooling.tools,
       system: tooling.system,
       run: { source: taskSource },
-    })
+    }, opts.program!)
   }
   try {
     let end: Awaited<ReturnType<typeof attempt>>
@@ -650,7 +656,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
           continue
         }
         // a server this task did not address rejected its token: once more without it (the conversation as before)
-        if (!(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || sawMcp || ac.signal.aborted) throw e
+        if (opts.program || !(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || sawMcp || ac.signal.aborted) throw e
         history = before
         historyProvider = beforeProvider
         end = await attempt()
@@ -1378,6 +1384,7 @@ export function rerunAfterSignIn(entryId: string): void {
   const turn = get().turns.find((x) => x.n === c.retry!.n)
   const snap = turnSnap.get(c.retry.n)
   if (!turn || !snap) return
+  if(turn.contract?.program){openPrograms();return}
   patchConnect(entryId, { retried: true })
   history = snap.before
   historyProvider = snap.provider

@@ -376,7 +376,8 @@ export async function runAgent(opts: {
           hooks.toolEnd(stepId, { state: 'err', summary: '', ms })
           throw new Error(msg)
         }
-        task.observe('one',true,['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
+        task.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
+          task.observe('one',true,['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
         ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
         if(tool.write)atlasFacts.noteOtherWrite()

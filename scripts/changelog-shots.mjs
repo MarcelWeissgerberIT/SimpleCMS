@@ -942,6 +942,25 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'compiled-programs'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+j' : 'Control+j')
+    await page.getByRole('button', {name:'Saved compiled programs'}).click()
+    const dialog=page.getByRole('dialog',{name:'Saved compiled programs'})
+    await dialog.getByRole('button',{name:'New program',exact:true}).click()
+    const editor=dialog.getByRole('textbox',{name:'Executable JSON definition'}), p=JSON.parse(await editor.inputValue())
+    p.goal='Read the current ONE source, then ask who the briefing is for.'
+    p.parameters.page_id.default=await page.evaluate(()=>Object.keys(window.__one.workspace.getState().pages)[0])
+    p.steps.splice(1,0,{id:'audience',kind:'decision',question:'Who is this briefing for?',neededFor:'Generate the briefing'})
+    p.steps.at(-1).context={object:{source:{result:'page',path:[]},audience:{result:'audience',path:[]}}}
+    await editor.fill(JSON.stringify(p,null,2))
+    await dialog.getByLabel('Name',{exact:true}).fill('Repeatable source briefing')
+    await dialog.getByRole('button',{name:'Compile and save'}).click()
+    await dialog.getByRole('button',{name:'Run this version'}).waitFor()
+    await rest(page)
+    await save(page,'compiled-programs')
+    await ctx.close()
+  },
   async 'table-cells'(browser) {
     const { ctx, page } = await freshPage(browser, { claude: { text: () => JSON.stringify({ cells: [{ cellId: 'workshop-result', value: 'The team confirms the simulated response matches the requirement. Source: supplied test note.' }] }) } })
     const cell = (id, text, header = false) => ({ type: header ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', attrs: { id }, content: text ? [{ type: 'text', text }] : [] }] })

@@ -1,9 +1,11 @@
+import type {CapturedStep} from './program.ts'
 import type {TaskCompiled,TaskContract,TaskEffect,TaskPhase,TaskQuestion,TaskReport,TaskRequest} from './task.ts'
 import {taskEvidence} from './task.ts'
 export class TaskBlocked extends Error {}
 /** Run-local host state. No model-facing operation can answer, accept, or change permissions. */
 type TaskHost={compile:(request:TaskRequest)=>TaskCompiled;signature:()=>string;check:()=>void;report?:(report:TaskReport)=>void;signal?:AbortSignal;interactive?:boolean}
 export class TaskSession {
+  private trace:CapturedStep[]=[]
   private contract:TaskContract
   private host:TaskHost
   private evidence=taskEvidence()
@@ -26,6 +28,8 @@ export class TaskSession {
     this.compiled=this.host.compile({contract:this.contract,evidence:this.evidence,phase,tool,effect})
     return this.compiled
   }
+  capture(step:CapturedStep){if(this.trace.length<40)this.trace.push(structuredClone(step))}
+  captured(){return structuredClone(this.trace)}
   report():TaskReport{return structuredClone({id:this.contract.id,at:Date.now(),phase:this.phase,compiled:this.compiled,observations:this.observations,questions:this.questions,evidence:this.evidence})}
   private publish(){this.host.report?.(this.report())}
   packet(){const c=this.check('compile');if(c.decision!=='allow')throw new TaskBlocked('Compiled task binding is no longer valid.');return JSON.stringify(c.model_context)}
@@ -53,7 +57,7 @@ export class TaskSession {
     if(this.waiting)throw new TaskBlocked('A prerequisite decision is already waiting.')
     const options=Array.isArray(input.options)?input.options.slice(0,3).flatMap(v=>v&&typeof v==='object'&&typeof v.label==='string'&&typeof v.effect==='string'?[{label:v.label.slice(0,160),effect:v.effect.slice(0,500)}]:[]):[]
     const q:TaskQuestion={id:crypto.randomUUID(),question,neededFor,options,sourceChecks:{one:this.evidence.one_checked,atlas:this.evidence.atlas_checked},state:'open'}
-    this.questions.push(q);this.evidence.pending_decisions++;this.phase='decision';this.check('compile')
+    this.capture({kind:'decision',question,neededFor});this.questions.push(q);this.evidence.pending_decisions++;this.phase='decision';this.check('compile')
     if(!this.host.interactive){this.publish();throw new TaskBlocked('A human prerequisite decision is needed: '+question+' Dependent step: '+neededFor)}
     return new Promise<string>((resolve,reject)=>{
       const stop=()=>{this.waiting=null;reject(new TaskBlocked('Task stopped before a human answer.'))}

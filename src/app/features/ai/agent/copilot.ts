@@ -152,7 +152,8 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
           const id = hooks.toolStart(tool.name, argLabel(tool.name, input, stage))
           try {
             const out = await audit.tool('ONE',tool.name,input,()=>withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage)))))
-            task!.observe('one',true,['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
+            task!.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
+          task!.observe('one',true,['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
             hooks.toolEnd(id, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - start })
             content = clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
             if(tool.write)remote?.facts.noteOtherWrite()

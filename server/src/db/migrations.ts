@@ -492,4 +492,20 @@ export const migrations: Migration[] = [
     CREATE UNIQUE INDEX coding_workers_active ON coding_workers(workspace_id,user_id,purpose) WHERE revoked_at IS NULL AND activated_at IS NOT NULL;
     CREATE UNIQUE INDEX coding_workers_pending ON coding_workers(workspace_id,user_id,purpose) WHERE revoked_at IS NULL AND activated_at IS NULL;`,
   },
+  {
+    version:21,
+    name:'private immutable compiled task artifacts and run receipts',
+    sql:`CREATE TABLE task_programs (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      program_id TEXT NOT NULL, version INTEGER NOT NULL, hash TEXT NOT NULL, sealed TEXT NOT NULL, created_at INTEGER NOT NULL,
+      PRIMARY KEY(workspace_id,user_id,program_id,version)
+    );
+    CREATE TABLE task_program_runs (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      id TEXT NOT NULL, sealed TEXT NOT NULL, created_at INTEGER NOT NULL,
+      PRIMARY KEY(workspace_id,user_id,id)
+    );`,
+  },
 ]

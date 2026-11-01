@@ -1,7 +1,7 @@
 ---
 id: 2026-11-01-atlas-facts
 date: 2026-11-01
-order: 1
+order: 2
 help: coding-harness
 title: Atlas-Antworten mit echten Ergebnissen abgleichen
 summary: Ergebnisbelege, begrenzte Antwortkorrektur und Rücklesen einzelner Änderungen.
