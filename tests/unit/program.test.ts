@@ -6,3 +6,17 @@ test('canonical executable is stable across object order, reload and new run inp
 test('artifact tampering, unsupported version, future result, prototype and unknown effect fail closed',()=>{const a=compileProgram(spec());assert.throws(()=>readProgram({...a,hash:'0'.repeat(64)}),/integrity/);assert.throws(()=>readProgram({...a,compiler:'v2' as any}),/version/);assert.throws(()=>compileProgram({...spec(),output:{result:'future',path:[]}}),/binding/);assert.throws(()=>compileProgram(JSON.parse('{"__proto__":1}')),/unsafe key/);assert.throws(()=>compileProgram({...spec(),steps:[{...spec().steps[0],effect:'arbitrary'}]}),/tool/);assert.throws(()=>resolveExpr({result:'read',path:['constructor']},{},{read:{}}),/path/);assert.throws(()=>compileProgram({...spec(),steps:[...spec().steps,...spec().steps]}),/duplicate/)})
 test('all inputs and structured results enforce schemas before dispatch',()=>{assert.throws(()=>bindInputs(spec(),{}),/missing/);assert.throws(()=>bindInputs(spec(),{ref:0}),/range/);assert.throws(()=>bindInputs(spec(),{ref:'42'}),/expected/);assert.throws(()=>bindInputs(spec(),{ref:42,grant:true}),/unknown/);assert.throws(()=>validateValue({a:1,b:2},{type:'object',properties:{a:{type:'string'}},additionalProperties:false}));assert.throws(()=>validateValue({},{$ref:'unknown'}),/unsupported/);assert.doesNotThrow(()=>validateValue(null,{anyOf:[{type:'string'},{type:'null'}]}));assert.throws(()=>validateValue(1,{oneOf:[{type:'number'},{type:'integer'}]}))})
 test('capture saves tool topology but no results, decisions, approvals or generated write payload defaults',()=>{const p=draftProgram('Read and stage a summary',[{kind:'tool',tool:'read_page',schema:{type:'object'},effect:'read',args:{id:'page'}},{kind:'decision',question:'Which audience?',neededFor:'Draft summary'},{kind:'tool',tool:'append_to_page',schema:{type:'object'},effect:'stage',args:{id:'page',markdown:'OLD GENERATED ANSWER'}},{kind:'tool',tool:'read_page',schema:{type:'object'},effect:'read',args:{id:'old-created-page'}}]);const text=compileProgram(p).canonical;assert(!text.includes('OLD GENERATED ANSWER'));assert(!text.includes('old-created-page'));assert(!('default'in p.parameters.args_3));assert(!('default'in p.parameters.args_4));assert.deepEqual(p.parameters.args_1.default,{id:'page'});assert.equal(p.steps[1].kind,'decision');assert.throws(()=>draftProgram('Text only',[]),/no captured/)})
+
+
+test('Atlas record schemas validate propertyNames, including nested optional field maps, without discarding restrictions',()=>{
+ const schema={type:'object',properties:{fields:{type:'object',propertyNames:{type:'string',pattern:'^[a-z_]+$',maxLength:30},additionalProperties:{type:'string'}}},additionalProperties:false}
+ assert.doesNotThrow(()=>validateValue({},schema))
+ assert.doesNotThrow(()=>validateValue({fields:{source_url:'https://example.org'}},schema))
+ assert.throws(()=>validateValue({fields:{'unsafe-name':'x'}},schema),/property name: pattern/)
+ assert.throws(()=>validateValue({fields:{valid:42}},schema),/expected string/)
+ assert.doesNotThrow(()=>validateValue({},{type:'object',propertyNames:false}))
+ assert.throws(()=>validateValue({any:1},{type:'object',propertyNames:false}),/forbidden/)
+ assert.doesNotThrow(()=>validateValue({any:1},{type:'object',propertyNames:true}))
+ assert.throws(()=>validateValue({},{type:'object',propertyNames:{not:{type:'string'}}}),/unsupported/)
+ assert.throws(()=>validateValue({},{type:'object',propertyNames:'ignored'}),/propertyNames schema/)
+})

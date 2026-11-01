@@ -3,7 +3,7 @@ import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 const PORT=47461
 const envelope=(data:unknown)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(data)}]})
-const createSchema={type:'object',properties:{kind:{type:'string'},project:{type:'string'},title:{type:'string'},body:{type:'string'}},required:['kind','project','title']}
+const createSchema={type:'object',properties:{kind:{type:'string'},project:{type:'string'},title:{type:'string'},body:{type:'string'},fields:{type:'object',propertyNames:{type:'string'},additionalProperties:{}}},required:['kind','project','title']}
 const schemas:Record<string,unknown>={atlas_whoami:{type:'object',properties:{}},atlas_project_list:{type:'object',properties:{}},atlas_constraints:{type:'object',properties:{project:{type:'string'},kind:{type:'string'}}},atlas_create:createSchema,atlas_get:{type:'object',properties:{ref:{type:'integer'},parts:{type:'array',items:{type:'string'}},includeConstraints:{type:'string'}},required:['ref']}}
 
 test.describe('Human-reviewed Atlas source handoff',()=>{
