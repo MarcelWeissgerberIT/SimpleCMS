@@ -84,6 +84,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
 
   const entries: MenuEntry[] = [
     ...look,
+    ...only(edit&&!isDb,[{label:lang==='de'?'Als Quelle nach Atlas übergeben…':'Hand source to Atlas…',icon:<Share2 size={15}/>,onSelect:()=>ui.openModal({type:'sourceAtlas',pageId:page.id})}]),
     ...(cloud && !isDb && !page.private ? [{ kind: 'custom' as const, render: () => <div className="pm-toggles"><ToggleRow seed="blockAuthors" label={t('shell.blockAuthors.toggle')} checked={blockAuthors.enabled} onChange={blockAuthors.set} /></div> }] : []),
     { kind: 'separator' },
     { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },

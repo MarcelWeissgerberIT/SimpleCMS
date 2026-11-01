@@ -5,7 +5,7 @@ import { Modal } from '../../ui/Modal'
 import { useUI, type ModalState } from '../../store/ui'
 import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal, AgentPanel, FunctionsModal, RecorderHost } from '../../features'
 import { ExampleDialog, CommandsEditor, AISetupModal, AgentDialogsHost, OrderNoteModal } from '../../features'
-import { Suspense } from 'react'
+import { Suspense, lazy } from 'react'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
 import { MoveModal } from './MoveModal'
@@ -33,6 +33,8 @@ export function ModalHost() {
 /** A key per modal object (each `openModal` call hands over a new one). */
 const modalKeys = new WeakMap<object, number>()
 let modalCount = 0
+const SourceAtlasHandoff=lazy(()=>import('../../features/io/SourceAtlasHandoff').then(m=>({default:m.SourceAtlasHandoff})))
+
 function modalKey(m: object): number {
   let k = modalKeys.get(m)
   if (k === undefined) modalKeys.set(m, (k = ++modalCount))
@@ -63,6 +65,8 @@ function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => voi
       return <ShareModal pageId={modal.pageId} onClose={onClose} />
     case 'import':
       return <ImportModal onClose={onClose} />
+    case 'sourceAtlas':
+      return <Suspense fallback={null}><SourceAtlasHandoff pageId={modal.pageId} onClose={onClose} /></Suspense>
     case 'export':
       return <ExportModal pageId={modal.pageId} onClose={onClose} />
     case 'automations':

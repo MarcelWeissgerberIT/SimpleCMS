@@ -518,6 +518,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
             )}
             {phase.result.report.length > 0 && <ImportReport items={phase.result.report} />}
             <div className="io-actions">
+              {phase.extra?.sourcePage && <button type="button" className="btn" onClick={()=>useUI.getState().openModal({type:'sourceAtlas',pageId:phase.extra!.sourcePage!})}>{lang==='de'?'Atlas-Übergabe prüfen':'Review Atlas handoff'}</button>}
               {(phase.source === 'pptx' || phase.source === 'design' || phase.extra?.canUndo) && (
                 <button type="button" className="btn btn--ghost io-done__undo" onClick={() => undoImport(phase.result, phase.extra, phase.before)}>
                   <Undo2 size={14} /> {t('features.imp.done.undo')}

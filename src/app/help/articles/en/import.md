@@ -24,13 +24,27 @@ Every import lands under one page: move it anywhere — or move it to the trash 
 
 > CSV into an existing database: database **•••** → **Import CSV into this database…**
 
-## External sources: URLs and pasted text
+## External sources: URLs, PDFs and formatted text
 
 Choose **Import → External source**. Enter a public HTTPS address under **URL**, then **Load preview**. ONE fetches this address through your team server without forwarding your browser login or cookies; this needs a signed-in team workspace. **Paste text** also works locally and covers protected or dynamic pages. Existing file imports remain available.
 
 Review the title and original text, select an excerpt if needed, and add the intended purpose. Check **Preview reviewed**, then **Import source**. The resulting ONE page keeps the source address, time and content hash; common token parameters are removed from the saved link. Importing calls no AI and writes nothing to Atlas. Use the imported page as context for a later task; any Atlas handoff is a separate instruction after review. External references, confirmed requirements and AI proposals must remain distinct.
 
-Only static text is extracted; tables become text and scripts and images are excluded. For PDF, login-required pages or blocked downloads, import a saved file or paste a relevant excerpt. URL downloads are limited to 2 MB and the reviewed text to 250,000 characters. **Undo import** removes the import.
+**PDF:** Choose the PDF source mode and a local file up to 20 MB / 200 pages. Select original pages and review their extracted text. The original file, file hash and original page numbers are retained. Image-only scans need OCR; ONE invents no missing text. Preview runs on this device until you import.
+
+**Formatted clipboard:** Under **Paste text**, use Ctrl+V / ⌘V. Tables, lists, emphasis and links survive preview and import. Images, scripts and foreign page functions are removed. **Edit as plain text** explicitly discards formatting so you can select a smaller excerpt.
+
+For a direct handoff, choose **Review Atlas handoff** after import, or the page’s **••• → Hand source to Atlas…**:
+
+1. Select your personal Atlas connection and **Check access and projects**. A reachable personal worker or existing team-server MCP access is required.
+2. Explicitly select a project from the actual Atlas response. Review title and excerpt (up to 80,000 characters).
+3. **Check constraints and handoff** reads the Atlas constraints and shows the exact outgoing payload and hash. Nothing has been written yet.
+4. Review and confirm **Create in Atlas now**. This creates a new dossier (`doc`) with a ONE source link and content hash. It does not overwrite existing records or create confirmed requirements or decisions.
+5. The receipt names the actual returned Atlas ref and read-back verification result. Download it if needed. Inspect Atlas before retrying a lost response; ONE never retries writes automatically.
+
+No AI, other person’s token or additional permissions are used. Existing outbound data rules, tool permissions and Atlas constraints still apply. Missing access or projects must be resolved in your personal connection.
+
+URL imports extract static text up to 2 MB; tables become text on that route. Use the PDF mode for PDF files and the clipboard for login-required or dynamic pages. Reviewed source text is limited to 250,000 characters. **Undo import** removes the ONE import; an explicitly created Atlas reference remains in Atlas.
 
 ## PowerPoint decks
 Choose the **PowerPoint** tile or drop a `.pptx`. It is read on this device — nothing is sent. A **preview** comes first: the slides with their titles, how many pictures, tables and notes, and what does not come over 1:1. Pick the page title and the layout, then **Import**.

@@ -20,6 +20,7 @@ export type ModalState =
   /** "Save as template…" for a page (features/templates) */
   | { type: 'saveTemplate'; pageId: ID }
   | { type: 'import' }
+  | { type: 'sourceAtlas'; pageId: ID }
   | { type: 'export'; pageId?: ID | null }
   | { type: 'history'; pageId: ID }
   | { type: 'automations'; databaseId: ID }

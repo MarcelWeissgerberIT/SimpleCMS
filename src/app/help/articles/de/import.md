@@ -24,15 +24,27 @@ Jeder Import landet unter einer Seite: Verschiebe sie beliebig — oder leg sie 
 
 > CSV in eine bestehende Datenbank: Datenbank **•••** → **CSV in diese Datenbank importieren…**
 
-## Externe Quellen: URL und eingefügter Text
+## Externe Quellen: URL, PDF und formatierter Text
 
 Öffne **Importieren → Externe Quelle**. Unter **URL** gibst du eine öffentliche HTTPS-Adresse ein und wählst **Vorschau laden**. ONE liest genau diese Quelle über deinen Teamserver; deine Browser-Cookies und Anmeldungen gehen nicht mit. Der URL-Abruf benötigt einen angemeldeten Team-Workspace. **Text einfügen** funktioniert auch lokal und ist der Weg für geschützte oder dynamische Seiten. Vorhandene Dateiimporte bleiben verfügbar.
 
 Prüfe Titel und Originaltext, wähle bei Bedarf einen Auszug und notiere, wofür du die Quelle nutzen möchtest. Erst mit **Vorschau geprüft** wird **Quelle übernehmen** aktiv. Es entsteht eine normale ONE-Seite mit Quellenadresse, Zeitpunkt und Inhalts-Hash. Bekannte Token-Parameter werden aus dem gespeicherten Quellenlink entfernt. Ein Import ruft keine KI auf und schreibt nichts nach Atlas.
 
-Die Quelle ist eine **externe Referenz**, keine bestätigte Anforderung. Nutze sie anschließend in einer KI-Aufgabe als Kontext, etwa: „Nutze die importierte EARS-Referenz. Schlage für diese bestehenden Anforderungen bessere Formulierungen vor. Erhalte IDs und fachliche Aussagen; markiere offene Angaben. Noch nichts nach Atlas schreiben.“ Nach deiner Prüfung kannst du einen gesonderten Auftrag zur Übernahme in Atlas geben. Bestätigte Requirements, externe Referenz und KI-Vorschlag bleiben unterscheidbar.
+**PDF:** Wähle die PDF-Kachel im Quellenimport und eine lokale Datei bis 20 MB / 200 Seiten. Wähle die Originalseiten aus und prüfe den ausgelesenen Text. Originaldatei, Datei-Hash und ursprüngliche Seitenzahlen bleiben erhalten. Scans ohne Text brauchen OCR; ONE ergänzt keine erfundenen Inhalte. Bis zur Übernahme wird die PDF nur auf diesem Gerät gelesen.
 
-Es wird statischer Text übernommen, keine Bilder, Skripte oder interaktiven Seiten. Tabellen kommen als Text. Binäre Dokumente wie PDF werden über diesen URL-Abruf nicht eingelesen; speichere die Datei oder füge den relevanten Text ein. Bei Login, gesperrtem Abruf, Zeitüberschreitung oder zu großen Quellen nennt ONE den nächsten Weg. Der Abruf ist auf 2 MB begrenzt; die geprüfte Textauswahl auf 250.000 Zeichen. **Import rückgängig** entfernt den Import.
+**Formatierte Zwischenablage:** Füge unter **Text einfügen** mit Strg+V / ⌘V ein. Tabellen, Listen, Hervorhebungen und Links bleiben in der Vorschau und auf der Seite erhalten. Bilder, Skripte und fremde Seitenfunktionen werden entfernt. **Als reinen Text bearbeiten** löst die Formatierung bewusst auf und erlaubt einen kleineren Auszug.
+
+Die Quelle bleibt eine **externe Referenz**, keine bestätigte Anforderung. Du kannst sie als Kontext für eine KI-Aufgabe nutzen. Für die direkte Übergabe wähle nach dem Import **Atlas-Übergabe prüfen** oder auf der Seite **••• → Als Quelle nach Atlas übergeben…**:
+
+1. Wähle deine persönliche Atlas-Verbindung und **Zugang und Projekte prüfen**. Die Verbindung braucht einen erreichbaren persönlichen Worker bzw. einen vorhandenen MCP-Zugang über den Teamserver.
+2. Wähle ausdrücklich eines der tatsächlich von Atlas gelieferten Projekte. Prüfe Titel und Auszug (höchstens 80.000 Zeichen).
+3. **Vorgaben und Übergabe prüfen** liest die Atlas-Constraints und zeigt die exakten ausgehenden Daten samt Prüfsumme. Es wird noch nichts geschrieben.
+4. Prüfe diese Vorschau und bestätige **Jetzt in Atlas anlegen**. Es entsteht ein neues Dossier (`doc`) mit ONE-Quellenlink und Inhalts-Hash. Keine bestehenden Records werden überschrieben; es entstehen keine bestätigten Requirements oder Entscheidungen.
+5. Der Nachweis nennt die tatsächlich von Atlas zurückgegebene Ref und das Ergebnis der Rückleseprüfung. Lade ihn bei Bedarf herunter. Bei verlorener Antwort prüfe zuerst Atlas; ONE wiederholt Schreibversuche nicht automatisch.
+
+Die Übergabe nutzt keine KI, keinen fremden Token und keine zusätzlichen Rechte. Bestehende Datenausgangsregeln, Werkzeugfreigaben und Atlas-Vorgaben gelten weiterhin. Bei verweigertem Zugang oder fehlendem Projekt muss der persönliche Zugang angepasst werden.
+
+URL-Importe lesen statischen Text bis 2 MB; Tabellen kommen dabei als Text. PDF-Dateien werden über die PDF-Kachel statt über den URL-Abruf eingelesen. Bei Login oder dynamischen Seiten nutze die Zwischenablage. Die geprüfte Textauswahl ist auf 250.000 Zeichen begrenzt. **Import rückgängig** entfernt den ONE-Import; eine bereits bewusst angelegte Atlas-Referenz bleibt in Atlas.
 
 ## PowerPoint-Präsentationen
 Wähle die Kachel **PowerPoint** oder leg eine `.pptx` ab. Sie wird auf diesem Gerät gelesen — nichts wird gesendet. Zuerst kommt eine **Vorschau**: die Folien mit ihren Titeln, wie viele Bilder, Tabellen und Notizen, und was nicht 1:1 mitkommt. Seitentitel und Aufbau wählen, dann **Importieren**.

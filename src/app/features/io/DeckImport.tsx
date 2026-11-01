@@ -38,6 +38,7 @@ const LOST: PptxLost[] = ['chart', 'smartart', 'media', 'ole', 'picture']
 export interface ImportExtra {
   /** A manually reviewed source can be removed as one import. */
   canUndo?: boolean
+  sourcePage?: string
   /** the page "Present" opens */
   present?: string | null
   /** One memory: the example saved (or why not) */

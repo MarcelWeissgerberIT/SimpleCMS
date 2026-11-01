@@ -117,14 +117,14 @@ export function xlsxBytes(): Uint8Array {
 }
 
 /** A minimal, valid PDF with `pages` pages (one line of text on the first). */
-export function pdfBytes(pages = 2, text = 'Invoice 2025-117'): Uint8Array {
+export function pdfBytes(pages = 2, text = 'Invoice 2025-117', textPage = 1): Uint8Array {
   const objs: string[] = []
   const kids = Array.from({ length: pages }, (_, i) => `${4 + i} 0 R`).join(' ')
   objs.push('<< /Type /Catalog /Pages 2 0 R >>')
   objs.push(`<< /Type /Pages /Kids [${kids}] /Count ${pages} >>`)
   const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET`
   objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`)
-  for (let i = 0; i < pages; i++) objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]${i === 0 ? ' /Contents 3 0 R' : ''} /Resources << /Font << /F1 ${4 + pages} 0 R >> >> >>`)
+  for (let i = 0; i < pages; i++) objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]${i === textPage - 1 ? ' /Contents 3 0 R' : ''} /Resources << /Font << /F1 ${4 + pages} 0 R >> >> >>`)
   objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
   let out = '%PDF-1.4\n'
   const offsets: number[] = []
