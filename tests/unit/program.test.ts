@@ -20,3 +20,12 @@ test('Atlas record schemas validate propertyNames, including nested optional fie
  assert.throws(()=>validateValue({},{type:'object',propertyNames:{not:{type:'string'}}}),/unsupported/)
  assert.throws(()=>validateValue({},{type:'object',propertyNames:'ignored'}),/propertyNames schema/)
 })
+
+
+test('fixed program context removes only the complete generic planning guide and preserves custom role constraints',async()=>{
+ const {fixedProgramInstructions}=await import('../../src/shared/quandprofile/program.ts')
+ const guide='HOST INTERACTIVE GUIDE '+'.'.repeat(2000),custom='CUSTOM: tenant A only; preserve exact originals; never approve a decision.'
+ const input=custom+'\n'+guide+'\nCUSTOM: this role remains read-only.'
+ const output=fixedProgramInstructions(input,[guide,'short custom fragment'])
+ assert(output.includes(custom));assert(output.includes('CUSTOM: this role remains read-only.'));assert(!output.includes(guide));assert(output.includes('Generation has no tools.'));assert(fixedProgramInstructions('short custom fragment', ['short custom fragment']).includes('short custom fragment'))
+})

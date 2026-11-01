@@ -1,5 +1,5 @@
 import {tapSignal} from '../core/meter'
-import {bindInputs,programDigest,readProgram,resolveExpr,validateValue,type Json,type SavedProgram,type ProgramRun} from '@/shared/quandprofile/program'
+import {bindInputs,programDigest,readProgram,resolveExpr,validateValue,fixedProgramInstructions,type Json,type SavedProgram,type ProgramRun} from '@/shared/quandprofile/program'
 import {atlasTaskEffect} from '@/shared/mcp/facts'
 import {streamCompletion,completeStructured} from '../client'
 import {prepare,settle,assertPreparedFlow} from '../core/gate'
@@ -8,7 +8,9 @@ import {createTaskContract,oneTaskEffect} from '../core/taskContract'
 import {workerMcpSession} from '../core/workerMcp'
 import {beginLiveAudit} from '../core/liveAudit'
 import {TERMINAL_TOOLS,withToolScope,withReadLimit,argLabel} from '../agent/tools'
-import type {runAgent} from '../agent/run'
+import {agentSystemText,TASK_RULES,type runAgent} from '../agent/run'
+import {AIError} from '../core/errors'
+import {CODING_RULES} from '../agent/coding'
 import {programScope,saveProgramRun,listPrograms} from './storage'
 import {t} from '../../../i18n'
 export interface ProgramInvocation {saved:SavedProgram;inputs:Record<string,unknown>;effectsConfirmed:boolean;scope:ReturnType<typeof programScope>}
@@ -27,7 +29,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
  const prepared=prepare({purpose:o.purpose,sources:o.sources,typed:[p.goal,JSON.stringify(inputs)].join('\n'),route:o.route,applied:o.applied,carries:o.mcp?['mcp']:[],size:{promptChars:0,maxTokens:1},...(o.run?{run:o.run}:{}),...(o.mcp?{mcp:{servers:o.mcp.servers.length}}:{})})
  const tools=o.tools??TERMINAL_TOOLS,results:Record<string,Json>={},shape=shapeOf(prepared),seen=shape?prepared.visible:null
  const check=()=>{signal.throwIfAborted();if(scope.key!==programScope().key)throw Error('Account or workspace changed. Start a new run.');assertPreparedFlow(prepared)}
- const task=(()=>{try{return createTaskContract({prepared,instructions:(o.system??'')+'\n'+(o.mcp?.system??''),goal:p.goal,input:{artifact:saved.compiled.hash,inputs},tools:p.steps.flatMap(s=>s.kind==='tool'&&!s.server?[s.tool]:[]),one:p.steps.some(s=>s.kind==='tool'&&!s.server),atlas:p.steps.some(s=>s.kind==='tool'&&!!s.server),signal,onReport:r=>hooks.contract?.({...r,program:{id:saved.id,version:saved.version,hash:saved.compiled.hash,runId:receipt.id}}),interactive:true,bounds:{readOnly:!effects,externalWrite:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='write'),execute:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='execute')}})}catch(e){settle(prepared);throw e}})()
+ const task=(()=>{try{return createTaskContract({prepared,instructions:fixedProgramInstructions(o.system??'',[agentSystemText(true),agentSystemText(false),TASK_RULES,CODING_RULES])+'\n'+(o.mcp?.system??''),goal:p.goal,input:{artifact:saved.compiled.hash,inputs},tools:p.steps.flatMap(s=>s.kind==='tool'&&!s.server?[s.tool]:[]),one:p.steps.some(s=>s.kind==='tool'&&!s.server),atlas:p.steps.some(s=>s.kind==='tool'&&!!s.server),signal,onReport:r=>hooks.contract?.({...r,program:{id:saved.id,version:saved.version,hash:saved.compiled.hash,runId:receipt.id}}),interactive:true,bounds:{readOnly:!effects,externalWrite:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='write'),execute:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='execute')}})}catch(e){settle(prepared);throw e}})()
  const untap=tapSignal(signal,{onEntry:entry=>hooks.usage(entry.usage,entry)})
  let audit:Awaited<ReturnType<typeof beginLiveAudit>>|undefined
  try{
@@ -65,7 +67,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
   // The ordinary Atlas fact guard remains a hard gate, even for a fixed program.
   const issues=remote?.facts.check(answer)??[];if(issues.length)throw Error('Atlas result verification: '+JSON.stringify(issues))
   task.finish(answer);receipt.answer=answer.slice(0,100000);receipt.status='done';hooks.text(answer);hooks.textDone('answer');return 'done' as const
- }catch(e){receipt.status=signal.aborted?'stopped':'failed';receipt.error=(e instanceof Error?e.message:String(e)).slice(0,4000);throw e}
+ }catch(e){receipt.status=signal.aborted?'stopped':'failed';receipt.error=(e instanceof AIError?e.code+': '+(e.detail??e.message):e instanceof Error?e.message:String(e)).slice(0,4000);if(e instanceof AIError&&!e.label)throw new AIError(e.code,e.detail,e.server,prepared.label,e.fixes);throw e}
  finally{
   receipt.finishedAt=Date.now();untap();task.release();settle(prepared)
   try{await audit?.end(receipt.status,receipt.answer??'',receipt.error)}catch(e){hooks.note(String(e))}

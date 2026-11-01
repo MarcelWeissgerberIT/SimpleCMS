@@ -1,3 +1,4 @@
+import {taskInputOf} from '../core/gate'
 import {createTaskContract,TASK_QUESTION} from '../core/taskContract'
 import {connectionProblem,mcpConnectionMessage} from '@/shared/ai/connection-problem'
 import {workerMcpSession,WORKER_MCP_FUNCTIONS} from '../core/workerMcp'
@@ -335,7 +336,7 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     const skipped = [...skippedOf(cw, attached, mcp === false || !mcpOk ? [] : refusedNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced)), ...policyOut]
     const onMcp = skipped.length && report ? (calls: McpCall[]) => report([...skipped, ...calls]) : report
     if (skipped.length) onMcp?.([])
-    if(!attached){task=createTaskContract({prepared,goal:prompt,instructions:originalSystem,input:prompt,tools:[],one:false,atlas:false,signal});system=task.packet()}
+    if(!attached){task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:originalSystem,input:prompt,tools:[],one:false,atlas:false,signal});system=task.packet()}
     let stopReason: string | null
     const promptChars = () => system.length + prompt.length
     if (attached) {
@@ -406,7 +407,7 @@ async function streamWithMcp(
 ): Promise<BetaMessage> {
   const messages:BetaMessageParam[]=[{role:'user',content:prompt}],calls:McpCall[]=[]
   const event=(c:McpCall)=>{const i=calls.findIndex(v=>v.id===c.id);if(i<0)calls.push(c);else calls[i]=c;onMcp?.([...calls])}
-  const task=createTaskContract({prepared:more.prepared,goal:prompt,instructions:system+'\n'+WORKER_MCP_GUIDE+'\n'+ATLAS_FACT_POLICY,input:messages,tools:[],one:false,atlas:true,signal,output:more.schema?'json':'text',onReport:r=>event({id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r})})
+  const task=createTaskContract({prepared:more.prepared,goal:taskInputOf(more.prepared).typed||more.prepared.purpose,instructions:system+'\n'+WORKER_MCP_GUIDE+'\n'+ATLAS_FACT_POLICY,input:messages,tools:[],one:false,atlas:true,signal,output:more.schema?'json':'text',onReport:r=>event({id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r})})
   try{
     if(!mcp.worker)throw new AIError('capability','Selected MCP connections need a personal worker or the prepared Atlas proxy.')
     const remote=workerMcpSession(mcp.worker,signal,event,12000,undefined,task)
@@ -517,7 +518,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     if (attached && !prepared.classes.includes('mcp')) prepared.classes.push('mcp')
     // the caller's call list: who joined (none: [])
     opts.onMcpActivity?.({ attached: attached?.names ?? [], blocks: [] })
-    if(!attached){task=createTaskContract({prepared,goal:prompt,instructions:originalSystem,input:prompt,tools:[],one:false,atlas:false,signal,output:'json'});system=task.packet()}
+    if(!attached){task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:originalSystem,input:prompt,tools:[],one:false,atlas:false,signal,output:'json'});system=task.packet()}
     if (attached) {
       const msg=await streamWithMcp(client,model,opus,system+'\n'+attached.system,prompt,attached,()=>{},calls=>{sawMcp ||= calls.some(c=>!c.contract&&c.tool!=='one_mcp_search');opts.onMcpActivity?.({attached:attached!.names,blocks:[],calls})},signal,{prepared,call,sdk,schema})
       const receipt=call.receipt();if(receipt)onUsage?.({p:'anthropic',model,input:receipt.usage.input,output:receipt.usage.output,cacheRead:receipt.usage.cacheRead,cacheWrite:receipt.usage.cacheWrite+receipt.usage.cacheWrite1h,usd:receipt.usd??0});stopReason=msg.stop_reason;blocks=msg.content

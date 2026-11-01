@@ -6,7 +6,7 @@ import {unwrapMcpText} from '@/shared/mcp/results'
 import {ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
 import {atlasFactsFallback} from './atlasFacts'
 import { priceFor } from './registry'
-import { assertPreparedFlow } from './gate'
+import { assertPreparedFlow,taskInputOf } from './gate'
 /** Text/JSON one-shots with selected remote tools. The browser owns the loop and OUT lock. */
 import type { ChatRequest, Turn, Usage } from '@/shared/ai/types'
 import { WORKER_MCP_FUNCTIONS, workerMcpSession } from './workerMcp'
@@ -30,7 +30,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   let auditState='failed',auditAnswer:unknown,auditError:unknown
   const done=(turn:Turn)=>{auditState='done';auditAnswer=turn.parts;return turn}
   try {
-  task=createTaskContract({prepared,goal:req.messages.filter(m=>m.role==='user').at(-1)?.parts.filter(p=>p.type==='text').map(p=>p.text).join('\n')||prepared.purpose,instructions:messages[0].content,input:req.messages,tools:[],one:false,atlas:!!o.mcp,signal:o.signal,output:req.output.kind==='json'?'json':'text',onReport:r=>{const c:McpCall={id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r};const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity])}})
+  task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:messages[0].content,input:req.messages,tools:[],one:false,atlas:!!o.mcp,signal:o.signal,output:req.output.kind==='json'?'json':'text',onReport:r=>{const c:McpCall={id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r};const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity])}})
   if (o.mcp) {
     if (!prepared.allows('mcp') || !o.mcp.worker) throw new AIError('policy', 'mcp')
     remote = workerMcpSession(o.mcp.worker, o.signal, c => { const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity]) }, prepared.provider==='local'?6000:12000,audit,task)
