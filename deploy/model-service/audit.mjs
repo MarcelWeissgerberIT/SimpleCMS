@@ -29,6 +29,7 @@ export class ModelAudit {
   const file=this.file(id);writeFileSync(file+'.tmp',JSON.stringify(out),{mode:0o600});renameSync(file+'.tmp',file)
  }
  read(id){const d=JSON.parse(readFileSync(this.file(id),'utf8')),cipher=createDecipheriv('aes-256-gcm',this.key,Buffer.from(d.iv,'base64'));cipher.setAAD(Buffer.from(id));cipher.setAuthTag(Buffer.from(d.tag,'base64'));return JSON.parse(Buffer.concat([cipher.update(Buffer.from(d.data,'base64')),cipher.final()]).toString('utf8'))}
+ *records(){this.prune();for(const n of readdirSync(this.dir).filter(n=>/^\d{13}-[a-f0-9-]{36}\.json$/.test(n)).sort())yield this.read(n.slice(0,-5))}
  list(limit=50,before=null){return readdirSync(this.dir).filter(n=>/^\d{13}-[a-f0-9-]{36}\.json$/.test(n)&&(!before||n<before+'.json')).sort().reverse().slice(0,Math.min(100,limit)).map(n=>{const r=this.read(n.slice(0,-5));return {auditId:r.auditId,requestId:r.requestId,trace:r.trace,receivedAt:r.receivedAt,queuedAt:r.queuedAt,processingAt:r.processingAt,finishedAt:r.finishedAt,state:r.state,status:r.status,model:r.request?.model,error:r.error,responseBytes:r.responseBytes}})}
  prune(){const cutoff=this.now()-this.days*86400000;for(const n of readdirSync(this.dir))if(/^\d{13}-[a-f0-9-]{36}\.json$/.test(n)&&Number(n.slice(0,13))<cutoff)unlinkSync(join(this.dir,n))}
 }

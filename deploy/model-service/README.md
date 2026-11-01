@@ -82,6 +82,8 @@ Model API keys do not grant log access. ONE proxies this through
 `MODEL_AUDIT_URL`, `MODEL_AUDIT_TOKEN` and `MODEL_AUDIT_OWNER` (exact user ID or
 email). All three are required together. Only that designated lead may read it,
 even if other people administer the workspace. Browser responses are no-store.
+`?export=1` streams the entire retained log as JSONL, with an export header and
+a final `exportComplete`/record-count line so interrupted downloads are detectable.
 In ONE: Settings → AI → Atlas Flow · Frankfurt → My complete test log. Contents
 are fetched on demand, never stored in shared documents or browser persistence.
 The lead can inspect request/context/raw response and download a JSON record.

@@ -29,6 +29,7 @@ export function FrankfurtAudit(){
   <button className="btn btn--sm" onClick={()=>{setOpen(!open);setSelected('')}} aria-expanded={open}><FileText size={15}/>{tr('Mein vollständiges Testprotokoll','My complete test log')}</button>
   {open&&<div className="frankfurt-audit__panel">
    <header><strong>{tr('Frankfurt · Host-Protokoll · nur für dich','Frankfurt · host log · only you')}</strong><button className="btn btn--sm" disabled={busy} onClick={()=>{setBefore('');setRevision(x=>x+1)}}><RefreshCw size={14}/>{tr('Aktualisieren','Refresh')}</button></header>
+   <a className="btn btn--sm" href={'/'+path+'?export=1'} download><Download size={14}/>{tr('Gesamtes Protokoll herunterladen (.jsonl)','Download entire log (.jsonl)')}</a>
    <p>{tr('Anfragen, tatsächlich übergebener Modellkontext und rohe Antworten ab Aktivierung der Protokollierung. 30 Tage Aufbewahrung, verschlüsselte Ablage. Erkannte Zugangsdaten sind geschwärzt. Eine empfangene Antwort belegt keine fachliche Richtigkeit und keine erfolgreiche Atlas-Änderung.','Requests, actual model context and raw responses since logging was activated. Encrypted storage, 30-day retention. Recognized credentials are redacted. Receiving a response does not prove factual correctness or a successful Atlas change.')}</p>
    {error&&<p role="alert">{error}</p>}{busy&&<p role="status">{tr('Protokoll wird geladen …','Loading log …')}</p>}
    {selected?<><button className="btn btn--sm" onClick={()=>setSelected('')}>{tr('Zur Übersicht','Back to overview')}</button>{entry&&<>

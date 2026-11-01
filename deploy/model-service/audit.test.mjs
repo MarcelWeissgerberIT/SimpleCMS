@@ -26,6 +26,8 @@ test('gateway records actual payload, trace, response and lifecycle; API keys ca
  const list=await(await fetch(base+'/admin/audit',{headers:{authorization:'Bearer '+token}})).json();assert.equal(list.entries.length,1);const row=list.entries[0];assert.equal(row.state,'processed');assert.equal(row.trace.job,'test-job');assert.ok(row.finishedAt>=row.processingAt);assert.ok(row.processingAt>=row.receivedAt)
  const record=await(await fetch(base+'/admin/audit?id='+row.auditId,{headers:{authorization:'Bearer '+token}})).json();assert.deepEqual(record.request,request);assert.deepEqual(record.modelInput,observed);assert.equal(record.modelInput.options.num_ctx,32768);assert.match(record.response,/Auditable synthetic answer/);assert.equal(record.requestId,response.headers.get('x-request-id'))
  assert.equal(JSON.stringify(record).includes(token),false)
+ const exported=await fetch(base+'/admin/audit?export=1',{headers:{authorization:'Bearer '+token}});assert.match(exported.headers.get('content-type'),/ndjson/);const records=(await exported.text()).trim().split('\n').map(JSON.parse);assert.equal(records.length,3);assert.deepEqual(records[1],record);assert.equal(records[2].exportComplete,true);assert.equal(records[2].records,1)
+ assert.equal((await fetch(base+'/admin/audit?export=1')).status,404)
 })
 test('upstream error remains a failed log, never an empty successful answer',async t=>{
  const audit=fixture(t),{server}=createGateway({audit,keys:[],fetchImpl:async()=>new Response('do not expose credentials',{status:500})});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close()})

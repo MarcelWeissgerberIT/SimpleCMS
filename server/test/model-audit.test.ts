@@ -16,6 +16,8 @@ test('full model audit is exclusive to the configured lead, not other workspace 
   const status=await lead.get(path+'?status=1');assert.equal(status.status,200);assert.equal(status.res.headers.get('cache-control'),'no-store');assert.equal(calls,0)
   const log=await lead.get(path);assert.equal(log.status,200);assert.deepEqual(log.body.entries,[]);assert.equal(calls,1);assert.ok(!JSON.stringify(log.body).includes(token))
   assert.equal((await lead.get(path+'?entry=..%2Fsecret')).status,400);assert.equal(calls,1)
+  assert.equal((await other.get(path+'?export=1')).status,404);assert.equal(calls,1)
+  const exported=await lead.fetch(path+'?export=1');assert.equal(exported.status,200);assert.match(exported.headers.get('content-disposition')??'',/attachment/);assert.equal(exported.headers.get('cache-control'),'no-store');await exported.text();assert.equal(calls,2)
   assert.equal((await lead.get('/api/workspaces/not-a-member/model-audit')).status,404)
  }finally{await server.stop();upstream.closeAllConnections();upstream.close()}
 })

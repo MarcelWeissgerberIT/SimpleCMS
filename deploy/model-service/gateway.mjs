@@ -82,6 +82,12 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
         if(!audit||!audit.authorized(req.headers.authorization))throw fault(404,'not_found','Not found.')
         if(req.method!=='GET')throw fault(405,'method_not_allowed','Read only.')
         const url=new URL(req.url,'http://localhost'),entry=url.searchParams.get('id')
+        if(url.searchParams.get('export')==='1'){
+          status=200;res.writeHead(200,{'content-type':'application/x-ndjson','cache-control':'no-store','x-content-type-options':'nosniff'})
+          res.write(JSON.stringify({schema:'atlas-flow-audit-export/v1',exportStartedAt:Date.now()})+'\n');let count=0
+          for(const record of audit.records()){abort.signal.throwIfAborted();if(!res.write(JSON.stringify(record)+'\n'))await once(res,'drain',{signal:abort.signal});count++}
+          res.end(JSON.stringify({exportComplete:true,records:count,finishedAt:Date.now()})+'\n');return
+        }
         const before=url.searchParams.get('before');if(before)audit.file(before)
         const entries=entry?null:audit.list(51,before)
         status=200;send(res,200,entry?audit.read(entry):{entries:entries.slice(0,50),nextCursor:entries.length>50?entries[49].auditId:null,retentionDays:audit.days});return
