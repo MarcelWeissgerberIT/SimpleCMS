@@ -19,6 +19,13 @@ function modelReply(response=''){
  if(!messages.length)return response
  return messages.map(m=>[typeof m.content==='string'?m.content:'',m.tool_calls?JSON.stringify({tool_calls:m.tool_calls},null,2):''].filter(Boolean).join('\n')).filter(Boolean).join('\n')||response
 }
+/** MCP often returns JSON inside text fields. Decode objects for reading; exports keep the exact originals. */
+function readableResult(value:Value,depth=0):Value{
+ if(depth>=8)return value
+ if(typeof value==='string'){try{const parsed=JSON.parse(value);if(parsed&&typeof parsed==='object')return readableResult(parsed,depth+1)}catch{}return value}
+ if(Array.isArray(value))return value.map(v=>readableResult(v,depth+1))
+ const v=object(value);return v?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,readableResult(x,depth+1)])):value
+}
 function resultFailed(value:Value):boolean{
  const v=object(value);if(!v)return false
  if(v.isError===true||v.oneNotExecuted===true)return true
@@ -71,7 +78,7 @@ export function LiveAuditRuns({path,scope}:{path:string;scope:string}){
     {timeline.map(item=>{
      if(item.kind==='model'){const r=item.round;return <article className="frankfurt-live__event" key={item.id} data-kind="model"><header><strong>{tr('Modellrunde','Model round')} {item.index}</strong><small>{date(item.time)}</small></header><p>{r.state} · HTTP {r.status??'—'} · {tr('Gateway-Beleg','Gateway receipt')}<br/>{tr('Antwort empfangen','Response received')}: {date(r.finishedAt)}</p>{r.error&&<p role="alert">{r.error}</p>}{contents(tr('Modellantwort / angeforderte Tools','Model response / requested tools'),modelReply(r.response),true)}{contents(tr('Vollständige Anfrage am Gateway','Complete request at gateway'),r.request)}{contents(tr('Tatsächlicher Modellkontext','Actual model context'),r.modelInput)}{contents(tr('Unveränderte rohe Antwort','Unmodified raw response'),r.response??'')}<small className="frankfurt-audit__ids">{r.auditId} · ONE job: {r.trace?.job??'—'}</small></article>}
      const e=item.event,returned=e.type==='tool-blocked'?e:run.events.find(r=>r.callId===e.callId&&['tool-result','tool-error'].includes(r.type)),failed=returned&&(['tool-error','tool-blocked'].includes(returned.type)||resultFailed(returned.result))
-     return <article className="frankfurt-live__event" data-kind={failed?'error':'tool'} key={item.id}><header><strong>{e.server} · {e.name}</strong><small>{date(e.receivedAt)}</small></header><p>{returned?failed?tr('Tool-Fehler / blockiert','Tool error / blocked'):tr('Tool-Rückgabe empfangen','Tool result received'):tr('Aufruf begonnen · Rückgabe noch nicht belegt','Call started · result not yet recorded')} · ONE-Harness</p>{contents(tr('Übergebene Argumente','Submitted arguments'),e.arguments,true)}{returned&&contents(tr('Tatsächliche Rückgabe / Fehler','Actual result / error'),returned.error??returned.result,true)}{returned&&<small>{tr('Rückgabe','Returned')}: {date(returned.receivedAt)}</small>}</article>
+     return <article className="frankfurt-live__event" data-kind={failed?'error':'tool'} key={item.id}><header><strong>{e.server} · {e.name}</strong><small>{date(e.receivedAt)}</small></header><p>{returned?failed?tr('Tool-Fehler / blockiert','Tool error / blocked'):tr('Tool-Rückgabe empfangen','Tool result received'):tr('Aufruf begonnen · Rückgabe noch nicht belegt','Call started · result not yet recorded')} · ONE-Harness</p>{contents(tr('Übergebene Argumente','Submitted arguments'),e.arguments,true)}{returned&&contents(tr('Tatsächliche Rückgabe / Fehler','Actual result / error'),returned.error??readableResult(returned.result),true)}{returned&&<small>{tr('Rückgabe','Returned')}: {date(returned.receivedAt)} · {tr('JSON-Text zur Lesbarkeit entfaltet; Original im Download.','JSON text expanded for readability; originals in download.')}</small>}</article>
     })}
     {!timeline.length&&<p>{tr('Der Test ist erfasst; noch keine Modellrunde oder Tool-Ausführung angekommen.','Test recorded; no model round or tool execution has arrived yet.')}</p>}
     {run.state==='running'&&<p role="status">{tr('Warte auf weitere Ereignisse. Bei geschlossenem ONE-Tab kann der Abschlussbeleg fehlen.','Waiting for more events. Closing the ONE tab can leave completion unrecorded.')}</p>}
