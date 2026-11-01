@@ -60,3 +60,7 @@ An empty Atlas search/query with a kind restriction receives one metered broader
 Natural-language “documents” or “work” does not prove `kind=document` or `kind=work`; older
 documents can have no kind. Project, tenant and date restrictions remain in force, and strict
 results must be distinguished from related records. No automatic write or scope change occurs.
+
+Repeated identical calls stop with their actual reason, separately from the 40-call cap.
+Stopped batches close every requested native call in history; missing receipts explicitly mark
+execution unverified and prohibit automatic write retries. Existing successful/error receipts remain intact.

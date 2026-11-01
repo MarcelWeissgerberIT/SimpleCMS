@@ -1,3 +1,4 @@
+import {closeToolBatch,type ToolReceipt} from '@/shared/ai/tool-batch'
 import {t} from '../../../i18n'
 import {unwrapMcpText} from '@/shared/mcp/results'
 import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, LOCAL_DISCOVERY_REPAIR, localWorkspaceTools } from './localTools'
@@ -91,10 +92,10 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       if (!repair) hooks.textDone(result.calls?.length ? 'note' : 'answer')
       messages.push({ role: 'assistant', content: [...(result.text ? [{ type: 'text' as const, text: answerText }] : []), ...(result.calls ?? []).map(c => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.arguments }))] })
       if (!result.calls?.length && !repair) return calls >= MAX_TOOL_CALLS ? 'limit' as const : 'done' as const
-      if(!await proceed())return 'held' as const
+      if(!await proceed()){if(result.calls?.length)messages.push({role:'user',content:closeToolBatch(result.calls,[])});return 'held' as const}
       if (repair) { messages.push({role:'user',content:TOOL_FORMAT_REPAIR}); continue }
-      const results = []
-      for (const c of result.calls ?? []) {
+      const results:ToolReceipt[] = []
+      try { for (const c of result.calls ?? []) {
         assertPreparedFlow(prepared)
         if (signal.aborted) throw new AIError('aborted')
         const key = JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
@@ -128,8 +129,10 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
           catch (e) { if (connectionProblem(e) === 'tls') throw e; failed=true;content=e instanceof AIError?e.detail??e.message:'MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
         } else throw new AIError('capability', 'Unknown model function.')
         results.push({ type: 'tool_result' as const, tool_use_id: c.id, content, ...(failed ? { is_error: true } : {}) })
+      } } finally {
+        // A stopped/failed batch still closes every requested call, without executing any more.
+        messages.push({role:'user',content:closeToolBatch(result.calls??[],results)})
       }
-      messages.push({ role: 'user', content: results })
     }
     hooks.limit()
     return 'limit' as const
