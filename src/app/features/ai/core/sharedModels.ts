@@ -34,7 +34,7 @@ let progress:QueueProgress|null=null
 export const sharedProgress=()=>progress
 const setProgress=(p:QueueProgress|null)=>{progress=p;publish()}
 const pause=(signal?:AbortSignal)=>new Promise<void>((resolve,reject)=>{if(signal?.aborted)return reject(new Error('Request cancelled'));const stop=()=>{clearTimeout(t);reject(new Error('Request cancelled'))};const t=setTimeout(()=>{signal?.removeEventListener('abort',stop);resolve()},1000);signal?.addEventListener('abort',stop,{once:true})})
-export async function sendSharedText(model:string,messages:{role:'system'|'user'|'assistant';content:string}[],maxTokens:number,signal?:AbortSignal,onProgress:((p:QueueProgress)=>void)|undefined=undefined,extra:{tools?:WorkerFunction[];schema?:Record<string,unknown>}={}):Promise<WorkerTextResult>{
+export async function sendSharedText(model:string,messages:{role:'system'|'user'|'assistant';content:string}[],maxTokens:number,signal?:AbortSignal,onProgress:((p:QueueProgress)=>void)|undefined=undefined,extra:{tools?:WorkerFunction[];schema?:Record<string,unknown>;auditRun?:string}={}):Promise<WorkerTextResult>{
   const selectedScope=sharedScope(),workspace=useCloud.getState().active.id
   const share=sharedModels().find(r=>SHARED_PREFIX+r.id===model&&r.enabled&&r.online)
   if(!selectedScope||!share?.publicKey)throw new Error('Shared model offline. Refresh the model list.')
@@ -42,7 +42,8 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
   if((hasFlowLimits(workspaceState.ai?.dataFlow)||workspaceState.ai?.policy?.restricted?.length||workspaceState.settings.ai?.restricted?.length)&&!share.dataFlow)throw new Error('Update the model host worker to use explicit data-route boundaries.')
   if((extra.tools?.length||extra.schema)&&!share.tools)throw new Error('Update the shared model host for function support.')
   signal?.throwIfAborted()
-  const id=crypto.randomUUID(),payload={model:share.model,messages,maxTokens:Math.min(maxTokens,4096),...extra}
+  const {auditRun,...inference}=extra
+  const id=crypto.randomUUID(),payload={model:share.model,messages,maxTokens:Math.min(maxTokens,4096),...inference}
   if(new TextEncoder().encode(JSON.stringify(payload)).length>sharedInputMax(share.inputMax))throw new Error('Shared model: select a smaller passage ('+Math.floor(sharedInputMax(share.inputMax)/1000)+' KB maximum for this host).')
   const {key,box}=await sharedRequestBox(payload,share.publicKey,share.id,id)
   const path=`api/workspaces/${workspace}/model-jobs/${id}`
@@ -52,7 +53,7 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
     if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
     // Cancel by id even when an aborted POST lost its acknowledgement after the relay accepted it.
     created=true
-    await cloudRequest('POST',`api/workspaces/${workspace}/model-shares/${share.id}/jobs`,{id,box,keyId:share.publicKey.n},{signal})
+    await cloudRequest('POST',`api/workspaces/${workspace}/model-shares/${share.id}/jobs`,{id,box,keyId:share.publicKey.n,...(auditRun?{auditRun}:{})},{signal})
     const until=Date.now()+12*60000
     while(Date.now()<until){
       signal?.throwIfAborted()

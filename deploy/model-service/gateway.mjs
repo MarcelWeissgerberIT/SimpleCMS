@@ -35,11 +35,11 @@ export class Queue {
   }
 }
 
-async function jsonBody(req){
+async function jsonBody(req,max=BODY_MAX){
   if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']??''))throw fault(415,'content_type','Use application/json.')
-  if(Number(req.headers['content-length'])>BODY_MAX)throw fault(413,'body_too_large','Request exceeds 256 KiB.')
+  if(Number(req.headers['content-length'])>max)throw fault(413,'body_too_large','Request exceeds '+max+' bytes.')
   const chunks=[];let size=0
-  for await(const b of req){size+=b.length;if(size>BODY_MAX)throw fault(413,'body_too_large','Request exceeds 256 KiB.');chunks.push(b)}
+  for await(const b of req){size+=b.length;if(size>max)throw fault(413,'body_too_large','Request exceeds '+max+' bytes.');chunks.push(b)}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{throw fault(400,'invalid_json','Invalid JSON request.')}
 }
 const object=v=>!!v&&typeof v==='object'&&!Array.isArray(v)
@@ -80,8 +80,10 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
       if(req.method==='GET'&&req.url==='/healthz'){status=200;send(res,200,{status:'ok',service:'atlas-flow'});return}
       if(new URL(req.url??'/', 'http://localhost').pathname==='/admin/audit'){
         if(!audit||!audit.authorized(req.headers.authorization))throw fault(404,'not_found','Not found.')
+        if(req.method==='POST'){const input=await jsonBody(req,1024*1024);status=200;send(res,200,input.action==='start'?audit.startRun(input):input.action==='event'?audit.appendRun(input):(()=>{throw fault(400,'invalid_audit_action','Invalid action')})());return}
         if(req.method!=='GET')throw fault(405,'method_not_allowed','Read only.')
-        const url=new URL(req.url,'http://localhost'),entry=url.searchParams.get('id')
+        const url=new URL(req.url,'http://localhost'),entry=url.searchParams.get('id'),run=url.searchParams.get('run')
+        if(run){status=200;send(res,200,audit.run(run));return}
         if(url.searchParams.get('export')==='1'){
           status=200;res.writeHead(200,{'content-type':'application/x-ndjson','cache-control':'no-store','x-content-type-options':'nosniff'})
           res.write(JSON.stringify({schema:'atlas-flow-audit-export/v1',exportStartedAt:Date.now()})+'\n');let count=0
@@ -89,7 +91,7 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
           res.end(JSON.stringify({exportComplete:true,records:count,finishedAt:Date.now()})+'\n');return
         }
         const before=url.searchParams.get('before');if(before)audit.file(before)
-        const entries=entry?null:audit.list(51,before)
+        const entries=entry?null:audit.list(51,before,url.searchParams.get('runs')==='1')
         status=200;send(res,200,entry?audit.read(entry):{entries:entries.slice(0,50),nextCursor:entries.length>50?entries[49].auditId:null,retentionDays:audit.days});return
       }
       const isNative=req.url?.startsWith('/api/')===true
@@ -118,7 +120,7 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
       if(audit&&req.url!=='/api/show'){
         const header=(key,max=100)=>typeof req.headers[key]==='string'?req.headers[key].slice(0,max):null
         auditRecord={auditId:String(started)+'-'+id,requestId:id,receivedAt:started,queuedAt:isNative?(Number(header('x-one-queued-at'))||null):null,processingAt:null,finishedAt:null,state:'received',status:null,keyId,
-          trace:isNative?{job:header('x-one-job-id'),workspace:header('x-one-workspace'),user:header('x-one-user-id')}:null,request:raw,modelInput:null,response:null,responseBytes:0}
+          trace:isNative?{run:header('x-one-run-id',80),job:header('x-one-job-id'),workspace:header('x-one-workspace'),user:header('x-one-user-id')}:null,request:raw,modelInput:null,response:null,responseBytes:0}
         audit.prune();audit.write(auditRecord)
       }
       let payload

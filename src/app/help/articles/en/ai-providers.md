@@ -72,3 +72,11 @@ Prepared CNSx and FeliX team-workspace invite links lead straight to the start p
 This first Atlas task needs **no local worker, Copilot login or extra model API key**. Access to local repository files still needs your own paired worker. Personal settings outside this workspace stay intact. **Change token** replaces only this personal connection. Enter your token again on a new device.
 
 An offline Frankfurt model keeps the first task disabled. There is no silent provider fallback. Model capabilities and your actual Atlas/ONE permissions still apply; this text model has no native image analysis or image generation.
+
+### Your own live tests of the Frankfurt model
+
+The designated test lead opens **Settings → AI → Atlas Flow · Frankfurt → My complete test log → Live tests**. Start a new task in the AI terminal with the Frankfurt model. Each question gets its own original request, model rounds and displayed answer.
+
+**Follow live** refreshes every two seconds. Model-requested tools are separate from the executing ONE harness's actual calls, arguments, results and errors. A started call without a return remains unconfirmed; model prose is not execution evidence. Expand each round to inspect the actual model context and unmodified response.
+
+**Download this entire test** saves the request, all model rounds and harness events as JSON. **Download entire log** exports all retained records as JSONL and checks download completion. Earlier individual calls remain under **Model rounds**; earlier complete test traces cannot be reconstructed. Only the configured test lead can view full contents. Storage is encrypted, retention is 30 days, and recognized credentials are redacted.

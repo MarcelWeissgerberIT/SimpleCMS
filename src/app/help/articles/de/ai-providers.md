@@ -72,3 +72,11 @@ In vorbereiteten CNSx- und FeliX-Team-Workspaces führt der Einladungslink direk
 Für diesen ersten Atlas-Auftrag brauchst du **keinen lokalen Worker, Copilot-Zugang oder zusätzlichen Modell-API-Key**. Für Dateien aus einem lokalen Repository brauchst du weiterhin deinen eigenen gekoppelten Worker. Persönliche Einstellungen außerhalb dieses Workspaces bleiben erhalten. Der Button **Token wechseln** ersetzt nur diese persönliche Verbindung. Nach Gerätewechsel musst du den Token dort erneut eingeben.
 
 Ist Frankfurt offline, bleibt die erste Aufgabe gesperrt. Es gibt keinen stillen Wechsel zu einem anderen Anbieter. Modellfähigkeiten und deine tatsächlichen Atlas-/ONE-Rechte gelten weiterhin; das Textmodell bietet keine native Bildanalyse oder Bildgenerierung.
+
+### Eigene Live-Tests des Frankfurter Modells
+
+Als Testverantwortlicher öffnest du **Einstellungen → KI → Atlas Flow · Frankfurt → Mein vollständiges Testprotokoll → Live-Tests**. Starte im KI-Terminal eine neue Aufgabe mit dem Frankfurter Modell. Jede Frage erhält einen eigenen Verlauf aus ursprünglicher Anfrage, Modellrunden und ausgegebener Antwort.
+
+**Live verfolgen** aktualisiert die Anzeige alle zwei Sekunden. Tool-Anforderungen des Modells und die vom ONE-Harness tatsächlich gemeldeten Aufrufe, Argumente, Rückgaben oder Fehler sind getrennt. Ein begonnener Aufruf ohne Rückgabe bleibt unbestätigt; eine Modellbehauptung ist kein Ausführungsnachweis. Du kannst den tatsächlichen Modellkontext und die unveränderte Antwort jeder Runde aufklappen.
+
+**Diesen Test vollständig herunterladen** speichert Anfrage, alle Modellrunden und Harness-Ereignisse als JSON. **Gesamtes Protokoll herunterladen** exportiert alle aufbewahrten Einträge als JSONL und prüft den Abschluss des Downloads. Unter **Modellrunden** bleiben ältere Einzelaufrufe verfügbar; ein früherer vollständiger Testverlauf wird nicht nachträglich erfunden. Volltexte sieht ausschließlich der konfigurierte Testverantwortliche. Die Ablage ist verschlüsselt, die Aufbewahrung beträgt 30 Tage; erkannte Zugangsdaten werden geschwärzt.

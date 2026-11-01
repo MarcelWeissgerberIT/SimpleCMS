@@ -38,3 +38,32 @@ test('authenticated parseable input rejected by validation remains visible as an
  const audit=fixture(t);let called=false;const {server}=createGateway({audit,keys:[],fetchImpl:async()=>{called=true;return Response.json({})}});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close()})
  const r=await fetch('http://127.0.0.1:'+server.address().port+'/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'not-served',messages:[{role:'user',content:'validation failure'}]})});assert.equal(r.status,400);await r.text();const row=audit.list()[0];assert.equal(row.state,'failed');assert.equal(row.error,'model_not_allowed');assert.equal(row.processingAt,null);assert.equal(called,false);assert.equal(audit.read(row.auditId).modelInput,null)
 })
+
+test('live run joins gateway rounds with actual harness results; scope, duplicates and failed tools stay explicit',t=>{
+ const audit=fixture(t),scope={workspace:'one-ws',user:'lead'},start=audit.startRun({...scope,model:'one-shared/test',prompt:'Read actual identity',purpose:'agent'}),id=start.runId
+ const callId=randomUUID(),call={id:randomUUID(),type:'tool-call',callId,server:'atlas',name:'atlas_whoami',arguments:{},clientAt:Date.now()}
+ audit.appendRun({...scope,runId:id,event:call});audit.appendRun({...scope,runId:id,event:call})
+ assert.equal(audit.run(id).run.events.length,1)
+ assert.throws(()=>audit.appendRun({...scope,user:'other',runId:id,event:{...call,id:randomUUID()}}),/scope/)
+ assert.throws(()=>audit.appendRun({...scope,runId:id,event:{...call,type:'tool-result',callId:randomUUID()}}),/Unknown/)
+ for(let i=0;i<3;i++)audit.write({auditId:Date.now()+'-'+randomUUID(),trace:{...scope,run:id},receivedAt:Date.now(),state:'processed',request:{model:'atlas-flow:latest'},response:'Synthetic model round '+i})
+ audit.write({auditId:Date.now()+'-'+randomUUID(),trace:{workspace:'other-ws',user:'lead',run:id},state:'processed',request:{model:'atlas-flow:latest'},response:'Not this workspace'})
+ audit.appendRun({...scope,runId:id,event:{id:randomUUID(),type:'tool-error',callId,server:'atlas',name:'atlas_whoami',error:'Actual TLS failure',clientAt:Date.now()}})
+ audit.appendRun({...scope,runId:id,event:{id:randomUUID(),type:'run-end',state:'failed',error:'Tool failed',answer:'No identity verified.',clientAt:Date.now()}})
+ const result=audit.run(id);assert.equal(result.rounds.length,3);assert.equal(result.run.events.length,3);assert.equal(result.run.state,'failed');assert.equal(result.run.events[1].error,'Actual TLS failure');assert.equal(result.run.events[1].source,'one-browser-harness');assert.ok(result.run.finishedAt)
+ assert.equal(audit.list(50,null,true).length,1);assert.equal(audit.list().length,4)
+ assert.throws(()=>audit.appendRun({...scope,runId:id,event:{...call,id:randomUUID()}}),/closed/)
+ const restored=new ModelAudit({dir:audit.dir,keyFile:join(audit.dir,'key'),token});assert.equal(restored.list(50,null,true).length,1);assert.equal(restored.run(id).rounds.length,3)
+})
+
+test('gateway live trace keeps full real results and run metadata out of model text',async t=>{
+ const audit=fixture(t),{server}=createGateway({audit,keys:[],fetchImpl:async()=>Response.json({message:{content:'Real synthetic response'},done:true})});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close()})
+ const base='http://127.0.0.1:'+server.address().port,scope={workspace:'ws',user:'lead'},headers={authorization:'Bearer '+token,'content-type':'application/json'}
+ const start=await fetch(base+'/admin/audit',{method:'POST',headers,body:JSON.stringify({action:'start',...scope,model:'one-shared/fixture',prompt:'Trace fixture',purpose:'test'})});assert.equal(start.status,200);const {runId}=await start.json()
+ const request={model:'atlas-flow:latest',messages:[{role:'user',content:'Trace fixture'}]}
+ const response=await fetch(base+'/api/chat',{method:'POST',headers:{'content-type':'application/json','x-one-run-id':runId,'x-one-workspace':'ws','x-one-user-id':'lead'},body:JSON.stringify(request)});await response.text();assert.equal(response.status,200)
+ const callId=randomUUID();for(const event of [{id:randomUUID(),type:'tool-call',callId,server:'atlas',name:'atlas_get',arguments:{ref:42},clientAt:Date.now()},{id:randomUUID(),type:'tool-result',callId,server:'atlas',name:'atlas_get',result:{result:JSON.stringify({content:[{type:'text',text:'Observed body'}],token:'should-be-redacted'})},clientAt:Date.now()},{id:randomUUID(),type:'run-end',state:'done',answer:'Observed body',clientAt:Date.now()}]){assert.equal((await fetch(base+'/admin/audit',{method:'POST',headers,body:JSON.stringify({action:'event',...scope,runId,event})})).status,200)}
+ const detail=await(await fetch(base+'/admin/audit?run='+runId,{headers})).json();assert.equal(detail.rounds.length,1);assert.equal(detail.run.events.length,3);assert.equal(detail.run.answer,'Observed body');assert.deepEqual(detail.rounds[0].request,request);assert.equal(JSON.stringify(detail).includes('should-be-redacted'),false)
+ assert.equal((await(await fetch(base+'/admin/audit?runs=1',{headers})).json()).entries.length,1)
+ assert.equal((await fetch(base+'/admin/audit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'start',...scope,model:'x',prompt:'x',purpose:'x'})})).status,404)
+})

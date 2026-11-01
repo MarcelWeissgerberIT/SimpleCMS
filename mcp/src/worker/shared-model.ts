@@ -78,7 +78,7 @@ export class SharedModelHost {
     }catch{/* Offline is visible through the short server heartbeat lease; no prompt/error logging. */}
     finally{this.polling=false;if(!this.stopped)this.timer=setTimeout(()=>void this.poll(),2000)}
   }
-  private async run(id:string,box:SharedBox,abort:AbortController,trace?:{created?:number;workspace?:string;user?:string}){
+  private async run(id:string,box:SharedBox,abort:AbortController,trace?:{created?:number;workspace?:string;user?:string;auditRun?:string}){
     const timer=setTimeout(()=>abort.abort(),180000)
     try{
       const key=await sharedWorkerKey(box,(await this.keys).privateKey)

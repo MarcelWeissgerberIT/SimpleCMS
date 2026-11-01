@@ -1,3 +1,4 @@
+import {beginLiveAudit,LiveAuditError} from '../core/liveAudit'
 import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
 import {unverifiedMcpDenial,MCP_ATTEMPT_REPAIR} from '@/shared/mcp/execution'
 import {closeToolBatch,type ToolReceipt} from '@/shared/ai/tool-batch'
@@ -49,6 +50,9 @@ export async function copilotMessages(messages: BetaMessageParam[], material: Co
 }
 export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prepared: Prepared, messages: BetaMessageParam[]): Promise<RunEnd> {
   const route = prepared.route!, { signal, hooks, stage } = opts
+  const audit=await beginLiveAudit(route,opts.typed??JSON.stringify(opts.user.content),opts.purpose)
+  let auditState='failed',auditError:unknown
+  try {
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
@@ -60,7 +64,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {
     if (!opts.mcp.worker || !prepared.allows('mcp')) throw new AIError('capability', 'Selected MCP connections are unavailable on this route.')
-    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000)
+    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000,audit)
   }
   const definitions: WorkerFunction[] = [...(local ? LOCAL_WORKSPACE_FUNCTIONS : tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema }))), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
   let contextNoted=false
@@ -77,7 +81,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       assertPreparedFlow(prepared)
       if (signal.aborted) throw new AIError('aborted')
       const transcript = await copilotMessages(messages, material)
-      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS&&factRepairs===0 ? [...definitions,...(remote?.functions()??[])] : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
+      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, {auditRun:audit.runId, tools: calls < MAX_TOOL_CALLS&&factRepairs===0 ? [...definitions,...(remote?.functions()??[])] : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const answerText=unwrapMcpText(result.text)
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: answerText }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
@@ -134,19 +138,19 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         }
         const tool = resolved?.tool ?? (!local ? tools.find(t => t.name === c.name) : undefined)
         const input = resolved?.input ?? c.arguments
-        if (local && c.name==='one_workspace_search') { content = local.search(c.arguments) }
+        if (local && c.name==='one_workspace_search') { content = await audit.tool('ONE','one_workspace_search',c.arguments,()=>local.search(c.arguments)) }
         else if (tool) {
           const start = performance.now()
           const id = hooks.toolStart(tool.name, argLabel(tool.name, input, stage))
           try {
-            const out = await withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))))
+            const out = await audit.tool('ONE',tool.name,input,()=>withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage)))))
             hooks.toolEnd(id, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - start })
             content = clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
             if(tool.write)remote?.facts.noteOtherWrite()
-          } catch (e) { failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: '', ms: performance.now() - start }) }
+          } catch (e) { if(e instanceof LiveAuditError)throw e;failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: '', ms: performance.now() - start }) }
         } else if (remote && remote.hasFunction(c.name)) {
           try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;if(JSON.parse(raw).oneNotExecuted===true)repeated.delete(key);content = raw; if(c.name==='one_mcp_search'){const found=JSON.parse(raw);atlasDiscovered ||= found.tools?.some((t:{name:string})=>t.name==='atlas_search'||t.name==='atlas_query')===true}if(String(remote.resolve(c.name,c.arguments)?.name??'').startsWith('atlas_'))atlasQueried=true }
-          catch (e) { if (connectionProblem(e) === 'tls') throw e; failed=true;content=e instanceof AIError?e.detail??e.message:'MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
+          catch (e) { if(e instanceof LiveAuditError)throw e;if (connectionProblem(e) === 'tls') throw e; failed=true;content=e instanceof AIError?e.detail??e.message:'MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
         } else throw new AIError('capability', 'Unknown model function.')
         results.push({ type: 'tool_result' as const, tool_use_id: c.id, content, ...(failed ? { is_error: true } : {}) })
       } } finally {
@@ -157,8 +161,9 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
     hooks.limit()
     return 'limit' as const
   }
-  try { return await run() } catch (e) {
+  try { const result=await run();auditState=result;return result } catch (e) {
     if (e instanceof AIError && !e.label) throw new AIError(e.code,e.detail,e.server,prepared.label,e.fixes)
     throw e
   } finally { hooks.history(messages) }
+  }catch(e){auditError=e;throw e}finally{await audit.end(signal.aborted?'cancelled':auditState,messages.at(-1)?.role==='assistant'?messages.at(-1)?.content:undefined,auditError)}
 }

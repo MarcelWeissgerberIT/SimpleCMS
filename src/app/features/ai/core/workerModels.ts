@@ -58,7 +58,7 @@ export function useWorkerModels(): number {
   }, [conn, can])
   return sharedRevision + useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => revision)
 }
-export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[] } = {}, history?:{completedBefore:number;onCompact?:()=>void}) {
+export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[]; auditRun?:string } = {}, history?:{completedBefore:number;onCompact?:()=>void}) {
   assertModelFlow(route.p)
   if (!isWorkerProvider(route.p)) throw new AIError('capability')
   if (route.p === 'local' || route.p === 'copilot') {
@@ -77,9 +77,10 @@ export async function sendWorkerText(route: Route, messages: Array<{ role: 'syst
     if (extra.attachments?.length) throw new AIError('capability')
     try { return await sendSharedText(route.m, messages, maxTokens, signal, undefined, extra) } catch (e) { throw new AIError(signal?.aborted ? 'aborted' : 'unknown', e instanceof Error ? e.message : String(e)) }
   }
+  const {auditRun:_auditRun,...workerExtra}=extra
   const api = await import('../../coding')
   if (!workerProviderReady(route.p)) throw new AIError('offline')
-  const result = await api.requestWorkerText({ provider: route.p, model: route.m, messages, maxTokens, ...extra }, signal)
+  const result = await api.requestWorkerText({ provider: route.p, model: route.m, messages, maxTokens, ...workerExtra }, signal)
   if (signal?.aborted) throw new AIError('aborted')
   if (!result || result.model !== route.m || typeof result.text !== 'string' || result.text.length > 250000 || (result.usd !== null && (!Number.isFinite(result.usd) || result.usd < 0))) throw new AIError('unknown', 'Invalid worker response')
   if (result.calls && (!['copilot','local'].includes(route.p) || !Array.isArray(result.calls) || result.calls.length > 8 || result.calls.some(c => !c || typeof c.id !== 'string' || !extra.tools?.some(t => t.name === c.name) || !c.arguments || typeof c.arguments !== 'object' || Array.isArray(c.arguments)))) throw new AIError('capability', 'Invalid worker tool response')
