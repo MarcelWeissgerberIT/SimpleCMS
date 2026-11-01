@@ -1,8 +1,9 @@
+import {TaskBlocked,type TaskSession} from '@/shared/quandprofile/task-session'
 import {LiveAuditError,type LiveAudit} from './liveAudit'
 import {McpBindings,selectMcpSchemas,type DiscoveredMcpTool} from '@/shared/mcp/bindings'
 import {McpEvidence} from '@/shared/mcp/evidence'
 import {McpResults} from '@/shared/mcp/results'
-import {AtlasFacts,checkAtlasReadback,modelAtlasReceipt} from '@/shared/mcp/facts'
+import {AtlasFacts,checkAtlasReadback,modelAtlasReceipt,atlasTaskEffect} from '@/shared/mcp/facts'
 import {checkQuantum} from './quandprofile'
 import type {QuantumProof} from '@/shared/quandprofile/runtime'
 import {useWorkspace} from '../../../store/store'
@@ -20,7 +21,7 @@ export const WORKER_MCP_FUNCTIONS: WorkerFunction[] = [
 ]
 export const isWorkerMcpFunction = (name:string) => WORKER_MCP_FUNCTIONS.some(t=>t.name===name)
 const connectionProblem=(e:unknown)=>e instanceof Error&&/^AJ-Atlas (hat diesen persönlichen Token abgelehnt\. Bitte Token und Rechte prüfen\.|ist nicht erreichbar oder hat die Anfrage abgelehnt\. Es wurde kein anderer Server verwendet\.)$/.test(e.message)?e.message:e instanceof Error&&/^MCP connection [a-z][a-z0-9_-]{0,31}: (?:Authentication rejected by this endpoint\. Check the Atlas instance and personal token\.|TLS certificate verification failed\. Check the company certificate setup for Node; do not disable verification\.|Connection timed out\. Check VPN, proxy and network access from this worker\.|Network connection failed\. Check VPN, proxy, DNS and network access from this worker\.|Connection or tool discovery failed\. Check the endpoint and worker connectivity\.)$/.test(e.message)?e.message:'MCP discovery failed. Check the personal worker and connection.'
-export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000,audit?:LiveAudit) {
+export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000,audit?:LiveAudit,task?:TaskSession) {
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
   const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
   const request=(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
@@ -50,17 +51,19 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         if(!Array.isArray(found?.tools)||found.tools.length>6)throw new AIError('mcp')
         const exposed=selectMcpSchemas(found.tools,maxChars)
         bindings.expose(exposed)
+        task?.expose(exposed.map(t=>t.server+':'+t.name))
         if(found.projectDirectory&&servers.some(s=>s.name===found.projectDirectory!.server)&&Array.isArray(found.projectDirectory.projects))evidence.directory(found.projectDirectory.server,found.projectDirectory.projects)
         for(const t of exposed)discovered.add(JSON.stringify([t.server,t.name]))
         const guides=(found.guides??[]).filter(g=>!shownGuides.has(g.server))
         guides.forEach(g=>shownGuides.add(g.server))
         event({...activity,state:'ok'})
         return JSON.stringify({tools:exposed.map(t=>({server:t.server,name:t.name,nativeFunction:bindings.functionName(t.server,t.name)})),...(guides.length?{serverUsageGuides:guides}:{}),discoveryOnly:true,note:MCP_DISCOVERY_NOTE,...(found.unavailable?.length?{unavailable:found.unavailable.slice(0,12).map(s=>connectionProblem(new Error(s)))}:{}),...(exposed.length<found.tools.length?{schemasOmitted:'Search a narrower or exact tool name.'}:{})})
-      } catch(e) { if(e instanceof LiveAuditError)throw e;const error=connectionProblem(e);event({...activity,state:'err',error});throw new AIError('mcp',error) }
+      } catch(e) { task?.observe('atlas',false,true,false,true,'connection / discovery unavailable');if(e instanceof LiveAuditError)throw e;const error=connectionProblem(e);event({...activity,state:'err',error});throw new AIError('mcp',error) }
     }
     if(name!=='one_mcp_call'||typeof args.server!=='string'||typeof args.name!=='string'||!args.arguments||typeof args.arguments!=='object'||Array.isArray(args.arguments)||!discovered.has(JSON.stringify([args.server,args.name])))throw new AIError('mcp','Discover the permitted exact tool before calling it.')
-    const activity:McpCall={id,server:args.server,tool:args.name,arg:JSON.stringify(args.arguments).slice(0,100),state:'run'}
+    const activity:McpCall={id,server:args.server,tool:args.name,arg:JSON.stringify(args.arguments).slice(0,100),input:args.arguments as Record<string,unknown>,state:'run'}
     event(activity)
+    let dispatched=false
     try{
       const actual={server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}
       const blocked=facts.preflight(actual)
@@ -68,10 +71,12 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const selected=servers.find(s=>s.name===args.server)
       if(!selected)throw new AIError('policy','features.ai.quantum.blocked')
       const proof=dispatchProof(selected,actual.name,actual.arguments)
-      attempts++
+      task?.dispatch(actual.server+':'+actual.name,atlasTaskEffect(actual.name,actual.arguments))
+      attempts++;dispatched=true
       const out=await request({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},proof) as {result:string}
       if(typeof out?.result!=='string')throw new AIError('mcp')
       const failed=JSON.parse(out.result).isError===true
+      task?.observe(args.name.startsWith('atlas_')?'atlas':'other',!failed,atlasTaskEffect(actual.name,actual.arguments)==='read',false,!['atlas_whoami','atlas_record_kinds','atlas_setup_bootstrap','atlas_setup_changelog'].includes(actual.name),actual.name)
       const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
       if(receipt)receipt.quantum=proof
       const server=servers.find(s=>s.name===args.server)
@@ -83,18 +88,20 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         event(verifyActivity)
         try{
           if(signature()!==pinned)throw new AIError('policy','features.ai.quantum.blocked')
+          task?.expose([server.name+':atlas_get']);task?.dispatch(server.name+':atlas_get','read')
           const readProof=dispatchProof(server,'atlas_get',{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'})
           const read=await request({action:'call',servers,server:args.server,name:'atlas_get',arguments:{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'}},readProof) as {result:string}
+          task?.observe('atlas',JSON.parse(read.result).isError!==true,true,false,true,'atlas_get · readback')
           receipt.verification=checkAtlasReadback(actual,receipt,read.result)
           event({...verifyActivity,state:receipt.verification==='unavailable'||receipt.verification==='read_back_differs'?'err':'ok'})
-        }catch(e){if(e instanceof LiveAuditError)throw e;if(signal?.aborted)throw new AIError('aborted');receipt.verification='unavailable';event({...verifyActivity,state:'err'})}
+        }catch(e){if(e instanceof LiveAuditError)throw e;task?.observe('atlas',false,true,false,true,'atlas_get · readback');if(signal?.aborted)throw new AIError('aborted');receipt.verification='unavailable';event({...verifyActivity,state:'err'})}
       }
       const packed=results.pack(out.result)
       if(!failed&&args.name.startsWith('atlas_')){const server=servers.find(s=>s.name===args.server);if(server)evidence.observe(out.result,new URL(server.url).origin,{server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>})}
-      event({...activity,state:failed?'err':'ok',...(receipt?{receipt}:{})})
+      event({...activity,state:failed?'err':'ok',resultBytes:new TextEncoder().encode(out.result).length,...(receipt?{receipt}:{})})
       const searchEvidence=['atlas_search','atlas_query'].includes(args.name)?evidence.searchResult():null
       return receipt||evidence.hint()?JSON.stringify({...JSON.parse(packed),...(receipt?{oneObservedFacts:modelAtlasReceipt(receipt)}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
-    }catch(e){if(e instanceof LiveAuditError)throw e;if(signal?.aborted)throw new AIError('aborted');if(e instanceof AIError&&e.code==='policy'){event({...activity,state:'err',error:e.message});throw e}const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
+    }catch(e){if(e instanceof LiveAuditError)throw e;if(e instanceof TaskBlocked){event({...activity,state:'err',error:e.message});throw new AIError('policy',e.message)}if(dispatched)task?.observe(String(args.name).startsWith('atlas_')?'atlas':'other',false,atlasTaskEffect(String(args.name),args.arguments as Record<string,unknown>)==='read',false,true,String(args.name));if(signal?.aborted)throw new AIError('aborted');if(e instanceof AIError&&e.code==='policy'){event({...activity,state:'err',error:e.message});throw e}const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
   }
   return Object.assign(invoke,{evidence,facts,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
 }

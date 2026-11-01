@@ -1,3 +1,4 @@
+import {createTaskContract} from './taskContract'
 import { assertPreparedFlow } from './gate'
 import { isWorkerProvider } from '@/shared/ai/providers'
 import { sendWorkerText } from './workerModels'
@@ -114,6 +115,11 @@ export interface NeutralOpts {
 
 /** One request on the neutral wire → the whole turn (or an AIError). */
 export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
+  if(prepared.route?.p==='copilot'||prepared.route?.p==='local'&&prepared.caps?.tools)return (await import('./copilotCall')).sendCopilotCompletion(prepared,req,o)
+  const task=createTaskContract({prepared,goal:req.messages.filter(m=>m.role==='user').at(-1)?.parts.filter(p=>p.type==='text').map(p=>p.text).join('\n')||prepared.purpose,instructions:req.system,input:req.messages,tools:[],one:false,atlas:false,signal:o.signal,output:req.output.kind==='json'?'json':'text',onReport:r=>o.onMcp?.([{id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r}])})
+  try{const turn=await sendPlainNeutral(prepared,{...req,system:task.packet()},{...o,onToken:undefined});const answer=turn.parts.filter(p=>p.type==='text').map(p=>p.text).join('\n');task.finish(answer);o.onToken?.(answer);return turn}finally{task.release()}
+}
+async function sendPlainNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   assertPreparedFlow(prepared)
   const route = prepared.route
   if (!route) throw new AIError('no_key')

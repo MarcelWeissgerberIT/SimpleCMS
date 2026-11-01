@@ -45,3 +45,15 @@ pub unsafe extern "C" fn qp_check(ptr: *const u8, len: u32) -> *mut u8 {
 pub extern "C" fn qp_output_len() -> u32 {
     OUTPUT_LEN.load(Ordering::Relaxed)
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn qp_task(ptr: *const u8, len: u32) -> *mut u8 {
+    let run = || -> Result<crate::task::TaskResponse, String> {
+        if ptr.is_null() || len == 0 || len as usize > MAX_INPUT {return Err("Invalid input length".into());}
+        let request=serde_json::from_slice(std::slice::from_raw_parts(ptr,len as usize)).map_err(|e|e.to_string())?;
+        crate::task::evaluate(request)
+    };
+    let out=match run(){Ok(r)=>serde_json::to_vec(&r).unwrap(),Err(error)=>serde_json::to_vec(&serde_json::json!({"error":error})).unwrap()}.into_boxed_slice();
+    OUTPUT_LEN.store(out.len() as u32,Ordering::Relaxed);
+    Box::into_raw(out) as *mut u8
+}

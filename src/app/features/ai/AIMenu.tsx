@@ -1,3 +1,4 @@
+import {TaskContractCard} from './mcp-servers/TaskContractCard'
 import { RepoFilesControl } from '../repo-files/RepoFilesControl'
 import {AtlasFactsView} from './mcp-servers/AtlasFacts'
 import { WorkerConnectionHelp } from './mcp-servers/WorkerConnectionHelp'
@@ -2631,7 +2632,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
   return (
     <div className="ai-mcp">
       <ul className="ai-mcp__list" aria-label={t('features.ai.mcp.calls')}>
-        {calls.map((c) =>
+        {calls.filter(c=>!c.contract).map((c) =>
           c.skipped ? (
             // a server the codeword addressed that stayed out (switched off, no token here)
             <li key={c.id} className="ai-mcp__chip" data-state="skipped">
@@ -2646,6 +2647,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
           ),
         )}
       </ul>
+      {calls.filter(c=>c.contract).map(c=><TaskContractCard key={c.id} report={c.contract!}/>)}
       <McpSkippedNote calls={calls} />
       {calls.filter(c=>c.receipt).map(c=><AtlasFactsView key={c.id} receipt={c.receipt!}/>)}
       {failed.map((c) => (

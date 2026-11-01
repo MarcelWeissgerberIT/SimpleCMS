@@ -1,3 +1,5 @@
+import {TaskContractCard} from '../mcp-servers/TaskContractCard'
+import type {TaskReport} from '@/shared/quandprofile/task'
 import {useEffect,useState} from 'react'
 import {Download,RefreshCw} from 'lucide-react'
 import {cloudRequest} from '../../../cloud'
@@ -78,7 +80,7 @@ export function LiveAuditRuns({path,scope}:{path:string;scope:string}){
    <button className="btn btn--sm" onClick={()=>{setSelected('');setDetail(null)}}>{tr('Alle Live-Tests','All live tests')}</button>
    {run&&<>
     <header className="frankfurt-live__heading"><div><span className={'frankfurt-live__state'+(run.state==='running'?' is-running':'')}>{state(run.state)}</span><h4>{date(run.receivedAt)}</h4></div><button className="btn btn--sm" onClick={()=>save(detail,'atlas-flow-test-'+run.auditId+'.json')}><Download size={14}/>{tr('Diesen Test vollständig herunterladen','Download this entire test')}</button></header>
-    <p className="frankfurt-audit__ids">{run.auditId}<br/>{run.request.model} · {detail!.rounds.length} {tr('Modellrunden','model rounds')} · {calls.length} {tr('Tool-Aufrufe','tool calls')}<br/>Workspace: {run.trace.workspace} · {tr('Ende','End')}: {date(run.finishedAt)}</p>
+    <p className="frankfurt-audit__ids">{run.auditId}<br/>{run.request.model} · {detail!.rounds.length} {tr('Modellrunden','model rounds')} · {calls.filter(c=>c.name!=='compiled_task').length} {tr('Tool-Aufrufe','tool calls')}<br/>Workspace: {run.trace.workspace} · {tr('Ende','End')}: {date(run.finishedAt)}</p>
     <section className="frankfurt-live__prompt"><strong>{tr('Deine Anfrage','Your request')}</strong><pre>{run.request.prompt}</pre></section>
     {run.error&&<p role="alert">{run.error}</p>}
     {run.answer!==undefined&&<section className="frankfurt-live__answer"><strong>{tr('Von ONE ausgegebene Antwort','Answer displayed by ONE')}</strong><pre>{answerText(run.answer)}</pre></section>}
@@ -86,6 +88,8 @@ export function LiveAuditRuns({path,scope}:{path:string;scope:string}){
     {timeline.map(item=>{
      if(item.kind==='model'){const r=item.round;return <article className="frankfurt-live__event" key={item.id} data-kind="model"><header><strong>{tr('Modellrunde','Model round')} {item.index}</strong><small>{date(item.time)}</small></header><p>{r.state} · HTTP {r.status??'—'} · {tr('Gateway-Beleg','Gateway receipt')}<br/>{tr('Antwort empfangen','Response received')}: {date(r.finishedAt)}</p>{r.error&&<p role="alert">{r.error}</p>}{contents(tr('Modellantwort / angeforderte Tools','Model response / requested tools'),modelReply(r.response),true)}{contents(tr('Vollständige Anfrage am Gateway','Complete request at gateway'),r.request)}{contents(tr('Tatsächlicher Modellkontext','Actual model context'),r.modelInput)}{contents(tr('Unveränderte rohe Antwort','Unmodified raw response'),r.response??'')}<small className="frankfurt-audit__ids">{r.auditId} · ONE job: {r.trace?.job??'—'}</small></article>}
      const e=item.event,returned=e.type==='tool-blocked'?e:run.events.find(r=>r.callId===e.callId&&['tool-result','tool-error'].includes(r.type)),failed=returned&&(['tool-error','tool-blocked'].includes(returned.type)||resultFailed(returned.result)),receipt=dispatchReceipt(returned)
+     const task=e.server==='ONE'&&e.name==='compiled_task'&&object(object(returned?.result)?.compiled)?.protocol==='quandprofile.task.v1'?returned!.result as TaskReport:null
+     if(task)return <article className="frankfurt-live__event" data-kind="compiler" key={item.id}><header><strong>{tr('Auftragscompiler · Host-Prüfung','Task compiler · host check')}</strong><small>{date(e.receivedAt)}</small></header><TaskContractCard report={task} historical/></article>
      return <article className="frankfurt-live__event" data-kind={failed?'error':'tool'} key={item.id}><header><strong>{e.server} · {e.name}</strong><small>{date(e.receivedAt)}</small></header><p>{returned?failed?tr('Tool-Fehler / blockiert','Tool error / blocked'):tr('Tool-Rückgabe empfangen','Tool result received'):tr('Aufruf begonnen · Rückgabe noch nicht belegt','Call started · result not yet recorded')} · ONE-Harness</p>{contents(tr('Übergebene Argumente','Submitted arguments'),e.arguments,true)}{returned&&contents(tr('Tatsächliche Rückgabe / Fehler','Actual result / error'),returned.error??readableResult(returned.result),true)}{receipt&&<AtlasFactsView receipt={receipt}/>} {returned&&<small>{tr('Rückgabe','Returned')}: {date(returned.receivedAt)} · {tr('JSON-Text zur Lesbarkeit entfaltet; Original im Download.','JSON text expanded for readability; originals in download.')}</small>}</article>
     })}
     {!timeline.length&&<p>{tr('Der Test ist erfasst; noch keine Modellrunde oder Tool-Ausführung angekommen.','Test recorded; no model round or tool execution has arrived yet.')}</p>}

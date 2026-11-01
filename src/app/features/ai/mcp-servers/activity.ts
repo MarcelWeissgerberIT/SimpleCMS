@@ -7,6 +7,7 @@ import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages
 import {atlasReceipt,type AtlasReceipt,type AtlasFacts} from '@/shared/mcp/facts'
 
 export interface McpCall {
+  contract?:import('@/shared/quandprofile/task').TaskReport
   /** the mcp_tool_use id */
   id: string
   server: string
@@ -19,6 +20,7 @@ export interface McpCall {
   /** Host-derived metadata, never a model-authored status or summary. */
   receipt?: AtlasReceipt
   input?: Record<string,unknown>
+  resultBytes?:number
   /**
    * Not a call: a server that did not join — 'off' = switched off, 'token' = no token in this browser, 'refused' = its
    * token was rejected, 'provider' = the route's provider connects no MCP servers (OpenRouter), 'policy' = the route

@@ -1,4 +1,5 @@
 import {sha256Hex} from '../mcp/sha256.ts'
+import type {TaskRequest,TaskCompiled} from './task.ts'
 export type QuantumScope={workspace:string;target:string;actor:string;state_revision:string;operation_digest:string}
 export type QuantumRequest={gate:'one_provider'|'one_mcp'|'atlas_review';scope:QuantumScope;snapshot:Record<string,unknown>}
 export type QuantumStatus='verified'|'violated'|'open'
@@ -12,12 +13,24 @@ export type CompiledQuantumResult={
 export type QuantumProof={gate:QuantumRequest['gate'];profileHash:string;requestHash:string;stateHash:string;operationHash:string;status:'verified';checks:string[];quantumIds:string[];inspection?:{checkedAt:number;request:QuantumRequest;result:CompiledQuantumResult}}
 /** UI evidence stays local. Do not enlarge model context with the compiler's host scope and policy snapshot. */
 export function compactQuantumProof({inspection:_,...proof}:QuantumProof):QuantumProof{return proof}
-type Exports={memory:{buffer:ArrayBufferLike};qp_alloc:(len:number)=>number;qp_free:(ptr:number,len:number)=>void;qp_check:(ptr:number,len:number)=>number;qp_output_len:()=>number}
+type Exports={memory:{buffer:ArrayBufferLike};qp_alloc:(len:number)=>number;qp_free:(ptr:number,len:number)=>void;qp_check:(ptr:number,len:number)=>number;qp_task?:(ptr:number,len:number)=>number;qp_output_len:()=>number}
 export const stateHash=(v:unknown):string=>sha256Hex(JSON.stringify(v))
 /** The instance has no imported functions, network, filesystem or model-accessible mutation API. */
 export class QuandRuntime {
   private abi:Exports
   constructor(instance:{exports:unknown}){this.abi=instance.exports as unknown as Exports;if(!this.abi.memory||typeof this.abi.qp_check!=='function')throw Error('Invalid compiler module')}
+  task(request:TaskRequest):TaskCompiled{
+    const a=this.abi,bytes=new TextEncoder().encode(JSON.stringify(request));if(!a.qp_task||!bytes.length||bytes.length>262144)throw Error('Task compiler unavailable or input limit')
+    const ptr=a.qp_alloc(bytes.length);if(!ptr)throw Error('Compiler allocation failed')
+    let out=0,len=0
+    try{
+      new Uint8Array(a.memory.buffer,ptr,bytes.length).set(bytes);out=a.qp_task(ptr,bytes.length);len=a.qp_output_len()
+      if(!out||!len||len>524288)throw Error('Invalid compiler output')
+      const value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(a.memory.buffer,out,len)))
+      if(value.protocol!=='quandprofile.task.v1'||value.contract.id!==request.contract.id||value.contract.revision!==request.contract.revision||!Array.isArray(value.findings)||!Array.isArray(value.quanta))throw Error('Invalid compiled task')
+      return value
+    }finally{a.qp_free(ptr,bytes.length);if(out&&len)a.qp_free(out,len)}
+  }
   check(request:QuantumRequest):QuantumProof {
     const bytes=new TextEncoder().encode(JSON.stringify(request));if(!bytes.length||bytes.length>262144)throw Error('Compiler input limit')
     const a=this.abi,ptr=a.qp_alloc(bytes.length);if(!ptr)throw Error('Compiler allocation failed')

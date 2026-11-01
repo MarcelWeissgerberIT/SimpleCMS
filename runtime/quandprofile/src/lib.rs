@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod adapters;
 pub mod catalog;
 pub mod integration;
+pub mod task;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 pub use catalog::{DimensionDefinition, QuantumBinding, QuantumCatalog};

@@ -1,3 +1,4 @@
+import {TaskContractCard} from '../mcp-servers/TaskContractCard'
 import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
 import {AtlasFactsView} from '../mcp-servers/AtlasFacts'
 /**
@@ -590,6 +591,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <span className="term-turn__ctxlabel">{t('features.agent.ctx.label')}</span> {ctxParts.join(' · ')}
         </p>
       )}
+      {turn.contract&&<TaskContractCard report={turn.contract}/>}
       <ol className="term-steps" role="log" aria-label={t('features.agent.log')} aria-live="polite">
         {steps.map((s) => (s.kind === 'note' ? <NoteRow key={s.id} step={s} /> : s.kind === 'mcp' ? <McpRow key={s.id} step={s} /> : <StepRow key={s.id} step={s} />))}
         {running && !live && (

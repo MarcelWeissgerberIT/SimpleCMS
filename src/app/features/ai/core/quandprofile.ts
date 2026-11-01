@@ -5,6 +5,7 @@ import {workspaceDeviceAI} from '../../../store/ai'
 import {useWorkspace} from '../../../store/store'
 import {useCloud} from '../../../cloud/state'
 import {AIError} from './errors'
+import type {TaskRequest} from '@/shared/quandprofile/task'
 let runtime:QuandRuntime|null=null,loading:Promise<void>|null=null
 /** Bundled and precached with the app. Failure disables AI actions, not document editing. */
 export function loadQuandProfile():Promise<void>{return loading??=fetch(wasmUrl).then(async r=>{if(!r.ok)throw Error('Compiler asset unavailable');const {instance}=await WebAssembly.instantiate(await r.arrayBuffer(),{});runtime=new QuandRuntime(instance)}).catch(e=>{loading=null;throw e})}
@@ -21,4 +22,8 @@ export function checkProviderQuantum(provider:string,model:string,classes:readon
  const s=useWorkspace.getState(),device=workspaceDeviceAI(s)
  const snapshot=providerSnapshot(provider,classes,s.ai,device,OWNER.memberClassesOwnedByMember)
  return checkQuantum('one_provider',provider+':'+model,{provider,model,classes,purpose},snapshot)
+}
+export function compileTask(request:TaskRequest){
+  if(!runtime)throw new AIError('policy','features.ai.quantum.blocked')
+  return runtime.task(request)
 }

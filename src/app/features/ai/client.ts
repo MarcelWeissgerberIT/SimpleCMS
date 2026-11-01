@@ -321,6 +321,8 @@ export interface StructuredOptions extends RouteOptions {
 
 /** The MCP activity of a structured request (StructuredOptions.onMcpActivity). */
 export interface StructuredMcpActivity {
+  /** Host-owned calls; provider blocks remain separate. */
+  calls?:readonly McpCall[]
   /** the servers that joined the request (their names) */
   attached: readonly string[]
   /** this response's `mcp_tool_use` / `mcp_tool_result` blocks, as returned ([] for the attach report) */

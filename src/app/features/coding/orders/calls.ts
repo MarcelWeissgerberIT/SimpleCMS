@@ -69,3 +69,10 @@ export function foldCalls(fold: CallFold, blocks: ReadonlyArray<unknown>, server
 
 /** "Server returned nothing": it took part, and no call brought anything back (none made, all failed or empty). */
 export const serverReturnedNothing = (calls: readonly OrderCall[]): boolean => !calls.some((c) => c.ok && c.bytes > 0)
+
+/** Actual browser-owned calls, separate from provider blocks. */
+export function foldHostCalls(fold:CallFold,events:readonly {id:string;server:string;tool:string;state:string;input?:Record<string,unknown>;arg:string;resultBytes?:number;contract?:unknown}[],server:string):CallFold{
+ let calls=fold.calls,open={...fold.open}
+ for(const event of events){if(event.server!==server||event.contract)continue;let i=open[event.id];if(i===undefined){if(calls.length>=CALLS_MAX)continue;i=calls.length;open[event.id]=i;calls=[...calls,{tool:event.tool.slice(0,64),args:event.input?callArgs(event.input):event.arg,bytes:0,ok:false}]}calls=calls.map((c,k)=>k===i?{...c,bytes:event.resultBytes??0,ok:event.state==='ok'}:c)}
+ return {calls,open}
+}

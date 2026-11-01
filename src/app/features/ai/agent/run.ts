@@ -1,3 +1,6 @@
+import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
+import {WORKER_MCP_FUNCTIONS,workerMcpSession} from '../core/workerMcp'
+import {WORKER_MCP_GUIDE} from '../core/toolFormat'
 import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
 import { REVIEW_POLICY, ReviewSources, FINDING_SCHEMA, FINDING_DESCRIPTION } from '@/shared/ai/review'
 import {AtlasFacts,ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
@@ -15,9 +18,9 @@ import {captureReadiness} from '../../../cloud'
  *   calling tools), tool results clipped with a note (tools.ts), max_iterations as a backstop. A run
  *   that reached either ends as 'limit' (also when Claude wrapped up), so the terminal can offer
  *   Continue: the same conversation, a fresh budget (session.ts).
- * - External MCP servers (Settings → AI): attached as `mcp_servers` + `mcp_toolset`s; their
- *   calls run inside a response (mcp_tool_use / mcp_tool_result, kept in the history unchanged) and
- *   only reach the step log. The session pins the setup per conversation (system + tools stay put).
+ * - External MCP servers use host-owned discovery and exact function wrappers. Every effect passes
+ *   the compiled task boundary and selected MCP policy before dispatch. Source reads and human
+ *   prerequisite answers update the next compiled model packet.
  * - The Regler (features/governor): the first request is braked on FIRST_STEP_OUT (the wire keeps its 64 000), and
  *   before every further request — after a tool_use or pause_turn response (before its tools run and before the runner
  *   sends again) and before the eager-input retry — beforeRound() decides: go (the run's reservation follows the next
@@ -198,6 +201,7 @@ export function untilStopped(p: Promise<HaltChoice>, signal: AbortSignal): Promi
 }
 
 export interface RunHooks {
+  contract?(report:import('@/shared/quandprofile/task').TaskReport):void
   /** a tool call starts: returns the step id */
   toolStart(name: ToolName, arg: string): string
   toolEnd(stepId: string, outcome: { state: 'ok' | 'err' | 'staged'; summary: string; changeId?: string; ms: number }): void
@@ -296,6 +300,7 @@ export async function runAgent(opts: {
   }
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
   let prepared: Prepared | null = null
+  let compiledTask:ReturnType<typeof createTaskContract>|null=null
   /** the response streaming now: metered once — whole, or from what arrived when it was cut */
   let current: { stream: { currentMessage: unknown; controller: AbortController }; chars: number; done: boolean } | null = null
   let cut: (e: unknown) => void = () => {}
@@ -305,7 +310,7 @@ export async function runAgent(opts: {
     const defs = offeredTools.map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
     // the brake judges the first request on FIRST_STEP_OUT (prompt + 4 096 output): the wire keeps its 64 000 — a capped
     // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
-    const fixed = reviewSystem.length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
+    const fixed = 12000+(opts.typed?.length??0)+reviewSystem.length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
     // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
     const size = { promptChars: fixed + messagesChars(messages), maxTokens: (caps: import('@/shared/ai/types').Caps | null) => Math.min(LOOP_MAX_TOKENS, caps?.maxOutput ?? LOOP_MAX_TOKENS), bandOut: FIRST_STEP_OUT }
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
@@ -319,13 +324,17 @@ export async function runAgent(opts: {
       const { runCopilotAgent } = await import('./copilot')
       return await runCopilotAgent(opts, prepared, messages)
     }
+    compiledTask=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
+    const task=compiledTask
+    const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task):null
     let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to (an agent's own, else this device's) and what it can do (caps, never its id)
     const model = prepared.route?.m ?? got.model
-    const system = reviewSystem
+    const systemBase=reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:'')
+    const system = task.packet()
     let calls = 0
     let warned = false
     /** a call was refused at the limit: Claude was told to wrap up, the run ends as 'limit' */
@@ -359,6 +368,7 @@ export async function runAgent(opts: {
         const stepId = hooks.toolStart(tool.name, arg)
         let out: ToolOutcome
         try {
+          task.dispatch(tool.name,oneTaskEffect(tool.name,tool.write))
           out = await withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))))
         } catch (e) {
           const ms = performance.now() - started
@@ -366,6 +376,8 @@ export async function runAgent(opts: {
           hooks.toolEnd(stepId, { state: 'err', summary: '', ms })
           throw new Error(msg)
         }
+        task.observe('one',true,['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
+        ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
         if(tool.write)atlasFacts.noteOtherWrite()
         const visible = clipResult(out.content, RESULT_CHARS + 2000)
@@ -375,7 +387,17 @@ export async function runAgent(opts: {
       },
     }))
 
-    const paramsOf = (m: string, p: Prepared) => paramsFor({ model: m, maxTokens: capped(LOOP_MAX_TOKENS, p), thinks: thinks(p.caps), system, tools, mcp, effort: opts.effort })
+    const remoteTool=(definition:import('@/shared/ai/worker').WorkerFunction):BetaRunnableTool<Record<string,unknown>>=>({type:'custom',name:definition.name,description:definition.description,input_schema:definition.parameters as {type:'object'},parse:input=>input as Record<string,unknown>,run:async input=>{
+      if(signal.aborted)throw new AIError('aborted')
+      if(++calls>MAX_TOOL_CALLS)throw new AIError('capability','Task tool-call limit reached.')
+      const result=definition.name===TASK_QUESTION.name?await task.question(input):await remote!(definition.name,input,crypto.randomUUID())
+      ;(runner.params as unknown as {system:string}).system=task.packet()
+      if(remote){(runner.params as unknown as {tools:BetaRunnableTool<Record<string,unknown>>[]}).tools=[...tools,...remote.functions().map(remoteTool)]}
+      return result
+    }})
+    tools.push(remoteTool(TASK_QUESTION),...(remote?WORKER_MCP_FUNCTIONS.map(remoteTool):[]))
+
+    const paramsOf = (m: string, p: Prepared) => paramsFor({ model: m, maxTokens: capped(LOOP_MAX_TOKENS, p), thinks: thinks(p.caps), system:task.packet(), tools, mcp:null, effort: opts.effort })
     let params = paramsOf(model, prepared)
 
     let end: RunEnd = 'done'
@@ -451,6 +473,7 @@ export async function runAgent(opts: {
       const out = used.length ? Math.max(...used.map((u) => u.output)) : FIRST_STEP_OUT
       prepared = reprepare(prepared!, c.route, { size: { promptChars: fixed + messagesChars(runner.params.messages) + pending.high, maxTokens: LOOP_MAX_TOKENS, bandOut: Math.max(1, Math.min(LOOP_MAX_TOKENS, out)) } })
       // the switch's band holds the cold cache: that is what may be spent now
+      task.rebindPrepared(prepared)
       adjust(prepared.reservation?.id, c.band.high)
       call = meterCall(prepared, { source: run?.source, signal })
       const next = paramsOf(c.route.m, prepared)
@@ -495,10 +518,12 @@ export async function runAgent(opts: {
             stream.on('streamEvent', (event) => (cur.chars += deltaChars(event)))
             let mcpCalls: McpCall[] = []
             let draftText=''
-            stream.on('text', (delta) => {draftText+=delta;if(!mcp)hooks.text(delta)})
+            stream.on('text', (delta) => {draftText+=delta})
             stream.on('contentBlock', (block: BetaContentBlock) => {
               if (block.type === 'thinking' && block.thinking.trim()) hooks.note(block.thinking.trim())
               if (media?.block(block)) hooks.media?.(media.items)
+              // Remote MCP is dispatched only by the host wrappers below.
+              if(block.type==='mcp_tool_use'||block.type==='mcp_tool_result')return
               const next = foldMcpBlock(mcpCalls, block, readiness, atlasFacts)
               if (next === mcpCalls) return
               const changed = next.find((c, i) => c !== mcpCalls[i])
@@ -506,6 +531,7 @@ export async function runAgent(opts: {
               if (changed) hooks.mcp(changed)
             })
             const msg = await stream.finalMessage()
+            if(msg.content.some(b=>b.type==='mcp_tool_use'||b.type==='mcp_tool_result'))throw new AIError('policy','Unexpected provider-side MCP output; only host dispatch is permitted.')
             cur.done = true
             jsonRetries = 0
             lastStop = msg.stop_reason
@@ -518,9 +544,9 @@ export async function runAgent(opts: {
             const entry = call.response(r)
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
-            if(mcp&&msg.stop_reason!=='pause_turn'){
-              if(!toolUse){const text=await guardAtlasAnswer(draftText,atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}});guardedFinal=text;hooks.text(text)}
-              else if(!atlasFacts.check(draftText).length)hooks.text(draftText)
+            if(msg.stop_reason!=='pause_turn'){
+              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;task.finish(text);guardedFinal=text;hooks.text(text)}
+              else if(!(remote?.facts??atlasFacts).check(draftText).length)hooks.text(draftText)
             }
             hooks.textDone(toolUse ? 'note' : 'answer')
             // links in the answer to a host an MCP result used count as media too
@@ -586,6 +612,7 @@ export async function runAgent(opts: {
     if (signal.aborted) throw new AIError('aborted')
     throw toAIError(e, sdk, mcp)
   } finally {
+    compiledTask?.release()
     settle(prepared)
   }
 }

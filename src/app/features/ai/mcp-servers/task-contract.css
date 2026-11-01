@@ -1,0 +1,19 @@
+.task-contract{margin:var(--sp-3) 0;border:1px solid var(--rule);border-left:3px solid var(--signal);background:var(--surface);color:var(--ink);min-width:0;font-family:var(--font-sans)}
+.task-contract>details>summary{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:var(--sp-3);cursor:pointer;list-style:revert;flex-wrap:wrap}
+.task-contract summary strong{font-size:var(--text-sm)}
+.task-contract__body{padding:0 var(--sp-4) var(--sp-4);overflow-wrap:anywhere}
+.task-contract__body>p{white-space:pre-wrap;font-size:var(--text-sm);line-height:1.6}
+.task-contract__checks{list-style:none;padding:0!important;margin:var(--sp-3) 0!important}
+.task-contract__checks li{display:flex;gap:var(--sp-3);justify-content:space-between;border-top:1px solid var(--rule);padding:var(--sp-2) 0;font-size:var(--text-sm)}
+.task-contract__checks li[data-status=open]{border-left:2px solid var(--signal);padding-left:var(--sp-2)}
+.task-contract__checks li[data-status=violated]{color:var(--c-red-text)}
+.task-contract__decision{border:1px solid var(--signal);padding:var(--sp-4);display:grid;gap:var(--sp-3)}
+.task-contract__decision h4,.task-contract__decision p{margin:0}
+.task-contract__decision label{display:grid;gap:var(--sp-2)}
+.task-contract__decision textarea{width:100%;resize:vertical;box-sizing:border-box;background:var(--surface);color:var(--ink);border:1px solid var(--rule);padding:var(--sp-2);font:inherit}
+.task-contract__option{display:grid!important;text-align:left!important;white-space:normal!important;height:auto!important;gap:var(--sp-1);padding:var(--sp-3)!important}
+.task-contract__option span,.task-contract__note{color:var(--ink-2);font-size:var(--text-xs)}
+.task-contract pre{overflow:auto;max-height:360px;max-width:100%;white-space:pre-wrap;word-break:break-word;font-size:var(--text-xs)}
+.task-contract details details>summary{cursor:pointer;padding:var(--sp-2) 0;font-size:var(--text-sm)}
+.task-contract[data-phase=decision]{border-color:var(--signal)}
+@media(max-width:600px){.task-contract__body{padding:0 var(--sp-3) var(--sp-3)}.task-contract__checks li{flex-wrap:wrap}.task-contract__decision{padding:var(--sp-3)}}

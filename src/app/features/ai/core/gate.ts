@@ -362,7 +362,7 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
         const pick = o.pick ? cfg.onlyServer(o.pick.server, o.pick.reads) : null
         if (o.pick && !pick) return { ok: false, code: 'contract', detail: `no enabled server ${o.pick.server}` }
         const mcp = o.mcp === false ? false : (o.mcp ?? (pick ? ('fixed' as const) : (false as const)))
-        const base = { purpose: o.purpose, sources: o.sources ?? ([] as SourceRef[]), system: 'Answer briefly.', prompt: o.prompt, mcp, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
+        const base = { purpose: o.purpose, typed:o.prompt, sources: o.sources ?? ([] as SourceRef[]), system: 'Answer briefly.', prompt: o.prompt, mcp, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
         try {
           const text = o.structured ? await m.completeStructured({ ...base, ...(pick ?? {}), schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } }) : await m.streamCompletion(base)
           return { ok: true, text }
@@ -526,6 +526,8 @@ function retried(input: PrepareInput): PrepareInput {
 
 /** The input each prepared request came from (reprepare). */
 const inputs = new WeakMap<Prepared, PrepareInput>()
+/** Host access only: source pointers and the caller's trusted typed instruction, never model/source text. */
+export const taskInputOf=(p:Prepared)=>{const i=inputs.get(p);return {typed:typeof i?.typed==='string'?i.typed:Array.isArray(i?.typed)?i.typed.filter(v=>typeof v==='string').join('\n'):'',sources:i?.sources??[]}}
 const flowVersions = new WeakMap<Prepared, string>()
 
 export function assertPreparedFlow(p: Prepared): void {

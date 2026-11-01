@@ -17,8 +17,17 @@ export type FactIssue = { kind: 'reference' | 'count' | 'effect' | 'outcome'; de
 export const modelAtlasReceipt=(receipt:AtlasReceipt):AtlasReceipt=>({...receipt,...(receipt.quantum?{quantum:compactQuantumProof(receipt.quantum)}:{})})
 type Call = { server: string; name: string; arguments: Record<string, unknown> }
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
-const READ = new Set(['atlas_whoami','atlas_project_list','atlas_tenant_search','atlas_record_kinds','atlas_get','atlas_search','atlas_query','atlas_constraints','atlas_children','atlas_graph','atlas_sprint_report','atlas_code_resolve','atlas_setup_bootstrap','atlas_setup_changelog','atlas_similar','atlas_context','atlas_briefing','atlas_agent_list','atlas_flow_list','atlas_agent_inbox','atlas_agent_approvals','atlas_my_agent_jobs'])
+const READ = new Set(['atlas_whoami','atlas_project_list','atlas_tenant_search','atlas_record_kinds','atlas_get','atlas_search','atlas_query','atlas_constraints','atlas_children','atlas_graph','atlas_sprint_report','atlas_code_resolve','atlas_setup_bootstrap','atlas_setup_changelog','atlas_similar','atlas_context','atlas_briefing','atlas_agent_list','atlas_flow_list','atlas_agent_inbox','atlas_agent_approvals','atlas_my_agent_jobs','atlas_polarion_status','atlas_polarion_resolve','atlas_polarion_read','atlas_polarion_inspect','atlas_polarion_search'])
 const WRITE = new Set(['atlas_create','atlas_update','atlas_comment','atlas_log_work','atlas_bulk_update','atlas_sprint_commit','atlas_delete','atlas_restore','atlas_attach','atlas_attach_link','atlas_setup_checkup','atlas_assess','atlas_health_scan','atlas_project_delete','atlas_tenant_select','atlas_agent_create','atlas_agent_propose','atlas_agent_flow','atlas_agent_trigger','atlas_flow_start','atlas_agent_job_claim','atlas_agent_job_done','atlas_agent_job_approve','atlas_agent_update','atlas_agent_token','atlas_agent_token_revoke','atlas_agent_revoke','atlas_agent_block','atlas_memory_save'])
+/** Host classification; model-supplied annotations do not grant an effect. Unknown tools fail closed. */
+export function atlasTaskEffect(name:string,args:Record<string,unknown>):'read'|'write'|'execute'|'forbidden'{
+  if(READ.has(name)||name==='atlas_agent_flow'&&['list','get'].includes(String(args.action)))return 'read'
+  if(['atlas_flow_start','atlas_agent_trigger','atlas_agent_job_claim'].includes(name))return 'execute'
+  if(name==='atlas_polarion_prepare_change')return 'read'
+  if(['atlas_polarion_connect','atlas_polarion_apply_change'].includes(name))return 'execute'
+  if(WRITE.has(name))return 'write'
+  return 'forbidden'
+}
 const COUNTS: Record<string, string> = { kinds:'record_kinds', projects:'projects', agents:'agents', flows:'flows', jobs:'jobs', tenants:'tenants', items:'records', rows:'records', records:'records', constraints:'constraints' }
 const META = new Set(['item','agent','proposal','job','chain','sprint','subject','next','result','run'])
 const REF_KEYS = new Set(['ref','eventRef','runRef','subjectRef','doneRunRef','triggerRunRef'])

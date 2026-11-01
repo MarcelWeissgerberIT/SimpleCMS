@@ -523,7 +523,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       if (!here()) return Promise.resolve('stop')
       return waitAtLine(n, h, wait, () => taskUsd, ac.signal)
     },
+    contract(report) { if(here())patchTurn(n,{contract:report}) },
     mcp(call) {
+      if(call.contract){if(here())patchTurn(n,{contract:call.contract});return}
       sawMcp = true
       const key=JSON.stringify([call.server,call.tool])
       if(call.state==='err')failedMcp.add(key)

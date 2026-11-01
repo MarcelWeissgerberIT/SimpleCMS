@@ -29,7 +29,7 @@ export function QuantumCube({dimensions,selected,onSelect,label}:{dimensions:str
     <div className="quantum-cube__caption"><span className="label">{t('features.ai.quantum.core')}</span><span className="label">{t('features.ai.quantum.evidence')}</span></div>
     <svg ref={ref} viewBox={`0 0 ${width} ${height}`} height={height} role="img" aria-labelledby={id} onPointerDown={e=>{if(e.pointerType==='touch')return;e.currentTarget.setPointerCapture(e.pointerId);drag.current={x:e.clientX,y:e.clientY,...angle}}} onPointerMove={e=>{const start=drag.current;if(start)setAngle({yaw:Math.max(-1,Math.min(.4,start.yaw+(e.clientX-start.x)/220)),pitch:Math.max(.12,Math.min(.7,start.pitch+(e.clientY-start.y)/350))})}} onPointerUp={()=>{drag.current=null}} onPointerCancel={()=>{drag.current=null}}>
       <title id={id}>{label}</title>
-      {dimensions.slice(0,3).map((dimension,i)=><path key={dimension} className="quantum-cube__plane" data-selected={dimension===selected} d={path(planes[i],true)}/>)}
+      {[selected,...dimensions.filter(d=>d!==selected)].slice(0,3).map((dimension,i)=><path key={dimension} className="quantum-cube__plane" data-selected={dimension===selected} d={path(planes[i],true)}/>)}
       <path className="quantum-cube__binding" d={path([[205,60,-15],[70,15,0],[-35,0,0]])}/>
       {faces.map((face,i)=><path key={i} className={'quantum-cube__'+face.kind} d={path(face.points,true)}/>)}
     </svg>

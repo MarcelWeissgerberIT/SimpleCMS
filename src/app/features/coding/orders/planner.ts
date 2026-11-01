@@ -63,7 +63,7 @@ import { plannerPrompt, plannerSystem, repairPrompt, PLAN_SCHEMA, type PlannerDo
 import { orderPlanHash, readPlan, type PlanReadCtx, type ResolvedStep } from './plan'
 import { serverSkip } from './tools'
 import { serverReads } from './serverTools'
-import { emptyFold, foldCalls, type CallFold } from './calls'
+import { foldHostCalls, emptyFold, foldCalls, type CallFold } from './calls'
 import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
 import { pageShown, requestFp, requestNow, shownFp, textFp } from './fingerprint'
 import { loadRowOutside, outsideOf } from './rowWriters'
@@ -461,7 +461,7 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
       onMcpActivity: (a) => {
         if (!server.name) return
         seen.attached = [...a.attached]
-        seen.fold = foldCalls(seen.fold, a.blocks, server.name)
+        seen.fold = a.calls?foldHostCalls(seen.fold,a.calls,server.name):foldCalls(seen.fold, a.blocks, server.name)
         patchRun(rowId, run, { calls: seen.fold.calls })
       },
     })

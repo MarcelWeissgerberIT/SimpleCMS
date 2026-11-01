@@ -74,7 +74,7 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
   let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n>=2?'Atlas request failed.':'',calls:n===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_get'}}]:n===1?[{id:'read',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]:[],inputTokens:200,outputTokens:40,usd:0}}
   await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
   await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
-  await input.fill('Read Atlas ref 42.');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('Atlas request failed.')
+  await input.fill('Read Atlas ref 42.');await input.press('Enter');await expect(term.locator('.task-contract')).toContainText('Blocked');await expect(term.locator('.term-answer')).toHaveCount(0)
   const facts=term.locator('.atlas-facts');await expect(facts).toHaveAttribute('data-outcome','error');await facts.locator('summary').click();await facts.getByRole('button',{name:/Compiled dispatch check/}).click()
   const dialog=page.getByRole('dialog',{name:'Evidence cube · dispatch check'});await expect(dialog).toContainText('Dispatch check passed · recorded');await expect(dialog.locator('.quantum-inspector__facts').first()).toContainText('Failed')
   expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call'])
@@ -102,8 +102,8 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
  })
  for(const terminal of [false,true])test(`Claude ${terminal?'terminal':'completion'}: check before display and correct without MCP or write tools`,async({page})=>{
   await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
-  const source=JSON.stringify({kinds:Array.from({length:36},(_,i)=>({name:'kind-'+i}))})
-  const host=await mockClaudeScript(page,[{blocks:[{type:'mcp_tool_use',id:'read-kinds',server:'atlas',name:'atlas_record_kinds',input:{}},{type:'mcp_tool_result',id:'read-kinds',text:source},...text('29 Record-Kinds erstellt.').blocks]},text('36 Record-Kinds gelesen.')])
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_record_kinds',inputSchema:{type:'object'}}]}:{result:envelope({kinds:Array.from({length:36},(_,i)=>({name:'kind-'+i}))})}
+  const host=await mockClaudeScript(page,[{blocks:[{type:'tool_use',id:'discover',name:'one_mcp_search',input:{query:'atlas_record_kinds'}}]},{blocks:[{type:'tool_use',id:'read-kinds',name:'one_mcp_call',input:{server:'atlas',name:'atlas_record_kinds',arguments:{}}}]},text('29 Record-Kinds erstellt.'),text('36 Record-Kinds gelesen.')])
   if(terminal){
    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'anthropic',m:model}]),DEFAULT_CLAUDE_MODEL)
    await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
@@ -113,13 +113,14 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
    const answer=await page.evaluate(async model=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'List the actual Atlas record kinds.',mcp:'fixed',route:{p:'anthropic',m:model}}),DEFAULT_CLAUDE_MODEL)
    expect(answer).toEqual({ok:true,text:'36 Record-Kinds gelesen.'})
   }
-  expect(host.requests).toHaveLength(2);expect(host.requests[1].body.tools??[]).toEqual([]);expect(host.requests[1].body.mcp_servers??[]).toEqual([])
-  expect(JSON.stringify(host.requests[1].body)).not.toContain('private-facts-token')
+  expect(host.requests).toHaveLength(4);expect(host.requests[3].body.tools??[]).toEqual([]);expect(host.requests.every(r=>!r.body.mcp_servers)).toBe(true)
+  expect(JSON.stringify(host.requests[3].body)).not.toContain('private-facts-token')
  })
  test('Claude structured fields with an invented Atlas ref are withheld',async({page})=>{
   await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
-  const host=await mockClaudeScript(page,[{blocks:[{type:'mcp_tool_use',id:'read',server:'atlas',name:'atlas_get',input:{ref:42}},{type:'mcp_tool_result',id:'read',text:JSON.stringify({item:{ref:42,body:'Approved fixture'}})},...text('{"answer":"Ref: 999"}').blocks]}])
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Approved fixture'}})}
+  const host=await mockClaudeScript(page,[{blocks:[{type:'tool_use',id:'discover',name:'one_mcp_search',input:{query:'atlas_get'}}]},{blocks:[{type:'tool_use',id:'read',name:'one_mcp_call',input:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]},text('{"answer":"Ref: 999"}')])
   const answer=await page.evaluate(async model=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read Atlas ref 42.',structured:true,pick:{server:'atlas',reads:['atlas_get']},route:{p:'anthropic',m:model}}),DEFAULT_CLAUDE_MODEL)
-  expect(answer).toMatchObject({ok:false,detail:'features.ai.local.unverifiedFacts'});expect(host.requests).toHaveLength(1)
+  expect(answer).toMatchObject({ok:false,detail:'features.ai.local.unverifiedFacts'});expect(host.requests).toHaveLength(3)
  })
 })
