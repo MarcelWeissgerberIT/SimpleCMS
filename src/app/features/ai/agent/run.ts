@@ -1,4 +1,6 @@
 import { REVIEW_POLICY, ReviewSources, FINDING_SCHEMA, FINDING_DESCRIPTION } from '@/shared/ai/review'
+import {AtlasFacts,ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
+import {guardAtlasAnswer} from '../providers/anthropic'
 import {captureReadiness} from '../../../cloud'
 /**
  * Workspace agent — one task = one run of the SDK tool runner (client.beta.messages.toolRunner)
@@ -281,9 +283,10 @@ export async function runAgent(opts: {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
   const reviewSources = new ReviewSources()
+  const atlasFacts=new AtlasFacts()
   const reviewTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
   const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool]
-  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY
+  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (mcp?'\n'+ATLAS_FACT_POLICY:'')
   const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {
@@ -363,6 +366,7 @@ export async function runAgent(opts: {
           throw new Error(msg)
         }
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
+        if(tool.write)atlasFacts.noteOtherWrite()
         const visible = clipResult(out.content, RESULT_CHARS + 2000)
         if (tool.name === 'read_page') return reviewSources.observe(visible, `One page ${String(input.id ?? '')}`)
         if (out.state === 'staged') reviewSources.clear()
@@ -457,6 +461,7 @@ export async function runAgent(opts: {
     }
     /** how the last response ended: tool_use / pause_turn here means the runner stopped at max_iterations */
     let lastStop: string | null = null
+    let guardedFinal:string|null=null
     // media in MCP results: cards for the person (features/ai/media), nothing is fetched
     const media = mcp && hooks.media ? createMediaCollector() : null
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
@@ -488,11 +493,12 @@ export async function runAgent(opts: {
             current = cur
             stream.on('streamEvent', (event) => (cur.chars += deltaChars(event)))
             let mcpCalls: McpCall[] = []
-            stream.on('text', (delta) => hooks.text(delta))
+            let draftText=''
+            stream.on('text', (delta) => {draftText+=delta;if(!mcp)hooks.text(delta)})
             stream.on('contentBlock', (block: BetaContentBlock) => {
               if (block.type === 'thinking' && block.thinking.trim()) hooks.note(block.thinking.trim())
               if (media?.block(block)) hooks.media?.(media.items)
-              const next = foldMcpBlock(mcpCalls, block, readiness)
+              const next = foldMcpBlock(mcpCalls, block, readiness, atlasFacts)
               if (next === mcpCalls) return
               const changed = next.find((c, i) => c !== mcpCalls[i])
               mcpCalls = next
@@ -511,6 +517,10 @@ export async function runAgent(opts: {
             const entry = call.response(r)
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
+            if(mcp&&msg.stop_reason!=='pause_turn'){
+              if(!toolUse){const text=await guardAtlasAnswer(draftText,atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}});guardedFinal=text;hooks.text(text)}
+              else if(!atlasFacts.check(draftText).length)hooks.text(draftText)
+            }
             hooks.textDone(toolUse ? 'note' : 'answer')
             // links in the answer to a host an MCP result used count as media too
             if (!toolUse && media?.answer(msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n'))) hooks.media?.(media.items)
@@ -565,6 +575,8 @@ export async function runAgent(opts: {
       }
     } finally {
       messages = [...runner.params.messages]
+      // Keep protocol/thinking blocks intact; an invalid draft must not seed the next task as a fact.
+      if(guardedFinal!==null){const last=messages.at(-1);if(last?.role==='assistant'&&Array.isArray(last.content))messages[messages.length-1]={...last,content:[...last.content.filter(b=>b.type!=='text'),{type:'text',text:guardedFinal}]}}
       hooks.history(messages)
     }
     return end

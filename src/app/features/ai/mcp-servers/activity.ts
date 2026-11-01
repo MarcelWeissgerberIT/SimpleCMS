@@ -4,6 +4,7 @@
  */
 import {noteAtlasRead,type ReadinessScope} from '../../../cloud'
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages'
+import {atlasReceipt,type AtlasReceipt,type AtlasFacts} from '@/shared/mcp/facts'
 
 export interface McpCall {
   /** the mcp_tool_use id */
@@ -15,6 +16,9 @@ export interface McpCall {
   state: 'run' | 'ok' | 'err'
   /** an error result's text (clipped) */
   error?: string
+  /** Host-derived metadata, never a model-authored status or summary. */
+  receipt?: AtlasReceipt
+  input?: Record<string,unknown>
   /**
    * Not a call: a server that did not join — 'off' = switched off, 'token' = no token in this browser, 'refused' = its
    * token was rejected, 'provider' = the route's provider connects no MCP servers (OpenRouter), 'policy' = the route
@@ -54,17 +58,21 @@ function resultText(content: unknown): string {
 }
 
 /** Fold one finished content block into the call list (returns the same list when nothing changed). */
-export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock, readiness?: {scope:ReadinessScope|null;servers:Array<{name:string;url:string}>}): McpCall[] {
+export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock, readiness?: {scope:ReadinessScope|null;servers:Array<{name:string;url:string}>}, facts?:AtlasFacts): McpCall[] {
   if (block.type === 'mcp_tool_use') {
     if (calls.some((c) => c.id === block.id)) return calls
-    return [...calls, { id: block.id, server: block.server_name, tool: block.name, arg: inputLabel(block.input), state: 'run' }]
+    const input=block.input&&typeof block.input==='object'&&!Array.isArray(block.input)?block.input as Record<string,unknown>:{}
+    const metadata={...(typeof input.ref==='number'?{ref:input.ref}:{}),...(['list','get'].includes(String(input.action))?{action:input.action}:{})}
+    return [...calls, { id: block.id, server: block.server_name, tool: block.name, arg: inputLabel(block.input), input:metadata, state: 'run' }]
   }
   if (block.type === 'mcp_tool_result') {
     const i = calls.findIndex((c) => c.id === block.tool_use_id)
     if (i < 0) return calls
     if(readiness&&!block.is_error)noteAtlasRead(readiness.scope,readiness.servers.find(s=>s.name===calls[i].server)?.url,calls[i].tool,block.content)
     const next = [...calls]
-    next[i] = block.is_error ? { ...calls[i], state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...calls[i], state: 'ok' }
+    const call=calls[i],raw={content:typeof block.content==='string'?[{type:'text',text:block.content}]:block.content,isError:!!block.is_error}
+    const receipt=call.tool.startsWith('atlas_')?(facts?.observe({server:call.server,name:call.tool,arguments:call.input??{}},raw,!!block.is_error)??atlasReceipt(call.tool,raw,!!block.is_error)):undefined
+    next[i] = block.is_error ? { ...call, receipt, state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...call, receipt, state: 'ok' }
     return next
   }
   return calls

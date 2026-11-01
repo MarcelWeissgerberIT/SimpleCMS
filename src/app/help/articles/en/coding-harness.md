@@ -124,6 +124,16 @@ Before every local model round, ONE checks the serialized UTF-8 input budget inc
 
 With a shared model, the host performs inference. ONE tools execute in your browser; Atlas MCP uses your personal worker. The host receives approved context and tool results, never tokens. Private pages, mail and personal memory are not shared automatically. Moving the model host to a controlled VM later keeps this separation and does not require publicly exposing Ollama.
 
+## Check Atlas answers against actual results
+
+Atlas calls in the AI terminal, page questions and browser agents provide a collapsed **Actual Atlas result** receipt. It uses tool-response metadata: returned references, IDs, list lengths, reported status and operation type. Document bodies and model claims cannot create this metadata. An accepted write is not proof of task completion; a queued flow has not completed execution. A failed read does not establish an empty database.
+
+ONE checks recognizable reference, count and status claims against these receipts. A detected contradiction permits at most one additional correction within the allowed budget, without tools or repeated writes. If the contradiction persists, ONE displays a summary assembled from actual tool metadata. Contradictory structured results are withheld instead of passing unchecked fields downstream. The additional model request can incur usage. Claude with MCP buffers answer text until this check; tool progress remains visible.
+
+For ONE-mediated Atlas calls from **Copilot and local models**, reference-based individual mutations such as `atlas_update` or `atlas_comment` require a target previously observed in a successful response from the same connection. Otherwise ONE does not execute the write and requests a read first. After successful `atlas_create` or `atlas_update` returning exactly one reference, ONE reads that target back once if `atlas_get` is already permitted. It compares the requested title, text and field values. Uncomparable changes stay unchecked; differing or unavailable sources remain visible. The write is never automatically replayed.
+
+**Limits:** This is a bounded check of known metadata and wording, not a complete semantic truth verifier. Sources can be outdated or factually wrong. Native external Claude MCP calls receive answer validation and result receipts; this ONE check does not intercept their execution or automatically read them back. Administrative bulk changes and product decisions still require targeted evidence and human acceptance. Existing permissions, data rules and project boundaries remain authoritative.
+
 ## Include specific repository files
 **Repo files** opens the shared picker in task fields, the AI terminal and the page AI menu. **/files** also opens it; **@src/** or **@README.md** searches a path. Existing @mentions of ONE pages remain available.
 

@@ -1,6 +1,7 @@
 import {McpBindings,selectMcpSchemas,type DiscoveredMcpTool} from '@/shared/mcp/bindings'
 import {McpEvidence} from '@/shared/mcp/evidence'
 import {McpResults} from '@/shared/mcp/results'
+import {AtlasFacts,checkAtlasReadback} from '@/shared/mcp/facts'
 import {MCP_DISCOVERY_NOTE} from '@/shared/mcp/discovery'
 import { assertMcpFlow } from './dataFlow'
 /** Deferred MCP discovery: credentials stay on the worker path, only six matching schemas enter model context. */
@@ -17,7 +18,7 @@ export const isWorkerMcpFunction = (name:string) => WORKER_MCP_FUNCTIONS.some(t=
 const connectionProblem=(e:unknown)=>e instanceof Error&&/^AJ-Atlas (hat diesen persönlichen Token abgelehnt\. Bitte Token und Rechte prüfen\.|ist nicht erreichbar oder hat die Anfrage abgelehnt\. Es wurde kein anderer Server verwendet\.)$/.test(e.message)?e.message:e instanceof Error&&/^MCP connection [a-z][a-z0-9_-]{0,31}: (?:Authentication rejected by this endpoint\. Check the Atlas instance and personal token\.|TLS certificate verification failed\. Check the company certificate setup for Node; do not disable verification\.|Connection timed out\. Check VPN, proxy and network access from this worker\.|Network connection failed\. Check VPN, proxy, DNS and network access from this worker\.|Connection or tool discovery failed\. Check the endpoint and worker connectivity\.)$/.test(e.message)?e.message:'MCP discovery failed. Check the personal worker and connection.'
 export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000) {
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
-  const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),bindings=new McpBindings(),shownGuides=new Set<string>()
+  const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
   let attempts=0
   const invoke=async(name:string,args:Record<string,unknown>,id:string):Promise<string>=>{
     if(bindings.has(name)){args=bindings.resolve(name,args);name='one_mcp_call'}
@@ -49,16 +50,33 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     const activity:McpCall={id,server:args.server,tool:args.name,arg:JSON.stringify(args.arguments).slice(0,100),state:'run'}
     event(activity)
     try{
+      const actual={server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}
+      const blocked=facts.preflight(actual)
+      if(blocked){event({...activity,state:'err',error:blocked});return JSON.stringify({isError:true,oneNotExecuted:true,error:blocked})}
       attempts++
       const out=await requestWorkerMcp({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},signal) as {result:string}
       if(typeof out?.result!=='string')throw new AIError('mcp')
-      const packed=results.pack(out.result)
       const failed=JSON.parse(out.result).isError===true
+      const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
+      const server=servers.find(s=>s.name===args.server)
+      // A fixed, bounded read-back uses only the returned target and the person's existing permissions.
+      // No model retry, extra write or permission change is hidden behind verification.
+      if(receipt&&receipt.outcome==='ok'&&['atlas_create','atlas_update'].includes(args.name)&&receipt.refs.length===1&&server&&
+        (server.allow===null||server.allow.includes('atlas_get'))&&!server.deny.includes('atlas_get')&&actual.arguments.archive!==true){
+        const verifyActivity:McpCall={id:id+':readback',server:args.server,tool:'atlas_get',arg:String(receipt.refs[0]),state:'run'}
+        event(verifyActivity)
+        try{
+          const read=await requestWorkerMcp({action:'call',servers,server:args.server,name:'atlas_get',arguments:{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'}},signal) as {result:string}
+          receipt.verification=checkAtlasReadback(actual,receipt,read.result)
+          event({...verifyActivity,state:receipt.verification==='unavailable'||receipt.verification==='read_back_differs'?'err':'ok'})
+        }catch{if(signal?.aborted)throw new AIError('aborted');receipt.verification='unavailable';event({...verifyActivity,state:'err'})}
+      }
+      const packed=results.pack(out.result)
       if(!failed&&args.name.startsWith('atlas_')){const server=servers.find(s=>s.name===args.server);if(server)evidence.observe(out.result,new URL(server.url).origin,{server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>})}
-      event({...activity,state:failed?'err':'ok'})
+      event({...activity,state:failed?'err':'ok',...(receipt?{receipt}:{})})
       const searchEvidence=['atlas_search','atlas_query'].includes(args.name)?evidence.searchResult():null
-      return evidence.hint()?JSON.stringify({...JSON.parse(packed),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
-    }catch(e){if(signal?.aborted)throw new AIError('aborted');const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');event({...activity,state:'err',error});throw new AIError('mcp',error)}
+      return receipt||evidence.hint()?JSON.stringify({...JSON.parse(packed),...(receipt?{oneObservedFacts:receipt}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
+    }catch(e){if(signal?.aborted)throw new AIError('aborted');const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
   }
-  return Object.assign(invoke,{evidence,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
+  return Object.assign(invoke,{evidence,facts,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
 }

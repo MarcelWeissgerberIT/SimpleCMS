@@ -394,6 +394,18 @@
   list-style: none;
 }
 
+.atlas-facts {
+  grid-column: 2 / -1;
+  margin: 4px 0;
+  padding: 5px 8px;
+  border-inline-start: 2px solid var(--accent, #ff5a00);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.atlas-facts summary { cursor: pointer; }
+.atlas-facts[data-outcome='error'] { border-inline-start-color: #c43b42; }
 .ai-mcp__chip {
   display: inline-flex;
   align-items: center;

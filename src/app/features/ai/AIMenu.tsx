@@ -1,4 +1,5 @@
 import { RepoFilesControl } from '../repo-files/RepoFilesControl'
+import {AtlasFactsView} from './mcp-servers/AtlasFacts'
 import { WorkerConnectionHelp } from './mcp-servers/WorkerConnectionHelp'
 /**
  * AIMenu — the Claude panel the editor opens for a selection ("Ask AI") or at the cursor
@@ -2646,6 +2647,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
         )}
       </ul>
       <McpSkippedNote calls={calls} />
+      {calls.filter(c=>c.receipt).map(c=><AtlasFactsView key={c.id} receipt={c.receipt!}/>)}
       {failed.map((c) => (
         <div key={c.id} className="ai-mcp__err">
           {c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}

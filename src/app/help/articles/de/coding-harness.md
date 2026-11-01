@@ -124,6 +124,16 @@ Vor jedem lokalen Modellschritt prüft ONE das tatsächliche UTF-8-Eingabebudget
 
 Beim geteilten Modell rechnet der freigegebene Host. ONE-Werkzeuge laufen in deinem Browser, Atlas-MCP über deinen persönlichen Worker. Der Modellhost erhält freigegebenen Kontext und Werkzeugergebnisse, keine Tokens. Private Seiten, Mail und persönliches Gedächtnis werden nicht automatisch geteilt. Zum Modellhost-Ausbau auf einer eigenen VM bleibt dieser Ablauf gleich; Ollama wird nicht öffentlich geöffnet.
 
+## Atlas-Antworten anhand echter Ergebnisse prüfen
+
+Bei Atlas-Aufrufen im KI-Terminal, bei Seitenfragen und Browser-Agenten enthält **Tatsächliches Atlas-Ergebnis** einen zunächst eingeklappten Beleg. Er stammt aus den Metadaten der Werkzeugantwort: zurückgegebene Referenzen, IDs, Listenlängen, gemeldeter Status und Art des Zugriffs. Dokumenttexte und Modellbehauptungen erzeugen keine solchen Metadaten. Eine angenommene Änderung ist noch kein Abschlussnachweis; ein eingereihter Flow ist noch nicht ausgeführt. Ein fehlgeschlagener Abruf beweist keine leere Datenbank.
+
+ONE prüft erkennbare Referenz-, Zahlen- und Statusbehauptungen gegen diese Belege. Bei einem erkannten Widerspruch gibt es höchstens einen zusätzlichen Korrekturversuch im erlaubten Budget, ohne Werkzeuge und ohne erneute Schreibzugriffe. Bleibt der Widerspruch bestehen, erscheint eine aus tatsächlichen Werkzeugmetadaten gebildete Zusammenfassung. Widersprüchliche strukturierte Ergebnisse werden zurückgehalten, statt ungeprüfte Felder weiterzuverarbeiten. Die zusätzliche Modellanfrage kann Verbrauch verursachen. Bei Claude mit MCP wartet die Textanzeige bis zu dieser Prüfung; Werkzeugfortschritte bleiben sichtbar.
+
+Für die von ONE vermittelten Atlas-Aufrufe von **Copilot und lokalen Modellen** müssen referenzbezogene Einzeländerungen wie `atlas_update` oder `atlas_comment` ein zuvor erfolgreich gesehenes Ziel derselben Verbindung verwenden. Sonst führt ONE den Schreibaufruf nicht aus und fordert zuerst einen Lesezugriff an. Nach erfolgreichem `atlas_create` oder `atlas_update` mit genau einer zurückgegebenen Referenz liest ONE das Ziel einmal zurück, sofern `atlas_get` bereits erlaubt ist. Verglichen werden die konkret angeforderten Titel-, Text- und Feldwerte. Nicht vergleichbare Änderungen bleiben ungeprüft, abweichende oder nicht erreichbare Quellen sichtbar. Eine automatische Wiederholung der Änderung findet nicht statt.
+
+**Grenzen:** Dies ist eine begrenzte Prüfung bekannter Metadaten und Formulierungen, keine vollständige semantische Wahrheitsprüfung. Quellen können veraltet oder fachlich falsch sein. Native externe Claude-MCP-Aufrufe erhalten die Antwortprüfung und Ergebnisbelege; sie werden durch diese ONE-Prüfung nicht vor der Ausführung abgefangen oder automatisch zurückgelesen. Administrative Sammeländerungen und fachliche Entscheidungen brauchen weiterhin gezielte Nachweise und menschliche Abnahme. Bestehende Rechte, Datenregeln und Projektgrenzen bleiben maßgeblich.
+
 ## Repository-Dateien gezielt mitgeben
 In Aufgabenfeldern, im KI-Terminal und im Seiten-KI-Menü öffnet **Repo-Dateien** die gemeinsame Auswahl. **/files** öffnet sie ebenfalls; mit **@src/** oder **@README.md** suchst du einen Pfad. Die vorhandene @Suche nach ONE-Seiten bleibt erhalten.
 
