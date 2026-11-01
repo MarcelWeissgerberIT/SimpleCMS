@@ -84,7 +84,7 @@ Unter [Meine Secrets](help:personal-secrets) speicherst du Atlas- und Agenten-To
 
 
 ## Modell und Freigabe direkt beim Verbindungstest
-Öffne beim Server **Erweitert**. Im Bereich für Verbindungstests und Anleitungen lässt sich ein verfügbares MCP-fähiges Modell wählen; diese Wahl wird für diesen Zweck auf deinem Gerät gespeichert. Für Copilot und lokale Modelle steht daneben eine getrennte persönliche MCP-Erlaubnis. Die Modellwahl allein erteilt keine Datenfreigabe. Eine Workspace-Sperre bleibt wirksam. Dein eigener Worker und persönlicher Atlas-Zugang sind auch beim geteilten Atlas Flow nötig; der Modellhost bekommt keine Zugangstokens.
+Öffne beim Server **Erweitert**. Im Bereich für Verbindungstests und Anleitungen lässt sich ein verfügbares MCP-fähiges Modell wählen; diese Wahl wird für diesen Zweck auf deinem Gerät gespeichert. Für Copilot und lokale Modelle steht daneben eine getrennte persönliche MCP-Erlaubnis. Die Modellwahl allein erteilt keine Datenfreigabe. Eine Workspace-Sperre bleibt wirksam. Für allgemeine MCP-Verbindungen führt dein eigener Worker die Aufrufe aus. Die vorbereitete persönliche AJ-Atlas-Verbindung in den Analytik-Jena-Workspaces kann stattdessen den ONE-Cloud-Proxy verwenden; dafür brauchst du keinen lokalen Worker. Dein eigener Atlas-Zugang bleibt in beiden Fällen nötig; der Modellhost bekommt keine Zugangstokens.
 
 
 ## Atlas Flow in Frankfurt

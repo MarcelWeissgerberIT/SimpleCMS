@@ -84,7 +84,7 @@ Requests go to `api.anthropic.com`; Anthropic connects to the server while Claud
 
 
 ## Model and permission beside the connection test
-Open a server’s **Details**. Choose an available MCP-capable model in the connection-check and guide section; ONE remembers this choice for this purpose on your device. Copilot and local models have a separate personal MCP permission beside it. Choosing a model grants no data access. Workspace restrictions still apply. Your own worker and personal Atlas access remain necessary with shared Atlas Flow; the model host receives no access tokens.
+Open a server’s **Details**. Choose an available MCP-capable model in the connection-check and guide section; ONE remembers this choice for this purpose on your device. Copilot and local models have a separate personal MCP permission beside it. Choosing a model grants no data access. Workspace restrictions still apply. For general MCP connections, your own worker executes calls. The prepared personal AJ-Atlas connection in the Analytik Jena workspaces can instead use the ONE cloud proxy, so it does not require a local worker. Both routes still require your own Atlas access; the model host receives no access tokens.
 
 
 ## Atlas Flow in Frankfurt
