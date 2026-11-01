@@ -75,7 +75,7 @@ export function sharedModelRoutes(s:Services) {
     const url=new URL(audit.url);if(exporting)url.searchParams.set('export','1');else if(id)url.searchParams.set('id',id);else if(before)url.searchParams.set('before',before)
     const r=await fetch(url,{redirect:'error',headers:{authorization:'Bearer '+audit.token},signal:AbortSignal.any([c.req.raw.signal,AbortSignal.timeout(exporting?120000:15000)])})
     if(!r.ok)throw new ApiError(503,'audit_host_unavailable','The model-host log is currently unavailable')
-    if(exporting)return new Response(r.body,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'no-store','Content-Disposition':'attachment; filename=atlas-flow-frankfurt.jsonl'}})
+    if(exporting)return new Response(r.body,{headers:{'Content-Type':'application/x-ndjson','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'; sandbox allow-downloads",'Content-Disposition':'attachment; filename=atlas-flow-frankfurt.jsonl'}})
     const reader=r.body?.getReader(),parts:Uint8Array[]=[];let size=0
     if(!reader)throw new ApiError(503,'audit_host_unavailable','Empty log response')
     try{while(true){const x=await reader.read();if(x.done)break;size+=x.value.length;if(size>16*1024*1024){await reader.cancel();throw new ApiError(503,'audit_limit','Log entry exceeds display limit')}parts.push(x.value)}}finally{reader.releaseLock()}
