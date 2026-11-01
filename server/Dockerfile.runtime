@@ -15,8 +15,11 @@ COPY --from=previous_assets /app/dist/assets/ /app/dist/assets/
 COPY dist/ /app/dist/
 COPY server/dist/ ./dist/
 COPY server/package.json server/LICENSE server/README.md ./
-RUN mkdir -p /data && chown node:node /data && chmod -R a+rX /app
+RUN mkdir -p /data && chown node:node /data
 USER node
+# Verify artifact permissions as the runtime user without copying the entire asset layer
+# merely to change already-correct modes on thousands of immutable files.
+RUN node -e "const f=require('node:fs');function check(p){const d=f.statSync(p).isDirectory();f.accessSync(p,f.constants.R_OK|(d?f.constants.X_OK:0));if(d)for(const n of f.readdirSync(p))check(p+'/'+n)}check('/app')"
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

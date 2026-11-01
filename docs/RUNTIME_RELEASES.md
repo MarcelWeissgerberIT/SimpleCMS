@@ -4,7 +4,7 @@ Use `server/Dockerfile.runtime` when the app and bundled server have already pas
 
 Pass the currently serving image as `--build-arg COMPAT_IMAGE=one-workshop:<current-revision>`. Only its immutable `/app/dist/assets` files enter a separate compatibility layer, so an open tab can still load its old lazy chunks. No old HTML or application settings are copied. Do not reload a person's tab with unapplied changes to retire its assets.
 
-The final runtime starts from the official Node 22 slim image, preserves the non-root user, health check and external `/data` volume, and installs no npm dependencies. The bundled server contains its runtime dependencies. This has the same runtime contract as the full multi-stage Dockerfile. For a first installation without a previous image, use that full Dockerfile.
+The final runtime starts from the official Node 22 slim image, preserves the non-root user, health check and external `/data` volume, and installs no npm dependencies. It checks artifact readability as the runtime user instead of recursively changing modes on immutable assets; that avoids an unnecessary copy-up of the entire asset layer. The bundled server contains its runtime dependencies. This has the same runtime contract as the full multi-stage Dockerfile. For a first installation without a previous image, use that full Dockerfile.
 
 Do not use the previous ONE release as the final stage's `FROM`. Copying a fresh frontend into it stores another full layer of repeated files on each release. A flat compatibility asset layer and clean runtime artifacts preserve client compatibility without inheriting that entire image history. Retire old compatibility assets only after the corresponding clients have moved to a newer build.
 
