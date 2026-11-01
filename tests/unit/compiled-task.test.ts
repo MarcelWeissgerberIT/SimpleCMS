@@ -34,3 +34,14 @@ test('packet ordering preserves every compiler value and a stable instruction pr
  const prefix=before.slice(0,before.indexOf('"contract_hash"'))
  assert(prefix.length>7500);assert(after.startsWith(prefix));task.close()
 })
+
+test('a premature model question can recover without opening a decision or weakening source checks',async()=>{
+ const task=new TaskSession(contract(),{compile:r=>runtime.task(r),signature:()=>'',check:()=>{},interactive:true})
+ task.observe('atlas',true,true)
+ const rejected=JSON.parse(await task.modelQuestion({question:'Which threshold?',needed_for:'Future implementation'}))
+ assert.equal(rejected.isError,true);assert.equal(rejected.oneNotExecuted,true);assert.equal(task.report().questions.length,0);assert.equal(task.report().evidence.pending_decisions,0);assert.equal(task.report().compiled.contract.decisions.length,0)
+ task.finish('The source leaves the threshold decision open; this analysis makes no implementation choice.')
+ assert.equal(task.report().phase,'ready');assert.equal(task.report().evidence.human_accepted,false)
+ let scope='initial';const stale=new TaskSession(contract(),{compile:r=>runtime.task(r),signature:()=>scope,check:()=>{},interactive:true});scope='changed'
+ await assert.rejects(stale.modelQuestion({question:'Which threshold?',needed_for:'Future implementation'}));stale.close();task.close()
+})

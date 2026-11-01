@@ -144,7 +144,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         }
         const tool = resolved?.tool ?? (!local ? tools.find(t => t.name === c.name) : undefined)
         const input = resolved?.input ?? c.arguments
-        if(c.name===TASK_QUESTION.name){content=await task!.question(c.arguments)}
+        if(c.name===TASK_QUESTION.name){content=await task!.modelQuestion(c.arguments);failed=JSON.parse(content).isError===true}
         else if (local && c.name==='one_workspace_search') { content = await audit.tool('ONE','one_workspace_search',c.arguments,()=>local.search(c.arguments)) }
         else if (tool) {
           task!.dispatch(tool.name,oneTaskEffect(tool.name,tool.write))

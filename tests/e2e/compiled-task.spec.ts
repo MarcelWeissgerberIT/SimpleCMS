@@ -49,4 +49,21 @@ test.describe('Compiled tasks and human decision cube',()=>{
   const wire=host?host.requests.map(r=>r.body):fake.textAsked
   expect(wire.every(r=>!('mcp_servers' in r))).toBe(true);expect(JSON.stringify(wire.at(-1))).toContain('human_decisions');expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
  })
+ for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: a premature decision request repairs into a source-backed analysis without interrupting the person`,async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'UI warns above 80. API warns at or above 80. The team has not decided.'}})}
+  const calls=[{name:'one_mcp_search',arguments:{query:'atlas_get'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}},{name:'one_task_question',arguments:{question:'Which threshold is authoritative?',needed_for:'A later implementation'}}]
+  const final='The actual Atlas Ref 42 contains a conflict at 80. Open question for the team: which threshold is authoritative? This analysis makes no decision and no changes.'
+  let round=0;fake.onText=r=>{const c=calls[round++];return{model:r.model,text:c?'':final,calls:c?[{id:'repair-'+round,...c}]:[],inputTokens:300,outputTokens:60,usd:0}}
+  const host=provider==='anthropic'?await mockClaudeScript(page,[...calls.map((c,i):ClaudeTurn=>({blocks:[{type:'tool_use',id:'repair-'+i,name:c.name,input:c.arguments}]})),text(final)]):null
+  if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+  await page.keyboard.press(`${MOD}+j`)
+  const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Read Atlas ref 42, analyse the conflict and formulate an open question for the team. Only read; do not make a decision.');await input.press('Enter')
+  await expect(term.locator('.term-answer')).toContainText(final,{timeout:25000})
+  const card=term.getByRole('region',{name:'Compiled task'});await expect(card).toContainText('Ready for review');await expect(card.getByRole('heading',{name:'Your decision is needed'})).toHaveCount(0)
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
+  const wire=host?host.requests.map(r=>r.body):fake.textAsked;expect(JSON.stringify(wire.at(-1))).toContain('oneNotExecuted');expect(JSON.stringify(wire.at(-1))).toContain('without pausing')
+ })
+
 })

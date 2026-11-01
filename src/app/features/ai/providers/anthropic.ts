@@ -428,7 +428,7 @@ async function streamWithMcp(
       messages.push({role:'assistant',content:final.content});const receipts:ToolReceipt[]=[]
       try{for(const c of pending){
         const input=c.input as Record<string,unknown>
-        if(c.name===TASK_QUESTION.name){const result=await task.question(input);receipts.push({type:'tool_result',tool_use_id:c.id,content:result});continue}
+        if(c.name===TASK_QUESTION.name){const result=await task.modelQuestion(input);receipts.push({type:'tool_result',tool_use_id:c.id,content:result});continue}
         if(!remote.hasFunction(c.name))throw new AIError('capability','Unknown task function.')
         if(more.seen)more.seen.mcp=true
         const content=await remote(c.name,input,c.id);receipts.push({type:'tool_result',tool_use_id:c.id,content})

@@ -3,6 +3,8 @@ import type {CapturedStep} from './program.ts'
 import type {TaskCompiled,TaskContract,TaskEffect,TaskPhase,TaskQuestion,TaskReport,TaskRequest} from './task.ts'
 import {taskEvidence} from './task.ts'
 export class TaskBlocked extends Error {}
+/** A correctable model request; no decision was opened and no effect was dispatched. */
+export class TaskQuestionRejected extends TaskBlocked {}
 /** Run-local host state. No model-facing operation can answer, accept, or change permissions. */
 type TaskHost={compile:(request:TaskRequest)=>TaskCompiled;signature:()=>string;check:()=>void;report?:(report:TaskReport)=>void;signal?:AbortSignal;interactive?:boolean}
 export class TaskSession {
@@ -61,7 +63,7 @@ export class TaskSession {
     const neededFor=typeof input.needed_for==='string'?input.needed_for.trim():''
     if(!question||question.length>2000||!neededFor||neededFor.length>1000)throw new TaskBlocked('Provide one precise bounded question and the dependent step.')
     const checked=this.check('question')
-    if(checked.decision!=='allow')throw new TaskBlocked('First inspect the available ONE and Atlas sources for this prerequisite. Discovery is not a source read. If a read fails, report its actual failure; never assume no records exist.')
+    if(checked.decision!=='allow')throw new TaskQuestionRejected('First inspect the available ONE and Atlas sources for this prerequisite. Discovery is not a source read. If a read fails, report its actual failure; never assume no records exist.')
     if(this.waiting)throw new TaskBlocked('A prerequisite decision is already waiting.')
     const options=Array.isArray(input.options)?input.options.slice(0,3).flatMap(v=>v&&typeof v==='object'&&typeof v.label==='string'&&typeof v.effect==='string'?[{label:v.label.slice(0,160),effect:v.effect.slice(0,500)}]:[]):[]
     const q:TaskQuestion={id:crypto.randomUUID(),question,neededFor,options,sourceChecks:{one:this.evidence.one_checked,atlas:this.evidence.atlas_checked},state:'open'}
@@ -73,6 +75,15 @@ export class TaskSession {
       this.host.signal?.addEventListener('abort',stop,{once:true});this.publish()
       if(this.host.signal?.aborted)stop()
     })
+  }
+  /** Inference receives a bounded repair result; scope/abort and an actual decision still remain strict. */
+  async modelQuestion(input:Record<string,unknown>):Promise<string>{
+    try{return await this.question(input)}catch(e){
+      if(!(e instanceof TaskQuestionRejected))throw e
+      // A changed actor, provider or workspace is not a recoverable missing-source question.
+      if(!this.evidence.scope_current||!this.evidence.provider_checked||this.closed||this.host.signal?.aborted)throw e
+      return JSON.stringify({isError:true,oneNotExecuted:true,error:e.message,next:'If the requested output is only an analysis, question list or recommendation, include unresolved questions in the final answer without pausing. Use the decision tool only when the requested next action cannot proceed without a human answer now. Otherwise inspect the available sources before asking again. No answer, decision or approval was recorded.'})
+    }
   }
   /** UI-only capability, never registered as an inference tool. No permission escalation. */
   answer(questionId:string,answer:string){

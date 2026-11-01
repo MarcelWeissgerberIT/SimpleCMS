@@ -391,7 +391,7 @@ export async function runAgent(opts: {
     const remoteTool=(definition:import('@/shared/ai/worker').WorkerFunction):BetaRunnableTool<Record<string,unknown>>=>({type:'custom',name:definition.name,description:definition.description,input_schema:definition.parameters as {type:'object'},parse:input=>input as Record<string,unknown>,run:async input=>{
       if(signal.aborted)throw new AIError('aborted')
       if(++calls>MAX_TOOL_CALLS)throw new AIError('capability','Task tool-call limit reached.')
-      const result=definition.name===TASK_QUESTION.name?await task.question(input):await remote!(definition.name,input,crypto.randomUUID())
+      const result=definition.name===TASK_QUESTION.name?await task.modelQuestion(input):await remote!(definition.name,input,crypto.randomUUID())
       ;(runner.params as unknown as {system:string}).system=task.packet()
       if(remote){(runner.params as unknown as {tools:BetaRunnableTool<Record<string,unknown>>[]}).tools=[...tools,...remote.functions().map(remoteTool)]}
       return result

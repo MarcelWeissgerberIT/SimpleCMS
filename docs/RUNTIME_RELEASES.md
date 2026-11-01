@@ -1,6 +1,6 @@
 # Runtime releases from clean build artifacts
 
-Use `server/Dockerfile.runtime` when the app and bundled server have already passed their production build and checks. Build the frontend with `npm run build` and the server with `npm --prefix server run build`, using the supported Node runtime. Include only `dist/`, `server/dist/`, the runtime Dockerfile and the three server metadata files it names in the deployment context. Never package a Playwright build with test hooks enabled.
+Use `server/Dockerfile.runtime` when the app and bundled server have already passed their production build and checks. Build the frontend with `npm run build` and the server with `npm --prefix server run build`, using the supported Node runtime. Include only `dist/`, `server/dist/`, the runtime Dockerfile and the three server metadata files it names in the deployment context. Do not include fixtures, a development build or test-only configuration in the deployment.
 
 Pass the currently serving image as `--build-arg COMPAT_IMAGE=one-workshop:<current-revision>`. Only its immutable `/app/dist/assets` files enter a separate compatibility layer, so an open tab can still load its old lazy chunks. No old HTML or application settings are copied. Do not reload a person's tab with unapplied changes to retire its assets.
 

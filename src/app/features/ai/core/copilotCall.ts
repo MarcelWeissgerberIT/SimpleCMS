@@ -80,7 +80,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
     if (repair) { messages.push({role:'user',content:TOOL_FORMAT_REPAIR}); continue }
     for (const c of result.calls ?? []) {
       if (o.signal?.aborted) throw new AIError('aborted')
-      if(c.name===TASK_QUESTION.name){await task!.question(c.arguments);continue}
+      if(c.name===TASK_QUESTION.name){const answer=await task!.modelQuestion(c.arguments);messages.push({role:'user',content:JSON.stringify({tool_result:{id:c.id,content:answer}})});continue}
       const key = remote?.callKey(c.name,c.arguments)??JSON.stringify([c.name,c.arguments])
       if(!remote)throw new AIError('capability')
       if(repeated.has(key))throw new AIError('mcp','Repeated identical MCP call; stopped before executing again.')
