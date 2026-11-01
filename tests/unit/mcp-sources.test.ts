@@ -80,3 +80,15 @@ test('empty inferred-kind searches require one broader read without altering ori
  evidence.observe(envelope({rows:[],count:0}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_query',arguments:{aql:'updated >= -7d'}})
  assert.equal(evidence.emptySearch(),null)
 })
+
+test('an empty composite topic triggers one bounded keyword check while single terms and successful searches do not',async()=>{
+ const {McpEvidence}=await import('../../src/shared/mcp/evidence.ts')
+ const evidence=new McpEvidence(),args={q:'FeliX Laborbuch',project:'flux-part-felix',tenant:'analytik-jena'}
+ evidence.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:args})
+ assert.deepEqual(evidence.emptySearch(),{server:'aj-atlas',tool:'atlas_search',filter:'topic phrase',query:'FeliX Laborbuch'})
+ assert.equal(args.project,'flux-part-felix');assert.equal(args.q,'FeliX Laborbuch')
+ evidence.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:{...args,q:'Laborbuch'}})
+ assert.equal(evidence.emptySearch(),null)
+ evidence.observe(envelope({items:[{ref:31259}]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:args})
+ assert.equal(evidence.emptySearch(),null)
+})

@@ -1,6 +1,6 @@
 /** Evidence from actual Atlas responses only; scoped to one run and selected server origins. */
 export class McpEvidence {
- private empty:{server:string;tool:string;filter:string}|null=null
+ private empty:{server:string;tool:string;filter:string;query?:string}|null=null
  emptySearch(){return this.empty}
  private sources=new Map<string,{refs:Set<number>;urls:Set<string>}>()
  observe(raw:string,origin:string,call?:{server:string;name:string;arguments:Record<string,unknown>}){
@@ -11,7 +11,9 @@ export class McpEvidence {
    const rows=data?.items??data?.rows
    if(Array.isArray(rows)){
     const kind=typeof call.arguments.kind==='string'?call.arguments.kind:typeof call.arguments.aql==='string'&&/\bkind\s*=/i.test(call.arguments.aql)?'AQL kind filter':''
-    this.empty=rows.length===0&&kind?{server:call.server,tool:call.name,filter:kind.slice(0,100)}:null
+    const query=call.name==='atlas_search'&&typeof call.arguments.q==='string'?call.arguments.q.trim():''
+    const phrase=query.split(/\s+/).filter(Boolean).length>1
+    this.empty=rows.length===0?(kind?{server:call.server,tool:call.name,filter:kind.slice(0,100)}:phrase?{server:call.server,tool:call.name,filter:'topic phrase',query:query.slice(0,200)}:null):null
    }
   }
   let source=this.sources.get(origin)

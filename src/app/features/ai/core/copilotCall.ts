@@ -13,12 +13,12 @@ import { sendWorkerText } from './workerModels'
 import { neutralResponse } from './meter'
 import type { NeutralOpts } from './call'
 import type { McpCall } from '../mcp-servers/activity'
-import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE } from './toolFormat'
+import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_EMPTY_TOPIC_REPAIR } from './toolFormat'
 export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   if (req.tools?.length) throw new AIError('capability')
   const material = new CopilotContent(o.signal)
   const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
-  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, attemptRepairs=0
+  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, attemptRepairs=0
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
   if (o.mcp) {
     if (!prepared.allows('mcp') || !o.mcp.worker) throw new AIError('policy', 'mcp')
@@ -43,6 +43,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
       messages.push({role:'user',content:MCP_ATTEMPT_REPAIR});continue
     }
     const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
+    if(emptySearch?.query){const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true};if(!('go' in check))throw new AIError('budget');if(topicRepairs++>=1)throw new AIError('mcp','An empty composite Atlas search still needs a topic check.');messages.push({role:'user',content:ATLAS_EMPTY_TOPIC_REPAIR+' Original search evidence: '+JSON.stringify(emptySearch)});continue}
     if(emptySearch){const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true};if(!('go' in check))throw new AIError('budget');if(queryRepairs++>=1)throw new AIError('mcp','Only a narrow kind-filtered Atlas search completed.');messages.push({role:'user',content:'Actual Atlas search returned zero records with '+JSON.stringify(emptySearch)+'. Natural words documents/work do not establish record kinds. Make one broader read without the inferred kind, preserving project/tenant/date restrictions. For retrospective work include archived records. Distinguish strict results from related records; no global absence claim from an inferred filter.'});continue}
     const invalidLinks=req.output.kind!=='json'&&!result.calls?.length&&!repair?remote?.evidence.check(result.text)??[]:[]
     if(invalidLinks.length){const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true};if(!('go' in check))throw new AIError('budget');if(citationRepairs++>=1)throw new AIError('mcp','The answer contains Atlas links not supported by the returned sources.');messages.push({role:'user',content:'Correct unsupported Atlas URLs '+JSON.stringify(invalidLinks)+'. Use the returned numeric refs and oneSourceLinks template. No invented paths; do not repeat the same source query.'});continue}
