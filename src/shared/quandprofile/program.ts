@@ -3,7 +3,7 @@ import {sha256Hex} from '../mcp/sha256.ts'
 export type Json=null|boolean|number|string|Json[]|{[key:string]:Json}
 export type Expr={input:string}|{result:string;path:string[]}|{literal:Json}|{object:Record<string,Expr>}|{array:Expr[]}
 export type ProgramStep=
- |{id:string;kind:'tool';tool:string;server?:string;endpoint?:string;schema:Record<string,unknown>;args:Expr;effect:'read'|'stage'|'write'|'execute'}
+ |{id:string;kind:'tool';tool:string;server?:string;endpoint?:string;schema:Record<string,unknown>;args:Expr;decode?:'mcp-json';effect:'read'|'stage'|'write'|'execute'}
  |{id:string;kind:'generate';instruction:string;context:Expr;schema?:Record<string,unknown>}
  |{id:string;kind:'decision';question:string;neededFor:string}
 export interface ProgramSpec {protocol:'one.program.v1';goal:string;parameters:Record<string,{schema:Record<string,unknown>;default?:Json}>;steps:ProgramStep[];output:Expr}
@@ -52,7 +52,7 @@ export function compileProgram(input:unknown):CompiledProgram{
  const inputs=new Set(Object.keys(input.parameters)),results=new Set<string>();if(inputs.size>50)fail('parameter limit')
  for(const [k,p]of Object.entries(input.parameters)){if(!ident.test(k)||!object(p)||!object(p.schema)||Object.keys(p).some(x=>!['schema','default'].includes(x)))fail('invalid parameter');validateSchema(p.schema);if(Object.hasOwn(p,'default'))validateValue(p.default,p.schema,k)}
  for(const s of input.steps){if(!object(s)||typeof s.id!=='string'||!ident.test(s.id)||results.has(s.id))fail('invalid or duplicate step id')
- if(s.kind==='tool'){if(typeof s.tool!=='string'||!/^[a-zA-Z_][a-zA-Z0-9_.-]{0,127}$/.test(s.tool)||!['read','stage','write','execute'].includes(String(s.effect))||!object(s.schema))fail('invalid tool');if(s.server!==undefined){if(typeof s.server!=='string'||!s.server||typeof s.endpoint!=='string')fail('missing MCP binding');const url=new URL(s.endpoint);if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)fail('unsafe MCP endpoint')}else if(s.endpoint!==undefined)fail('unexpected endpoint');validateSchema(s.schema);if(Object.keys(s).some(k=>!['id','kind','tool','server','endpoint','schema','args','effect'].includes(k)))fail('unknown tool field');expression(s.args,inputs,results)}
+ if(s.kind==='tool'){if(typeof s.tool!=='string'||!/^[a-zA-Z_][a-zA-Z0-9_.-]{0,127}$/.test(s.tool)||!['read','stage','write','execute'].includes(String(s.effect))||!object(s.schema))fail('invalid tool');if(s.server!==undefined){if(typeof s.server!=='string'||!s.server||typeof s.endpoint!=='string')fail('missing MCP binding');const url=new URL(s.endpoint);if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)fail('unsafe MCP endpoint')}else if(s.endpoint!==undefined)fail('unexpected endpoint');if(s.decode!==undefined&&(s.decode!=='mcp-json'||typeof s.server!=='string'))fail('invalid MCP result decoder');validateSchema(s.schema);if(Object.keys(s).some(k=>!['id','kind','tool','server','endpoint','schema','args','effect','decode'].includes(k)))fail('unknown tool field');expression(s.args,inputs,results)}
  else if(s.kind==='generate'){if(typeof s.instruction!=='string'||!s.instruction.trim()||s.instruction.length>12000||s.schema!==undefined&&!object(s.schema)||Object.keys(s).some(k=>!['id','kind','instruction','context','schema'].includes(k)))fail('invalid generation');if(s.schema)validateSchema(s.schema as Record<string,unknown>);expression(s.context,inputs,results)}
  else if(s.kind==='decision'){if(typeof s.question!=='string'||!s.question.trim()||s.question.length>2000||typeof s.neededFor!=='string'||!s.neededFor.trim()||s.neededFor.length>1000||Object.keys(s).some(k=>!['id','kind','question','neededFor'].includes(k)))fail('invalid decision')}
  else fail('unknown step kind')
@@ -93,4 +93,14 @@ export function fixedProgramInstructions(system:string,interactiveGuides:readonl
  let retained=system
  for(const guide of interactiveGuides)if(guide.length>1000)retained=retained.replace(guide,'')
  return retained+'\nExecute only this fixed compiled program. The host owns its tools and order. Generation has no tools. Preserve the remaining role instructions, source boundaries and human decisions; missing facts remain open.'
+}
+
+
+/** Explicit IR operation: decode one fresh text-only MCP JSON envelope, without executing source text. */
+export function decodeMcpProgramResult(value:Json):Json {
+ if(!object(value)||value.isError===true||!Array.isArray(value.content)||value.content.length!==1||!object(value.content[0])||value.content[0].type!=='text'||typeof value.content[0].text!=='string')fail('MCP JSON decoder requires one successful text result')
+ let source:unknown
+ try{source=JSON.parse(value.content[0].text)}catch{fail('MCP result is not JSON text')}
+ safe(source)
+ return {source,oneObservedFacts:(value.oneObservedFacts??null) as Json,oneSourceLinks:typeof value.oneSourceLinks==='string'?value.oneSourceLinks:null}
 }

@@ -29,3 +29,11 @@ test('fixed program context removes only the complete generic planning guide and
  const output=fixedProgramInstructions(input,[guide,'short custom fragment'])
  assert(output.includes(custom));assert(output.includes('CUSTOM: this role remains read-only.'));assert(!output.includes(guide));assert(output.includes('Generation has no tools.'));assert(fixedProgramInstructions('short custom fragment', ['short custom fragment']).includes('short custom fragment'))
 })
+
+
+test('an explicit MCP decoder exposes fresh JSON fields and keeps host proof separate; malformed data cannot become a result',async()=>{
+ const {decodeMcpProgramResult}=await import('../../src/shared/quandprofile/program.ts')
+ const value={content:[{type:'text',text:JSON.stringify({item:{ref:42,body:'Actual body'}})}],oneObservedFacts:{refs:[42]}}
+ assert.deepEqual(decodeMcpProgramResult(value),{source:{item:{ref:42,body:'Actual body'}},oneObservedFacts:{refs:[42]},oneSourceLinks:null})
+ for(const bad of [{content:[{type:'text',text:'not JSON'}]},{isError:true,content:[{type:'text',text:'{}'}]},{content:[{type:'image',data:'x'}]}])assert.throws(()=>decodeMcpProgramResult(bad))
+})

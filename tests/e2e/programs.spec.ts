@@ -76,4 +76,13 @@ test.describe('Saved executable compiled programs',()=>{
   const wire=JSON.stringify(requests[0]);expect(wire.match(/RECORDED SOURCE START/g)).toHaveLength(1);expect(wire).toContain('RECORDED SOURCE START');expect(wire).toContain('RECORDED SOURCE END');expect(wire).not.toContain('mcp-result-')
  })
 
+ test('fixed MCP JSON bindings select the fresh body instead of sending large unrelated metadata',async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:schema}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:42,body:'ACTUAL SELECTED BODY',metadata:'UNNEEDED METADATA '+'.'.repeat(50000)}})}]})}
+  const term=page.getByRole('region',{name:'AI terminal'});await term.getByRole('button',{name:'Saved compiled programs'}).click();const dialog=page.getByRole('dialog',{name:'Saved compiled programs'});await dialog.getByRole('button',{name:'New program',exact:true}).click()
+  const editor=dialog.getByRole('textbox',{name:'Executable JSON definition'}),p=JSON.parse(await editor.inputValue())
+  p.goal='Read the actual Atlas body.';p.parameters={ref:{schema:{type:'integer'},default:42}};p.steps=[{id:'atlas',kind:'tool',server:'atlas',endpoint:'https://atlas.example.org/mcp',tool:'atlas_get',schema,decode:'mcp-json',effect:'read',args:{object:{ref:{input:'ref'}}}},{id:'answer',kind:'generate',instruction:'Use only the selected fresh body.',context:{result:'atlas',path:['source','item','body']}}];p.output={result:'answer',path:[]}
+  await editor.fill(JSON.stringify(p,null,2));await dialog.getByLabel('Name',{exact:true}).fill('Selected Atlas body');await dialog.getByRole('button',{name:'Compile and save'}).click();await dialog.getByRole('button',{name:'Run this version'}).click()
+  await expect(term.locator('.term-answer').last()).toContainText('Fresh source briefing',{timeout:25000});expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1);expect(fake.textAsked).toHaveLength(1);const wire=JSON.stringify(fake.textAsked[0]);expect(wire).toContain('ACTUAL SELECTED BODY');expect(wire).not.toContain('UNNEEDED METADATA')
+ })
+
 })
