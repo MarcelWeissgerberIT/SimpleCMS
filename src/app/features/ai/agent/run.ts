@@ -1,3 +1,4 @@
+import {groundedTask} from './grounding'
 import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
 import {WORKER_MCP_FUNCTIONS,workerMcpSession} from '../core/workerMcp'
 import {WORKER_MCP_GUIDE} from '../core/toolFormat'
@@ -251,6 +252,9 @@ export function taskMessage(history: BetaMessageParam[], task: string, context: 
 export async function runAgent(opts: {
   /** what the run is for: 'terminal.task' (the AI terminal) or 'agents.run' (a custom agent) */
   purpose: PurposeId
+  /** Host-pinned page at task start, never a model-supplied target. */
+  targetPage?: string | null
+  delivery?: ReturnType<typeof groundedTask>
   route?: import('@/shared/ai/types').Route | null
   /** what it reads: the open page, references, the agent's scope — { all: true } for the workspace as a whole */
   sources: readonly SourceRef[]
@@ -286,6 +290,8 @@ export async function runAgent(opts: {
   run?: PrepareInput['run']
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
+  const delivery=groundedTask(opts.typed??'',opts.targetPage??null,opts.tools??TERMINAL_TOOLS,stage,signal,hooks,opts.readLimit)
+  opts={...opts,delivery,tools:delivery.tools,system:(opts.system??AGENT_SYSTEM)+delivery.guide}
   const mcp = opts.mcp ?? null
   const reviewSources = new ReviewSources()
   const atlasFacts=new AtlasFacts()
@@ -318,6 +324,9 @@ export async function runAgent(opts: {
     // the brake counts their rounds; every further request is braked by beforeRound
     prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, route: opts.route, size, applied: opts.applied, ...(run ? { run } : {}), ...(mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
+    const observed=await delivery.prepare(prepared)
+    if(observed){const last=messages.at(-1)!;last.content=typeof last.content==='string'?last.content+observed:[...(last.content??[]),{type:'text',text:observed}]}
+    if(delivery.boundedRewrite){const {runGroundedRewrite}=await import('./groundedRewrite');return await runGroundedRewrite(opts,prepared,delivery)}
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
     if (['copilot','local'].includes(prepared.route?.p ?? '')) {
@@ -326,6 +335,7 @@ export async function runAgent(opts: {
     }
     compiledTask=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
     const task=compiledTask
+    delivery.bind(task)
     const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task):null
     let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
@@ -335,7 +345,7 @@ export async function runAgent(opts: {
     const model = prepared.route?.m ?? got.model
     const systemBase=reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:'')
     const system = task.packet()
-    let calls = 0
+    let calls = delivery.calls()
     let warned = false
     /** a call was refused at the limit: Claude was told to wrap up, the run ends as 'limit' */
     let refused = false
@@ -377,7 +387,7 @@ export async function runAgent(opts: {
           throw new Error(msg)
         }
         task.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
-          task.observe('one',true,['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
+          task.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
         ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
         if(tool.write)atlasFacts.noteOtherWrite()
@@ -546,7 +556,7 @@ export async function runAgent(opts: {
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             if(msg.stop_reason!=='pause_turn'){
-              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;task.finish(text);guardedFinal=text;hooks.text(text)}
+              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
               else if(!(remote?.facts??atlasFacts).check(draftText).length)hooks.text(draftText)
             }
             hooks.textDone(toolUse ? 'note' : 'answer')

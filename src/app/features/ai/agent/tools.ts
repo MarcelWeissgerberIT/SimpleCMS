@@ -1639,6 +1639,8 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     return p ? titleOf(p) : id
   }
   switch (name) {
+    case 'read_requested_source':
+      return s('url')
     case 'search_pages':
       return `“${s('query')}”`
     case 'read_page':

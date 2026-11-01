@@ -619,6 +619,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const execute=opts.program?(await import('../programs/runner')).runCompiledProgram:runAgent
     return execute({
       purpose: 'terminal.task',
+      targetPage: pageId,
       route: pre.route,
       sources,
       typed: task,

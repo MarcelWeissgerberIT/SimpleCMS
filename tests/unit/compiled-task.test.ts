@@ -45,3 +45,5 @@ test('a premature model question can recover without opening a decision or weake
  let scope='initial';const stale=new TaskSession(contract(),{compile:r=>runtime.task(r),signature:()=>scope,check:()=>{},interactive:true});scope='changed'
  await assert.rejects(stale.modelQuestion({question:'Which threshold?',needed_for:'Future implementation'}));stale.close();task.close()
 })
+
+test('a host result-check failure publishes a blocked card and cannot be accepted',()=>{const task=new TaskSession(contract(),{compile:r=>runtime.task(r),signature:()=>'',check:()=>{}});task.observe('atlas',true,true);task.fail('No reviewable draft passed the host checks.');assert.equal(task.report().phase,'blocked');assert.equal(task.report().evidence.issues,1);assert.equal(task.accept(),false);task.close()})

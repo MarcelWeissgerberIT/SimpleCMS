@@ -99,3 +99,12 @@ In der erweiterten Definition bindet `{"input":"name"}` einen Eingabeparameter, 
 Im festen Generierungsschritt entfallen die exakten allgemeinen ONE-Anleitungen zur freien Werkzeugplanung. Eigene Rollenregeln, persönliche MCP-Vorgaben, Datenfreigaben und Rechteprüfungen bleiben erhalten. Das kompilierte Ziel ist die tatsächliche Nutzeranweisung; der gelesene Quelltext bleibt getrennte Nutzdaten und wird nicht noch einmal als Auftragsziel mitgesendet.
 
 Ein MCP-Werkzeugschritt kann in der erweiterten JSON-Definition `"decode":"mcp-json"` verwenden. Das verlangt genau eine erfolgreiche Textantwort mit JSON-Inhalt. Frische Daten stehen danach unter `source`, Host-Belege getrennt unter `oneObservedFacts`. Eine Bindung wie `{"result":"atlas","path":["source","item","body"]}` gibt nur das tatsächliche Body-Feld weiter; fehlende Pfade oder ungeeignete Antworten stoppen den Schritt. Damit müssen große Metadaten nicht mit an das Modell.
+
+
+## Eine vorhandene Seite anhand einer URL überarbeiten
+
+Öffne die Zielseite und schreibe zum Beispiel: **„Schreibe diese Seite anhand dieser EARS-Beschreibung neu: https://alistairmavin.com/ears/“**. In einem angemeldeten Team-Workspace liest ONE die Zielseite und die ausdrücklich angegebene öffentliche HTTPS-Quelle vor dem Entwurf selbst. Links aus der Quelle werden nicht automatisch verfolgt.
+
+Der geführte Ablauf bindet die Änderung an die ursprüngliche Seite. Er prüft echte Quellenzitate und erhält vorhandene Ticket-Referenzen. Bei EARS müssen konkrete Anforderungssätze mit Originalbezug und Prüfkriterien vorliegen; eine Tabelle mit Stichworten reicht nicht. Ein unpassender Entwurf erhält genau einen Korrekturversuch. Bleiben die Mindestprüfungen offen, wird kein Ersatzdokument vorgemerkt.
+
+Die Prüfung belegt Quellenabruf, Zitatübereinstimmung, Seitenziel und Mindeststruktur. Sie bestätigt weder fachliche Richtigkeit noch eine Entscheidung des Teams. Du siehst weiterhin einen Diff und übernimmst ihn selbst. Bei nicht lesbaren URLs importiere den Originaltext als externe Quelle; ONE ersetzt ihn nicht durch Modellwissen.

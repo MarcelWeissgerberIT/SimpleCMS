@@ -99,3 +99,12 @@ In the advanced definition, `{"input":"name"}` binds an input, `{"result":"step_
 The fixed generation step omits the exact generic ONE manuals for interactive tool planning. Custom role rules, personal MCP instructions, data permissions and access checks remain. The compiled goal is the actual trusted user instruction; retrieved source text stays separate input data and is not sent again as the task goal.
 
 A remote MCP tool step can use `"decode":"mcp-json"` in the advanced JSON definition. This requires exactly one successful text result containing JSON. Fresh data is then under `source`, with host receipts separate under `oneObservedFacts`. A binding such as `{"result":"atlas","path":["source","item","body"]}` passes only the actual body field; missing paths or unsuitable responses stop the step. Large metadata need not be sent to the model.
+
+
+## Rewrite an existing page from a URL
+
+Open the target page and ask, for example: **“Rewrite this page using this EARS description: https://alistairmavin.com/ears/”**. In a signed-in team workspace, ONE reads the target and the explicitly supplied public HTTPS source before drafting. It does not automatically follow links in that source.
+
+The guided path pins the existing page, checks exact source quotations and preserves existing ticket references. EARS drafts need concrete requirement sentences linked to original page quotations and acceptance checks; a table of feature labels is insufficient. An invalid draft gets one correction attempt. If minimum checks still fail, no substitute document is staged.
+
+These checks establish source retrieval, quotation matches, the page target and minimum structure. They do not establish semantic correctness or team approval. You still review the diff and apply it yourself. If a URL cannot be read, import its original text as an external source; ONE does not silently substitute model knowledge.

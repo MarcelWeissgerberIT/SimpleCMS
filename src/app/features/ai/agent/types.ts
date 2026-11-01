@@ -18,6 +18,7 @@ export type ToolName =
   | 'check_finding'
   | 'search_pages'
   | 'read_page'
+  | 'read_requested_source'
   | 'list_databases'
   | 'query_database'
   | 'get_current_page'
