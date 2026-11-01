@@ -5,9 +5,9 @@ section: ai
 order: 6
 keywords: mcp, mcp server, mcp connections, connections, what is connected, overview page, overview, table, where used, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, sign-in code, device code, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren, Verbindungen, Übersichtsseite
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
-summary: Let One's Claude use the tools of other systems — a knowledge base, a tracker, a CRM.
+summary: Use external tools with Claude, Copilot or tool-capable Atlas Flow — with personal access and actual call receipts.
 ---
-**Settings → AI → MCP servers.** You need [your Claude key](help:claude-key) first.
+**Settings → AI → MCP servers.** Choose an available tool-capable model. Claude requires [your Claude key](help:claude-key); Copilot uses your signed-in worker. Prepared Atlas Flow in the AJ workspaces uses your personal Atlas access through the ONE cloud proxy. It does not require a Claude key.
 
 ## Add a server (a knowledge base as example)
 1. In your knowledge base, copy its MCP server address (`https://…/mcp`) and create a token for One — read-only, limited to the projects you need, if it lets you choose.
@@ -73,7 +73,7 @@ Type `/generate image` (or `/generate video`) on a line, or click **Generate…*
 
 > Generating may use credits on that service.
 
-## How it works — and the token
+## How Claude connects — and the token
 Requests go to `api.anthropic.com`; Anthropic connects to the server while Claude answers. So only remote servers reachable over HTTPS work (Streamable HTTP or SSE) — no local ones.
 
 > The token is sent to Anthropic with every request that uses the server, and stored sealed in this browser — never in backups, exports or sync (a sign-in's tokens too). Use a dedicated token for One, read-only where possible. On another device, add the token again or sign in there.

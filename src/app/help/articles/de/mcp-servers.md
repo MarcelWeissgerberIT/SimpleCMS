@@ -5,9 +5,9 @@ section: ai
 order: 6
 keywords: mcp, mcp-server, mcp verbindungen, verbindungen, was verbunden ist, übersichtsseite, übersicht, tabelle, freigabe, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, anmeldecode, code, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image, connections, overview page
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
-summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensdatenbank, einen Tracker, ein CRM.
+summary: Nutze externe Werkzeuge mit Claude, Copilot oder werkzeugfähigem Atlas Flow — mit persönlichem Zugang und nachvollziehbaren Aufrufen.
 ---
-**Einstellungen → KI → MCP-Server.** Dafür brauchst du zuerst [deinen Claude-Schlüssel](help:claude-key).
+**Einstellungen → KI → MCP-Server.** Wähle ein verfügbares, werkzeugfähiges Modell. Für Claude brauchst du [deinen Claude-Schlüssel](help:claude-key), für Copilot deinen angemeldeten Worker. Das vorbereitete Atlas Flow in den AJ-Workspaces nutzt deinen persönlichen Atlas-Zugang über den ONE-Cloud-Proxy. Dafür ist kein Claude-Schlüssel nötig.
 
 ## Server hinzufügen (Beispiel Wissensdatenbank)
 1. In deiner Wissensdatenbank die MCP-Server-Adresse kopieren (`https://…/mcp`) und ein Token für One erstellen — nur lesend und auf die nötigen Projekte beschränkt, wenn sie das anbietet.
@@ -73,7 +73,7 @@ Tippe `/bild generieren` (oder `/video generieren`) in eine Zeile, oder klicke *
 
 > Das Generieren kann Guthaben bei diesem Dienst verbrauchen.
 
-## Wie es funktioniert — und das Token
+## Wie Claude sich verbindet — und das Token
 Anfragen gehen an `api.anthropic.com`; Anthropic verbindet sich mit dem Server, während Claude antwortet. Deshalb gehen nur entfernte Server, die per HTTPS erreichbar sind (Streamable HTTP oder SSE) — keine lokalen.
 
 > Das Token geht mit jeder Anfrage, die den Server nutzt, an Anthropic und liegt versiegelt in diesem Browser — nie in Backups, Exporten oder Sync (auch die Tokens einer Anmeldung nicht). Nimm ein eigenes Token für One, möglichst nur lesend. Auf einem anderen Gerät trägst du das Token erneut ein oder meldest dich dort an.
