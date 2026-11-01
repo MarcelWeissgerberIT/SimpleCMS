@@ -36,6 +36,8 @@ const LOST: PptxLost[] = ['chart', 'smartart', 'media', 'ole', 'picture']
 
 /** What the dialog does after writing a plan (the done step's keys). */
 export interface ImportExtra {
+  /** A manually reviewed source can be removed as one import. */
+  canUndo?: boolean
   /** the page "Present" opens */
   present?: string | null
   /** One memory: the example saved (or why not) */

@@ -24,6 +24,14 @@ Every import lands under one page: move it anywhere — or move it to the trash 
 
 > CSV into an existing database: database **•••** → **Import CSV into this database…**
 
+## External sources: URLs and pasted text
+
+Choose **Import → External source**. Enter a public HTTPS address under **URL**, then **Load preview**. ONE fetches this address through your team server without forwarding your browser login or cookies; this needs a signed-in team workspace. **Paste text** also works locally and covers protected or dynamic pages. Existing file imports remain available.
+
+Review the title and original text, select an excerpt if needed, and add the intended purpose. Check **Preview reviewed**, then **Import source**. The resulting ONE page keeps the source address, time and content hash; common token parameters are removed from the saved link. Importing calls no AI and writes nothing to Atlas. Use the imported page as context for a later task; any Atlas handoff is a separate instruction after review. External references, confirmed requirements and AI proposals must remain distinct.
+
+Only static text is extracted; tables become text and scripts and images are excluded. For PDF, login-required pages or blocked downloads, import a saved file or paste a relevant excerpt. URL downloads are limited to 2 MB and the reviewed text to 250,000 characters. **Undo import** removes the import.
+
 ## PowerPoint decks
 Choose the **PowerPoint** tile or drop a `.pptx`. It is read on this device — nothing is sent. A **preview** comes first: the slides with their titles, how many pictures, tables and notes, and what does not come over 1:1. Pick the page title and the layout, then **Import**.
 - **One page** (default): a heading and a divider per slide. **Present** in the last step shows it slide by slide — each PowerPoint slide is one slide. A title slide becomes the page title and the line below it.

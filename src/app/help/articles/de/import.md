@@ -24,6 +24,16 @@ Jeder Import landet unter einer Seite: Verschiebe sie beliebig — oder leg sie 
 
 > CSV in eine bestehende Datenbank: Datenbank **•••** → **CSV in diese Datenbank importieren…**
 
+## Externe Quellen: URL und eingefügter Text
+
+Öffne **Importieren → Externe Quelle**. Unter **URL** gibst du eine öffentliche HTTPS-Adresse ein und wählst **Vorschau laden**. ONE liest genau diese Quelle über deinen Teamserver; deine Browser-Cookies und Anmeldungen gehen nicht mit. Der URL-Abruf benötigt einen angemeldeten Team-Workspace. **Text einfügen** funktioniert auch lokal und ist der Weg für geschützte oder dynamische Seiten. Vorhandene Dateiimporte bleiben verfügbar.
+
+Prüfe Titel und Originaltext, wähle bei Bedarf einen Auszug und notiere, wofür du die Quelle nutzen möchtest. Erst mit **Vorschau geprüft** wird **Quelle übernehmen** aktiv. Es entsteht eine normale ONE-Seite mit Quellenadresse, Zeitpunkt und Inhalts-Hash. Bekannte Token-Parameter werden aus dem gespeicherten Quellenlink entfernt. Ein Import ruft keine KI auf und schreibt nichts nach Atlas.
+
+Die Quelle ist eine **externe Referenz**, keine bestätigte Anforderung. Nutze sie anschließend in einer KI-Aufgabe als Kontext, etwa: „Nutze die importierte EARS-Referenz. Schlage für diese bestehenden Anforderungen bessere Formulierungen vor. Erhalte IDs und fachliche Aussagen; markiere offene Angaben. Noch nichts nach Atlas schreiben.“ Nach deiner Prüfung kannst du einen gesonderten Auftrag zur Übernahme in Atlas geben. Bestätigte Requirements, externe Referenz und KI-Vorschlag bleiben unterscheidbar.
+
+Es wird statischer Text übernommen, keine Bilder, Skripte oder interaktiven Seiten. Tabellen kommen als Text. Binäre Dokumente wie PDF werden über diesen URL-Abruf nicht eingelesen; speichere die Datei oder füge den relevanten Text ein. Bei Login, gesperrtem Abruf, Zeitüberschreitung oder zu großen Quellen nennt ONE den nächsten Weg. Der Abruf ist auf 2 MB begrenzt; die geprüfte Textauswahl auf 250.000 Zeichen. **Import rückgängig** entfernt den Import.
+
 ## PowerPoint-Präsentationen
 Wähle die Kachel **PowerPoint** oder leg eine `.pptx` ab. Sie wird auf diesem Gerät gelesen — nichts wird gesendet. Zuerst kommt eine **Vorschau**: die Folien mit ihren Titeln, wie viele Bilder, Tabellen und Notizen, und was nicht 1:1 mitkommt. Seitentitel und Aufbau wählen, dann **Importieren**.
 - **Eine Seite** (Standard): eine Überschrift und ein Trenner je Folie. **Präsentieren** im letzten Schritt zeigt sie Folie für Folie — jede PowerPoint-Folie ist genau eine Folie. Eine Titelfolie wird zum Seitentitel und zur Zeile darunter.

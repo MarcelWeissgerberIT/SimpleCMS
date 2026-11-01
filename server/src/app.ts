@@ -23,6 +23,7 @@ import { authRoutes } from './routes/auth.ts'
 import { documentRoutes } from './routes/documents.ts'
 import { fileRoutes } from './routes/files.ts'
 import { mediaFetchRoutes } from './routes/mediaFetch.ts'
+import { sourceFetchRoutes } from './routes/sourceFetch.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes, sessionRoutes } from './routes/me.ts'
@@ -94,6 +95,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/workspaces', checkoutRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', mediaFetchRoutes(s))
+  app.route('/api/workspaces', sourceFetchRoutes(s))
   app.route('/api/workspaces', documentRoutes(s))
   app.route('/api/workspaces', integrationRoutes(s, model))
   app.route('/api/workspaces', agentRoutes(s, model, agents))
