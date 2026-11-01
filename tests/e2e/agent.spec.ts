@@ -228,9 +228,9 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     const second = panel.getByRole('listitem', { name: '#2 New row' })
     await expect(second.locator('.agent-diff__row', { hasText: 'Tags' })).toContainText('+ new option')
 
-    // usage meter: summed tokens and the cost by the price table ("≈" only for an estimate), labelled as billed by Anthropic
+    // usage meter: summed tokens and the cost by the price table ("≈" only for an estimate), labelled as belonging to the selected provider
     await expect(panel.getByTestId('agent-cost')).toHaveText(/^(< )?\$\d/)
-    await expect(panel.locator('.term-meter')).toContainText('billed by Anthropic to your key')
+    await expect(panel.locator('.term-meter')).toContainText('Usage belongs to the selected provider.')
     await expect(panel.locator('.term-meter')).toContainText('4/120')
 
     // nothing written yet
@@ -243,8 +243,8 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     expect(b0.model).toBe('claude-opus-5-5')
     expect(b0.stream).toBe(true)
     // no integration profile here: upsert_rows is not offered (integrations.spec.ts)
-    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'edit_page', 'create_row', 'update_row', 'set_page_title', 'run_query', 'list_work_items', 'update_work_item', 'create_database', 'add_property', 'write_script', 'create_pages'])
-    expect(b0.tools.every((x: AnyState) => x.eager_input_streaming === true && x.input_schema?.type === 'object')).toBe(true)
+    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'edit_page', 'read_tables', 'update_table_cells', 'create_row', 'update_row', 'set_page_title', 'run_query', 'list_work_items', 'update_work_item', 'create_database', 'add_property', 'write_script', 'create_pages', 'check_finding', 'one_task_question'])
+    expect(b0.tools.every((x: AnyState) => (x.name === 'one_task_question' || x.eager_input_streaming === true) && x.input_schema?.type === 'object')).toBe(true)
     expect(b0.tools.some((x: AnyState) => 'run' in x || 'parse' in x)).toBe(false)
     expect(b0.thinking).toMatchObject({ type: 'adaptive', display: 'updates' })
     expect(b0.system).toContain('stages one proposed change')
