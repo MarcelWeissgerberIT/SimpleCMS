@@ -187,8 +187,8 @@ export const messages: Messages = {
     'features.ai.demo.title': 'Demo mode: canned answers, written offline. Set up AI for real ones.',
 
     /* ---------- AI · MCP servers (features/ai/mcp-servers) ---------- */
-    'features.ai.err.mcp': 'Claude could not use the MCP server “{server}” ({detail}). Check its URL and token in {settingsAI}, or switch the server off.',
-    'features.ai.err.mcpAny': 'Claude could not use an MCP server ({detail}). Check the servers in {settingsAI}.',
+    'features.ai.err.mcp': 'The AI could not use the MCP server “{server}” ({detail}). Check its URL and token in {settingsAI}, or switch the server off.',
+    'features.ai.err.mcpAny': 'The AI could not use an MCP server ({detail}). Check the servers in {settingsAI}.',
     'features.ai.err.mcp_auth': 'The MCP server “{server}” rejected the token — it may be wrong or expired. Replace it in {settingsAI} → MCP servers.',
     'features.ai.err.mcp_authAny': 'An MCP server rejected its token — it may be wrong or expired. Check the servers in {settingsAI}.',
     'features.ai.mcp.tokenHint': 'Stored sealed in this browser. Claude connects through Anthropic; Copilot and tool-capable local models use your personal worker, which keeps the token out of model context. Use a dedicated token with only the required project rights.',
@@ -656,8 +656,8 @@ export const messages: Messages = {
     'features.ai.demo.title': 'Demo-Modus: vorgefertigte Antworten, offline erzeugt. Mit eingerichteter KI gibt es echte.',
 
     /* ---------- KI · MCP-Server (features/ai/mcp-servers) ---------- */
-    'features.ai.err.mcp': 'Claude konnte den MCP-Server „{server}“ nicht nutzen ({detail}). Prüfe URL und Token unter {settingsAI} oder schalte den Server aus.',
-    'features.ai.err.mcpAny': 'Claude konnte einen MCP-Server nicht nutzen ({detail}). Prüfe die Server unter {settingsAI}.',
+    'features.ai.err.mcp': 'Die KI konnte den MCP-Server „{server}“ nicht nutzen ({detail}). Prüfe URL und Token unter {settingsAI} oder schalte den Server aus.',
+    'features.ai.err.mcpAny': 'Die KI konnte einen MCP-Server nicht nutzen ({detail}). Prüfe die Server unter {settingsAI}.',
     'features.ai.err.mcp_auth': 'Der MCP-Server „{server}“ hat das Token abgelehnt — es ist vielleicht falsch oder abgelaufen. Ersetze es unter {settingsAI} → MCP-Server.',
     'features.ai.err.mcp_authAny': 'Ein MCP-Server hat sein Token abgelehnt — es ist vielleicht falsch oder abgelaufen. Prüfe die Server unter {settingsAI}.',
     'features.ai.mcp.tokenHint': 'Versiegelt in diesem Browser gespeichert. Claude verbindet über Anthropic; Copilot und werkzeugfähige lokale Modelle nutzen deinen persönlichen Worker, der den Token aus dem Modellkontext hält. Ein eigenes Token mit nur den benötigten Projektrechten verwenden.',

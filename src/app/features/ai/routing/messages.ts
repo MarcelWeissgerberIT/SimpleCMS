@@ -8,6 +8,7 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.local.sourceContradiction': 'The model described existing Atlas results as absent, even after one correction. One withheld that answer. The Atlas connection worked; check the source results or choose another model.',
     'features.ai.local.toolFormat': 'The model printed a tool call instead of invoking it, even after one correction. No call was executed from that text. Retry the task or choose another model.',
     'features.ai.local.mcpWorker': 'Atlas/MCP requires your personal worker in this tab, even with a shared model. Open Settings → Coding worker and reconnect. If another tab is connected, continue there or reconnect here.',
     "features.ai.local.discovery": "The model tried to use an unavailable workspace tool. Discover the permitted tool before calling it.",
@@ -158,6 +159,7 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
+    'features.ai.local.sourceContradiction': 'Das Modell hat vorhandene Atlas-Treffer auch nach einer Korrektur als fehlend beschrieben. One hält diese Antwort zurück. Die Atlas-Verbindung hat funktioniert; Quellen prüfen oder ein anderes Modell wählen.',
     'features.ai.local.toolFormat': 'Das Modell hat auch nach einer Korrektur den Werkzeugaufruf nur als Text ausgegeben. Aus diesem Text wurde kein Aufruf ausgeführt. Aufgabe erneut starten oder anderes Modell wählen.',
     'features.ai.local.mcpWorker': 'Atlas/MCP braucht deinen persönlichen Worker in diesem Tab, auch bei einem geteilten Modell. Unter Einstellungen → Coding-Worker erneut verbinden. Ist ein anderer Tab verbunden, dort weiterarbeiten oder hier neu verbinden.',
     "features.ai.local.discovery": "Das Modell hat ein noch nicht freigegebenes Workspace-Werkzeug angefordert. Zuerst das erlaubte Werkzeug mit seiner Beschreibung laden, dann aufrufen.",

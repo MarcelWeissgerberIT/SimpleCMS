@@ -88,7 +88,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         messages.push({role:'user',content:MCP_ATTEMPT_REPAIR});continue
       }
       const contradiction=!result.calls?.length&&!repair?remote?.evidence.contradictsSearch(answerText):null
-      if(contradiction){if(!await proceed())return 'held' as const;if(absenceRepairs++>=1)throw new AIError('mcp','The answer contradicts non-empty Atlas source results; no absence claim was accepted.');messages.push({role:'user',content:ATLAS_NONEMPTY_REPAIR+' Actual source evidence: '+JSON.stringify(contradiction)});continue}
+      if(contradiction){if(!await proceed())return 'held' as const;if(absenceRepairs++>=1)throw new AIError('capability','features.ai.local.sourceContradiction');messages.push({role:'user',content:ATLAS_NONEMPTY_REPAIR+' Actual source evidence: '+JSON.stringify(contradiction)});continue}
       const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
       if(emptySearch?.parent&&parentRepairs++<1){if(!await proceed())return 'held' as const;hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:ATLAS_PARENT_REPAIR+' Verified source pair: '+JSON.stringify(emptySearch)});continue}
       if(emptySearch?.query){if(!await proceed())return 'held' as const;if(topicRepairs++>=1)throw new AIError('mcp','An empty composite Atlas search still needs a topic check.');hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:ATLAS_EMPTY_TOPIC_REPAIR+' Original search evidence: '+JSON.stringify(emptySearch)});continue}
