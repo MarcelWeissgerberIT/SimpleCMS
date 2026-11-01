@@ -31,3 +31,8 @@ test('upstream error remains a failed log, never an empty successful answer',asy
  const audit=fixture(t),{server}=createGateway({audit,keys:[],fetchImpl:async()=>new Response('do not expose credentials',{status:500})});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close()})
  const r=await fetch('http://127.0.0.1:'+server.address().port+'/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'atlas-flow:latest',messages:[{role:'user',content:'failure test'}]})});assert.equal(r.status,502);await r.text();const row=audit.list()[0];assert.equal(row.state,'failed');assert.equal(row.error,'inference_failed');assert.equal(row.responseBytes,0)
 })
+
+test('authenticated parseable input rejected by validation remains visible as an unprocessed failure',async t=>{
+ const audit=fixture(t);let called=false;const {server}=createGateway({audit,keys:[],fetchImpl:async()=>{called=true;return Response.json({})}});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.closeAllConnections();server.close()})
+ const r=await fetch('http://127.0.0.1:'+server.address().port+'/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'not-served',messages:[{role:'user',content:'validation failure'}]})});assert.equal(r.status,400);await r.text();const row=audit.list()[0];assert.equal(row.state,'failed');assert.equal(row.error,'model_not_allowed');assert.equal(row.processingAt,null);assert.equal(called,false);assert.equal(audit.read(row.auditId).modelInput,null)
+})

@@ -109,17 +109,18 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
       }
       if(req.method!=='POST'||!['/v1/chat/completions','/api/show','/api/chat'].includes(req.url??''))throw fault(404,'not_found','Not found.')
       const raw=await jsonBody(req)
+      if(audit&&req.url!=='/api/show'){
+        const header=(key,max=100)=>typeof req.headers[key]==='string'?req.headers[key].slice(0,max):null
+        auditRecord={auditId:String(started)+'-'+id,requestId:id,receivedAt:started,queuedAt:isNative?(Number(header('x-one-queued-at'))||null):null,processingAt:null,finishedAt:null,state:'received',status:null,keyId,
+          trace:isNative?{job:header('x-one-job-id'),workspace:header('x-one-workspace'),user:header('x-one-user-id')}:null,request:raw,modelInput:null,response:null,responseBytes:0}
+        audit.prune();audit.write(auditRecord)
+      }
       let payload
       if(req.url==='/api/show'){
         if(!isNative||!object(raw)||raw.model!==MODEL||Object.keys(raw).some(k=>k!=='model'))throw fault(400,'model_not_allowed','Only atlas-flow:latest is served.')
         payload=raw
       }else payload=chat(raw,isNative)
-      if(audit&&req.url!=='/api/show'){
-        const header=(key,max=100)=>typeof req.headers[key]==='string'?req.headers[key].slice(0,max):null
-        auditRecord={auditId:String(started)+'-'+id,requestId:id,receivedAt:started,queuedAt:Number(header('x-one-queued-at'))||null,processingAt:null,finishedAt:null,state:'received',status:null,keyId,
-          trace:isNative?{job:header('x-one-job-id'),workspace:header('x-one-workspace'),user:header('x-one-user-id')}:null,request:raw,modelInput:payload,response:null,responseBytes:0}
-        audit.prune();audit.write(auditRecord)
-      }
+      if(auditRecord){auditRecord.modelInput=payload;audit.write(auditRecord)}
       if(req.url!=='/api/show'){
         timer=setTimeout(()=>abort.abort(fault(504,'queue_timeout','Queue wait expired.')),queueTimeout);timer.unref()
         release=await queue.enter(keyId,abort.signal);clearTimeout(timer)
