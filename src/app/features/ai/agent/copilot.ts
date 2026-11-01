@@ -47,7 +47,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, atlasDiscovered = false, atlasQueried = false
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
@@ -80,6 +80,8 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       if (entry) { spent += entry.usd ?? 0; used.push(entry.usage); hooks.usage(entry.usage, entry) }
       const repair = !!local && !result.calls?.length && hasTextToolCall(result.text)
       if (repair && formatRepairs++ >= 1) throw new AIError('capability', 'features.ai.local.toolFormat')
+      const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
+      if(emptySearch){if(!await proceed())return 'held' as const;if(queryRepairs++>=1)throw new AIError('mcp','Only a narrow kind-filtered Atlas search completed; a broader content check is still missing.');hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:'The actual Atlas read returned zero records with '+JSON.stringify(emptySearch)+'. Words such as Dokumente or Arbeiten do not establish an Atlas record kind: documents may have kind=null; work need not have kind=work. Make ONE broader read without the inferred kind restriction, preserving tenant, project and date restrictions. For retrospective work consider archived IN (true, false). Do not ask permission for this read. Distinguish strict filtered results from related records, and do not infer global absence from a narrow filter. This is the only empty-search correction attempt.'});continue}
       const invalidLinks=!result.calls?.length&&!repair?remote?.evidence.check(answerText)??[]:[]
       if(invalidLinks.length){if(!await proceed())return 'held' as const;if(citationRepairs++>=1)throw new AIError('mcp','The answer contains Atlas links not supported by the returned sources.');messages.push({role:'user',content:'Your draft answer used unsupported Atlas URLs: '+JSON.stringify(invalidLinks)+'. Correct the answer using actual numeric refs and the oneSourceLinks template from the tool results. Never invent document paths. Do not rerun the same query; this is the only source-link correction attempt.'});continue}
       const discoveryOnly=!!remote&&atlasDiscovered&&!atlasQueried&&!result.calls?.length&&!repair

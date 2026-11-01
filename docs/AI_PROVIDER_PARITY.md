@@ -55,3 +55,8 @@ If linked-result excerpts cannot fit a later terminal task, only completed earli
 drafts and closed tool traces fold, with an explicit harness marker and visible progress note.
 All original human messages, current task calls and the full visible history remain intact.
 An oversized human task still stops before inference; no limits or permissions are raised.
+
+An empty Atlas search/query with a kind restriction receives one metered broader-read check.
+Natural-language “documents” or “work” does not prove `kind=document` or `kind=work`; older
+documents can have no kind. Project, tenant and date restrictions remain in force, and strict
+results must be distinguished from related records. No automatic write or scope change occurs.

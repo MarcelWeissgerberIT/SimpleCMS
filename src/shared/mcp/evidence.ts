@@ -1,7 +1,19 @@
 /** Evidence from actual Atlas responses only; scoped to one run and selected server origins. */
 export class McpEvidence {
+ private empty:{server:string;tool:string;filter:string}|null=null
+ emptySearch(){return this.empty}
  private sources=new Map<string,{refs:Set<number>;urls:Set<string>}>()
- observe(raw:string,origin:string){
+ observe(raw:string,origin:string,call?:{server:string;name:string;arguments:Record<string,unknown>}){
+  const response=JSON.parse(raw)
+  if(call&&['atlas_search','atlas_query'].includes(call.name)){
+   let data=response
+   if(Array.isArray(response?.content)&&response.content.length===1&&response.content[0]?.type==='text'){try{data=JSON.parse(response.content[0].text)}catch{/* No count evidence. */}}
+   const rows=data?.items??data?.rows
+   if(Array.isArray(rows)){
+    const kind=typeof call.arguments.kind==='string'?call.arguments.kind:typeof call.arguments.aql==='string'&&/\bkind\s*=/i.test(call.arguments.aql)?'AQL kind filter':''
+    this.empty=rows.length===0&&kind?{server:call.server,tool:call.name,filter:kind.slice(0,100)}:null
+   }
+  }
   let source=this.sources.get(origin)
   if(!source){source={refs:new Set(),urls:new Set()};this.sources.set(origin,source)}
   const walk=(value:unknown,depth=0)=>{
@@ -16,7 +28,7 @@ export class McpEvidence {
     for(const v of Object.values(data))walk(v,depth+1)
    }
   }
-  walk(JSON.parse(raw))
+  walk(response)
  }
  check(text:string){
   const invalid:string[]=[]

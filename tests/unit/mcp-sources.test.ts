@@ -64,3 +64,17 @@ test('Atlas link checks use only real response refs and URLs, never a guessed do
  assert.match(evidence.hint(),/\/r\/<actual numeric ref/)
  assert.deepEqual(new McpEvidence().check('https://aj-atlas.com/r/31259'),[])
 })
+
+test('empty inferred-kind searches require one broader read without altering original arguments',async()=>{
+ const {McpEvidence}=await import('../../src/shared/mcp/evidence.ts')
+ const evidence=new McpEvidence(),args={q:'Laborbuch',kind:'document',project:'flux-client',tenant:'analytik-jena'}
+ evidence.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:args})
+ assert.deepEqual(evidence.emptySearch(),{server:'aj-atlas',tool:'atlas_search',filter:'document'})
+ assert.equal(args.kind,'document')
+ evidence.observe(envelope({items:[{ref:31259}]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:{q:args.q,project:args.project,tenant:args.tenant}})
+ assert.equal(evidence.emptySearch(),null)
+ evidence.observe(envelope({rows:[],count:0}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_query',arguments:{aql:'kind = work AND updated >= -7d'}})
+ assert.equal(evidence.emptySearch()?.filter,'AQL kind filter')
+ evidence.observe(envelope({rows:[],count:0}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_query',arguments:{aql:'updated >= -7d'}})
+ assert.equal(evidence.emptySearch(),null)
+})
