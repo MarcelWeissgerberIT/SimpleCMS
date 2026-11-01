@@ -283,27 +283,27 @@ test.describe('Pages per item', () => {
     await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
     const main = await createPage(page, { title: 'Reading list', content: doc(para('Books for the team.')) })
     await gotoPage(page, main)
-    const books = Array.from({ length: 42 }, (_, i) => `Book ${i + 1}`)
+    const books = Array.from({ length: 122 }, (_, i) => `Book ${i + 1}`)
     const one = (title: string, i: number, run = 'b'): Block => ({ type: 'tool_use', id: `toolu_${run}${i}`, name: 'create_page', input: { title, markdown: `Notes on ${title}.`, parent_id: main } })
     const bodies = await mockClaude(context, [
-      // one page per call (the pattern that ran out before): 42 calls, the limit is 40
+      // one page per call (the pattern that ran out before): 122 calls, the limit is 120
       () => sseMessage(books.map((b, i) => one(b, i))),
-      () => sseMessage([{ type: 'text', text: 'Reached the limit: 40 of 42 books staged, Book 41 and Book 42 are left.' }]),
+      () => sseMessage([{ type: 'text', text: 'Reached the limit: 120 of 122 books staged, Book 121 and Book 122 are left.' }]),
       // Continue: the rest
-      () => sseMessage([one('Book 41', 41, 'c'), one('Book 42', 42, 'c')]),
+      () => sseMessage([one('Book 121', 121, 'c'), one('Book 122', 122, 'c')]),
       () => sseMessage([{ type: 'text', text: 'Staged the last two books.' }]),
     ])
     await runTask(page, 'Make a page for every book on this list')
     const term = terminal(page)
     await expect(term.locator('.term-head__status')).toHaveText('Limit reached', { timeout: 30_000 })
     await expect(term.locator('.term-step--note', { hasText: 'Tool-call limit reached' })).toBeVisible()
-    await expect(term.locator('.term-note')).toContainText('The task stopped at the limit of 40 tool calls')
-    await expect(term.locator('#term-review-title')).toHaveText('40 proposed changes')
+    await expect(term.locator('.term-note')).toContainText('The task stopped at the limit of 120 tool calls')
+    await expect(term.locator('#term-review-title')).toHaveText('120 proposed changes')
     // the refused calls told Claude it can go on later
-    expect(toolResult(bodies[1], 'toolu_b40')).toContain('the person can let you continue with a fresh budget')
+    expect(toolResult(bodies[1], 'toolu_b120')).toContain('the person can let you continue with a fresh budget')
     const go = term.getByTestId('term-continue')
     await expect(go).toBeVisible()
-    await expect(term.locator('.term-limit__hint')).toContainText('the 40 staged changes stay')
+    await expect(term.locator('.term-limit__hint')).toContainText('the 120 staged changes stay')
     await expect(prompt(page)).toHaveAttribute('placeholder', /continues with a fresh budget/)
 
     // Continue: the same task, a fresh budget — Claude hears what is staged already
@@ -312,16 +312,16 @@ test.describe('Pages per item', () => {
     expect(bodies).toHaveLength(4)
     const cont = lastUserText(bodies[2])
     expect(cont).toContain('Continue the task where you stopped at the tool-call limit')
-    expect(cont).toContain('fresh budget of 40 tool calls')
-    expect(cont).toContain('40 changes are staged so far')
+    expect(cont).toContain('fresh budget of 120 tool calls')
+    expect(cont).toContain('120 changes are staged so far')
     expect(cont).toContain('Make a page for every book on this list')
     // the conversation goes on (the first task's turns are still in it)
     expect((bodies[2].messages as AnyState[]).length).toBeGreaterThan(3)
     await expect(term.locator('.term-turn').last().locator('.term-turn__cont')).toHaveText('Continues 01 ·')
-    await expect(term.locator('#term-review-title')).toHaveText('42 proposed changes')
+    await expect(term.locator('#term-review-title')).toHaveText('122 proposed changes')
     await expect(term.getByTestId('term-continue')).toHaveCount(0)
     await term.getByRole('button', { name: 'Apply all' }).click()
-    await expect(toast(page, /42 changes applied/)).toBeVisible()
+    await expect(toast(page, /122 changes applied/)).toBeVisible()
     expect((await childrenOf(page, main)).map((k) => k.title)).toEqual(books)
 
     // /continue with nothing to continue says so (no request)
@@ -338,9 +338,9 @@ test.describe('Pages per item', () => {
     await gotoPage(page, main)
     const many = (from: number, n: number): Block[] => Array.from({ length: n }, (_, i) => ({ type: 'tool_use', id: `toolu_d${from + i}`, name: 'create_page', input: { title: `Buch ${from + i}`, markdown: 'Notiz.', parent_id: main } }))
     const bodies = await mockClaude(context, [
-      () => sseMessage(many(1, 41)),
+      () => sseMessage(many(1, 121)),
       () => sseMessage([{ type: 'text', text: 'Limit erreicht, ein Buch fehlt.' }]),
-      () => sseMessage(many(42, 41)),
+      () => sseMessage(many(122, 121)),
       () => sseMessage([{ type: 'text', text: 'Wieder am Limit.' }]),
       () => sseMessage([{ type: 'text', text: 'Fertig: nichts mehr offen.' }]),
     ])
@@ -348,7 +348,7 @@ test.describe('Pages per item', () => {
     const term = terminal(page, 'KI-Terminal')
     await expect(term.locator('.term-head__status')).toHaveText('Limit erreicht', { timeout: 30_000 })
     await expect(term.getByTestId('term-continue')).toHaveText('Weitermachen')
-    await expect(term.locator('.term-note')).toContainText('Limit von 40 Tool-Aufrufen')
+    await expect(term.locator('.term-note')).toContainText('Limit von 120 Tool-Aufrufen')
     // /weiter
     const field = prompt(page, 'Aufgabe für den Agenten')
     await field.fill('/weiter')
@@ -361,7 +361,7 @@ test.describe('Pages per item', () => {
     await field.press('Enter')
     await expect(term.locator('.term-head__status')).toHaveText('Fertig', { timeout: 30_000 })
     expect(bodies).toHaveLength(5)
-    expect(lastUserText(bodies[4])).toContain('80 changes are staged so far')
+    expect(lastUserText(bodies[4])).toContain('240 changes are staged so far')
   })
 
   test('AI menu: own requests are routed — make a sub-page / one page per item run at once, "as a board" offers Turn into database, Archive work goes to the terminal, writing stays a request', async ({ page, context }) => {

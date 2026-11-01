@@ -42,7 +42,7 @@ import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
 import { createMediaCollector } from '../media/collect'
 import type { MediaItem } from '../media/types'
-import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, withToolScope, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
+import { TERMINAL_TOOLS, MAX_TOOL_CALLS, MAX_MODEL_ROUNDS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, withToolScope, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
 import { shapeOf, withShape } from '../core/shape'
 import type { ID } from '../../../store/types'
 import type { ToolName } from './types'
@@ -148,7 +148,7 @@ export function paramsFor(o: ParamsInput) {
     max_tokens: o.maxTokens,
     stream: true as const,
     // backstop: the tool-call limit normally ends the run first (room for MCP turns the server pauses)
-    max_iterations: MAX_TOOL_CALLS + 12,
+    max_iterations: MAX_MODEL_ROUNDS,
     // automatic prompt caching: system + tools + the growing history are re-read every step
     cache_control: { type: 'ephemeral' as const },
     system: mcp ? `${o.system}\n\n${mcp.system}` : o.system,

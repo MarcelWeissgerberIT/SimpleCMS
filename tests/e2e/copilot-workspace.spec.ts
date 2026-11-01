@@ -37,12 +37,33 @@ test.describe('Copilot across workspace features',()=>{
     const fail=await page.evaluate(model=>(window as any).__oneAI.precheck({purpose:'vision.image',sources:[{file:'upload'}],route:{p:'copilot',m:'gpt-6.1-sol'}}),MODEL)
     expect(fail.ok).toBe(false);expect(fake.textAsked).toHaveLength(1)
   })
+  test('terminal completes more than 40 sequential tool rounds with the 120-call budget',async({page})=>{
+    test.setTimeout(120000)
+    let round=0
+    fake.onText=r=>{
+      const n=round++
+      const calls=n===0?[{id:'discover-create',name:'one_workspace_search',arguments:{query:'create_page'}}]:n<=42?[{id:`create-${n}`,name:'one_workspace_call',arguments:{name:'create_page',arguments:{title:`Budget source ${n}`,markdown:`Synthetic source ${n}.`}}}]:[]
+      return {model:r.model,text:calls.length?'':'Prepared all 42 pages for review.',calls,inputTokens:50,outputTokens:10,usd:0}
+    }
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await expect(term).toContainText('120 tool calls per task')
+    await prompt.fill('Prepare 42 separate synthetic source pages named Budget source 1 through 42.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Prepared all 42 pages for review.',{timeout:90000})
+    await expect(term.locator('.term-head__status')).toHaveText('Done')
+    await expect(term.locator('#term-review-title')).toHaveText('42 proposed changes')
+    await expect(term.locator('.term-meter')).toContainText('42/120')
+    expect(fake.textAsked).toHaveLength(44)
+    expect(await wsEval(page,s=>Object.values(s.pages).some((p:any)=>p.title==='Budget source 1'))).toBe(false)
+  })
   test('terminal reads real page content and stages an append without changing the page automatically',async({page},info)=>{
     const id=await createPage(page,{title:'Copilot acceptance source',content:doc(para('Expected simulation result: 43.'))})
     await gotoPage(page,id)
     let round=0
     fake.onText=r=>{
-      const calls=round++===0?[{id:'read-1',name:'read_page',arguments:{id}}]:round===2?[{id:'append-1',name:'append_to_page',arguments:{id,markdown:'## Reviewed\nSimulation result 43 confirmed.'}}]:[]
+      const n=round++
+      const calls=n===0?[{id:'discover-read',name:'one_workspace_search',arguments:{query:'read_page'}}]:n===1?[{id:'read-1',name:'one_workspace_call',arguments:{name:'read_page',arguments:{id}}}]:n===2?[{id:'discover-write',name:'one_workspace_search',arguments:{query:'append_to_page'}}]:n===3?[{id:'append-1',name:'one_workspace_call',arguments:{name:'append_to_page',arguments:{id,markdown:'## Reviewed\nSimulation result 43 confirmed.'}}}]:[]
       return {model:r.model,text:calls.length?'':'Prepared the review for your approval.',calls,inputTokens:300,outputTokens:50,usd:null}
     }
     await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
@@ -50,8 +71,8 @@ test.describe('Copilot across workspace features',()=>{
     const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
     await prompt.fill('Read this page and append a short review.');await prompt.press('Enter')
     await expect(term.locator('.term-answer')).toContainText('Prepared the review',{timeout:20000})
-    expect(fake.textAsked).toHaveLength(3)
-    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('Expected simulation result: 43')
+    expect(fake.textAsked).toHaveLength(5)
+    expect(JSON.stringify(fake.textAsked[2].messages)).toContain('Expected simulation result: 43')
     const content=await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)
     expect(content).not.toContain('Simulation result 43 confirmed')
     await expect(term.locator('.term-step[data-tool="append_to_page"]')).toBeVisible()

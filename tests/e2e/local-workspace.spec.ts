@@ -24,6 +24,26 @@ test.describe('Atlas Flow across workspace features',()=>{
     await page.keyboard.press('Escape')
   })
   test.afterEach(async()=>{await fake?.close()})
+  test('terminal completes more than 40 sequential tool rounds with the 120-call budget',async({page})=>{
+    test.setTimeout(120000)
+    let round=0
+    fake.onText=r=>{
+      const n=round++
+      const calls=n===0?[{id:'discover-create',name:'one_workspace_search',arguments:{query:'create_page'}}]:n<=42?[{id:`create-${n}`,name:'one_workspace_call',arguments:{name:'create_page',arguments:{title:`Budget source ${n}`,markdown:`Synthetic source ${n}.`}}}]:[]
+      return {model:r.model,text:calls.length?'':'Prepared all 42 pages for review.',calls,inputTokens:50,outputTokens:10,usd:0}
+    }
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await expect(term).toContainText('120 tool calls per task')
+    await prompt.fill('Prepare 42 separate synthetic source pages named Budget source 1 through 42.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Prepared all 42 pages for review.',{timeout:90000})
+    await expect(term.locator('.term-head__status')).toHaveText('Done')
+    await expect(term.locator('#term-review-title')).toHaveText('42 proposed changes')
+    await expect(term.locator('.term-meter')).toContainText('42/120')
+    expect(fake.textAsked).toHaveLength(44)
+    expect(await wsEval(page,s=>Object.values(s.pages).some((p:any)=>p.title==='Budget source 1'))).toBe(false)
+  })
   test('terminal reads real page content and stages an append without changing the page automatically',async({page},info)=>{
     const id=await createPage(page,{title:'Atlas Flow acceptance source',content:doc(para('Expected simulation result: 43.'))})
     await gotoPage(page,id)
@@ -118,7 +138,7 @@ test.describe('Atlas Flow across workspace features',()=>{
     expect(fake.textAsked).toHaveLength(4)
     expect(JSON.stringify(fake.textAsked[1].messages)).toContain('only format-correction retry')
     expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call'])
-    await expect(term).toContainText('2/40')
+    await expect(term).toContainText('2/120')
   })
 
   test('a second printed tool call is a visible failure, with no execution or unbounded retry',async({page})=>{

@@ -79,7 +79,7 @@ const setKey = (page: Page) => wsEval(page, (s) => s.updateSettings({ aiApiKey: 
 /** Open the agent (the AI terminal) through the command palette. */
 async function openAgentFromPalette(page: Page) {
   await page.keyboard.press(`${MOD}+k`)
-  const input = page.getByRole('combobox').or(page.locator('.pal-scrim input')).first()
+  const input = page.locator('.pal-scrim input').first()
   await expect(input).toBeVisible()
   await input.fill('AI terminal')
   await page.keyboard.press('Enter')
@@ -216,7 +216,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     await expect(log.locator('.term-step[data-tool="read_page"]')).toContainText('Weekly sync — notes')
     await expect(log.locator('.term-step[data-tool="create_row"]').nth(0)).toContainText('Staged #1')
     await expect(log.locator('.term-step[data-tool="create_row"]').nth(1)).toContainText('Staged #2')
-    await expect(log.locator('.term-step--note')).toContainText('Reading its action items next.')
+    await expect(log.locator('.term-step--note', { hasText: 'Reading its action items next.' })).toBeVisible()
 
     // review items: property diffs, the new option, the content preview
     const first = panel.getByRole('listitem', { name: '#1 New row' })
@@ -231,7 +231,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     // usage meter: summed tokens and the cost by the price table ("≈" only for an estimate), labelled as billed by Anthropic
     await expect(panel.getByTestId('agent-cost')).toHaveText(/^(< )?\$\d/)
     await expect(panel.locator('.term-meter')).toContainText('billed by Anthropic to your key')
-    await expect(panel.locator('.term-meter')).toContainText('4/40')
+    await expect(panel.locator('.term-meter')).toContainText('4/120')
 
     // nothing written yet
     expect(await rowsTitled(page, ['Final QA on staging', 'Connect webhook to n8n'])).toEqual([])

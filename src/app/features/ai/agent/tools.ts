@@ -70,11 +70,13 @@ export { ToolInputError, currentReadLimit, currentToolScope, withReadLimit, with
 /* ------------------------------------------------------------------ */
 
 /**
- * Tool calls per task (one run of the loop). Calls of external MCP servers run inside a response
- * (Anthropic runs them) and do not count; a task that reaches the limit can go on with a fresh
- * budget ("Continue", /continue — session.ts).
+ * Host-dispatched tool calls per task (ONE tools, MCP discovery and MCP execution).
+ * Provider-native MCP iterations have their own bounds. A task at the limit can continue
+ * with a fresh budget ("Continue", /continue — session.ts), retaining staged changes.
  */
-export const MAX_TOOL_CALLS = 40
+export const MAX_TOOL_CALLS = 120
+/** Extra model turns for a final answer and bounded format/evidence corrections. */
+export const MAX_MODEL_ROUNDS = MAX_TOOL_CALLS + 12
 /** Pages one create_pages call may stage. */
 export const MAX_BATCH_PAGES = 50
 /** Characters of one page part (read_page) and of any other tool result. */

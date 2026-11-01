@@ -68,7 +68,7 @@ The open page's chip says how much of it Claude may read: just the title for the
 
 ## Good to know
 - Claude can create databases (a table or a board grouped by a column) and add properties, then fill them with rows in the same task. Locked databases refuse new properties.
-- A task has a budget of 40 tool calls (the calls of MCP servers don't count). At the limit Claude wraps up and the task shows **Limit reached** with a **Continue** key — or press <kbd>Enter</kbd> on the empty prompt, or type `/continue`: the same task goes on with a fresh budget, in the same conversation; what is staged stays and is not staged twice. MCP servers you added are available to it.
+- A task has a budget of **120 tool calls**. This counts individual calls, not the number of available tools. MCP discovery and execution dispatched by ONE count too. Context, cost and loop guards still apply and may stop a task earlier. At the call limit the AI wraps up and the task shows **Limit reached** with a **Continue** key — or press <kbd>Enter</kbd> on the empty prompt, or type `/continue`: the same task goes on with a fresh budget, in the same conversation; what is staged stays and is not staged twice. MCP servers you added are available to it.
 - The meter shows tokens (in, cache write / read, out) and what the conversation cost by One's price table ([what AI requests cost](help:ai-costs); `≈` only when an answer was cut short and estimated) — Anthropic bills your key. Nothing changes until you apply; in a team workspace, viewers see proposals but cannot apply them.
 - The [One memory](help:memory) goes along with every task (**MEMORY · 3** in the head), and after a task Claude may propose what to remember — saved only with your OK. `#tag` takes a saved example along in full.
 

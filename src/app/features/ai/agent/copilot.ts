@@ -24,7 +24,7 @@ import type { WorkerFunction } from '@/shared/ai/worker'
 import { WORKER_MCP_FUNCTIONS, workerMcpSession } from '../core/workerMcp'
 import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_DISCOVERY_REPAIR, ATLAS_EMPTY_TOPIC_REPAIR, ATLAS_PARENT_REPAIR, ATLAS_NONEMPTY_REPAIR } from '../core/toolFormat'
 import { AGENT_SYSTEM, type runAgent, type RunEnd } from './run'
-import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
+import { TERMINAL_TOOLS, MAX_TOOL_CALLS, MAX_MODEL_ROUNDS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
 
 /** JSON transcripts close every tool call explicitly. Unsupported binary parts fail before sending. */
 export async function copilotMessages(messages: BetaMessageParam[], material: CopilotContent) {
@@ -80,7 +80,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   }
   const material = new CopilotContent(signal)
   const run = async () => {
-    while (++rounds <= 40) {
+    while (++rounds <= MAX_MODEL_ROUNDS) {
       assertPreparedFlow(prepared)
       if (signal.aborted) throw new AIError('aborted')
       const compiled=task!.packet()
