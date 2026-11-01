@@ -3,7 +3,7 @@ id: agent
 title: Das KI-Terminal
 section: ai
 order: 3
-keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, aufgaben-blöcke, list_work_items, update_work_item, verantwortlich, fällig, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
+keywords: ba, po, anforderungen, requirements, s9, agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, aufgaben-blöcke, list_work_items, update_work_item, verantwortlich, fällig, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
 related: custom-agents, governor, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Gib Claude Aufgaben per Tastatur — es liest deinen Workspace, schlägt Änderungen vor, und du übernimmst sie. Arbeitet auch ausgeblendet weiter.
 ---
@@ -12,6 +12,19 @@ Drück <kbd>Mod+J</kbd> (oder ⌘K → *KI-Terminal*, oder **KI** in der Statusl
 1. Tipp eine Aufgabe, z. B. *„Mach aus den Meeting-Notizen dieser Woche Aufgaben in Projekte“* oder *„Mach ein Board aus den offenen Punkten dieser Seite“*, und drück <kbd>Enter</kbd> (<kbd>Shift+Enter</kbd> für eine neue Zeile).
 2. Claude durchsucht und liest deine Seiten und Datenbanken; die Antwort läuft live ein, jeder Tool-Aufruf ist eine Zeile im Protokoll (`→ search_pages "Delta"`, `✓ create_row … vorgemerkt #2`).
 3. Änderungen werden **vorgeschlagen**, nicht geschrieben: neue Seiten, Einträge, Datenbanken und Eigenschaften, geänderte Werte und Titel landen in einer Prüfliste. Einzeln übernehmen, **Alle übernehmen** (<kbd>Mod+Enter</kbd> oder `/übernehmen`) oder verwerfen. Ein **Rückgängig** nimmt einen übernommenen Stapel zurück.
+
+## BA und PO · Anforderungen prüfen
+
+Öffne die Seite mit dem tatsächlichen Sachverhalt und starte im Terminal **`/ba S9`** oder **`/po S9`**. Ohne Zusatz analysiert `/ba` die geöffnete Seite. Ein Ticketkürzel wie S9 muss genau eine vorhandene Überschrift treffen; ONE begrenzt dann die Quellen auf diesen Abschnitt. Freier Text wie `/ba Zeitstempel-Präzision` beschreibt ein Thema für die gesamte Seite.
+
+Der gewählte Anbieter bleibt aktiv — auch **Atlas Flow · Frankfurt**. Zwei getrennte Modellanfragen liefern:
+
+1. **BA:** bis zu drei konkrete Anforderungsentwürfe, Originalstellen, unterscheidbare Prüffälle und fehlende Angaben.
+2. **PO:** Prüfung jeder Anforderung und ihrer Prüffälle gegen dieselben Originalstellen; offene Spezifikation und mögliche Widersprüche bleiben sichtbar.
+
+Die Fortschrittszeilen zeigen **1/2 · BA** und **2/2 · PO**. ONE prüft die Struktur, echte Quellenverweise, unbelegte Zahlenwerte und den Seitenstand. Eine technisch fehlerhafte Antwort darf sich einmal pro Runde korrigieren. Gesperrter Kontext oder eine inzwischen geänderte Quelle hält den Lauf an.
+
+Der Bericht ist **nur ein Entwurf im Terminal**. Es werden keine Seiten geändert, keine Atlas-Einträge angelegt und keine Entscheidungen freigegeben. Quelle ist der gelesene ONE-Schnappschuss mit Zeit und Fingerabdruck; **Atlas wird in diesem Ablauf nicht neu abgefragt**. Eine zweite Anfrage beim selben Modell ist keine unabhängige fachliche Abnahme. Prüffälle sind Vorschläge, keine ausgeführten Tests. Wiederhole den Ablauf mit `/ba` oder `/po`; die Modellantwort darf dabei unterschiedlich ausfallen.
 
 ## Eine Seite pro Eintrag
 Bitte um *„eine Unterseite für jedes Ticket, verlinkt in einer Tabelle auf dieser Seite“* — die Tickets dürfen von der Seite, aus einer Datenbank oder von einem [MCP-Server](help:mcp-servers) wie deinem Tracker kommen. Claude merkt alle Seiten in einem Schritt vor (bis zu 50 pro Aufruf, jede ein eigener Vorschlag in der Prüfliste), dann eine Tabelle auf der Hauptseite — der offenen Seite, wenn du *diese Seite* oder *Hauptseite* sagst — mit einem Link auf jede Seite und den wichtigsten Feldern der Einträge (Status, Zuständig, Datum …) als Spalten. Nach **Alle übernehmen** sind die Links Seiten-Erwähnungen: ein Klick öffnet die Unterseite. Haben die Einträge gemeinsame Felder und willst du lieber eine Tabelle oder einen Tracker, legt Claude eine [Datenbank](help:databases) mit einem Eintrag pro Punkt an.

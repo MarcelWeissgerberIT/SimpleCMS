@@ -3,7 +3,7 @@ id: agent
 title: The AI terminal
 section: ai
 order: 3
-keywords: agent, ai terminal, terminal, claude, automate, bulk, tasks, task blocks, list_work_items, update_work_item, owner, due, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, sub-page per item, page per ticket, table of links, limit, continue, pipelines, coding task, approve, connect, sign in, mcp, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen, Unterseite pro Ticket, weiter, verbinden, anmelden
+keywords: ba, po, anforderungen, requirements, s9, agent, ai terminal, terminal, claude, automate, bulk, tasks, task blocks, list_work_items, update_work_item, owner, due, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, sub-page per item, page per ticket, table of links, limit, continue, pipelines, coding task, approve, connect, sign in, mcp, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen, Unterseite pro Ticket, weiter, verbinden, anmelden
 related: custom-agents, governor, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Give Claude tasks by keyboard — it reads your workspace, proposes changes, and you apply them. Keeps working while hidden.
 ---
@@ -12,6 +12,19 @@ Press <kbd>Mod+J</kbd> (or ⌘K → *AI terminal*, or **AI** in the status bar).
 1. Type a task, e.g. *“Turn this week's meeting notes into action items in Projects”* or *“Make a board of the open items on this page”*, and press <kbd>Enter</kbd> (<kbd>Shift+Enter</kbd> for a new line).
 2. Claude searches and reads your pages and databases; the answer streams in, and every tool call is one line in the log (`→ search_pages "Delta"`, `✓ create_row … staged #2`).
 3. Changes are **proposed**, not written: new pages, rows, databases and properties, changed values and titles land in a review list. Apply them one by one, **Apply all** (<kbd>Mod+Enter</kbd> or `/apply`) or discard them. One **Undo** reverts an applied batch.
+
+## BA and PO · review requirements
+
+Open the page containing the actual facts, then run **`/ba S9`** or **`/po S9`** in the terminal. `/ba` without a focus analyses the open page. An identifier such as S9 must match one real heading; ONE bounds the source catalogue to that section. Free text such as `/ba timestamp precision` supplies a topic for the entire page.
+
+Your selected provider stays active, including **Atlas Flow · Frankfurt**. Two separate model requests produce:
+
+1. **BA:** up to three concrete requirement drafts, original passages, discriminating proposed checks and missing specifications.
+2. **PO:** review of every requirement and its checks against the same passages, with open questions and possible contradictions.
+
+Progress notes show **1/2 · BA** and **2/2 · PO**. ONE checks structure, actual references, unsupported numeric values and the page version. Each round permits one correction of a technically invalid response. Excluded context or a changed source stops the run.
+
+The report is **a draft in the terminal**. It changes no pages, creates no Atlas records and approves no decisions. Its source is the read ONE snapshot with timestamp and fingerprint; **Atlas is not refreshed in this workflow**. A second request to the same model is not independent acceptance. Proposed checks are not executed tests. Repeat with `/ba` or `/po`; model wording can vary between runs.
 
 ## A page for every item
 Ask for *“a sub-page for every ticket, linked in a table on this page”* — the tickets may come from the page, a database or an [MCP server](help:mcp-servers) like your tracker. Claude stages all the pages in one step (up to 50 per call, each its own proposal in the review), then a table on the main page — the open page when you say *this page* or *main page* — with a link to every page and the items' key fields (status, owner, date …) as columns. After **Apply all** the links are page mentions: a click opens the sub-page. When the items share fields and you ask for a table or tracker instead, Claude makes a [database](help:databases) with a row per item.

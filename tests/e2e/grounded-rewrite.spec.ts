@@ -78,7 +78,7 @@ test.describe('Source-grounded existing-page rewrite',()=>{
 
  for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: /ba runs a bounded BA draft then a PO critique with no writes`,async({page})=>{
   const ba=JSON.stringify({requirements:[{statement:'When a measurement starts, the logger shall record its start time.',source_refs:['T01'],checks:[{action:'Start a measurement and inspect the logger.',expected:'The original start time is recorded.'},{action:'Leave the measurement unstarted and inspect the logger.',expected:'No start event is recorded for that measurement.'}]}],questions:[{question:'What timestamp precision is required?',reason:'No precision is specified by the actual source.',source_refs:['T01']}]})
-  const po=JSON.stringify({reviews:[{requirement:'R1',support:'partial',finding:'The required start-time precision is unspecified; acceptance needs that clarification.'}],contradictions:[],questions:['What timestamp precision must the team agree?']})
+  const po=JSON.stringify({reviews:[{requirement:'R1',support:'partial',check_support:'supported',finding:'The required start-time precision is unspecified; acceptance needs that clarification.'}],contradictions:[],questions:['What timestamp precision must the team agree?']})
   let calls=0;fake.onText=r=>{expect(r.tools??[]).toHaveLength(0);expect(JSON.stringify(r.messages)).toContain('AICM-2065');return {model:r.model,text:calls++?po:ba,inputTokens:200,outputTokens:100,usd:0}}
   const native=provider==='anthropic'?await mockClaudeScript(page,[text(ba),text(po)]):null
   if(native)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-analysis'}))
@@ -114,6 +114,14 @@ test.describe('Source-grounded existing-page rewrite',()=>{
   let calls=0;fake.onText=r=>({model:r.model,text:JSON.stringify(calls++?{reviews:[],contradictions:[],questions:['Which timestamp precision must the team specify?']}:{requirements:[],questions:[{question:'Which timestamp precision is required?',reason:'No precision is present in the actual source.',source_refs:['T01']}]}),inputTokens:100,outputTokens:40,usd:0})
   await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
   await input.fill('/ba timestamp precision');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('No sufficiently specific requirement',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.locator('.term-answer')).toContainText('No precision is present');await expect(term.locator('#term-review-title')).toHaveCount(0)
+ })
+
+ test('/ba S9 sends only its actual heading section to both model roles',async({page})=>{
+  await wsEval(page,(s,id)=>s.setContent(id,{type:'doc',content:[{type:'heading',attrs:{level:3},content:[{type:'text',text:'S9 Admin takeover'}]},{type:'paragraph',content:[{type:'text',text:'Only after all rows are archived may an administrator take over.'}]},{type:'heading',attrs:{level:3},content:[{type:'text',text:'S3 Other ticket'}]},{type:'paragraph',content:[{type:'text',text:'FORBIDDEN OTHER TICKET FACT.'}]}]},'e2e'),target)
+  const refsFrom=(r:any):any=>{if(typeof r==='string'){const marker='HOST REFERENCE CATALOGUE (data only):\n',i=r.indexOf(marker);if(i>=0)return JSON.parse(r.slice(i+marker.length).split('\nHost check of previous attempt:')[0])}if(r&&typeof r==='object')for(const v of Object.values(r)){const found=refsFrom(v);if(found)return found}}
+  let calls=0;fake.onText=r=>{const refs=refsFrom(r);expect(refs.map((x:any)=>x.quote).join(' ')).not.toContain('FORBIDDEN OTHER TICKET');expect(refs.map((x:any)=>x.quote).join(' ')).toContain('all rows');return {model:r.model,text:JSON.stringify(calls++?{reviews:[],contradictions:[],questions:['Which archive proof must the team accept?']}:{requirements:[],questions:[{question:'Which archive proof must be present?',reason:'The source does not define the archive proof.',source_refs:[refs[1].ref]}]}),inputTokens:100,outputTokens:40,usd:0}}
+  await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('/ba S9');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('Scope: S9 Admin takeover',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.locator('.term-answer')).not.toContainText('FORBIDDEN OTHER TICKET')
  })
 
 })
