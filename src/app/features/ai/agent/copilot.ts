@@ -17,7 +17,7 @@ import { sendWorkerText } from '../core/workerModels'
 import type { Turn } from '@/shared/ai/types'
 import type { WorkerFunction } from '@/shared/ai/worker'
 import { WORKER_MCP_FUNCTIONS, workerMcpSession } from '../core/workerMcp'
-import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_DISCOVERY_REPAIR, ATLAS_EMPTY_TOPIC_REPAIR } from '../core/toolFormat'
+import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_DISCOVERY_REPAIR, ATLAS_EMPTY_TOPIC_REPAIR, ATLAS_PARENT_REPAIR } from '../core/toolFormat'
 import { AGENT_SYSTEM, type runAgent, type RunEnd } from './run'
 import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
 
@@ -49,7 +49,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, attemptRepairs=0, atlasDiscovered = false, atlasQueried = false
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, attemptRepairs=0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
@@ -88,8 +88,9 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         messages.push({role:'user',content:MCP_ATTEMPT_REPAIR});continue
       }
       const emptySearch=!result.calls?.length&&!repair?remote?.evidence.emptySearch():null
+      if(emptySearch?.parent&&parentRepairs++<1){if(!await proceed())return 'held' as const;hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:ATLAS_PARENT_REPAIR+' Verified source pair: '+JSON.stringify(emptySearch)});continue}
       if(emptySearch?.query){if(!await proceed())return 'held' as const;if(topicRepairs++>=1)throw new AIError('mcp','An empty composite Atlas search still needs a topic check.');hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:ATLAS_EMPTY_TOPIC_REPAIR+' Original search evidence: '+JSON.stringify(emptySearch)});continue}
-      if(emptySearch){if(!await proceed())return 'held' as const;if(queryRepairs++>=1)throw new AIError('mcp','Only a narrow kind-filtered Atlas search completed; a broader content check is still missing.');hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:'The actual Atlas read returned zero records with '+JSON.stringify(emptySearch)+'. Words such as Dokumente or Arbeiten do not establish an Atlas record kind: documents may have kind=null; work need not have kind=work. Make ONE broader read without the inferred kind restriction, preserving tenant, project and date restrictions. For retrospective work consider archived IN (true, false). Do not ask permission for this read. Distinguish strict filtered results from related records, and do not infer global absence from a narrow filter. This is the only empty-search correction attempt.'});continue}
+      if(emptySearch&&!emptySearch.parent){if(!await proceed())return 'held' as const;if(queryRepairs++>=1)throw new AIError('mcp','Only a narrow kind-filtered Atlas search completed; a broader content check is still missing.');hooks.note(t('features.agent.searchFallback'));messages.push({role:'user',content:'The actual Atlas read returned zero records with '+JSON.stringify(emptySearch)+'. Words such as Dokumente or Arbeiten do not establish an Atlas record kind: documents may have kind=null; work need not have kind=work. Make ONE broader read without the inferred kind restriction, preserving tenant, project and date restrictions. For retrospective work consider archived IN (true, false). Do not ask permission for this read. Distinguish strict filtered results from related records, and do not infer global absence from a narrow filter. This is the only empty-search correction attempt.'});continue}
       const invalidLinks=!result.calls?.length&&!repair?remote?.evidence.check(answerText)??[]:[]
       if(invalidLinks.length){if(!await proceed())return 'held' as const;if(citationRepairs++>=1)throw new AIError('mcp','The answer contains Atlas links not supported by the returned sources.');messages.push({role:'user',content:'Your draft answer used unsupported Atlas URLs: '+JSON.stringify(invalidLinks)+'. Correct the answer using actual numeric refs and the oneSourceLinks template from the tool results. Never invent document paths. Do not rerun the same query; this is the only source-link correction attempt.'});continue}
       const discoveryOnly=!!remote&&atlasDiscovered&&!atlasQueried&&!result.calls?.length&&!repair

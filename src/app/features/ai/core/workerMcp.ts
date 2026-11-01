@@ -33,10 +33,11 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const activity:McpCall={id,server:'MCP',tool:'one_mcp_search',arg:args.query,state:'run'}
       event(activity)
       try {
-        const found=await requestWorkerMcp({action:'search',servers,query:args.query},signal) as {tools:DiscoveredMcpTool[];guides?:Array<{server:string;instructions:string}>;unavailable?:string[]}
+        const found=await requestWorkerMcp({action:'search',servers,query:args.query},signal) as {tools:DiscoveredMcpTool[];guides?:Array<{server:string;instructions:string}>;projectDirectory?:{server:string;tenant:string;projects:Array<{slug:string;parentSlug:string|null}>};unavailable?:string[]}
         if(!Array.isArray(found?.tools)||found.tools.length>6)throw new AIError('mcp')
         const exposed=selectMcpSchemas(found.tools,maxChars)
         bindings.expose(exposed)
+        if(found.projectDirectory&&servers.some(s=>s.name===found.projectDirectory!.server)&&Array.isArray(found.projectDirectory.projects))evidence.directory(found.projectDirectory.server,found.projectDirectory.projects)
         for(const t of exposed)discovered.add(JSON.stringify([t.server,t.name]))
         const guides=(found.guides??[]).filter(g=>!shownGuides.has(g.server))
         guides.forEach(g=>shownGuides.add(g.server))

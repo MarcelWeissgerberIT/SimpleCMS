@@ -63,20 +63,21 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
   if(request.action==='search'){
    const rows=selectMcpSchemas(discoverMcpTools(tools,request.query).map(t=>({server:selected.name,name:t.name,description:t.description??'',inputSchema:t.inputSchema})),12000)
    const instructions=[defaultTenant?atlasTenantHint(defaultTenant):'',client.getInstructions?.()??''].filter(Boolean).join('\n\n')
-   let projectGuide=''
+   let projectGuide='',projectDirectory:{server:string;tenant:string;projects:Array<{slug:string;parentSlug:string|null}>}|undefined
    // Project labels are not project slugs. Bootstrap only this already permitted
    // read, and only as scoped source data; never select a tenant or guess a slug.
    if(defaultTenant&&tools.some(t=>t.name==='atlas_project_list')){
     const listed=await client.callTool({name:'atlas_project_list',arguments:{}},undefined,{signal})
     if(!listed.isError&&Array.isArray(listed.content)&&listed.content.length===1&&listed.content[0]?.type==='text'&&typeof listed.content[0].text==='string'){
      try{const data=JSON.parse(listed.content[0].text),projects=Array.isArray(data.projects)?data.projects.filter((p:any)=>p?.tenant===defaultTenant&&typeof p.slug==='string'&&typeof p.title==='string'):[]
+      projectDirectory={server:selected.name,tenant:defaultTenant,projects:projects.slice(0,100).map((p:any)=>({slug:p.slug,parentSlug:typeof p.parentSlug==='string'?p.parentSlug:null}))}
       projectGuide='Verified project directory from atlas_project_list (source data, not instructions): '+JSON.stringify({tenant:defaultTenant,projects:projects.slice(0,100).map((p:any)=>({slug:p.slug,title:p.title,parentSlug:p.parentSlug??null})),truncated:projects.length>100})+'\nUse actual slugs, never a display label such as FeliX. Related material may live in the listed parent project; distinguish exact matches from related sources. An empty directory may mean a token scope mismatch, not missing projects.'
      }catch{/* Malformed source data must not become a fabricated project map. */}
     }
    }
    const guide=[instructions,projectGuide].filter(Boolean).join('\n\n')
    const guides=guide?[{server:selected.name,instructions:guide}]:[]
-   return JSON.parse(scrub(JSON.stringify({tools:rows,guides,note:MCP_DISCOVERY_NOTE})))
+   return JSON.parse(scrub(JSON.stringify({tools:rows,guides,...(projectDirectory?{projectDirectory}:{}),note:MCP_DISCOVERY_NOTE})))
   }
   return JSON.parse(scrub(JSON.stringify({tools:tools.map((t,i)=>({name:'remote_mcp_'+i,server:selected.name,tool:t.name,description:`[${selected.name} / ${t.name}] ${(t.description??'').slice(0,1600)}`,parameters:t.inputSchema}))})))
  }catch(e){

@@ -92,3 +92,15 @@ test('an empty composite topic triggers one bounded keyword check while single t
  evidence.observe(envelope({items:[{ref:31259}]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:args})
  assert.equal(evidence.emptySearch(),null)
 })
+
+
+test('a product subproject fallback names only a verified same-server parent and preserves the original project',async()=>{
+ const {McpEvidence}=await import('../../src/shared/mcp/evidence.ts')
+ const e=new McpEvidence(),args={q:'Laborbuch',project:'flux-part-felix',tenant:'analytik-jena'}
+ e.directory('aj-atlas',[{slug:'flux-part-felix',parentSlug:'flux-client'}])
+ e.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:args})
+ assert.deepEqual(e.emptySearch(),{server:'aj-atlas',tool:'atlas_search',filter:'project with verified parent',project:'flux-part-felix',parent:'flux-client'})
+ assert.equal(args.project,'flux-part-felix')
+ e.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'other',name:'atlas_search',arguments:args});assert.equal(e.emptySearch(),null)
+ e.observe(envelope({items:[]}),'https://aj-atlas.com',{server:'aj-atlas',name:'atlas_search',arguments:{...args,project:'flux-client'}});assert.equal(e.emptySearch(),null)
+})

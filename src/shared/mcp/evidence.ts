@@ -1,6 +1,8 @@
 /** Evidence from actual Atlas responses only; scoped to one run and selected server origins. */
 export class McpEvidence {
- private empty:{server:string;tool:string;filter:string;query?:string}|null=null
+ private empty:{server:string;tool:string;filter:string;query?:string;project?:string;parent?:string}|null=null
+ private parents=new Map<string,string>()
+ directory(server:string,projects:Array<{slug:string;parentSlug:string|null}>){for(const p of projects)if(typeof p.slug==='string'&&typeof p.parentSlug==='string')this.parents.set(JSON.stringify([server,p.slug]),p.parentSlug)}
  emptySearch(){return this.empty}
  private sources=new Map<string,{refs:Set<number>;urls:Set<string>}>()
  observe(raw:string,origin:string,call?:{server:string;name:string;arguments:Record<string,unknown>}){
@@ -12,8 +14,9 @@ export class McpEvidence {
    if(Array.isArray(rows)){
     const kind=typeof call.arguments.kind==='string'?call.arguments.kind:typeof call.arguments.aql==='string'&&/\bkind\s*=/i.test(call.arguments.aql)?'AQL kind filter':''
     const query=call.name==='atlas_search'&&typeof call.arguments.q==='string'?call.arguments.q.trim():''
+    const project=typeof call.arguments.project==='string'?call.arguments.project:'',parent=project?this.parents.get(JSON.stringify([call.server,project])):undefined
     const phrase=query.split(/\s+/).filter(Boolean).length>1
-    this.empty=rows.length===0?(kind?{server:call.server,tool:call.name,filter:kind.slice(0,100)}:phrase?{server:call.server,tool:call.name,filter:'topic phrase',query:query.slice(0,200)}:null):null
+    this.empty=rows.length===0?(kind?{server:call.server,tool:call.name,filter:kind.slice(0,100)}:phrase?{server:call.server,tool:call.name,filter:'topic phrase',query:query.slice(0,200)}:parent?{server:call.server,tool:call.name,filter:'project with verified parent',project,parent}:null):null
    }
   }
   let source=this.sources.get(origin)
