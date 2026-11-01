@@ -135,10 +135,11 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
    await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
    await input.fill('Read Atlas tasks. If the search fails, report only that blocker.');await input.press('Enter')
    await expect(term.locator('.task-contract')).toContainText('Blocked',{timeout:20000})
+   await expect(term.locator('.term-error')).toBeVisible()
    await expect(term.locator('.term-answer')).toHaveCount(0)
    await expect(term.getByTestId('worker-connection-help')).toHaveAttribute('data-problem','permission')
    await expect(term.getByTestId('worker-connection-help')).toContainText('does not prove an invalid token')
-   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_search','atlas_whoami'])
+   await expect.poll(()=>fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_search','atlas_whoami'])
    const wire=host?.requests.map(r=>r.body)??fake.textAsked
    expect(wire.at(-1)?.tools??[]).toEqual([])
    for(const theme of ['light','dark'])for(const width of [1440,390]){await page.setViewportSize({width,height:844});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);const help=term.getByTestId('worker-connection-help');expect(await help.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);await help.screenshot({path:info.outputPath(`permission-${provider}-${theme}-${width}.png`)})}

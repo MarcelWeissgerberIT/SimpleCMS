@@ -1,6 +1,9 @@
 # Runtime-only image from clean, previously verified production build artifacts.
 # Context: dist/, server/dist/, server/package.json, server/LICENSE, server/README.md.
-# Never use a previous ONE release as FROM: COPY would retain obsolete hashed assets.
+# Copy only its immutable assets for tabs still running an earlier build.
+# The final stage must not inherit the previous release's repeated filesystem layers.
+ARG COMPAT_IMAGE
+FROM ${COMPAT_IMAGE} AS previous_assets
 FROM node:22-slim
 ENV NODE_ENV=production \
     NODE_OPTIONS="--disable-warning=ExperimentalWarning --enable-source-maps" \
@@ -8,6 +11,7 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     APP_DIR=/app/dist
 WORKDIR /app/server
+COPY --from=previous_assets /app/dist/assets/ /app/dist/assets/
 COPY dist/ /app/dist/
 COPY server/dist/ ./dist/
 COPY server/package.json server/LICENSE server/README.md ./
