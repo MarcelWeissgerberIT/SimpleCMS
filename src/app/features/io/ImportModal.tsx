@@ -435,7 +435,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
               </div>
               <div className="io-sources__grid" role="group" aria-label={t('features.imp.sources')}>
                 <button type="button" className="io-src" data-source="external" onClick={() => setPhase({ name: 'source' })}>
-                  <span className="io-src__n mono">↗</span><span className="io-src__name">{lang === 'de' ? 'Externe Quelle' : 'External source'}</span><span className="io-src__code mono">URL · TEXT</span><span className="io-src__how">{lang === 'de' ? 'Adresse abrufen oder Text einfügen. Erst prüfen, dann mit Herkunft und Zeitpunkt übernehmen.' : 'Fetch an address or paste text. Review first, then import with origin and time.'}</span><ChevronRight className="io-src__go" size={14} aria-hidden />
+                  <span className="io-src__n mono">↗</span><span className="io-src__name">{lang === 'de' ? 'Externe Quelle' : 'External source'}</span><span className="io-src__code mono">URL · PDF · TEXT</span><span className="io-src__how">{lang === 'de' ? 'URL, PDF oder formatierten Text prüfen und mit Herkunft übernehmen.' : 'Review a URL, PDF or formatted text and import it with provenance.'}</span><ChevronRight className="io-src__go" size={14} aria-hidden />
                 </button>
                 {SOURCES.map((s, i) => (
                   <button key={s.id} type="button" className="io-src" data-source={s.id} aria-label={t(`features.imp.src.${s.id}`)} aria-describedby={`io-src-${s.id}`} onClick={() => pickSource(s.id)}>
