@@ -43,6 +43,7 @@ export function providerOfLabel(label: string): ProviderId {
 
 /** The friendly sentence for an error code (in the current UI language) — naming the company and host of the route. */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
+  if(v.detail==='features.ai.quantum.blocked')return t(v.detail)
   if(v.detail==='features.ai.local.unverifiedFacts')return t(v.detail)
   // Local material errors survive stored-run reconstruction; only known keys become UI text.
   if ((code === 'context' || code === 'capability') && ['features.ai.local.sourceContradiction','features.ai.local.discovery','features.ai.local.toolFormat','features.ai.local.mcpWorker','features.ai.copilot.mediaLimit','features.ai.copilot.pdfLimit','features.ai.copilot.pdfScan','features.ai.copilot.unsupportedPart'].includes(v.detail ?? '')) return t(v.detail!)

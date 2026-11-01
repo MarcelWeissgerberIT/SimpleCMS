@@ -1,4 +1,6 @@
 import { workspaceDeviceAI } from '../../../store/ai'
+import {checkProviderQuantum} from './quandprofile'
+import type {QuantumProof} from '@/shared/quandprofile/runtime'
 import { isTestAccess } from '../../../cloud/testScope'
 import { flowAllows, flowPageVisible, flowRestrictions, assertModelFlow, flowSignature } from './dataFlow'
 import { inferencePlace } from '@/shared/ai/dataFlow'
@@ -244,6 +246,7 @@ export interface RoundCtx extends LoopRound {
 export type StartCheck = StartVerdict & { line?: { spent: number; limit: number }; label?: string; checks?: number }
 
 export interface Prepared {
+  quantum?: QuantumProof
   purpose: PurposeId
   cls: FeatureClass
   /** the route the request goes to (null: demo — canned answers, nothing sent) */
@@ -528,6 +531,7 @@ const flowVersions = new WeakMap<Prepared, string>()
 export function assertPreparedFlow(p: Prepared): void {
   if (flowVersions.has(p) && flowVersions.get(p) !== flowSignature()) throw new AIError('policy', 'destination')
   if (p.route) assertModelFlow(p.route.p, inputs.get(p)?.sources ?? [])
+  if(p.route)p.quantum=checkProviderQuantum(p.route.p,p.route.m,p.classes.filter(c=>p.allows(c)),p.purpose)
 }
 
 /**

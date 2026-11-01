@@ -138,7 +138,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
   }
   const poll = setInterval(ask, 2000)
   wss.on('connection', (ws) => {
-    ws.on('message', (d) => {
+    ws.on('message', async (d) => {
       const m = JSON.parse(String(d)) as Json
       if (m.type === 'hello') {
         fake.hellos.push(m)
@@ -157,7 +157,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
       }
       if (m.type === 'req' && m.op === 'text-request') {
         fake.textAsked.push(m.request)
-        const result = fake.onText?.(m.request) ?? { model: m.request.model, text: 'Worker text answer.', inputTokens: 200, outputTokens: 50, usd: null }
+        const result = await fake.onText?.(m.request) ?? { model: m.request.model, text: 'Worker text answer.', inputTokens: 200, outputTokens: 50, usd: null }
         ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result })); return
       }
       if (m.type === 'req' && m.op === 'text-stop') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: { stopped: true } })); return }

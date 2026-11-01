@@ -1,5 +1,7 @@
+import type {QuantumProof} from '../quandprofile/runtime.ts'
 /** Run-local facts from tool responses. Model prose, discovery and document bodies cannot mint facts. */
 export type AtlasReceipt = {
+  quantum?: QuantumProof
   server?: string
   tool: string
   outcome: 'ok' | 'partial' | 'error'
@@ -68,6 +70,7 @@ export class AtlasFacts {
   private targets=new Map<string,Set<number>>()
   private otherWrite = false
   noteOtherWrite() { this.otherWrite=true }
+  observedTargets(server:string) { return [...this.targets.get(server)??[]] }
   observe(call: Call, raw: unknown, failed = false) {
     const receipt = atlasReceipt(call.name, raw, failed)
     if (!call.name.startsWith('atlas_')) return receipt
@@ -93,7 +96,7 @@ export class AtlasFacts {
     const issues: FactIssue[] = []
     const add = (kind: FactIssue['kind'], detail: string) => { if (issues.length<8 && !issues.some(i=>i.kind===kind&&i.detail===detail)) issues.push({kind,detail}) }
     for (const m of text.matchAll(/(?:\/r\/|\b(?:Ref(?:erenz)?(?:[-/]ID)?|Record|ID)\s*(?:[:#=]|ist|is)?\s*[`#]?)([A-Za-z0-9][\w-]*)/gi)) {
-      const value=m[1]; if (/^\d+$/.test(value) ? !this.refs.has(Number(value)) : /\d/.test(value)&&!this.ids.has(value)) add('reference','Reference not present in actual tool results: '+value.slice(0,100))
+      const value=m[1]; if(!value)continue; if (/^\d+$/.test(value) ? !this.refs.has(Number(value)) : /\d/.test(value)&&!this.ids.has(value)) add('reference','Reference not present in actual tool results: '+value.slice(0,100))
     }
     for (const m of text.matchAll(/"(?:ref|atlasRef|recordRef)"\s*:\s*(\d+)/g)) if (!this.refs.has(Number(m[1]))) add('reference','Reference not present in actual tool results: '+m[1])
     const units: Array<[RegExp,string]> = [[/\b(\d+)\s+(?:Record[- ]?Kinds?|Record[- ]?Typen?)\b/gi,'record_kinds'],[/\b(\d+)\s+(?:Projekte|projects)\b/gi,'projects'],[/\b(\d+)\s+(?:Agenten|agents)\b/gi,'agents'],[/\b(\d+)\s+(?:Treffer|results|matches)\b/gi,'records']]

@@ -73,12 +73,12 @@ export class SharedModelHost {
       if(reply.cancel)this.active?.abort.abort()
       if(reply.job&&!this.active){
         const id=reply.job.id as string,abort=new AbortController()
-        this.active={id,abort};void this.run(id,reply.job.box,abort)
+        this.active={id,abort};void this.run(id,reply.job.box,abort,reply.job)
       }
     }catch{/* Offline is visible through the short server heartbeat lease; no prompt/error logging. */}
     finally{this.polling=false;if(!this.stopped)this.timer=setTimeout(()=>void this.poll(),2000)}
   }
-  private async run(id:string,box:SharedBox,abort:AbortController){
+  private async run(id:string,box:SharedBox,abort:AbortController,trace?:{created?:number;workspace?:string;user?:string}){
     const timer=setTimeout(()=>abort.abort(),180000)
     try{
       const key=await sharedWorkerKey(box,(await this.keys).privateKey)
@@ -88,7 +88,7 @@ export class SharedModelHost {
       if((request.tools?.length||request.schema)&&!this.tools)throw new Error('Shared model has no verified function support')
       const r=checkTextRequest({...request,provider:'local'})
       // Function definitions are inference data only. No function executes here; no owner MCP credentials, project paths or arbitrary model URLs enter this path.
-      const result=await textRequest(this.config.file,r,abort.signal)
+      const result=await textRequest(this.config.file,r,abort.signal,{job:id,...trace})
       if(Buffer.byteLength(JSON.stringify(result))>120000)throw new Error('Answer too large')
       const sealed=await sealShared({ok:true,result},key,share,id)
       if(!abort.signal.aborted)this.outcome={id,box:sealed};else this.outcome={id}

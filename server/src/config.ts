@@ -9,6 +9,7 @@ export const VERSION = typeof __VERSION__ === 'string' ? __VERSION__ : '0.0.0-de
 export type SignupPolicy = { mode: 'open' } | { mode: 'invite' } | { mode: 'domains'; domains: string[] }
 
 export interface Config {
+  modelAudit?: {url:string;token:string;ownerId:string}
   production: boolean
   devMode: boolean
   port: number
@@ -107,7 +108,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const mailFrom = env.MAIL_FROM?.trim() || `SimpleCMS One <no-reply@${host.includes('.') ? host : 'localhost.localdomain'}>`
   const secret = loadSecret(env.SECRET, production, dataDir)
 
+  let modelAudit: Config['modelAudit']
+  if ([env.MODEL_AUDIT_URL,env.MODEL_AUDIT_TOKEN,env.MODEL_AUDIT_OWNER].some(Boolean)) {
+    if (!env.MODEL_AUDIT_URL || !env.MODEL_AUDIT_TOKEN || !env.MODEL_AUDIT_OWNER) throw new ConfigError('All MODEL_AUDIT settings are required together')
+    const url = new URL(env.MODEL_AUDIT_URL)
+    if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/admin/audit' || env.MODEL_AUDIT_TOKEN.length < 32) throw new ConfigError('Invalid model audit configuration')
+    modelAudit = {url:url.href,token:env.MODEL_AUDIT_TOKEN,ownerId:env.MODEL_AUDIT_OWNER.includes('@')?env.MODEL_AUDIT_OWNER.trim().toLowerCase():env.MODEL_AUDIT_OWNER.trim()}
+  }
   return {
+    ...(modelAudit?{modelAudit}:{}),
     production,
     devMode,
     port,

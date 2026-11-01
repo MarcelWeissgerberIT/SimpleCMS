@@ -187,6 +187,7 @@ export type CostSource = 'reported' | 'table' | 'catalogue' | 'estimate' | 'none
 
 /** One response, metered (per device + member, never synced). Ids and numbers only — never page text. */
 export interface LedgerEntry {
+  quantum?: import('../quandprofile/runtime').QuantumProof
   id: string
   at: number
   scope: string

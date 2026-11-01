@@ -9,3 +9,6 @@ playwright-report
 .vite
 __pycache__/
 .claude/worktrees/
+
+# Rebuildable compiler artifacts; the reviewed WASM in src/shared is versioned.
+/runtime/quandprofile/target/

@@ -8,6 +8,8 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.quantum.blocked': 'ONE could not confirm the current compiler checks. Nothing was sent or changed by this action. Reload ONE and check the data rules and selected Atlas connection.',
+    'features.ai.quantum.receipt': 'Compiled dispatch check',
     'features.ai.local.unverifiedFacts': 'The model answer contradicts actual Atlas results. ONE withheld the structured result; check the observed facts or choose another model. No write was repeated.',
     'features.ai.facts.fallback': 'Part of the model answer could not be confirmed. Observed tool results:',
     'features.ai.facts.failed': 'Request failed; absence of content is not established.',
@@ -182,6 +184,8 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
+    'features.ai.quantum.blocked': 'ONE konnte die aktuellen Compiler-Prüfungen nicht bestätigen. Durch diese Aktion wurde nichts gesendet oder geändert. ONE neu laden und Datenregeln sowie die gewählte Atlas-Verbindung prüfen.',
+    'features.ai.quantum.receipt': 'Kompilierte Aufrufprüfung',
     'features.ai.local.unverifiedFacts': 'Die Modellantwort widerspricht tatsächlichen Atlas-Ergebnissen. ONE hält das strukturierte Ergebnis zurück; nachgewiesene Fakten prüfen oder anderes Modell wählen. Es wurde kein Schreibzugriff wiederholt.',
     'features.ai.facts.fallback': 'Ein Teil der Modellantwort konnte nicht bestätigt werden. Nachgewiesene Werkzeugergebnisse:',
     'features.ai.facts.failed': 'Aufruf fehlgeschlagen; fehlende Inhalte sind damit nicht nachgewiesen.',

@@ -17,7 +17,7 @@ export function appCsp(config: Config): string {
   return [
     "default-src 'self'",
     // Google's sign-in script (Gmail sync: the user's own OAuth client, loaded only when they connect)
-    "script-src 'self' https://accounts.google.com",
+    "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",

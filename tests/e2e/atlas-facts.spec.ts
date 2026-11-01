@@ -52,7 +52,15 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
   const result=await page.evaluate(async model=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read Atlas ref 42 and replace its body with Expected.',mcp:'fixed',route:{p:'local',m:model}}),LOCAL)
   expect(result).toEqual({ok:true,text:'Ref: 42 aktualisiert.'})
   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_get','atlas_update','atlas_get'])
-  expect(fake.textAsked).toHaveLength(5);expect(JSON.stringify(fake.textAsked[2].messages)).toContain('NOT executed');expect(JSON.stringify(fake.textAsked[4].messages)).toContain('read_back_matches')
+  expect(fake.textAsked).toHaveLength(5);expect(JSON.stringify(fake.textAsked[2].messages)).toContain('NOT executed');expect(JSON.stringify(fake.textAsked[4].messages)).toContain('read_back_matches');expect(JSON.stringify(fake.textAsked[4].messages)).toContain('one_mcp')
+ })
+ test('revoking the MCP connection while inference runs blocks the next dispatch',async({page})=>{
+  fake.onText=async r=>{
+   await wsEval(page,s=>s.updateSettings({mcpServers:[]}))
+   return {model:r.model,text:'',calls:[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_get'}}],inputTokens:20,outputTokens:10,usd:0}
+  }
+  const result=await page.evaluate(async model=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read my Atlas identity.',mcp:'fixed',route:{p:'local',m:model}}),LOCAL)
+  expect(result).toMatchObject({ok:false});expect(fake.mcpAsked).toHaveLength(0)
  })
  for(const terminal of [false,true])test(`Claude ${terminal?'terminal':'completion'}: check before display and correct without MCP or write tools`,async({page})=>{
   await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))

@@ -58,9 +58,27 @@ export function sharedModelRoutes(s:Services) {
   app.get('/workspaces/:id/model-shares',c=>{
     const {workspace,auth}=access(s,c,'member');clean()
     return c.json(s.db.all<Share>('SELECT * FROM shared_models WHERE workspace_id=?',workspace.id).filter(r=>r.enabled||r.owner_id===auth.user.id).map(r=>({
-      id:r.id,workspace:r.workspace_id,model:r.model,label:r.label,owner:s.repo.userById(r.owner_id)?.name??'Local model',mine:r.owner_id===auth.user.id,enabled:!!r.enabled,online:online(r),hostOnline:hostOnline(r),modelAvailable:hostOnline(r)?live.get(r.id)!.available:null,dataFlow:live.get(r.id)?.dataFlow===true,tools:live.get(r.id)?.tools===true,inputMax:live.get(r.id)?.inputMax??22000,
+      contentAudit:!!s.config.modelAudit,id:r.id,workspace:r.workspace_id,model:r.model,label:r.label,owner:s.repo.userById(r.owner_id)?.name??'Local model',mine:r.owner_id===auth.user.id,enabled:!!r.enabled,online:online(r),hostOnline:hostOnline(r),modelAvailable:hostOnline(r)?live.get(r.id)!.available:null,dataFlow:live.get(r.id)?.dataFlow===true,tools:live.get(r.id)?.tools===true,inputMax:live.get(r.id)?.inputMax??22000,
       queued:[...jobs.values()].filter(j=>j.share===r.id&&j.state==='queued').length,running:[...jobs.values()].some(j=>j.share===r.id&&j.state==='running'),publicKey:online(r)?live.get(r.id)?.key:null,
     })))
+  })
+  // The deployment's designated test lead only; workspace admins do not inherit content-log access.
+  app.get('/workspaces/:id/model-audit',async c=>{
+    const {auth}=access(s,c,'member'),audit=s.config.modelAudit
+    if(!audit||(auth.user.id!==audit.ownerId&&auth.user.email.toLowerCase()!==audit.ownerId))throw notFound('audit_unavailable','Test log unavailable')
+    c.header('Cache-Control','no-store')
+    if(c.req.query('status')==='1')return c.json({enabled:true,retentionDays:30})
+    const id=c.req.query('entry'),before=c.req.query('before')
+    if(id&&!/^\d{13}-[a-f0-9-]{36}$/.test(id))throw new ApiError(400,'invalid_audit_id','Invalid log entry')
+    if(before&&!/^\d{13}-[a-f0-9-]{36}$/.test(before))throw new ApiError(400,'invalid_audit_id','Invalid log cursor')
+    const url=new URL(audit.url);if(id)url.searchParams.set('id',id);else if(before)url.searchParams.set('before',before)
+    const r=await fetch(url,{redirect:'error',headers:{authorization:'Bearer '+audit.token},signal:AbortSignal.timeout(15000)})
+    if(!r.ok)throw new ApiError(503,'audit_host_unavailable','The model-host log is currently unavailable')
+    const reader=r.body?.getReader(),parts:Uint8Array[]=[];let size=0
+    if(!reader)throw new ApiError(503,'audit_host_unavailable','Empty log response')
+    try{while(true){const x=await reader.read();if(x.done)break;size+=x.value.length;if(size>16*1024*1024){await reader.cancel();throw new ApiError(503,'audit_limit','Log entry exceeds display limit')}parts.push(x.value)}}finally{reader.releaseLock()}
+    const text=Buffer.concat(parts).toString('utf8')
+    c.header('Cache-Control','no-store');return c.json(JSON.parse(text))
   })
   app.delete('/workspaces/:id/model-shares/:share',c=>{
     const {workspace,auth,role}=access(s,c,'member'),r=get(c.req.param('share'))
@@ -116,7 +134,7 @@ export function sharedModelRoutes(s:Services) {
     if(input.busy||!input.available||[...jobs.values()].some(j=>j.share===w.id&&j.state==='running'))return c.json({enabled:true,model:r.model})
     const job=[...jobs.values()].find(j=>j.share===w.id&&j.state==='queued')
     if(job){job.state='running';job.started=Date.now()}
-    return c.json({enabled:true,model:r.model,...(job?{job:{id:job.id,box:job.box}}:{})})
+    return c.json({enabled:true,model:r.model,...(job?{job:{id:job.id,box:job.box,created:job.created,workspace:job.workspace,user:job.user}}:{})})
   })
   return app
 }

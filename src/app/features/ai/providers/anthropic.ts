@@ -1,3 +1,4 @@
+import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
 import { assertPreparedFlow,beforeRound } from '../core/gate'
 import {AtlasFacts,ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
 import {atlasFactsFallback} from '../core/atlasFacts'
@@ -409,7 +410,7 @@ async function streamWithMcp(
       model,
       // with MCP servers never capped (max_tokens bounds the output only — the brake judges their rounds)
       max_tokens: opus ? 16000 : 8000,
-      system:system+'\n'+ATLAS_FACT_POLICY,
+      system:system+'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY,
       messages,
       ...mcpParams(mcp),
       // Opus / Sonnet 5.5: thinking is always on (adaptive) — never send `thinking`; refusal fallbacks as above

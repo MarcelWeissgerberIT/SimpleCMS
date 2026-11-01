@@ -34,6 +34,7 @@ import { registerServiceWorker, watchForUpdates } from '@/shared/sw'
 import * as cloud from './cloud'
 import { getFile, saveFile, setFileWorkspace } from './lib/files'
 import { installForeignLinks } from './lib/foreignLinks'
+import {loadQuandProfile} from './features/ai/core/quandprofile'
 
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
@@ -103,6 +104,7 @@ async function boot() {
     else cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: localStorageId }, role: null, readOnly: false })
   }
   if (mode === 'local') await bootLocal()
+  await loadQuandProfile().catch(e=>console.error('[one] AI compiler unavailable; AI actions remain blocked',e))
 
   if (mode !== 'signed-out' && !isTestAccess()) {
     // the Regler's brake at the gate (no I/O; the ledger is read after the first frame, only while a budget is set) —

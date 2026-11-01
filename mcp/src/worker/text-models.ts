@@ -89,7 +89,7 @@ export function checkTextRequest(raw: unknown): WorkerTextRequest {
   if (size > WORKER_TEXT_MAX) throw new Error('Text request is too large. Select a smaller passage.')
   return r
 }
-export async function textRequest(file: string, raw: unknown, signal: AbortSignal): Promise<WorkerTextResult> {
+export async function textRequest(file: string, raw: unknown, signal: AbortSignal, trace?:{job:string;created?:number;workspace?:string;user?:string}): Promise<WorkerTextResult> {
   const r = checkTextRequest(raw)
   const model = (await (r.provider === 'copilot' ? copilotModels() : textModels(file))).find(m => m.provider === r.provider && m.model === r.model)
   if (!model) throw new Error('This model is no longer available on the worker. Refresh the model list.')
@@ -123,7 +123,8 @@ export async function textRequest(file: string, raw: unknown, signal: AbortSigna
       return { model: r.model, text: result.text, inputTokens: result.inputTokens ?? null, outputTokens: result.outputTokens ?? null, usd: null }
     } finally { await rm(cwd, { recursive: true, force: true }) }
   }
-  const inference = r.provider === 'ollama' ? ollamaCloudInference({ ...readOllamaCloud(file), model: r.model }) : r.provider === 'minimax' ? miniMaxInference(readMiniMax(file), 1) : ollamaInference(localBase())
+  const traceHeaders=trace?{'x-one-job-id':trace.job,'x-one-queued-at':String(trace.created??''),'x-one-workspace':trace.workspace??'','x-one-user-id':trace.user??''}:undefined
+  const inference = r.provider === 'ollama' ? ollamaCloudInference({ ...readOllamaCloud(file), model: r.model }) : r.provider === 'minimax' ? miniMaxInference(readMiniMax(file), 1) : ollamaInference(localBase(),traceHeaders)
   if (r.provider === 'local') {
     // An Ollama cloud alias must never be presented as local inference.
     const res = await fetch(new URL('/api/show', localBase()), { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: r.model }), signal })

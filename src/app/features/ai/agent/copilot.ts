@@ -1,3 +1,4 @@
+import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
 import {unverifiedMcpDenial,MCP_ATTEMPT_REPAIR} from '@/shared/mcp/execution'
 import {closeToolBatch,type ToolReceipt} from '@/shared/ai/tool-batch'
 import {t} from '../../../i18n'
@@ -55,7 +56,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
-  const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
+  const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {
     if (!opts.mcp.worker || !prepared.allows('mcp')) throw new AIError('capability', 'Selected MCP connections are unavailable on this route.')

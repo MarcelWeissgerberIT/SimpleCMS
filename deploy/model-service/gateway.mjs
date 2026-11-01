@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs'
 import {createHash,randomUUID} from 'node:crypto'
 import {once} from 'node:events'
 import {pathToFileURL} from 'node:url'
+import {ModelAudit} from './audit.mjs'
 
 const MODEL='atlas-flow:latest', BODY_MAX=256*1024
 const loopback=ip=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(ip)
@@ -60,7 +61,7 @@ function chat(raw,native){
   return r
 }
 
-export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,log=()=>{},internal=true,queue=new Queue(),inferenceTimeout=180000,queueTimeout=480000,fetchImpl=fetch}={}){
+export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,log=()=>{},audit=null,internal=true,queue=new Queue(),inferenceTimeout=180000,queueTimeout=480000,fetchImpl=fetch}={}){
   const base=new URL(upstream)
   if(base.protocol!=='http:'||!loopback(base.hostname)||base.port==='8081')throw new Error('Gateway upstream must be a separate loopback Ollama server.')
   const rates=new Map()
@@ -72,10 +73,19 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
   const send=(res,status,value)=>{if(res.destroyed)return;if(res.headersSent){res.destroy();return}res.writeHead(status,{'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(value))}
   const server=http.createServer(async(req,res)=>{
     const id=randomUUID(),started=Date.now();let keyId=null,release,status=500,timer
+    let auditRecord=null,responseChunks=[]
     const abort=new AbortController(),gone=()=>{if(!res.writableEnded)abort.abort(new Error('Client disconnected'))}
     req.on('aborted',gone);res.on('close',gone);res.setHeader('x-request-id',id)
     try{
       if(req.method==='GET'&&req.url==='/healthz'){status=200;send(res,200,{status:'ok',service:'atlas-flow'});return}
+      if(new URL(req.url??'/', 'http://localhost').pathname==='/admin/audit'){
+        if(!audit||!audit.authorized(req.headers.authorization))throw fault(404,'not_found','Not found.')
+        if(req.method!=='GET')throw fault(405,'method_not_allowed','Read only.')
+        const url=new URL(req.url,'http://localhost'),entry=url.searchParams.get('id')
+        const before=url.searchParams.get('before');if(before)audit.file(before)
+        const entries=entry?null:audit.list(51,before)
+        status=200;send(res,200,entry?audit.read(entry):{entries:entries.slice(0,50),nextCursor:entries.length>50?entries[49].auditId:null,retentionDays:audit.days});return
+      }
       const isNative=req.url?.startsWith('/api/')===true
       if(isNative){
         if(!internal||!loopback(req.socket.remoteAddress))throw fault(404,'not_found','Not found.')
@@ -104,9 +114,16 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
         if(!isNative||!object(raw)||raw.model!==MODEL||Object.keys(raw).some(k=>k!=='model'))throw fault(400,'model_not_allowed','Only atlas-flow:latest is served.')
         payload=raw
       }else payload=chat(raw,isNative)
+      if(audit&&req.url!=='/api/show'){
+        const header=(key,max=100)=>typeof req.headers[key]==='string'?req.headers[key].slice(0,max):null
+        auditRecord={auditId:String(started)+'-'+id,requestId:id,receivedAt:started,queuedAt:Number(header('x-one-queued-at'))||null,processingAt:null,finishedAt:null,state:'received',status:null,keyId,
+          trace:isNative?{job:header('x-one-job-id'),workspace:header('x-one-workspace'),user:header('x-one-user-id')}:null,request:raw,modelInput:payload,response:null,responseBytes:0}
+        audit.prune();audit.write(auditRecord)
+      }
       if(req.url!=='/api/show'){
         timer=setTimeout(()=>abort.abort(fault(504,'queue_timeout','Queue wait expired.')),queueTimeout);timer.unref()
         release=await queue.enter(keyId,abort.signal);clearTimeout(timer)
+        if(auditRecord){auditRecord.processingAt=Date.now();auditRecord.state='processing';audit.write(auditRecord)}
       }
       timer=setTimeout(()=>abort.abort(fault(504,'inference_timeout','Inference timed out.')),req.url==='/api/show'?10000:inferenceTimeout);timer.unref()
       const r=await fetchImpl(new URL(req.url,base),{method:'POST',redirect:'error',headers:{'content-type':'application/json'},body:JSON.stringify(payload),signal:abort.signal})
@@ -116,17 +133,21 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
       let size=0
       for await(const chunk of r.body){
         size+=chunk.length;if(size>2*1024*1024)throw fault(502,'response_limit','Model response exceeded the service limit.')
+        if(auditRecord)responseChunks.push(Buffer.from(chunk))
         if(!res.write(chunk))await once(res,'drain',{signal:abort.signal})
       }
       res.end()
+      if(auditRecord)auditRecord.state='processed'
     }catch(e){
       const error=abort.signal.aborted?abort.signal.reason:e
       status=Number.isInteger(error?.status)?error.status:503
+      if(auditRecord){auditRecord.state=abort.signal.aborted?'cancelled':'failed';auditRecord.error=error?.code??'service_unavailable'}
       if(status===429)res.setHeader('retry-after','10')
       if(status===401)res.setHeader('www-authenticate','Bearer realm="Atlas Flow"')
       send(res,status,{error:{type:error?.code??'service_unavailable',message:error?.status?error.message:'Model service unavailable. No fallback was used.',request_id:id}})
     }finally{
       clearTimeout(timer);release?.();req.off('aborted',gone);res.off('close',gone)
+      if(auditRecord){try{auditRecord.finishedAt=Date.now();auditRecord.status=status;auditRecord.response=Buffer.concat(responseChunks).toString('utf8');auditRecord.responseBytes=Buffer.byteLength(auditRecord.response);audit.write(auditRecord)}catch{log({id,auditError:'audit_write_failed'})}}
       // Metadata only. Never include payload, results, arbitrary errors or authorization headers.
       log({id,keyId,status,ms:Date.now()-started})
     }
@@ -136,7 +157,9 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
-  const {server}=createGateway({keyFile:process.env.ATLAS_FLOW_KEYS??'/etc/atlas-flow/api-keys.json',log:r=>process.stdout.write(JSON.stringify(r)+'\n')})
+  const audit=process.env.ATLAS_FLOW_AUDIT_TOKEN_FILE?new ModelAudit({dir:process.env.ATLAS_FLOW_AUDIT_DIR??'/var/lib/atlas-flow/audit',keyFile:process.env.ATLAS_FLOW_AUDIT_KEY_FILE??'/var/lib/atlas-flow/audit.key',token:readFileSync(process.env.ATLAS_FLOW_AUDIT_TOKEN_FILE,'utf8').trim()}):null
+  if(audit)setInterval(()=>{try{audit.prune()}catch{process.stderr.write('Audit retention cleanup failed\n')}},3600000).unref()
+  const {server}=createGateway({audit,keyFile:process.env.ATLAS_FLOW_KEYS??'/etc/atlas-flow/api-keys.json',log:r=>process.stdout.write(JSON.stringify(r)+'\n')})
   server.listen(Number(process.env.PORT??8081),process.env.HOST??'0.0.0.0')
   const stop=()=>{server.close();setTimeout(()=>{server.closeAllConnections();process.exit(0)},10000).unref()}
   process.on('SIGTERM',stop);process.on('SIGINT',stop)

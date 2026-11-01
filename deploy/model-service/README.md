@@ -60,3 +60,28 @@ Use `gcloud compute instances stop atlas-flow-frankfurt-week --project=one-cms-5
 Verify actual GPU offload, peak VRAM, prompt/generation throughput, JSON and function-call output, both encrypted ONE routes, key rejection/revocation, and cross-workspace isolation before calling a deployment ready. Record measurements, not assumed performance.
 
 The weekly VM started at 2026-11-01 06:16:28 UTC; its 7d STOP cap ends around 2026-11-08 06:16:28 UTC (07:16 Berlin). The first T4 response needed warming; a repeated, cached prompt returned 74 output tokens at 19.92 tokens/s in 3.79 seconds. Treat this as a measurement, not a universal latency promise. The weekly compute estimate is EUR 105.68, excluding disk, snapshots, IPv4, egress and tax. Request/answer content logging is still only a proposed design.
+
+## Private Wochentest-Protokolle
+
+Opt-in: `ATLAS_FLOW_AUDIT_TOKEN_FILE` activates encrypted request/response records
+at the gateway, including normalized inference payload, raw response, request/job
+IDs and receipt/dispatch/completion timestamps. `ATLAS_FLOW_AUDIT_DIR` and
+`ATLAS_FLOW_AUDIT_KEY_FILE` must be writable by the gateway user (systemd
+`ReadWritePaths=/var/lib/atlas-flow`). No authorization headers are recorded.
+Recognized credential fields and bearer/query tokens are redacted, which is not
+a universal detector for arbitrary secrets embedded in prose. AES-256-GCM files
+use a separate persistent 32-byte key; protect the key and backups independently.
+Retention is 30 days with hourly/request-time cleanup. Logs start at activation;
+older request bodies cannot be reconstructed. A completed model HTTP response
+is transport evidence, not semantic verification or proof of an Atlas commit.
+
+`GET /admin/audit[?before=cursor]` lists pages of 50 metadata records and
+`?id=...` retrieves one full record, using a separate long audit bearer token.
+Model API keys do not grant log access. ONE proxies this through
+`GET /api/workspaces/:id/model-audit[?entry=...|before=...|status=1]`, configured by
+`MODEL_AUDIT_URL`, `MODEL_AUDIT_TOKEN` and `MODEL_AUDIT_OWNER` (exact user ID or
+email). All three are required together. Only that designated lead may read it,
+even if other people administer the workspace. Browser responses are no-store.
+In ONE: Settings → AI → Atlas Flow · Frankfurt → My complete test log. Contents
+are fetched on demand, never stored in shared documents or browser persistence.
+The lead can inspect request/context/raw response and download a JSON record.

@@ -2,6 +2,8 @@ import {McpBindings,selectMcpSchemas,type DiscoveredMcpTool} from '@/shared/mcp/
 import {McpEvidence} from '@/shared/mcp/evidence'
 import {McpResults} from '@/shared/mcp/results'
 import {AtlasFacts,checkAtlasReadback} from '@/shared/mcp/facts'
+import {checkQuantum} from './quandprofile'
+import {useWorkspace} from '../../../store/store'
 import {MCP_DISCOVERY_NOTE} from '@/shared/mcp/discovery'
 import { assertMcpFlow } from './dataFlow'
 /** Deferred MCP discovery: credentials stay on the worker path, only six matching schemas enter model context. */
@@ -20,7 +22,14 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
   const discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
   let attempts=0
+  const signature=()=>JSON.stringify([useWorkspace.getState().epoch,useWorkspace.getState().settings.mcpServers])
+  const pinned=signature()
+  const dispatchProof=(server:WorkerMcpServer,name:string,args:Record<string,unknown>)=>checkQuantum('one_mcp',server.name+':'+name,{server:server.name,name,arguments:args},{
+    origin:new URL(server.url).origin,allowed_origins:useWorkspace.getState().ai?.dataFlow?.mcpOrigins??null,tool:name,
+    allowed_tools:server.allow,denied_tools:server.deny,target_ref:typeof args.ref==='number'?args.ref:null,observed_refs:facts.observedTargets(server.name),
+  })
   const invoke=async(name:string,args:Record<string,unknown>,id:string):Promise<string>=>{
+    if(signature()!==pinned)throw new AIError('policy','features.ai.quantum.blocked')
     if(bindings.has(name)){args=bindings.resolve(name,args);name='one_mcp_call'}
     assertMcpFlow(servers.map(s => s.url))
     if(signal?.aborted)throw new AIError('aborted')
@@ -53,11 +62,15 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const actual={server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}
       const blocked=facts.preflight(actual)
       if(blocked){event({...activity,state:'err',error:blocked});return JSON.stringify({isError:true,oneNotExecuted:true,error:blocked})}
+      const selected=servers.find(s=>s.name===args.server)
+      if(!selected)throw new AIError('policy','features.ai.quantum.blocked')
+      const proof=dispatchProof(selected,actual.name,actual.arguments)
       attempts++
       const out=await requestWorkerMcp({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},signal) as {result:string}
       if(typeof out?.result!=='string')throw new AIError('mcp')
       const failed=JSON.parse(out.result).isError===true
       const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
+      if(receipt)receipt.quantum=proof
       const server=servers.find(s=>s.name===args.server)
       // A fixed, bounded read-back uses only the returned target and the person's existing permissions.
       // No model retry, extra write or permission change is hidden behind verification.
@@ -66,6 +79,8 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         const verifyActivity:McpCall={id:id+':readback',server:args.server,tool:'atlas_get',arg:String(receipt.refs[0]),state:'run'}
         event(verifyActivity)
         try{
+          if(signature()!==pinned)throw new AIError('policy','features.ai.quantum.blocked')
+          dispatchProof(server,'atlas_get',{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'})
           const read=await requestWorkerMcp({action:'call',servers,server:args.server,name:'atlas_get',arguments:{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'}},signal) as {result:string}
           receipt.verification=checkAtlasReadback(actual,receipt,read.result)
           event({...verifyActivity,state:receipt.verification==='unavailable'||receipt.verification==='read_back_differs'?'err':'ok'})
@@ -76,7 +91,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       event({...activity,state:failed?'err':'ok',...(receipt?{receipt}:{})})
       const searchEvidence=['atlas_search','atlas_query'].includes(args.name)?evidence.searchResult():null
       return receipt||evidence.hint()?JSON.stringify({...JSON.parse(packed),...(receipt?{oneObservedFacts:receipt}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
-    }catch(e){if(signal?.aborted)throw new AIError('aborted');const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
+    }catch(e){if(signal?.aborted)throw new AIError('aborted');if(e instanceof AIError&&e.code==='policy'){event({...activity,state:'err',error:e.message});throw e}const error=e instanceof RangeError?'Atlas result is too large. Request fewer records or sections; this is not an authentication failure.':connectionProblem(e).replace('MCP discovery failed. Check the personal worker and connection.','MCP call failed. Check the selected tool, arguments and connection.');const receipt=args.name.startsWith('atlas_')?facts.observe({server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},{},true):undefined;event({...activity,state:'err',error,receipt});throw new AIError('mcp',error)}
   }
   return Object.assign(invoke,{evidence,facts,attempted:()=>attempts>0,functions:()=>bindings.functions(),hasFunction:(name:string)=>isWorkerMcpFunction(name)||bindings.has(name),resolve:(name:string,args:Record<string,unknown>)=>bindings.invocation(name,args),callKey:(name:string,args:Record<string,unknown>)=>bindings.callKey(name,args)})
 }

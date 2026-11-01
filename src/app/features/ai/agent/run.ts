@@ -1,3 +1,4 @@
+import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
 import { REVIEW_POLICY, ReviewSources, FINDING_SCHEMA, FINDING_DESCRIPTION } from '@/shared/ai/review'
 import {AtlasFacts,ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
 import {guardAtlasAnswer} from '../providers/anthropic'
@@ -286,7 +287,7 @@ export async function runAgent(opts: {
   const atlasFacts=new AtlasFacts()
   const reviewTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
   const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool]
-  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (mcp?'\n'+ATLAS_FACT_POLICY:'')
+  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (mcp?'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY:'')
   const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {

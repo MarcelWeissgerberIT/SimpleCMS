@@ -147,6 +147,7 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
   const own = (prepared.steps ?? []).filter((x) => x.k === 'brake' || x.k === 'allowance' || x.k === 'data-flow')
   const steps: StepNote[] = [...own, ...(fallback ? [{ k: 'refusal-fallback' as const, from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])])]
   return meter({
+    ...(prepared.quantum?{quantum:prepared.quantum}:{}),
     id: newId(),
     at,
     scope: '',

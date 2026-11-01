@@ -6,6 +6,7 @@ import {navigate} from '../../../lib/router'
 import {SHARED_PREFIX} from '@/shared/ai/shared-model'
 import {useSharedModels,sharedModels} from '../core/sharedModels'
 import {SharedModelProbe} from './SharedModelProbe'
+import {FrankfurtAudit} from './FrankfurtAudit'
 import './shared-model.css'
 
 /** A prepared team service is not a model running on the viewing member's laptop. */
@@ -26,6 +27,8 @@ export function FrankfurtModelCard(){
    <p className="frankfurt-model__note">{tr('Eine Anfrage gleichzeitig. Bei Ausfall kein stiller Anbieterwechsel. Keine native Bildanalyse oder Bildgenerierung. Die Anzeige „0 $“ misst keine VM-Betriebskosten; der aktuelle Dienst läuft als zeitlich begrenzter Test.','One request at a time. No silent provider fallback. No native image analysis or generation. A “$0” usage display does not measure VM running costs; the current service is a time-limited trial.')}</p>
    <button type="button" className="btn btn--sm" onClick={open}>{tr('Zum persönlichen Atlas-Einstieg','Open personal Atlas setup')} <ArrowRight size={14}/></button>
    {share&&<SharedModelProbe share={share}/>}
+   {share?.contentAudit&&<p className="frankfurt-model__note">{tr('Wochentest: Anfragen und Antworten werden am Modellhost für 30 Tage verschlüsselt protokolliert. Volltexte sieht ausschließlich Marcel als Testverantwortlicher.','Weekly trial: requests and responses are logged encrypted on the model host for 30 days. Only Marcel, the test lead, can view full contents.')}</p>}
+   <FrankfurtAudit/>
   </div>
  </section>
 }

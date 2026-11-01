@@ -5,6 +5,7 @@ export const SHARED_PREFIX = 'one-shared/'
 export const SHARED_INPUT_MAX = 36000
 export const SHARED_QUEUE_MAX = 12
 export interface SharedModel {
+  contentAudit?: boolean;
   id: string; workspace: string; model: string; label: string; owner: string; mine: boolean;
   /** Host checks local model metadata before sending context to inference. */
   dataFlow?: boolean;

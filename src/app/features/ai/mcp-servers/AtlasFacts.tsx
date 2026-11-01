@@ -12,5 +12,6 @@ export function AtlasFactsView({receipt}:{receipt:AtlasReceipt}){
     {receipt.ids.length>0&&<div>ID: {receipt.ids.join(', ')}</div>}
     {receipt.status&&<div>Status: {receipt.status}</div>}
     {receipt.verification&&<div>{t('features.ai.facts.'+receipt.verification)}</div>}
+    {receipt.quantum&&<div title={receipt.quantum.profileHash}>{t('features.ai.quantum.receipt')} · {receipt.quantum.profileHash.slice(0,12)}</div>}
   </details>
 }

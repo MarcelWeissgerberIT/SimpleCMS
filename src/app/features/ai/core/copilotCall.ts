@@ -1,3 +1,4 @@
+import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
 import {unverifiedMcpDenial,MCP_ATTEMPT_REPAIR} from '@/shared/mcp/execution'
 import {unwrapMcpText} from '@/shared/mcp/results'
 import {ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
@@ -19,7 +20,7 @@ import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_EMPTY_TOPI
 export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   if (req.tools?.length) throw new AIError('capability')
   const material = new CopilotContent(o.signal)
-  const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
+  const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY + '\n' + COMPILED_WORK_POLICY : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
   let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
   if (o.mcp) {

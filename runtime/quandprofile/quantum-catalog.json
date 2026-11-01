@@ -1,0 +1,106 @@
+{
+  "dimensions": [
+    {
+      "id": "freshness",
+      "title": "Aktualit\u00e4t"
+    },
+    {
+      "id": "provenance",
+      "title": "Herkunft"
+    },
+    {
+      "id": "privacy",
+      "title": "Datenfreigabe"
+    },
+    {
+      "id": "data",
+      "title": "Daten"
+    },
+    {
+      "id": "outcome",
+      "title": "Ergebnis"
+    },
+    {
+      "id": "permission",
+      "title": "Berechtigung"
+    },
+    {
+      "id": "interpretation",
+      "title": "Interpretation"
+    }
+  ],
+  "definitions": [
+    {
+      "id": "data.price-map-equality",
+      "version": "1.0.0",
+      "selector": "rule:preserve_prices",
+      "dimensions": [
+        "data",
+        "outcome"
+      ],
+      "template": {
+        "kind": "prices_equal",
+        "path": "catalog.json"
+      }
+    },
+    {
+      "id": "permission.publish-unavailable",
+      "version": "1.0.0",
+      "selector": "rule:deny_publish",
+      "dimensions": [
+        "permission"
+      ],
+      "template": {
+        "kind": "publish_unavailable"
+      }
+    },
+    {
+      "id": "outcome.literal-presence",
+      "version": "1.0.0",
+      "selector": "goal:revise_website",
+      "dimensions": [
+        "outcome"
+      ],
+      "template": {
+        "kind": "literal_present"
+      }
+    },
+    {
+      "id": "atlas.review-head-match",
+      "version": "1.0.0",
+      "selector": "rule:atlas_review_fresh",
+      "dimensions": [
+        "freshness",
+        "provenance",
+        "outcome"
+      ],
+      "template": {
+        "kind": "atlas_review_fresh"
+      }
+    },
+    {
+      "id": "one.provider-class-permission",
+      "version": "1.0.0",
+      "selector": "rule:one_provider_allowed",
+      "dimensions": [
+        "privacy",
+        "permission"
+      ],
+      "template": {
+        "kind": "one_provider_allowed"
+      }
+    },
+    {
+      "id": "one.mcp-dispatch",
+      "version": "1.0.0",
+      "selector": "rule:one_mcp_allowed",
+      "dimensions": [
+        "permission",
+        "provenance"
+      ],
+      "template": {
+        "kind": "one_mcp_allowed"
+      }
+    }
+  ]
+}
