@@ -454,6 +454,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
 
   // an MCP call of this task ran: the retry without a refusing server would run it again — never
   let sawMcp = false
+  const failedMcp=new Set<string>()
   /** this task's ledger source (features/governor: an allowance E holds for the task, today) — a Continue is the same task */
   const taskSource = `terminal:${convId}:${opts.continues ?? n}`
   taskSources.set(n, taskSource)
@@ -524,6 +525,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     },
     mcp(call) {
       sawMcp = true
+      const key=JSON.stringify([call.server,call.tool])
+      if(call.state==='err')failedMcp.add(key)
+      if(call.state==='ok')failedMcp.delete(key)
       if (!here()) return
       const step = get().steps.find((x) => x.mcp?.id === call.id)
       const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error }
@@ -652,6 +656,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       }
     }
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
+    else if(end==='done'&&failedMcp.size)finish('error',{code:'mcp',message:t('features.agent.err.mcpIncomplete')})
     else finish(end === 'limit' ? 'limit' : 'done')
   } catch (e) {
     const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))

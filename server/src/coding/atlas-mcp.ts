@@ -12,6 +12,8 @@ import {mcpDestinationAllowed} from '../../../src/shared/ai/dataFlow.ts'
 import {sanitizeWorkspaceAI} from '../../../src/shared/ai/policy.ts'
 import type {WorkerMcpRequest} from '../../../src/shared/ai/worker.ts'
 
+import {discoverMcpTools,MCP_DISCOVERY_NOTE} from '../../../src/shared/mcp/discovery.ts'
+
 const ENDPOINT='https://aj-atlas.com/api/atlas/mcp'
 const object=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 export function checkAtlasMcp(v:unknown):v is WorkerMcpRequest{
@@ -45,9 +47,9 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
    return {result:scrub(raw)}
   }
   if(request.action==='search'){
-   const words=request.query.toLowerCase().split(/[\s_]+/).filter(Boolean);let size=0
-   const rows=tools.filter(t=>words.every(w=>(t.name+' '+(t.description??'')).toLowerCase().includes(w))).slice(0,6).map(t=>({server:selected.name,name:t.name,description:t.description?.slice(0,1600)??'',inputSchema:t.inputSchema})).filter(t=>{size+=JSON.stringify(t).length;return size<=12000})
-   return JSON.parse(scrub(JSON.stringify({tools:rows})))
+   let size=0
+   const rows=discoverMcpTools(tools,request.query).map(t=>({server:selected.name,name:t.name,description:t.description?.slice(0,1600)??'',inputSchema:t.inputSchema})).filter(t=>{size+=JSON.stringify(t).length;return size<=12000})
+   return JSON.parse(scrub(JSON.stringify({tools:rows,note:MCP_DISCOVERY_NOTE})))
   }
   return JSON.parse(scrub(JSON.stringify({tools:tools.map((t,i)=>({name:'remote_mcp_'+i,server:selected.name,tool:t.name,description:`[${selected.name} / ${t.name}] ${(t.description??'').slice(0,1600)}`,parameters:t.inputSchema}))})))
  }catch(e){

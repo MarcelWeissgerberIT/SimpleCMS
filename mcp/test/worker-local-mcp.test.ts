@@ -89,6 +89,9 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     const large = await readOnly.call('atlas', 'atlas_large', {}, new AbortController().signal)
     assert.ok(large.length <= 20000)
     assert.equal(JSON.parse(large).oneOutputShortened, true)
+    const full = await readOnly.call('atlas','atlas_large',{},new AbortController().signal,false,true)
+    assert.equal(JSON.parse(full).content[0].text,'\n"'.repeat(20000))
+    assert.ok(full.length>20000)
     assert.equal(readOnly.memoryProject('fixture'), null)
     const responses = [
       { function: { name: 'mcp_search_tools', arguments: { query: 'atlas_get' } } },

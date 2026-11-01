@@ -1,3 +1,4 @@
+import {discoverMcpTools} from '../../../src/shared/mcp/discovery.ts'
 import { mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -126,10 +127,7 @@ export class LocalMcp {
   }
   search(query: unknown) {
     if (typeof query !== 'string' || query.length > 200) throw new Error('Search MCP tools with up to 200 characters.')
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
-    return this.tools.filter(t => !this.memoryOnly.has(t.server)).map(t => ({ ...t, score: terms.reduce((n, term) => n + (`${t.server} ${t.tool.name} ${t.tool.description ?? ''}`.toLowerCase().includes(term) ? 1 : 0), 0) }))
-      .filter(t => !terms.length || t.score > 0).sort((a, b) => b.score - a.score).slice(0, 6)
-      .map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true }))
+    return discoverMcpTools(this.tools.filter(t => !this.memoryOnly.has(t.server)).map(({server,tool})=>({server,name:tool.name,description:tool.description?.slice(0,1500),inputSchema:tool.inputSchema,readOnly:tool.annotations?.readOnlyHint===true})),query)
   }
   catalog() {
     return this.tools.filter(t => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema }))
@@ -172,7 +170,7 @@ export class LocalMcp {
     }
     throw new Error('Atlas returned no verifiable checkpoint reference.')
   }
-  async call(server: unknown, name: unknown, args: unknown, signal: AbortSignal, taskMemory = false) {
+  async call(server: unknown, name: unknown, args: unknown, signal: AbortSignal, taskMemory = false, fullResult = false) {
     if (typeof server !== 'string' || typeof name !== 'string' || !object(args) || JSON.stringify(args).length > 20000) throw new Error('Supply a known server/tool and an arguments object up to 20,000 characters.')
     const client = this.clients.get(server)
     if (this.memoryOnly.has(server) && !taskMemory) throw new Error('This connection is reserved for private task memory. Use the scoped memory tools.')
@@ -186,13 +184,17 @@ export class LocalMcp {
       }
       const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 60000, signal })
       const text = this.redact(JSON.stringify(result))
+      if (fullResult) {
+        if (text.length > 180000) throw new RangeError('MCP result exceeds 180 KB; request fewer sections or records.')
+        return text
+      }
       if (text.length <= 20000) return text
       // Never cut a serialized JSON string in the middle: receipts and callers must remain parseable.
       let excerpt = text.slice(0, 16000)
       const shortened = () => JSON.stringify({ isError: result.isError === true, content: [{ type: 'text', text: excerpt + '\n[MCP output shortened. Request a narrower result.]' }], oneOutputShortened: true })
       while (shortened().length > 20000) excerpt = excerpt.slice(0, -1000)
       return shortened()
-    } catch { signal.throwIfAborted(); throw new Error(`MCP call failed on ${server}. Check that server's connection and account permissions.`) }
+    } catch (e) { signal.throwIfAborted(); if(e instanceof RangeError)throw e; throw new Error(`MCP call failed on ${server}. Check that server's connection and account permissions.`) }
   }
   async close() { await Promise.all([...this.clients.values()].map(c => c.close().catch(() => {}))); this.clients.clear();this.tools = [];this.secrets = [];this.oauth = [] }
 }

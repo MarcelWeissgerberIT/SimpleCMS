@@ -1,3 +1,4 @@
+import {unwrapMcpText} from '@/shared/mcp/results'
 import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, LOCAL_DISCOVERY_REPAIR, localWorkspaceTools } from './localTools'
 import { priceFor } from '../core/registry'
 import { connectionProblem } from '@/shared/ai/connection-problem'
@@ -13,7 +14,7 @@ import { sendWorkerText } from '../core/workerModels'
 import type { Turn } from '@/shared/ai/types'
 import type { WorkerFunction } from '@/shared/ai/worker'
 import { WORKER_MCP_FUNCTIONS, isWorkerMcpFunction, workerMcpSession } from '../core/workerMcp'
-import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE } from '../core/toolFormat'
+import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE, ATLAS_DISCOVERY_REPAIR } from '../core/toolFormat'
 import { AGENT_SYSTEM, type runAgent, type RunEnd } from './run'
 import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
 
@@ -45,7 +46,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
@@ -64,14 +65,18 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       const transcript = await copilotMessages(messages, material)
       const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) })
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
-      const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
+      const answerText=unwrapMcpText(result.text)
+      const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: answerText }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
       const entry = call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: system.length + JSON.stringify(messages).length + JSON.stringify(definitions).length }))
       if (entry) { spent += entry.usd ?? 0; used.push(entry.usage); hooks.usage(entry.usage, entry) }
       const repair = !!local && !result.calls?.length && hasTextToolCall(result.text)
       if (repair && formatRepairs++ >= 1) throw new AIError('capability', 'features.ai.local.toolFormat')
-      if (result.text && !repair) hooks.text(result.text)
+      const discoveryOnly=!!remote&&atlasDiscovered&&!atlasQueried&&!result.calls?.length&&!repair
+      if(discoveryOnly&&atlasRepairs++<1){messages.push({role:'user',content:ATLAS_DISCOVERY_REPAIR});continue}
+      if(discoveryOnly)throw new AIError('mcp','Only tool discovery completed. No Atlas content query was executed.')
+      if (answerText && !repair) hooks.text(answerText)
       if (!repair) hooks.textDone(result.calls?.length ? 'note' : 'answer')
-      messages.push({ role: 'assistant', content: [...(result.text ? [{ type: 'text' as const, text: result.text }] : []), ...(result.calls ?? []).map(c => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.arguments }))] })
+      messages.push({ role: 'assistant', content: [...(result.text ? [{ type: 'text' as const, text: answerText }] : []), ...(result.calls ?? []).map(c => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.arguments }))] })
       if (!result.calls?.length && !repair) return calls >= MAX_TOOL_CALLS ? 'limit' as const : 'done' as const
       if (used.length) {
         const verdict = await beforeRound({ prepared, spent, last: used[used.length - 1]!, steps: used, pending: { low: 0, high: 0 }, mcpIterations: 0, cold: true, history: () => messages, thinks: () => false, mcpAttached: false })
@@ -108,8 +113,8 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
             content = clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
           } catch (e) { failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: '', ms: performance.now() - start }) }
         } else if (remote && isWorkerMcpFunction(c.name)) {
-          try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;content = clipResult(raw, local ? 6000 : RESULT_CHARS + 2000) }
-          catch (e) { if (connectionProblem(e) === 'tls') throw e; failed=true;content='MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
+          try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;content = raw; if(c.name==='one_mcp_search'){const found=JSON.parse(raw);atlasDiscovered ||= found.tools?.some((t:{name:string})=>t.name==='atlas_search'||t.name==='atlas_query')===true}if(c.name==='one_mcp_call'&&String(c.arguments.name).startsWith('atlas_'))atlasQueried=true }
+          catch (e) { if (connectionProblem(e) === 'tls') throw e; failed=true;content=e instanceof AIError?e.detail??e.message:'MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
         } else throw new AIError('capability', 'Unknown model function.')
         results.push({ type: 'tool_result' as const, tool_use_id: c.id, content, ...(failed ? { is_error: true } : {}) })
       }

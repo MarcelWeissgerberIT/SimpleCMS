@@ -1,3 +1,4 @@
+import {unwrapMcpText} from '@/shared/mcp/results'
 import { priceFor } from './registry'
 import { assertPreparedFlow } from './gate'
 /** Text/JSON one-shots with selected remote tools. The browser owns the loop and OUT lock. */
@@ -26,6 +27,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   for (let round = 0; round < 12; round++) {
     assertPreparedFlow(prepared)
     const result = await sendWorkerText(req.route, messages, Math.min(req.maxTokens, 8192), o.signal, { ...(material.attachments.length ? { attachments: material.attachments } : {}), ...(tools.length ? { tools } : {}), ...(req.output.kind === 'json' ? { schema: req.output.schema } : {}) })
+    if(req.output.kind!=='json')result.text=unwrapMcpText(result.text)
     const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
     const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.copilotReceipt?.models.at(-1) ?? null, streamedChars: result.text.length }
     const entry = o.call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: JSON.stringify(messages).length + JSON.stringify(tools).length }))
@@ -44,7 +46,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
       if(repeated.has(key))throw new AIError('mcp','Repeated identical MCP call; stopped before executing again.')
       repeated.add(key)
       const result = await remote(c.name,c.arguments,c.id)
-      messages.push({ role: 'user', content: JSON.stringify({ tool_result: { id: c.id, content: prepared.provider==='local'&&result.length>6000?result.slice(0,6000)+'\n[Truncated tool result. Ask a narrower source question.]':result } }) })
+      messages.push({ role: 'user', content: JSON.stringify({ tool_result: { id: c.id, content: result } }) })
     }
   }
   throw new AIError('mcp', 'Model reached the twelve-round limit.')

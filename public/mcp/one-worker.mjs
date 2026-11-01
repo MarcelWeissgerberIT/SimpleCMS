@@ -21672,6 +21672,28 @@ function localContext(env) {
 // src/worker/local-agent.ts
 import { realpath as realpath5 } from "node:fs/promises";
 
+// ../src/shared/mcp/discovery.ts
+function discoverMcpTools(tools, query) {
+  const norm2 = (s) => s.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const q = norm2(query), direct = tools.filter((t) => norm2(t.name) === q);
+  if (direct.length) return direct.slice(0, 6);
+  if (/^atlas_[a-z0-9_]+$/i.test(query.trim())) return [];
+  const exact = tools.filter((t) => query.toLowerCase().split(/[^a-z0-9_]+/).includes(t.name.toLowerCase()));
+  if (exact.length) return exact.slice(0, 6);
+  const terms = q.split(" ").filter((t) => t.length > 1 && !["atlas", "mcp", "tool", "tools", "server", "the", "in", "nach", "zum", "von", "aus"].includes(t));
+  const atlas = /\batlas\b/.test(q) || tools.length > 0 && tools.every((t) => t.name.startsWith("atlas_"));
+  const reads = /week|woche|updated|recent|arbeit|task|aufgab|priorit/.test(q);
+  const defaults = reads ? ["atlas_query", "atlas_search", "atlas_project_list", "atlas_get"] : ["atlas_search", "atlas_query", "atlas_project_list", "atlas_get"];
+  return tools.map((t, i2) => {
+    const name = norm2(t.name), desc = norm2(t.description ?? "");
+    let score = (atlas && t.name.startsWith("atlas_") ? 1 : 0) + terms.reduce((s, w) => s + (name.split(" ").includes(w) ? 48 : desc.includes(w) ? 1 : 0), 0);
+    const fallback = atlas && t.name.startsWith("atlas_") ? defaults.indexOf(t.name) : -1;
+    if (fallback >= 0) score += 40 - fallback * 4;
+    return { t, i: i2, score };
+  }).filter((v) => v.score > 0).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 6).map((v) => v.t);
+}
+var MCP_DISCOVERY_NOTE = "Tool discovery only: no Atlas records have been searched yet. Use atlas_search with the topic in q, or atlas_query with project/date/status filters. Empty tool discovery is not evidence of missing records. For Atlas questions, ONE coding tasks/pipelines are not Atlas records. Discover exact tool names for specialised operations.";
+
 // src/worker/local-mcp.ts
 import { readFile as readFile3 } from "node:fs/promises";
 import { homedir as homedir11 } from "node:os";
@@ -39812,8 +39834,7 @@ var LocalMcp = class {
   }
   search(query) {
     if (typeof query !== "string" || query.length > 200) throw new Error("Search MCP tools with up to 200 characters.");
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-    return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map((t) => ({ ...t, score: terms.reduce((n, term) => n + (`${t.server} ${t.tool.name} ${t.tool.description ?? ""}`.toLowerCase().includes(term) ? 1 : 0), 0) })).filter((t) => !terms.length || t.score > 0).sort((a, b) => b.score - a.score).slice(0, 6).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true }));
+    return discoverMcpTools(this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true })), query);
   }
   catalog() {
     return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema }));
@@ -39865,7 +39886,7 @@ var LocalMcp = class {
     }
     throw new Error("Atlas returned no verifiable checkpoint reference.");
   }
-  async call(server, name, args, signal, taskMemory = false) {
+  async call(server, name, args, signal, taskMemory = false, fullResult = false) {
     if (typeof server !== "string" || typeof name !== "string" || !object5(args) || JSON.stringify(args).length > 2e4) throw new Error("Supply a known server/tool and an arguments object up to 20,000 characters.");
     const client = this.clients.get(server);
     if (this.memoryOnly.has(server) && !taskMemory) throw new Error("This connection is reserved for private task memory. Use the scoped memory tools.");
@@ -39878,13 +39899,18 @@ var LocalMcp = class {
       }
       const result = await client.callTool({ name, arguments: args }, void 0, { timeout: 6e4, signal });
       const text2 = this.redact(JSON.stringify(result));
+      if (fullResult) {
+        if (text2.length > 18e4) throw new RangeError("MCP result exceeds 180 KB; request fewer sections or records.");
+        return text2;
+      }
       if (text2.length <= 2e4) return text2;
       let excerpt = text2.slice(0, 16e3);
       const shortened = () => JSON.stringify({ isError: result.isError === true, content: [{ type: "text", text: excerpt + "\n[MCP output shortened. Request a narrower result.]" }], oneOutputShortened: true });
       while (shortened().length > 2e4) excerpt = excerpt.slice(0, -1e3);
       return shortened();
-    } catch {
+    } catch (e) {
       signal.throwIfAborted();
+      if (e instanceof RangeError) throw e;
       throw new Error(`MCP call failed on ${server}. Check that server's connection and account permissions.`);
     }
   }
@@ -41375,16 +41401,16 @@ async function modelMcp(raw, signal) {
         chars += size;
         return true;
       });
-      return { tools: JSON.parse(client.redact(JSON.stringify(tools2))), ...unavailable.length ? { unavailable } : {} };
+      return { tools: JSON.parse(client.redact(JSON.stringify(tools2))), note: MCP_DISCOVERY_NOTE, ...unavailable.length ? { unavailable } : {} };
     }
     if (r.action === "call") {
       if (failed.some((s) => s.name === r.server)) throw new Error(`MCP connection ${r.server}: ${client.failureReason(r.server)}`);
       const tool = client.catalog().find((t) => t.server === r.server && t.name === r.name);
       if (!tool || !new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(r.arguments).valid) throw new Error("MCP tool is unavailable or arguments do not match its schema.");
-      return { result: await client.call(r.server, r.name, r.arguments, signal) };
+      return { result: await client.call(r.server, r.name, r.arguments, signal, false, true) };
     }
     const tools = client.catalog().slice(0, 120).map((t, i2) => ({ name: "remote_mcp_" + i2, server: t.server, tool: t.name, description: `[${t.server} / ${t.name}] ${t.description ?? ""}`, parameters: t.inputSchema }));
-    return { tools: JSON.parse(client.redact(JSON.stringify(tools))), ...unavailable.length ? { unavailable } : {} };
+    return { tools: JSON.parse(client.redact(JSON.stringify(tools))), note: MCP_DISCOVERY_NOTE, ...unavailable.length ? { unavailable } : {} };
   } finally {
     await client.close();
   }

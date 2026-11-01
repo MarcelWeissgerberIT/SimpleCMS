@@ -1,3 +1,4 @@
+import {MCP_DISCOVERY_NOTE} from '../../../src/shared/mcp/discovery.ts'
 /** Remote MCP for browser-owned tool loops. No model, launcher, environment or credential files. */
 import { connectionUrl } from '../../../src/shared/personalVault.ts'
 import type { WorkerMcpRequest, WorkerMcpTool } from '../../../src/shared/ai/worker.ts'
@@ -15,7 +16,7 @@ export function checkModelMcp(raw: unknown): WorkerMcpRequest {
   if (raw.action === 'call' && (typeof raw.server !== 'string' || typeof raw.name !== 'string' || !object(raw.arguments) || JSON.stringify(raw.arguments).length > 20000)) throw new Error('Invalid MCP call.')
   return raw as WorkerMcpRequest
 }
-export async function modelMcp(raw: unknown, signal: AbortSignal):Promise<{tools?:Array<WorkerMcpTool|ReturnType<LocalMcp['catalog']>[number]>;result?:string;unavailable?:string[]}> {
+export async function modelMcp(raw: unknown, signal: AbortSignal):Promise<{tools?:Array<WorkerMcpTool|ReturnType<LocalMcp['catalog']>[number]>;result?:string;unavailable?:string[];note?:string}> {
   const r = checkModelMcp(raw), client = new LocalMcp(false)
   try {
     const config = Object.fromEntries(r.servers.map(s => [s.name, { type: 'http', url: s.url, headers: s.token ? { Authorization: 'Bearer ' + s.token } : {}, ...(s.allow ? { oneAllowedTools: s.allow } : {}), oneDeniedTools: s.deny }]))
@@ -26,15 +27,15 @@ export async function modelMcp(raw: unknown, signal: AbortSignal):Promise<{tools
     if (r.action === 'search') {
       let chars=0
       const tools=client.search(r.query).filter(t => { const size=JSON.stringify(t).length; if(chars+size>12000)return false;chars+=size;return true })
-      return { tools: JSON.parse(client.redact(JSON.stringify(tools))),...(unavailable.length?{unavailable}: {}) }
+      return { tools: JSON.parse(client.redact(JSON.stringify(tools))),note:MCP_DISCOVERY_NOTE,...(unavailable.length?{unavailable}: {}) }
     }
     if (r.action === 'call') {
       if(failed.some(s=>s.name===r.server))throw new Error(`MCP connection ${r.server}: ${client.failureReason(r.server)}`)
       const tool = client.catalog().find(t => t.server === r.server && t.name === r.name)
       if (!tool || !new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(r.arguments).valid) throw new Error('MCP tool is unavailable or arguments do not match its schema.')
-      return { result: await client.call(r.server, r.name, r.arguments, signal) }
+      return { result: await client.call(r.server, r.name, r.arguments, signal, false, true) }
     }
     const tools: WorkerMcpTool[] = client.catalog().slice(0, 120).map((t, i) => ({ name: 'remote_mcp_' + i, server: t.server, tool: t.name, description: `[${t.server} / ${t.name}] ${t.description ?? ''}`, parameters: t.inputSchema }))
-    return { tools: JSON.parse(client.redact(JSON.stringify(tools))),...(unavailable.length?{unavailable}: {}) }
+    return { tools: JSON.parse(client.redact(JSON.stringify(tools))),note:MCP_DISCOVERY_NOTE,...(unavailable.length?{unavailable}: {}) }
   } finally { await client.close() }
 }

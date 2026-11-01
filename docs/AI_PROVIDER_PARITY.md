@@ -28,3 +28,21 @@ The Copilot loop fits only real linked tool results to its conservative wire bud
 Automated browser fixtures exercise provider selection, shared text/table actions, reviews and conflicts, Copilot workspace tools, media handling, Atlas discovery, task creation and actual worker handoff payloads. Transport fixtures check schemas, denied writes, credential redaction and partial MCP failures. Cloud tests check personal activation, isolated accounts and the guest path. Tests do not contact billable models.
 
 A live personal MCP check confirmed Richard's EH Atlas identity and tool discovery. This does not certify a Windows laptop's corporate network/certificate configuration or model response quality. Those require the user's actual worker run.
+
+## Atlas discovery and large sources (1 November 2026)
+
+Browser-owned Copilot/local loops share the cloud/worker catalogue ranking. A topic such as
+“Atlas document lab notebook” discovers general `atlas_search`/`atlas_query` schemas; it does
+not search records. Exact tool names still resolve exactly, with existing allow/deny and
+read-only filters applied before ranking. ONE tasks/pipelines are not an Atlas search fallback.
+
+Large permitted results (up to the existing 180-KB transport bound) stay in a bounded,
+run-local source cache. `one_mcp_read_result` pages exact fields/rows using returned JSON
+pointers and offsets; it performs no new server call and grants no new permission. Small
+results pass through unchanged. No raw JSON envelope is sliced mid-string. Context excerpts
+remain explicitly marked and retain the original user task and visible run history.
+
+A discovery-only answer receives one correction attempt, then fails explicitly if no Atlas
+content call runs. Unresolved MCP failures mark a terminal task incomplete rather than green;
+a successful later call to the same tool clears its error. Known text-only envelopes emitted
+as final prose are unwrapped, while structured completion output stays unchanged.
