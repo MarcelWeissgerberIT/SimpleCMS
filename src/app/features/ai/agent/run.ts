@@ -1,3 +1,4 @@
+import {CODE_DELIVERY_RULES,codeDeliveryIssues} from '@/shared/ai/codeDelivery'
 import {groundedTask} from './grounding'
 import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
 import {WORKER_MCP_FUNCTIONS,workerMcpSession} from '../core/workerMcp'
@@ -61,6 +62,9 @@ Where you are
 How changes work
 - The writing tools (create_page, create_pages, append_to_page, edit_page, create_row, update_row${upsert ? ', upsert_rows' : ''}, set_page_title, create_database, add_property, write_script, update_work_item) never change the workspace directly. Each call stages one proposed change (edit_page: one per edit, create_pages: one per page${upsert ? ', upsert_rows: one per row' : ''}); the user reviews the list and applies or discards each item. So don't ask for permission or confirmation: stage what the task needs, then finish.
 - Ids returned for staged pages, rows, databases and properties work right away: you can append to, update, rename or create pages under something you staged earlier in the task, and stage rows in a database you staged (create_database, then create_row with its id). Changes are applied in a safe order: pages, databases, properties, then rows.
+
+Code quality
+${CODE_DELIVERY_RULES}
 
 How to work
 - Look before you write. Find things with search_pages, list_databases and get_current_page, read them with read_page and query_database. Use only ids that tools returned; never make one up.
@@ -556,7 +560,7 @@ export async function runAgent(opts: {
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             if(msg.stop_reason!=='pause_turn'){
-              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
+              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;const codeIssues=codeDeliveryIssues(opts.typed??'',text);if(codeIssues.length){task.fail('C++ minimum review failed; no compiler verification recorded.');throw new AIError('capability',codeIssues.join(' '))}delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
               else if(!(remote?.facts??atlasFacts).check(draftText).length)hooks.text(draftText)
             }
             hooks.textDone(toolUse ? 'note' : 'answer')

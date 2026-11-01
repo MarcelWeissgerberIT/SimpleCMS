@@ -108,3 +108,7 @@ Ein MCP-Werkzeugschritt kann in der erweiterten JSON-Definition `"decode":"mcp-j
 Der geführte Ablauf bindet die Änderung an die ursprüngliche Seite. Er gibt dem Modell nummerierte Originalstellen vor; ONE übernimmt den belegten Wortlaut und setzt Anforderung, Prüfkriterium und Originalstelle selbst zur Nachweistabelle zusammen. Vorhandene Ticket-Links und Branch-Referenzen werden erhalten. Bei EARS müssen konkrete Anforderungssätze mit Originalbezug und Prüfkriterien vorliegen; eine Tabelle mit Stichworten reicht nicht. Ein unpassender Entwurf erhält genau einen Korrekturversuch. Bleiben die Mindestprüfungen offen, wird kein Ersatzdokument vorgemerkt.
 
 Die Prüfung belegt Quellenabruf, Zitatübereinstimmung, Seitenziel und Mindeststruktur. Sie bestätigt weder fachliche Richtigkeit noch eine Entscheidung des Teams. Du siehst weiterhin einen Diff und übernimmst ihn selbst. Bei nicht lesbaren URLs importiere den Originaltext als externe Quelle; ONE ersetzt ihn nicht durch Modellwissen.
+
+## Code-Ausgaben prüfen
+
+Ein Codeblock ist noch kein Build-Nachweis. ONE erkennt einige konkrete C++-Mängel bereits statisch, etwa fehlende direkte Integergrenzen-Header und problematische Zeichenprüfung. Im lokalen Modellkanal und bei Copilot wird dafür höchstens eine werkzeugfreie Korrektur angefordert; wiederholt fehlerhafte Entwürfe werden angehalten. Diese schmale Vorprüfung ersetzt weder Kompilieren noch Tests oder Security-Review. Nutze dafür die Prüfphase der Repository-Aufgabe im Worker.

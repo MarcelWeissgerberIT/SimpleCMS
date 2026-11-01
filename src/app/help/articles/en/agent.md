@@ -110,3 +110,7 @@ The guided path pins the existing page, checks exact source quotations and prese
 These checks establish source retrieval, quotation matches, the page target and minimum structure. They do not establish semantic correctness or team approval. You still review the diff and apply it yourself. If a URL cannot be read, import its original text as an external source; ONE does not silently substitute model knowledge.
 
 For grounded rewrites ONE supplies numbered original passages, copies their actual text and renders the requirement/acceptance/original-passage table itself. Valid reference IDs prove origin, not semantic support. Existing ticket links and branch references are retained.
+
+## Checking code output
+
+A code block is not build evidence. ONE statically detects a narrow set of C++ defects, including missing direct integer-limit headers and unsafe character classification. Local and Copilot routes allow at most one tool-free correction, then stop on repeated defects. This is not a compiler, test runner or security review; use the repository task worker verification stage.

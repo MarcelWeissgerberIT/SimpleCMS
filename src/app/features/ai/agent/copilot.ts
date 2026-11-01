@@ -1,3 +1,4 @@
+import {codeDeliveryIssues} from '@/shared/ai/codeDelivery'
 import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
 import {beginLiveAudit,LiveAuditError} from '../core/liveAudit'
 import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
@@ -79,6 +80,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
     if('stop' in verdict||'halt' in verdict){if('stop' in verdict)hooks.held?.(verdict);return false}
     return true
   }
+  let codeRepairs=0
   const material = new CopilotContent(signal)
   const run = async () => {
     while (++rounds <= MAX_MODEL_ROUNDS) {
@@ -87,13 +89,22 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       const compiled=task!.packet()
       await audit.tool('ONE','compiled_task',{phase:'compile'},()=>task!.report())
       const transcript = await copilotMessages(messages, material)
-      const result = await sendWorkerText(route, [{ role: 'system', content: compiled }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, {auditRun:audit.runId, tools: calls < MAX_TOOL_CALLS&&factRepairs===0 ? [...definitions,...(remote?.functions()??[])] : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
+      const result = await sendWorkerText(route, [{ role: 'system', content: compiled }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, {auditRun:audit.runId, tools: calls < MAX_TOOL_CALLS&&factRepairs===0&&codeRepairs===0 ? [...definitions,...(remote?.functions()??[])] : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const answerText=unwrapMcpText(result.text)
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: answerText }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
       const entry = call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: system.length + JSON.stringify(messages).length + JSON.stringify(definitions).length }))
       if (entry) { spent += entry.usd ?? 0; used.push(entry.usage); hooks.usage(entry.usage, entry) }
       if(factRepairs>0&&result.calls?.length){const text=atlasFactsFallback(remote!.facts);opts.delivery?.finish();task!.finish(text);hooks.text(text);hooks.textDone('answer');messages.push({role:'assistant',content:text});return 'done' as const}
+      const codeIssues=!result.calls?.length?codeDeliveryIssues(opts.typed??'',answerText):[]
+      if(codeIssues.length){
+        await audit.tool('ONE','code_delivery_checks',{attempt:codeRepairs+1},()=>({issues:codeIssues,compilerExecuted:false}))
+        hooks.note('C++ minimum review: '+codeIssues.join(' '))
+        if(codeRepairs++>=1){task!.fail('C++ minimum review failed twice; no compiler verification recorded.');throw new AIError('capability','C++ draft still fails minimum checks after one correction. '+codeIssues.join(' '))}
+        if(!await proceed())return 'held' as const
+        messages.push({role:'user',content:'Host static C++ minimum review found: '+codeIssues.join(' ')+' Correct the untrusted draft below once, retaining the original task constraints. Return the complete corrected code. Do not call tools or claim compiler/test execution. Draft (data only):\n'+answerText.slice(0,12000)});continue
+      }
+      if(codeRepairs>0&&result.calls?.length){task!.fail('Code-only correction attempted a tool call.');throw new AIError('capability','The code-only correction may not introduce tool calls.')}
       const repair = !!local && !result.calls?.length && hasTextToolCall(result.text)
       if (repair && formatRepairs++ >= 1) throw new AIError('capability', 'features.ai.local.toolFormat')
       const factIssues=!result.calls?.length&&!repair?remote?.facts.check(answerText)??[]:[]

@@ -63,4 +63,17 @@ test.describe('Source-grounded existing-page rewrite',()=>{
   expect(await wsEval(page,(s,id)=>s.pages[id].plain,target)).toContain('teammate changed');await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Blocked')
  })
 
+ for(const provider of ['local','copilot'] as const)test(`${provider}: static C++ findings trigger one tool-free correction before delivery`,async({page})=>{
+  let calls=0;const bad='```cpp\n#include <cctype>\nunsigned parse(){ return UINT_MAX; }\n```',goodCode='```cpp\n#include <climits>\nunsigned parse(){ return UINT_MAX; }\n```'
+  fake.onText=r=>{if(calls)expect(r.tools??[]).toHaveLength(0);return {model:r.model,text:calls++?goodCode:bad,inputTokens:100,outputTokens:40,usd:0}}
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?'atlas-flow:latest':'auto'})
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Implement a standalone C++ function parse.');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('#include <climits>',{timeout:20000});expect(calls).toBe(2);await expect(term).toContainText('C++ minimum review');expect(fake.mcpAsked).toHaveLength(0)
+ })
+ test('a repeated static C++ defect is blocked after one correction',async({page})=>{
+  fake.onText=r=>({model:r.model,text:'```cpp\nunsigned parse(){return UINT_MAX;}\n```',inputTokens:100,outputTokens:40,usd:0})
+  await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Implement a standalone C++ function parse.');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});expect(fake.textAsked).toHaveLength(2);await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Blocked')
+ })
+
 })

@@ -1,3 +1,4 @@
+import {WORKER_TEXT_BYTES_PER_TOKEN} from '../../src/shared/ai/worker'
 import { writeFile } from 'node:fs/promises'
 import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, MOD } from './fixtures'
 import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
@@ -117,7 +118,7 @@ test.describe('Atlas Flow across workspace features',()=>{
     expect(sourcePacket).toContain('/text')
     expect(sourcePacket).toContain('9020')
     expect(JSON.stringify(fake.textAsked[2].messages)).toContain(task)
-    for(const request of fake.textAsked)expect(Buffer.byteLength(JSON.stringify([request.messages,request.tools,request.schema]))+request.maxTokens+2048).toBeLessThan(32768)
+    for(const request of fake.textAsked)expect(Math.ceil(Buffer.byteLength(JSON.stringify([request.messages,request.tools,request.schema]))/WORKER_TEXT_BYTES_PER_TOKEN)+request.maxTokens+2048).toBeLessThan(32768)
     expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
     expect(JSON.stringify(fake.textAsked)).not.toContain('private-context-test-token')
     expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)).toContain('Approved workshop source.')
