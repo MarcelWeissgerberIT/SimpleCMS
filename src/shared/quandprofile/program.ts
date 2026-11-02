@@ -1,3 +1,4 @@
+import {readReviewProfile,type ReviewProfile} from './review-profile.ts'
 /** A bounded executable IR. No eval, source text interpolation, stored results or stored approvals. */
 import {sha256Hex} from '../mcp/sha256.ts'
 export type Json=null|boolean|number|string|Json[]|{[key:string]:Json}
@@ -7,7 +8,7 @@ export type ProgramStep=
  |{id:string;kind:'generate';instruction:string;context:Expr;schema?:Record<string,unknown>}
  |{id:string;kind:'decision';question:string;neededFor:string}
  |{id:string;kind:'workflow';mode:'ba'|'po'|'pm'|'mock';target:Expr;connections:Array<{name:string;endpoint:string}>}
-export interface ProgramSpec {protocol:'one.program.v1';goal:string;parameters:Record<string,{schema:Record<string,unknown>;default?:Json}>;steps:ProgramStep[];output:Expr}
+export interface ProgramSpec {profile?:ReviewProfile;protocol:'one.program.v1';goal:string;parameters:Record<string,{schema:Record<string,unknown>;default?:Json}>;steps:ProgramStep[];output:Expr}
 export interface CompiledProgram {compiler:'one.program.compiler.v1';hash:string;canonical:string}
 export interface SavedProgram {id:string;name:string;version:number;createdAt:number;compiled:CompiledProgram}
 export interface ProgramRun {id:string;programId:string;version:number;hash:string;inputHash:string;route:{provider:string;model:string};startedAt:number;finishedAt:number;status:'done'|'failed'|'stopped';steps:Array<{id:string;inputHash:string;outputHash?:string;at:number;status:'done'|'failed';contractHash?:string}>;answer?:string;error?:string}
@@ -49,7 +50,8 @@ function expression(v:unknown,inputs:Set<string>,results:Set<string>,depth=0):vo
 export function compileProgram(input:unknown):CompiledProgram{
  safe(input);const text=canonical(input);if(text.length>180000)fail('artifact size limit')
  if(!object(input)||input.protocol!=='one.program.v1'||typeof input.goal!=='string'||!input.goal.trim()||input.goal.length>8000||!object(input.parameters)||!Array.isArray(input.steps)||!input.steps.length||input.steps.length>40)fail('invalid program')
- if(Object.keys(input).some(k=>!['protocol','goal','parameters','steps','output'].includes(k)))fail('unknown program field')
+ if(Object.keys(input).some(k=>!['profile','protocol','goal','parameters','steps','output'].includes(k)))fail('unknown program field')
+ if(input.profile!==undefined)readReviewProfile(input.profile)
  const inputs=new Set(Object.keys(input.parameters)),results=new Set<string>();if(inputs.size>50)fail('parameter limit')
  for(const [k,p]of Object.entries(input.parameters)){if(!ident.test(k)||!object(p)||!object(p.schema)||Object.keys(p).some(x=>!['schema','default'].includes(x)))fail('invalid parameter');validateSchema(p.schema);if(Object.hasOwn(p,'default'))validateValue(p.default,p.schema,k)}
  for(const s of input.steps){if(!object(s)||typeof s.id!=='string'||!ident.test(s.id)||results.has(s.id))fail('invalid or duplicate step id')

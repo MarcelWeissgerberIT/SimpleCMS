@@ -685,7 +685,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       }
     }
   } catch (e) {
-    const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
+    const detail=e instanceof AIError?e.detail:e instanceof Error?e.message:String(e)
+    const err = detail?.startsWith('Typed AI check blocked:')?new AIError('bad_request',detail):e instanceof AIError ? e : new AIError('unknown',detail)
     if (err.code === 'aborted') finish('stopped')
     // a server that rejected its token: named, so the terminal can offer to sign in to it
     else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })

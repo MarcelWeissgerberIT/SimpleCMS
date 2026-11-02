@@ -1,3 +1,6 @@
+import {AIError} from './errors'
+import {typedReceipt} from './typedAI'
+import {resolveTypedAI} from '@/shared/quandprofile/typed-ai'
 import {readReviewProfile,type ReviewProfile} from '@/shared/quandprofile/review-profile'
 import {pmBriefPlan} from '@/shared/ai/pmBrief'
 import {mockIntent} from '@/shared/ai/designMock'
@@ -21,9 +24,9 @@ export const taskProgramDraft=(id:string)=>{
   const readTarget=trace.find(s=>s.tool==='read_page')?.args?.id as string|undefined
   const target=(mode==='ba'||mode==='po'?contract.source_pointers.map(p=>{try{return JSON.parse(p)?.page as string|undefined}catch{return undefined}}).find(Boolean):undefined)??readTarget
   const connections=[...new Map(trace.filter(s=>s.server&&s.endpoint).map(s=>[s.server!,{name:s.server!,endpoint:s.endpoint!}])).values()]
-  return draftWorkflow(goal,mode,target??null,connections)
+  return {...draftWorkflow(goal,mode,target??null,connections),...(contract.review_profile?{profile:contract.review_profile}:{})}
  }
- return draftProgram(goal,trace)
+ return {...draftProgram(goal,trace),...(contract.review_profile?{profile:contract.review_profile}:{})}
 }
 export const answerTaskDecision=(id:string,question:string,answer:string)=>{try{return sessions.get(id)?.answer(question,answer)??false}catch{return false}}
 export const acceptTaskResult=(id:string)=>{try{return sessions.get(id)?.accept()??false}catch{return false}}
@@ -34,9 +37,13 @@ export function createTaskContract(o:{reviewProfile?:ReviewProfile|null;prepared
  const input=taskInputOf(o.prepared),base=o.bounds??taskBoundaries(input.typed),id=crypto.randomUUID()
  const profile=o.reviewProfile?readReviewProfile(o.reviewProfile):undefined,p=profile?.spec
  if(p&&((p.requireOne||p.onePages.length)&&!o.one||(p.requireAtlas||p.atlasRefs.length)&&!o.atlas))throw Error('Review profile "'+p.name+'" requires sources unavailable in this task. Choose a compatible profile in Cube profiles before starting.')
- const bounds={...base,readOnly:base.readOnly||!!p?.readOnly}
+ const typed=p?.typedAI?resolveTypedAI(p.typedAI):null
+ const receipt=typedReceipt(o.prepared,profile)
+ const bounds={...base,readOnly:base.readOnly||!!p?.readOnly||!!typed?.shadow?.readOnly}
 
- const task=new TaskSession({id,revision:1,goal:o.goal||o.prepared.purpose,instruction_context:o.instructions??'',input_hash:stateHash(o.input??o.goal),scope_hash:signature(),source_pointers:input.sources.slice(0,100).map(r=>JSON.stringify(r)),allowed_tools:[...o.tools,TASK_QUESTION.name],read_only:bounds.readOnly,external_write:bounds.externalWrite,execute:bounds.execute,authenticate:bounds.authenticate??false,requires_sources:!!o.sourcesRequired||o.atlas&&/\batlas\b/iu.test(o.goal),search_one:o.one,search_atlas:o.atlas,output:p?.output==='json'?'json':o.output??'text',required_literals:p?.requiredTerms??[],decisions:[],...(profile?{review_profile:profile}:{})},{compile:compileTask,signature,check:()=>assertPreparedFlow(currentPrepared),signal:o.signal,interactive:o.interactive,report:o.onReport})
+ const check=()=>{assertPreparedFlow(currentPrepared);if(p?.typedAI?.sources.length&&!currentPrepared.allows('mcp'))throw new AIError('policy','mcp')}
+ const task=new TaskSession({id,revision:1,goal:o.goal||o.prepared.purpose,instruction_context:(o.instructions??'')+(receipt?.context??''),input_hash:stateHash(o.input??o.goal),scope_hash:signature(),source_pointers:input.sources.slice(0,100).map(r=>JSON.stringify(r)),allowed_tools:[...o.tools,TASK_QUESTION.name],read_only:bounds.readOnly,external_write:bounds.externalWrite,execute:bounds.execute,authenticate:bounds.authenticate??false,requires_sources:!!o.sourcesRequired||o.atlas&&/\batlas\b/iu.test(o.goal),search_one:o.one,search_atlas:o.atlas,output:p?.output==='json'||typed?.shadow?.format==='json'?'json':o.output??'text',required_literals:p?.requiredTerms??[],decisions:[],...(profile?{review_profile:profile}:{})},{compile:compileTask,signature,check,signal:o.signal,interactive:o.interactive,report:o.onReport})
+ if(receipt)task.bindTypedEvidence(receipt.keys,receipt.at)
  sessions.set(id,task)
  return Object.assign(task,{rebindPrepared:(next:Prepared)=>{currentPrepared=next;task.rebindHost()},release:()=>{if(task.report().phase!=='ready'){task.close();sessions.delete(id)}else{setTimeout(()=>sessions.delete(id),3600000)}}})
 }

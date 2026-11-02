@@ -1,5 +1,6 @@
 //! QuandProfile: scoped specifications with locally issued, dependency-bound evidence.
 //! Hashes bind artifacts; they are not signatures or proof of semantic correctness.
+mod typed_ai;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};

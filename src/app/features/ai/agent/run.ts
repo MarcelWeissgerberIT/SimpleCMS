@@ -1,3 +1,4 @@
+import {prepareTypedAI} from '../core/typedAI'
 import {activeReviewProfile} from '../profiles/storage'
 import type {ReviewProfile} from '@/shared/quandprofile/review-profile'
 import {MockSources,MOCK_GUIDE,mockIntent,type DesignMock} from '@/shared/ai/designMock'
@@ -302,7 +303,7 @@ export async function runAgent(opts: {
   run?: PrepareInput['run']
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
-  opts={...opts,reviewProfile:opts.purpose==='terminal.task'?await activeReviewProfile():null}
+  opts={...opts,reviewProfile:opts.reviewProfile!==undefined?opts.reviewProfile:opts.purpose==='terminal.task'?await activeReviewProfile():null}
   const mockSources=new MockSources()
   const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&(mockIntent(opts.typed??'')||/\b(?:ui|design|html|png|dialog|screen|oberfläche)\b[\s\S]*\b(?:mocks?|mockups?|prototyp(?:e)?)\b|\b(?:mocks?|mockups?|prototyp(?:e)?)\b[\s\S]*\b(?:ui|design|html|png|dialog|screen|oberfläche)\b/i.test(opts.typed??''))
   const baseTools=opts.tools??TERMINAL_TOOLS
@@ -333,7 +334,7 @@ export async function runAgent(opts: {
     const defs = (delivery.analysis?offeredTools.filter(t=>t.name==='read_page'):offeredTools).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
     // the brake judges the first request on FIRST_STEP_OUT (prompt + 4 096 output): the wire keeps its 64 000 — a capped
     // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
-    const fixed = 12000+(opts.typed?.length??0)+reviewSystem.length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
+    const fixed = (opts.reviewProfile?JSON.stringify(opts.reviewProfile).length*3:0)+12000+(opts.typed?.length??0)+reviewSystem.length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
     // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
     const size = { promptChars: fixed + messagesChars(delivery.analysis?[opts.user]:messages), maxTokens: (caps: import('@/shared/ai/types').Caps | null) => Math.min(LOOP_MAX_TOKENS, caps?.maxOutput ?? LOOP_MAX_TOKENS), bandOut: FIRST_STEP_OUT }
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
@@ -343,6 +344,7 @@ export async function runAgent(opts: {
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const observed=await delivery.prepare(prepared)
     if(observed){const last=messages.at(-1)!;last.content=typeof last.content==='string'?last.content+observed:[...(last.content??[]),{type:'text',text:observed}]}
+    await prepareTypedAI(prepared,opts.reviewProfile,mcp?.worker??[],signal,hooks.mcp)
     if(/^\/pm(?:\s|$)/iu.test((opts.typed??'').trim())){const {runGroundedBrief}=await import('./groundedBrief');return await runGroundedBrief(opts,prepared)}
     if(delivery.analysis){const {runGroundedAnalysis}=await import('./groundedAnalysis');return await runGroundedAnalysis(opts,prepared,delivery)}
     if(delivery.boundedRewrite){const {runGroundedRewrite}=await import('./groundedRewrite');return await runGroundedRewrite(opts,prepared,delivery)}

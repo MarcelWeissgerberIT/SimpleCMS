@@ -1,3 +1,4 @@
+import {prepareTypedAI} from '../core/typedAI'
 import {activeReviewProfile} from '../profiles/storage'
 import {groundedTask} from '../agent/grounding'
 import {tapSignal} from '../core/meter'
@@ -19,12 +20,12 @@ export interface ProgramInvocation {saved:SavedProgram;inputs:Record<string,unkn
 const parse=(text:string):Json=>{try{return JSON.parse(text) as Json}catch{return text}}
 /** Fixed program counter. Models receive data, never a tool catalogue or control over the next instruction. */
 export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:ProgramInvocation){
- const reviewProfile=await activeReviewProfile()
  const p=readProgram(inv.saved.compiled),inputs=bindInputs(p,inv.inputs),{hooks,signal}=o
+ const reviewProfile=p.profile??await activeReviewProfile()
  const scope=programScope();if(scope.key!==inv.scope.key)throw Error('Account or workspace changed before program start.')
  const saved=(await listPrograms()).find(x=>x.id===inv.saved.id&&x.version===inv.saved.version)
  if(saved?.compiled.hash!==inv.saved.compiled.hash)throw Error('Saved artifact was not found or its hash changed.')
- if(workflowStep(p))return (await import('./workflow')).runSavedWorkflow(o,inv,saved)
+ if(workflowStep(p))return (await import('./workflow')).runSavedWorkflow({...o,reviewProfile},inv,saved)
  const effects=p.steps.some(s=>s.kind==='tool'&&s.effect!=='read')
  if(effects&&!inv.effectsConfirmed)throw Error('Review this run’s staged changes and external effects before starting.')
  const receipt:ProgramRun={id:crypto.randomUUID(),programId:saved.id,version:saved.version,hash:saved.compiled.hash,inputHash:programDigest(inputs),route:{provider:o.route?.p??'',model:o.route?.m??''},startedAt:Date.now(),finishedAt:0,status:'failed',steps:[]}
@@ -36,6 +37,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
  const delivery=groundedTask(p.goal,target,o.tools??TERMINAL_TOOLS,o.stage,signal,hooks,o.readLimit)
  const tools=delivery.tools,results:Record<string,Json>={},shape=shapeOf(prepared),seen=shape?prepared.visible:null
  const check=()=>{signal.throwIfAborted();if(scope.key!==programScope().key)throw Error('Account or workspace changed. Start a new run.');assertPreparedFlow(prepared)}
+ await prepareTypedAI(prepared,reviewProfile,o.mcp?.worker??[],signal,hooks.mcp).catch(e=>{settle(prepared);throw e})
  const task=(()=>{try{return createTaskContract({reviewProfile,prepared,instructions:delivery.guide+'\n'+fixedProgramInstructions(o.system??'',[agentSystemText(true),agentSystemText(false),TASK_RULES,CODING_RULES])+'\n'+(o.mcp?.system??''),goal:p.goal,input:{artifact:saved.compiled.hash,inputs},tools:p.steps.flatMap(s=>s.kind==='tool'&&!s.server?[s.tool]:[]),sourcesRequired:!!delivery.plan.urls.length,one:p.steps.some(s=>s.kind==='tool'&&!s.server),atlas:p.steps.some(s=>s.kind==='tool'&&!!s.server),signal,onReport:r=>hooks.contract?.({...r,program:{id:saved.id,version:saved.version,hash:saved.compiled.hash,runId:receipt.id}}),interactive:true,bounds:{readOnly:!effects,externalWrite:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='write'),execute:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='execute')}})}catch(e){settle(prepared);throw e}})()
  const untap=tapSignal(signal,{onEntry:entry=>hooks.usage(entry.usage,entry)})
  let audit:Awaited<ReturnType<typeof beginLiveAudit>>|undefined

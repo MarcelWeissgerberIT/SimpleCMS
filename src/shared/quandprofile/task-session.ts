@@ -1,3 +1,4 @@
+import {resolveTypedAI,verifyTypedSource,sourceKey,type TypedSource} from './typed-ai.ts'
 import {taskMcpDiscoveryQuery} from '../mcp/discovery.ts'
 import {atlasIdentityTask} from './task.ts'
 import type {CapturedStep} from './program.ts'
@@ -16,6 +17,7 @@ export class TaskSession {
   private observations:TaskReport['observations']=[]
   private questions:TaskQuestion[]=[]
   private waiting:{id:string;resolve:(answer:string)=>void;reject:(error:Error)=>void}|null=null
+  private typedReadAt=0
   private closed=false
   private phase:TaskReport['phase']='working'
   private compiled:TaskCompiled
@@ -26,6 +28,7 @@ export class TaskSession {
     this.compiled=this.check('compile');this.publish()
   }
   private check(phase:TaskPhase,tool:string|null=null,effect:TaskEffect|null=null,target:string|null=null){
+    this.evidence.typed_sources_current=this.typedReadAt>0&&Date.now()>=this.typedReadAt&&Date.now()-this.typedReadAt<5*60000
     this.evidence.scope_current=this.host.signature()===this.pinned&&!this.closed&&!this.host.signal?.aborted
     this.evidence.provider_checked=false
     try{this.host.check();this.evidence.provider_checked=true}catch{ /* compiled failure is visible */ }
@@ -49,7 +52,7 @@ export class TaskSession {
   expose(names:string[]){const next=[...new Set([...this.contract.allowed_tools,...names])].sort();if(next.length>256)throw new TaskBlocked('Compiled tool catalogue limit.');if(JSON.stringify(next)!==JSON.stringify(this.contract.allowed_tools)){this.contract.allowed_tools=next;this.contract.revision++}}
   dispatch(tool:string,effect:TaskEffect,target:string|null=null){
     const c=this.check('dispatch',tool,effect,target)
-    if(c.decision!=='allow'){this.evidence.denied_actions++;this.phase='blocked';this.publish();throw new TaskBlocked('Compiled task blocked this action. Read-only bounds, an unresolved decision, unknown effects or a changed workspace/provider prevent dispatch. Do not retry the same effect. Continue independent reads or request a precise prerequisite decision after inspecting sources.')}
+    if(c.decision!=='allow'){this.evidence.denied_actions++;this.phase='blocked';this.publish();const typed=c.findings.filter(f=>f.id.startsWith('typed_')&&f.hard&&f.status!=='verified');if(typed.length)throw new TaskBlocked('Typed AI check blocked: '+typed.map(f=>f.id).join(', '));throw new TaskBlocked('Compiled task blocked this action. Read-only bounds, an unresolved decision, unknown effects or a changed workspace/provider prevent dispatch. Do not retry the same effect. Continue independent reads or request a precise prerequisite decision after inspecting sources.')}
     return this.report()
   }
   observe(area:'one'|'atlas'|'other',success:boolean,contentRead:boolean,staged=false,inspects=contentRead,tool='source read'){
@@ -59,9 +62,21 @@ export class TaskSession {
     if(success&&contentRead){this.evidence.source_reads++;if(area==='atlas')this.evidence.atlas_reads++}
     if(success&&staged)this.evidence.staged_changes++
   }
+  /** Host preflight receipt only; never exposed as a model tool. */
+  bindTypedEvidence(keys:string[],at=Date.now()){this.typedReadAt=at;this.evidence.typed_sources=[...keys];this.check('compile');this.publish()}
+  typedPlan(){const spec=this.contract.review_profile?.spec.typedAI;return spec?resolveTypedAI(spec):null}
+  typedSources(){return this.typedPlan()?.spec.sources??[]}
+  observeTypedSource(source:TypedSource,server:string,origin:string,args:Record<string,unknown>,record:Record<string,unknown>){
+    const plan=this.typedPlan();if(!plan)throw new TaskBlocked('No Typed AI selection')
+    const expected=plan.spec.sources.find(s=>sourceKey(s)===sourceKey(source));if(!expected)throw new TaskBlocked('Unknown Typed AI source')
+    const key=verifyTypedSource(expected,server,origin,args,record,plan.spec),seen=this.evidence.typed_sources??=[]
+    if(!seen.includes(key))seen.push(key)
+    this.typedReadAt=Date.now()
+    this.check('compile');this.publish()
+  }
   /** Only adapters call this after a successful actual page/record body read; never discovery or model prose. */
-  observeSource(area:'one'|'atlas',id:string){
-    const key=area==='one'?'one_pages':'atlas_records'
+  observeSource(area:'one'|'atlas'|'other',id:string){
+    const key=area==='one'?'one_pages':area==='atlas'?'atlas_records':'other_sources'
     const list=this.evidence[key]??=[]
     if(id&&list.length<100&&!list.includes(id))list.push(id)
   }
@@ -99,7 +114,7 @@ export class TaskSession {
     if(!q||!waiting||waiting.id!==q.id||this.closed||this.host.signal?.aborted||this.host.signature()!==this.pinned||!answer.trim()||answer.length>4000)return false
     this.host.check();q.state='answered';q.answer=answer.trim();this.contract.decisions.push({question:q.question,answer:q.answer});this.contract.revision++;this.evidence.pending_decisions--;this.waiting=null;this.phase='working';this.check('compile');this.publish();waiting.resolve(JSON.stringify({human_answer:q.answer,contract_revision:this.contract.revision,permissions_unchanged:true}));return true
   }
-  finish(answer:string,issues=0){this.evidence.answer=answer;this.evidence.issues=issues;this.compiled=this.check('result');this.phase=this.compiled.decision==='allow'?'ready':'blocked';this.publish();if(this.phase==='blocked')throw new TaskBlocked('Compiled result check blocked: '+this.compiled.findings.filter(f=>f.hard&&f.status!=='verified').map(f=>f.id).join(', '));return this.report()}
+  finish(answer:string,issues=0){this.evidence.answer=answer;this.evidence.issues=issues;this.compiled=this.check('result');this.phase=this.compiled.decision==='allow'?'ready':'blocked';this.publish();if(this.phase==='blocked')throw new TaskBlocked((this.compiled.findings.some(f=>f.id.startsWith('typed_')&&f.hard&&f.status!=='verified')?'Typed AI check blocked: ':'Compiled result check blocked: ')+this.compiled.findings.filter(f=>f.hard&&f.status!=='verified').map(f=>f.id).join(', '));return this.report()}
   /** Host-only failure: preserve a blocked compiler card instead of a stale working state. */
   fail(reason:string){this.evidence.answer=reason.slice(0,2000);this.evidence.issues++;this.compiled=this.check('result');this.phase='blocked';this.publish()}
   accept(){if(this.phase!=='ready'||this.host.signature()!==this.pinned)return false;this.host.check();this.evidence.human_accepted=true;const c=this.check('result');if(c.decision!=='allow')return false;this.phase='accepted';this.publish();return true}
