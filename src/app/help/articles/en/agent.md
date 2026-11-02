@@ -146,3 +146,9 @@ The mock card presents **static HTML/CSS** with component and requirement mappin
 Before uploading, ONE rereads every source and compares its content hash. Changed or inaccessible sources stop the upload. Atlas must then confirm each file's size and SHA-256. Partial uploads are listed individually; retrying the same proposal uses the same filenames. The files remain **proposals**, never approved specifications.
 
 Automatic checks cover citation origin, component references, some token mechanics and static HTML without scripts or external resources. They do not prove semantic completeness or pixel-perfect design compliance. External font files and images are not loaded in this first static version; missing assets and interactions must remain explicit. BA and PO review states, exceptions, priorities and acceptance criteria. The model makes no business decisions.
+
+For known source records, ONE can control the reads directly:
+
+`/mock One dialog for Atlas-Record 32155. Read ref 1174 as the design rule and ref 1179 as the current catalogue. Preview only; save nothing.`
+
+ONE reads those three explicitly supplied records through your personal Atlas connection and supplies exact excerpts plus a complete output schema. There is at most one correction. Missing sources or failed checks never produce a substitute mock. Quote origin, static markup and token mechanics are minimum checks; semantic completeness and visual conformity still need human review.

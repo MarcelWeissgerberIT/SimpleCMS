@@ -340,6 +340,7 @@ export async function runAgent(opts: {
     if(observed){const last=messages.at(-1)!;last.content=typeof last.content==='string'?last.content+observed:[...(last.content??[]),{type:'text',text:observed}]}
     if(delivery.analysis){const {runGroundedAnalysis}=await import('./groundedAnalysis');return await runGroundedAnalysis(opts,prepared,delivery)}
     if(delivery.boundedRewrite){const {runGroundedRewrite}=await import('./groundedRewrite');return await runGroundedRewrite(opts,prepared,delivery)}
+    if(mockEnabled&&mockIntent(opts.typed??'')){const {explicitMockSources}=await import('@/shared/ai/mockPlan');if(explicitMockSources(opts.typed??'')){const {runGroundedMock}=await import('./groundedMock');return await runGroundedMock(opts,prepared,mockSources)}}
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
     if (['copilot','local'].includes(prepared.route?.p ?? '')) {

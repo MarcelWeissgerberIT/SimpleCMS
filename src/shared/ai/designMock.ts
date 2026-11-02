@@ -31,10 +31,18 @@ export class MockSources {
  snapshot(){return [...this.sources.values()].map(s=>({...s}))}
  /** Exact bounded windows, not a model summary. Full bodies remain available to the run-local reader. */
  context(){return this.snapshot().map(({body,...source})=>{
-  const spans:Array<[number,number]>=[[0,Math.min(body.length,1800)],[Math.max(0,body.length-3000),body.length]]
-  for(const query of ['ConfirmationModal','Button','Typography','Spacing','Radius','brand-primary','background','user confirmation','Benutzerbestätigung']){const at=body.toLowerCase().indexOf(query.toLowerCase());if(at>=0)spans.push([Math.max(0,at-180),Math.min(body.length,at+1100)])}
-  spans.sort((a,b)=>a[0]-b[0]);const merged:Array<[number,number]>=[];for(const span of spans){const last=merged.at(-1);if(last&&span[0]<=last[1])last[1]=Math.max(last[1],span[1]);else merged.push([...span])}
-  let left=10500;const excerpts=merged.flatMap(([from,to])=>{const end=Math.min(to,from+left);left-=end-from;return end>from?[{offset:from,text:body.slice(from,end)}]:[]})
+  // Keep release/supersession notes even when middle-section matches exhaust the excerpt budget.
+  const candidates:Array<[number,number]>=[[0,Math.min(body.length,1800)],[Math.max(0,body.length-2600),body.length]]
+  const headings=[...body.matchAll(/^#{2,4}\s+(.+)$/gm)]
+  for(const match of headings)if(/^(?:colou?r|typography|spacing|radius|tier 1|tier 2|button)/i.test(match[1]!)){
+   const from=match.index!,next=headings.find(h=>h.index!>from)?.index??body.length
+   candidates.push([from,Math.min(next,from+(/typography/i.test(match[1]!)?3400:1700))])
+  }
+  for(const query of ['ConfirmationModal','brand-primary','user confirmation','Benutzerbestätigung']){const at=body.toLowerCase().indexOf(query.toLowerCase());if(at>=0)candidates.push([Math.max(0,at-200),Math.min(body.length,at+1100)])}
+  let left=18000;const accepted:Array<[number,number]>=[]
+  for(const [from,to] of candidates){let segments:Array<[number,number]>=[[from,to]];for(const [a,b] of accepted)segments=segments.flatMap(([s,e])=>e<=a||s>=b?[[s,e]]:s<a&&e>b?[[s,a],[b,e]]:s<a?[[s,a]]:e>b?[[b,e]]:[]);for(const [s,e] of segments){const end=Math.min(e,s+left);if(end>s){accepted.push([s,end]);left-=end-s}}}
+  accepted.sort((a,b)=>a[0]-b[0]);const merged:Array<[number,number]>=[];for(const span of accepted){const last=merged.at(-1);if(last&&span[0]<=last[1])last[1]=Math.max(last[1],span[1]);else merged.push([...span])}
+  const excerpts=merged.map(([from,to])=>({offset:from,text:body.slice(from,to)}))
   return {...source,characters:body.length,partial:excerpts.reduce((n,e)=>n+e.text.length,0)<body.length,excerpts}
  })}
  get(id:string){return [...this.sources.values()].find(s=>s.id===id)}

@@ -144,3 +144,9 @@ Die Mock-Karte zeigt einen **statischen HTML-/CSS-Entwurf** mit Komponenten- und
 Vor der Ablage liest ONE die verwendeten Atlas-Quellen erneut und vergleicht die Inhaltsstände. Geänderte oder unzugängliche Quellen stoppen die Ablage. Danach bestätigt Atlas Größe und SHA-256 jeder Datei. Teilweise erfolgreiche Übertragungen werden einzeln angezeigt; eine Wiederholung verwendet dieselben Dateinamen für denselben Entwurf. Die Dateien bleiben **Entwürfe**, keine freigegebenen Spezifikationen.
 
 Die automatischen Prüfungen belegen Zitatursprung, Komponentenbezüge, einige Tokenregeln und statisches HTML ohne Skripte oder externe Ressourcen. Sie beweisen weder fachliche Vollständigkeit noch eine pixelgenaue Umsetzung des Designsystems. Externe Schriftdateien und Bilder werden in dieser ersten statischen Variante nicht nachgeladen; fehlende Ressourcen und Interaktionen gehören in die offenen Punkte. BA und PO prüfen insbesondere Zustände, Ausnahmen, Prioritäten und Abnahmekriterien. Die KI trifft keine fachlichen Entscheidungen.
+
+Wenn du die konkreten Quellen kennst, kann ONE ihre Abrufe selbst kontrollieren:
+
+`/mock Ein Dialog für Atlas-Record 32155. Lies ref 1174 als Designregel und ref 1179 als aktuellen Katalog. Nur Vorschau, nichts speichern.`
+
+ONE liest diese drei ausdrücklich genannten Records über deinen persönlichen Atlas-Zugang, übergibt genaue Quellenausschnitte und ein vollständiges Ausgabeschema. Es gibt höchstens eine Korrektur. Bei fehlenden Quellen oder gescheiterten Prüfungen entsteht kein Ersatz-Mock. Zitate, statisches HTML und Token-Verweise sind Mindestprüfungen; fachliche Vollständigkeit und visuelle Übereinstimmung bleiben menschlich zu prüfen.
