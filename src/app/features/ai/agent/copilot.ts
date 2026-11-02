@@ -143,7 +143,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         const key = remote?.hasFunction(c.name)?remote.callKey(c.name,c.arguments):JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
         repeated.set(key, n)
         if (++calls > MAX_TOOL_CALLS) { hooks.limit(); return 'limit' as const }
-        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || remote?.hasFunction(c.name) || c.name==='one_workspace_call')) throw new AIError(remote?.hasFunction(c.name)?'mcp':'unknown',t('features.agent.err.repeatedTool'))
+        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || remote?.hasFunction(c.name)&&c.name!=='one_mcp_search' || c.name==='one_workspace_call')) throw new AIError('capability',t('features.agent.err.repeatedTool'))
         let content: string, failed = false
         let resolved: ReturnType<ReturnType<typeof localWorkspaceTools>['resolve']> | null = null
         try { resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null }
@@ -188,5 +188,5 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
     if (e instanceof AIError && !e.label) throw new AIError(e.code,e.detail,e.server,prepared.label,e.fixes)
     throw e
   } finally { hooks.history(messages) }
-  }catch(e){auditError=e;throw e}finally{task?.release();await audit.end(signal.aborted?'cancelled':auditState,messages.at(-1)?.role==='assistant'?messages.at(-1)?.content:undefined,auditError)}
+  }catch(e){auditError=e;task?.fail('Model task failed; no successful result or acceptance was recorded.');throw e}finally{task?.release();await audit.end(signal.aborted?'cancelled':auditState,messages.at(-1)?.role==='assistant'?messages.at(-1)?.content:undefined,auditError)}
 }

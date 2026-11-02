@@ -27,6 +27,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
   const schemas=new Map<string,DiscoveredMcpTool>(),discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
   const request=(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
+  const discoveryCache=new Map<string,{schemas:DiscoveredMcpTool[];result:string}>()
   let attempts=0
   const signature=()=>JSON.stringify([useWorkspace.getState().epoch,useWorkspace.getState().settings.mcpServers])
   const pinned=signature()
@@ -50,6 +51,8 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const activity:McpCall={id,server:'MCP',tool:'one_mcp_search',arg:query,state:'run'}
       event(activity)
       try {
+        const cacheKey=query.trim().toLowerCase(),cached=discoveryCache.get(cacheKey)
+        if(cached){bindings.expose(cached.schemas);event({...activity,state:'ok'});return JSON.stringify({...JSON.parse(cached.result),discoveryReused:true,note:'The same permitted catalogue is already loaded. Use the returned nativeFunction with its schema-valid arguments (or one_mcp_call). No new network request or content read occurred.'})}
         const found=await request({action:'search',servers,query}) as {tools:DiscoveredMcpTool[];guides?:Array<{server:string;instructions:string}>;projectDirectory?:{server:string;tenant:string;projects:Array<{slug:string;parentSlug:string|null}>};unavailable?:string[]}
         if(!Array.isArray(found?.tools)||found.tools.length>6)throw new AIError('mcp')
         for(const server of servers)if(server.name.toLowerCase().includes('atlas')||found.tools.some(t=>t.server===server.name&&t.name.startsWith('atlas_')))facts.noteDiscovery(server.name,!(found.unavailable??[]).some(s=>s.startsWith(server.name+':')))
@@ -61,7 +64,9 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         const guides=(found.guides??[]).filter(g=>!shownGuides.has(g.server))
         guides.forEach(g=>shownGuides.add(g.server))
         event({...activity,state:'ok'})
-        return JSON.stringify({tools:exposed.map(t=>({server:t.server,name:t.name,nativeFunction:bindings.functionName(t.server,t.name)})),...(guides.length?{serverUsageGuides:guides}:{}),discoveryOnly:true,...(query!==args.query?{requestedQuery:args.query,resolution:'The trusted task explicitly names an Atlas record Ref. ONE resolved this bare catalogue request to atlas_get; no record has been read and no permission changed.'}:{}),note:MCP_DISCOVERY_NOTE,...(found.unavailable?.length?{unavailable:found.unavailable.slice(0,12).map(s=>connectionProblem(new Error(s)))}:{}),...(exposed.length<found.tools.length?{schemasOmitted:'Search a narrower or exact tool name.'}:{})})
+        const result=JSON.stringify({tools:exposed.map(t=>({server:t.server,name:t.name,nativeFunction:bindings.functionName(t.server,t.name)})),...(guides.length?{serverUsageGuides:guides}:{}),discoveryOnly:true,...(query!==args.query?{requestedQuery:args.query,resolution:'The trusted task explicitly names an Atlas record Ref. ONE resolved this bare catalogue request to atlas_get; no record has been read and no permission changed.'}:{}),note:MCP_DISCOVERY_NOTE,...(found.unavailable?.length?{unavailable:found.unavailable.slice(0,12).map(s=>connectionProblem(new Error(s)))}:{}),...(exposed.length<found.tools.length?{schemasOmitted:'Search a narrower or exact tool name.'}:{})})
+        if(!found.unavailable?.length&&exposed.length){if(discoveryCache.size>=12)discoveryCache.delete(discoveryCache.keys().next().value!);discoveryCache.set(cacheKey,{schemas:exposed,result})}
+        return result
       } catch(e) { for(const server of servers)if(/atlas/i.test(server.name+server.url))facts.noteDiscovery(server.name,false);task?.observe('atlas',false,true,false,true,'connection / discovery unavailable');if(e instanceof LiveAuditError)throw e;const error=connectionProblem(e);event({...activity,state:'err',error});throw new AIError('mcp',error) }
     }
     if(name!=='one_mcp_call'||typeof args.server!=='string'||typeof args.name!=='string'||!args.arguments||typeof args.arguments!=='object'||Array.isArray(args.arguments)||!discovered.has(JSON.stringify([args.server,args.name])))throw new AIError('mcp','Discover the permitted exact tool before calling it.')

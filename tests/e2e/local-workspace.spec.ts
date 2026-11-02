@@ -25,6 +25,15 @@ test.describe('Atlas Flow across workspace features',()=>{
     await page.keyboard.press('Escape')
   })
   test.afterEach(async()=>{await fake?.close()})
+  test('a repeated MCP discovery reuses its catalogue and still permits the actual content read',async({page})=>{
+    await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'repeat-atlas',name:'atlas',url:'https://atlas.example.org/mcp',token:'repeat-fixture-token',enabled:true,prompt:'Read actual source records.',tools:['atlas_get'],checkedAt:Date.now()}]}))
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{name:'atlas_get',server:'atlas',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:43,title:'Actual source',body:'The expected simulation result is 43.'}})}]})}
+    let round=0
+    fake.onText=r=>{const n=round++;return {model:r.model,text:n===3?'The actual source states that the expected simulation result is 43.':'',...(n<3?{calls:[n<2?{id:'s'+n,name:'one_mcp_search',arguments:{query:'atlas_get'}}:{id:'read',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:43}}}]}:{}),inputTokens:100,outputTokens:30,usd:0}}
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL);await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'});await input.fill('Read the actual Atlas record 43 and report its expected simulation result.');await input.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('expected simulation result is 43',{timeout:20000});expect(fake.mcpAsked.filter(r=>r.action==='search')).toHaveLength(1);expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1);await expect(term.locator('.term-head__status')).toHaveText('Done');expect(JSON.stringify(fake.textAsked[2].messages)).toContain('discoveryReused')
+  })
   test('terminal completes more than 40 sequential tool rounds with the 120-call budget',async({page})=>{
     test.setTimeout(120000)
     let round=0
