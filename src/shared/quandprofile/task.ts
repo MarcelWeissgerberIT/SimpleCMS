@@ -32,5 +32,5 @@ export function atlasIdentityTask(goal:string):boolean {
 export function polarionAuthenticationRequested(goal:string){
  const text=goal.toLowerCase().replace(/["“„`][^"“”„`]*["”`]/g,'')
  const clauses=text.split(/[.!?;]\s*/u)
- return clauses.some(c=>! /\b(?:nicht|not|never|kein|keine)\b/u.test(c)&&/^(?:bitte\s+)?(?:verbinde (?:bitte )?(?:meinen? |den )?polarion[- ](?:zugang|anmeldung)|starte (?:bitte )?(?:die |meine )?polarion[- ](?:anmeldung|login)|connect (?:my |the )?polarion(?: access| sign[- ]in)?|start (?:my |the )?polarion (?:login|sign[- ]in))\b/u.test(c.trim()))
+ return clauses.some(c=>! /\b(?:nicht|not|never|kein|keine)\b|\bohne\s+(?:anmeldung|login)\b/u.test(c)&&/^(?:bitte\s+)?(?:verbinde (?:bitte )?(?:(?:dich|mich) mit (?:meinem |dem )?polarion|(?:meinen? |den )?polarion[- ](?:zugang|anmeldung))|starte (?:bitte )?(?:die |meine )?polarion[- ](?:anmeldung|login)|connect (?:to |my |the )?polarion(?: access| sign[- ]in)?|start (?:my |the )?polarion (?:login|sign[- ]in))\b/u.test(c.trim()))
 }
