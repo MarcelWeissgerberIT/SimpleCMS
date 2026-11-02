@@ -49,7 +49,7 @@ export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: stri
   if(v.detail==='features.ai.quantum.blocked')return t(v.detail)
   if(v.detail==='features.ai.local.unverifiedFacts')return t(v.detail)
   // Local material errors survive stored-run reconstruction; only known keys become UI text.
-  if ((code === 'context' || code === 'capability') && ['features.ai.local.sourceContradiction','features.ai.local.discovery','features.ai.local.toolFormat','features.ai.local.mcpWorker','features.ai.copilot.mediaLimit','features.ai.copilot.pdfLimit','features.ai.copilot.pdfScan','features.ai.copilot.unsupportedPart'].includes(v.detail ?? '')) return t(v.detail!)
+  if ((code === 'context' || code === 'capability') && ['features.agent.err.repeatedTool','features.ai.local.sourceContradiction','features.ai.local.discovery','features.ai.local.toolFormat','features.ai.local.mcpWorker','features.ai.copilot.mediaLimit','features.ai.copilot.pdfLimit','features.ai.copilot.pdfScan','features.ai.copilot.unsupportedPart'].includes(v.detail ?? '')) return t(v.detail!)
   if (code === 'policy' && (v.detail === 'destination' || v.detail === 'mcp-destination')) return t('features.ai.flow.blocked')
   if (code === 'policy' && v.detail === 'legacy-flow') return t('features.ai.flow.legacy')
   if (code === 'policy' && v.detail === 'mcp-required') return t('features.ai.mcp.required')

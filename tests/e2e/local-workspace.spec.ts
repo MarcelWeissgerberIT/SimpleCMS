@@ -246,6 +246,17 @@ test.describe('Atlas Flow across workspace features',()=>{
     await expect(term.locator('.term-step[data-tool="read_page"]')).toHaveCount(1)
   })
 
+  test('an undiscovered Atlas wrapper does not poison the later discovered native read as a duplicate',async({page})=>{
+    await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'k1-read-discovery',name:'atlas',url:'https://atlas.example.org/mcp',token:'private-k1-read',enabled:true,prompt:'Read actual source records.',tools:['atlas_get'],checkedAt:Date.now()}]}))
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:43,title:'K1 source',body:'Q12 was answered by Kai.'}})}]})}
+    let round=0;fake.onText=r=>{const n=round++,calls=[{id:'premature-wrapper',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:43}}},{id:'schema',name:'one_mcp_search',arguments:{query:'atlas_get'}},{id:'actual-native',name:'one_remote_1',arguments:{ref:43}}];return{model:r.model,text:n===3?'Q12 was answered by Kai in the actual Atlas source.':'',...(n<3?{calls:[calls[n]]}:{}),inputTokens:100,outputTokens:20,usd:0}}
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL);await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'});await input.fill('Read Atlas record 43 and report the actual answer to Q12.');await input.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Q12 was answered by Kai',{timeout:20000});await expect(term.locator('.term-head__status')).toHaveText('Done')
+    expect(fake.textAsked).toHaveLength(4);expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call']);expect(fake.mcpAsked[1]).toMatchObject({name:'atlas_get',arguments:{ref:43}})
+    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('oneNotExecuted')
+  })
+
   test('personal Atlas connections can be tested with a local model and no Claude key',async({page})=>{
     fake.onModelMcp=r=>({tools:[{name:'remote_mcp_0',server:'atlas',tool:'atlas_get',description:'Read approved source',parameters:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]})
     await wsEval(page,(s,model)=>s.updateSettings({ai:{allow:{local:['mcp']},routes:{'mcp-setup':[{p:'local',m:model}]}},mcpServers:[{id:'test-atlas',name:'atlas',url:'https://atlas.example.org/mcp',token:'local-test-credential',enabled:true,prompt:'Existing instructions.',checkedAt:Date.now()}]}),MODEL)

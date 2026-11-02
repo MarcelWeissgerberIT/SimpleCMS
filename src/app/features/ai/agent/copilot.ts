@@ -150,7 +150,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         const key = remote?.hasFunction(c.name)?remote.callKey(c.name,c.arguments):JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
         repeated.set(key, n)
         if (++calls > MAX_TOOL_CALLS) { hooks.limit(); return 'limit' as const }
-        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || remote?.hasFunction(c.name)&&c.name!=='one_mcp_search' || c.name==='one_workspace_call')) throw new AIError('capability',t('features.agent.err.repeatedTool'))
+        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || remote?.hasFunction(c.name)&&c.name!=='one_mcp_search' || c.name==='one_workspace_call')) throw new AIError('capability','features.agent.err.repeatedTool')
         let content: string, failed = false
         let resolved: ReturnType<ReturnType<typeof localWorkspaceTools>['resolve']> | null = null
         try { resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null }

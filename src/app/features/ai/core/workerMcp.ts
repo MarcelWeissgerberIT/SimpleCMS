@@ -69,7 +69,12 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         return result
       } catch(e) { for(const server of servers)if(/atlas/i.test(server.name+server.url))facts.noteDiscovery(server.name,false);task?.observe('atlas',false,true,false,true,'connection / discovery unavailable');if(e instanceof LiveAuditError)throw e;const error=connectionProblem(e);event({...activity,state:'err',error});throw new AIError('mcp',error) }
     }
-    if(name!=='one_mcp_call'||typeof args.server!=='string'||typeof args.name!=='string'||!args.arguments||typeof args.arguments!=='object'||Array.isArray(args.arguments)||!discovered.has(JSON.stringify([args.server,args.name])))throw new AIError('mcp','Discover the permitted exact tool before calling it.')
+    if(name!=='one_mcp_call'||typeof args.server!=='string'||typeof args.name!=='string'||!args.arguments||typeof args.arguments!=='object'||Array.isArray(args.arguments)||!discovered.has(JSON.stringify([args.server,args.name]))){
+      // This is a rejected inference request, not a dispatched MCP call. In
+      // particular it must not consume the duplicate-effect key: a later native
+      // call after real discovery is the first execution of that operation.
+      return JSON.stringify({isError:true,oneNotExecuted:true,error:'Discover the permitted exact tool with one_mcp_search before calling it. No MCP call was dispatched. Then use its returned native function or one_mcp_call with the exact server, name and schema-valid arguments. Do not ask the person to load tools.'})
+    }
     const activity:McpCall={id,server:args.server,tool:args.name,arg:JSON.stringify(args.arguments).slice(0,100),input:args.arguments as Record<string,unknown>,state:'run'}
     event(activity)
     let dispatched=false
