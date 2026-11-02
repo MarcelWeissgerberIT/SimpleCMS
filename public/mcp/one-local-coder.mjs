@@ -39590,6 +39590,16 @@ function localContext(env) {
   return { tokens: n, inputLimit: n - 8192, chars: Math.floor((n - 8192) * 1.5) };
 }
 
+// ../src/shared/ai/shared-failure.ts
+var SharedInferenceError = class extends Error {
+  code;
+  constructor(code) {
+    super(code);
+    this.name = "SharedInferenceError";
+    this.code = code;
+  }
+};
+
 // src/worker/local-inference.ts
 var InferenceLimit = class extends Error {
   kind;
@@ -39614,7 +39624,13 @@ function ollamaInference(base, traceHeaders = {}) {
       headers: { "Content-Type": "application/json", ...traceHeaders },
       body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, ...request.schema ? { format: request.schema } : {}, stream: false, keep_alive: "30m", options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } })
     });
-    if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
+    if (!response.ok) {
+      if (response.status === 400) {
+        const error62 = await response.json().catch(() => null);
+        if (error62?.error?.type === "context_limit") throw new SharedInferenceError("context");
+      }
+      throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
+    }
     const data = await response.json();
     return { message: data.message, inputTokens: data.prompt_eval_count, outputTokens: data.eval_count };
   };
