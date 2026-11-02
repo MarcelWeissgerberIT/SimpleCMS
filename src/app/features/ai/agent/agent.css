@@ -2487,3 +2487,5 @@
 .term-failure-dock{border-top:2px solid var(--signal);border-bottom:1px solid var(--rule);padding:var(--sp-3);background:var(--surface-2);color:var(--ink);max-height:min(260px,35dvh);overflow:auto;overflow-wrap:anywhere;flex-shrink:0}.term-failure-dock>strong{font:var(--text-xs) var(--font-mono);color:var(--signal)}.term-failure-dock .term-error{margin:var(--sp-2) 0;padding:var(--sp-2);border-left:0}.term-failure-dock p{margin:var(--sp-2) 0}.term-failure-dock__actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin:var(--sp-2) 0}.term-failure-dock>small{display:block;color:var(--ink-2);font-size:var(--text-xs)}
 
 .term-failure-dock .term-error p{max-height:6em;overflow:auto}
+
+.term-head{flex-wrap:wrap}.term-head .term-key--label{width:auto;flex:0 0 auto;padding:0 var(--sp-2);border:1px solid var(--rule);font:inherit;letter-spacing:inherit;white-space:nowrap}

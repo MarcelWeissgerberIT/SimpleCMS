@@ -393,8 +393,8 @@ function Head() {
       <span className="term-head__status" aria-live="polite">
         {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
       </span>
-<button type="button" className="term-key" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
-<button type="button" className="term-key" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
+<button type="button" className="term-key term-key--label" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
+<button type="button" className="term-key term-key--label" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
       <span className="term-spacer" />
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
         <RotateCcw size={13} strokeWidth={1.75} aria-hidden />

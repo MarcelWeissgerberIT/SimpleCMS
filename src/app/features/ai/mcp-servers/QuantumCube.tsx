@@ -7,7 +7,7 @@ import {useT} from '../../../i18n'
 type Point=[number,number,number]
 export type CubeReference={key:string;id?:string;label:string;dimensions:string[];status:QuantumStatus}
 type Face={points:Point[];kind:'glass'|'nucleus'|'evidence';depth:number;reference?:CubeReference}
-const slots:Point[]=[[170,90,-50],[225,-15,40],[145,-115,-50],[-215,75,65],[-215,-65,-40],[15,125,65],[0,-130,45],[230,100,65],[70,-110,-80]]
+const slots:Point[]=[[170,90,-50],[225,-15,40],[145,-115,-50],[-215,75,65],[-215,-65,-40],[15,125,65],[0,-130,45],[230,100,65],[70,-110,-80],[-210,-135,130],[160,140,130],[320,0,-40],[-320,0,-40]]
 const positionFor=(i:number):Point=>slots[i]??[Math.cos(i*2.4)*240,Math.sin(i*2.4)*130,(i%3-1)*80]
 const center:Point=[-65,0,0]
 /** Schematic projection of recorded dimension membership. Geometry encodes no confidence or physical quantum state. */
