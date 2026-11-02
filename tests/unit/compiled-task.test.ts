@@ -65,3 +65,21 @@ test('explicit page-to-Atlas transfer intent is allowed while descriptions and n
  assert.equal(taskBoundaries('Kommentiere die offenen Fragen in Atlas.').externalWrite,true)
  for(const text of ['Wie mache ich aus dieser Seite in Atlas ein Dossier?','Bitte nicht kommentieren oder verlinken in Atlas.','Kommentiere nicht in Atlas.','Übertrage nicht nach Atlas.','Ändere nicht in Atlas.','Nur lesen. Verlinke die Records in Atlas.'])assert.equal(taskBoundaries(text).externalWrite,false)
 })
+
+
+test('natural-language connection checks require actual identity evidence without accepting content analysis',()=>{
+ const goal='Prüfe nur meine persönliche AJ-Atlas-Verbindung: Rufe atlas_whoami über MCP tatsächlich auf und nenne kurz die bestätigte Identität und den zugänglichen Tenant. Keine weiteren Quellen lesen und nichts ändern.'
+ assert.equal(atlasIdentityTask(goal),true)
+ for(const extra of [' Liste alle Aufgaben.',' und fasse CNSx zusammen.',' Erstelle einen Record.',' Lies Record 42.'])assert.equal(atlasIdentityTask(goal+extra),false)
+ for(const success of [false,true]){
+  const task=new TaskSession({...contract(),goal},{compile:r=>runtime.task(r),signature:()=>'',check:()=>{}})
+  assert.equal(task.identityOnly(),true)
+  task.observe('atlas',success,task.identityOnly(),false,true,'atlas_whoami')
+  if(success){task.finish('Die tatsächlich bestätigte Atlas-Identität ist die Antwort.');assert.equal(task.report().phase,'ready')}
+  else assert.throws(()=>task.finish('Identität angeblich bestätigt'),TaskBlocked)
+  task.close()
+ }
+ const analysis=new TaskSession({...contract(),goal:'Show my Atlas identity and brief me on CNSX.'},{compile:r=>runtime.task(r),signature:()=>'',check:()=>{}})
+ analysis.observe('atlas',true,analysis.identityOnly(),false,true,'atlas_whoami')
+ assert.throws(()=>analysis.finish('An unsupported briefing'),TaskBlocked);analysis.close()
+})

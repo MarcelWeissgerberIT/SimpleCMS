@@ -26,8 +26,15 @@ export function taskBoundaries(goal:string){
 
 /** Explicit identity-only requests need a real identity read, not an unrelated content query. */
 export function atlasIdentityTask(goal:string):boolean {
- const text=goal.trim().replace(/[.;]\s*(?:nur lesen|read only|keine änderungen|do not change anything)[.!]?$/iu,'').replace(/[.!?]+$/,'').trim()
- return /^(?:atlas[ :]+)?(?:atlas_)?whoami$/iu.test(text)||/^(?:who am i (?:in|on) atlas|wer bin ich (?:in|bei) atlas)$/iu.test(text)||/^(?:prüfe|pruefe|check|verify|read|zeige|show) (?:bitte )?(?:(?:meine|my) )?(?:atlas[- ](?:identität|identitaet|identity)|(?:identität|identitaet|identity) (?:in|bei|on) atlas)$/iu.test(text)
+ const text=goal.normalize('NFKC').trim().replace(/\s+/gu,' ')
+ // Every clause must stay inside identity/tenant inspection. A briefing, record query or other
+ // follow-up keeps the normal content-read requirement, even after a successful whoami.
+ const clauses=text.split(/[.!?;]+\s*|:\s+(?=rufe\b)/iu).map(c=>c.trim()).filter(Boolean)
+ const identity=/^(?:atlas[ :]+)?(?:atlas_)?whoami$|^(?:who am i (?:in|on) atlas|wer bin ich (?:in|bei) atlas)$|^(?:prüfe|pruefe|check|verify|read|zeige|show) (?:bitte )?(?:nur )?(?:(?:meine|my) )?(?:persönliche |persoenliche |personal )?(?:(?:aj-|eh-)?atlas[- ](?:identität|identitaet|identity|verbindung|zugang)|(?:identität|identitaet|identity) (?:in|bei|on) atlas)$/iu
+ const summary='(?:nenne|zeige) (?:kurz )?(?:die )?(?:bestätigte |bestaetigte )?(?:identität|identitaet)(?: und (?:den |die )?(?:zugänglichen |zugaenglichen )?tenants?)?'
+ const call=new RegExp('^rufe atlas_whoami (?:über mcp |ueber mcp )?(?:tatsächlich |tatsaechlich )?auf(?: und '+summary+')?$','iu')
+ const limited=/^(?:nur lesen|read[ -]only|keine änderungen|do not change anything|keine weiteren quellen lesen(?: und nichts ändern)?|nichts ändern)$/iu
+ return clauses.length>0&&clauses.some(c=>identity.test(c)||call.test(c))&&clauses.every(c=>identity.test(c)||call.test(c)||limited.test(c)||new RegExp('^'+summary+'$','iu').test(c))
 }
 
 /** Narrow login intent from the human instruction, never from source text or a model plan. */
