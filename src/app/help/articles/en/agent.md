@@ -152,3 +152,5 @@ For known source records, ONE can control the reads directly:
 `/mock One dialog for Atlas-Record 32155. Read ref 1174 as the design rule and ref 1179 as the current catalogue. Preview only; save nothing.`
 
 ONE reads those three explicitly supplied records through your personal Atlas connection and supplies exact excerpts plus a complete output schema. There is at most one correction. Missing sources or failed checks never produce a substitute mock. Quote origin, static markup and token mechanics are minimum checks; semantic completeness and visual conformity still need human review.
+
+With `/pm 9602 <task>`, ONE reads your personal Atlas identity and exactly the requested record itself. Supply at most three comma-separated refs. Without model-controlled tools, the model drafts a small PM brief with verbatim quotations, at most three open questions and one proposed next step. No decisions or writes occur. Only those bodies are refreshed; comments and attachments remain explicitly unchecked.

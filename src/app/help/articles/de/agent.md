@@ -150,3 +150,5 @@ Wenn du die konkreten Quellen kennst, kann ONE ihre Abrufe selbst kontrollieren:
 `/mock Ein Dialog für Atlas-Record 32155. Lies ref 1174 als Designregel und ref 1179 als aktuellen Katalog. Nur Vorschau, nichts speichern.`
 
 ONE liest diese drei ausdrücklich genannten Records über deinen persönlichen Atlas-Zugang, übergibt genaue Quellenausschnitte und ein vollständiges Ausgabeschema. Es gibt höchstens eine Korrektur. Bei fehlenden Quellen oder gescheiterten Prüfungen entsteht kein Ersatz-Mock. Zitate, statisches HTML und Token-Verweise sind Mindestprüfungen; fachliche Vollständigkeit und visuelle Übereinstimmung bleiben menschlich zu prüfen.
+
+Mit `/pm 9602 <Auftrag>` liest ONE deine persönliche Atlas-Identität und genau den genannten Record selbst. Bis zu drei Refs sind mit Komma möglich. Das Modell erstellt daraus ohne eigene Werkzeuge ein kurzes PM-Lagebild mit wörtlichen Belegen, höchstens drei offenen Fragen und einem vorgeschlagenen nächsten Schritt. Es werden keine Entscheidungen getroffen oder Inhalte geschrieben. Nur die genannten Bodies werden frisch gelesen; Kommentare und Anhänge bleiben ausdrücklich ungeprüft.
