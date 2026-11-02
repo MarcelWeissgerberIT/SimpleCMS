@@ -8,6 +8,9 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.central.ownerKeyMissing': 'Configuration saved. Enter your Anthropic API key below and verify model access.',
+    'features.ai.central.teamKeyMissing': 'The service owner still needs to add the central API key. Your personal Atlas access remains separate.',
+    'features.ai.central.notActivated': 'The key is verified. Central access is still disabled; activation is the service owner’s next step.',
     'features.ai.central.defaultLabel': 'Claude · Team',
     'features.ai.central.budgetLabel': 'Shared monthly budget · USD',
     "features.ai.central.shared": "SECURE · SHARED TEAM SERVICE",
@@ -474,6 +477,9 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
+    'features.ai.central.ownerKeyMissing': 'Konfiguration gespeichert. Gib unten deinen Anthropic-API-Schlüssel ein und prüfe die Modellfreigabe.',
+    'features.ai.central.teamKeyMissing': 'Der Verantwortliche muss den zentralen API-Schlüssel noch hinterlegen. Dein persönlicher Atlas-Zugang bleibt getrennt.',
+    'features.ai.central.notActivated': 'Der Schlüssel ist geprüft. Der zentrale Zugang ist noch deaktiviert; die Aktivierung übernimmt der Verantwortliche.',
     'features.ai.central.defaultLabel': 'Claude · Team',
     'features.ai.central.budgetLabel': 'Gemeinsames Monatsbudget · USD',
     "features.ai.central.shared": "SECURE · ZENTRALER TEAMZUGANG",

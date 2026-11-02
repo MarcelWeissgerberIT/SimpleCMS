@@ -5,8 +5,10 @@ import {useT,useLang} from '../../../i18n'
 import {navigate} from '../../../lib/router'
 import {useUI} from '../../../store/ui'
 import {centralAI,refreshCentralAI,useCentralAI} from '../core/centralAI'
-import type {CentralAIRequest} from '@/shared/ai/central'
+import type {CentralAIRequest,CentralAIStatus} from '@/shared/ai/central'
 import './central-ai.css'
+
+const notice=(c:CentralAIStatus)=>c.ready?'features.ai.central.ready':c.id&&!c.configured?(c.manage?'features.ai.central.ownerKeyMissing':'features.ai.central.teamKeyMissing'):c.id&&c.configured&&!c.enabled?'features.ai.central.notActivated':'features.ai.central.inactive'
 
 export function CentralAICard(){
  const t=useT();useCentralAI();const c=centralAI()
@@ -14,7 +16,7 @@ export function CentralAICard(){
  return <section className="central-ai central-ai--compact" data-testid="central-ai-card">
   <span className="label">{t('features.ai.central.shared')}</span>
   <h4><ShieldCheck size={20} aria-hidden/> {c.label}</h4>
-  <p>{t(c.ready?'features.ai.central.ready':'features.ai.central.inactive')}</p>
+  <p>{t(notice(c))}</p>
   <p className="central-ai__muted">{t('features.ai.central.personalAtlas')}</p>
   <button type="button" className="btn btn--sm" onClick={()=>{useUI.getState().closeModal();navigate({name:'workspace',section:'ai'})}}>{t('features.ai.central.open')} <ArrowRight size={14} aria-hidden/></button>
  </section>
@@ -39,7 +41,7 @@ export function CentralAISettings(){
  if(!current)return null
  return <section className="central-ai" aria-labelledby="central-ai-heading" data-testid="central-ai-settings">
   <header className="central-ai__head"><span className="label">{t('features.ai.central.shared')}</span><h3 id="central-ai-heading"><ShieldCheck aria-hidden/> {t('features.ai.central.title')}</h3><p>{t('features.ai.central.intro')}</p></header>
-  <div className="central-ai__status" role="status"><span className={`led ${c?.ready?'is-on':''}`} aria-hidden/><strong>{t(c?.ready?'features.ai.central.ready':c?.assigned&&c.id?'features.ai.central.inactive':'features.ai.central.new')}</strong><span>Claude Opus 5.5 · Anthropic API</span></div>
+  <div className="central-ai__status" role="status"><span className={`led ${c?.ready?'is-on':''}`} aria-hidden/><strong>{t(c?.assigned&&c.id?notice(c):'features.ai.central.new')}</strong><span>Claude Opus 5.5 · Anthropic API</span></div>
   <p>{t('features.ai.central.personalAtlas')}</p>
   {manage?<>
    <form onSubmit={e=>{e.preventDefault();void run(async()=>{await cloudRequest('PUT',path,{version:savedVersion,label,workspaces:selected,budgetUsd:budget.trim()?Number(budget.replace(',','.')):null,enabled})},'features.ai.central.saved')}}>
@@ -47,7 +49,7 @@ export function CentralAISettings(){
      <label className="field"><span className="label">{t('features.ai.central.label')}</span><input className="input" value={label} maxLength={80} required disabled={busy} onChange={e=>setLabel(e.target.value)}/></label>
      <label className="field"><span className="label">{t('features.ai.central.budgetLabel')}</span><input className="input" type="number" min="1" max="10000" step="1" value={budget} placeholder="50" disabled={busy} onChange={e=>setBudget(e.target.value)}/></label>
     </div>
-    <fieldset disabled={busy} className="central-ai__workspaces"><legend className="label">{t('features.ai.central.workspaces')}</legend>{workspaces.filter(w=>w.role==='owner'||w.role==='admin').map(w=><label key={w.id}><input type="checkbox" checked={selected.includes(w.id)} disabled={w.id===current||w.id===c?.workspaces?.[0]?.id} onChange={e=>setSelected(old=>e.target.checked?[...old,w.id]:old.filter(id=>id!==w.id))}/><span>{w.name}</span></label>)}</fieldset>
+    <fieldset disabled={busy} className="central-ai__workspaces"><legend className="label">{t('features.ai.central.workspaces')}</legend>{workspaces.filter(w=>w.role==='owner'||w.role==='admin').map(w=><label key={w.id}><input type="checkbox" checked={selected.includes(w.id)} disabled={w.id===current||w.id===c?.workspaces?.[0]?.id} onChange={e=>{const checked=e.target.checked;setSelected(old=>checked?[...old,w.id]:old.filter(id=>id!==w.id))}}/><span>{w.name}</span></label>)}</fieldset>
     <label className="central-ai__check"><input type="checkbox" checked={enabled} disabled={busy||!c?.configured||!c.verifiedAt||!budget.trim()} onChange={e=>setEnabled(e.target.checked)}/><span>{t('features.ai.central.activate')}</span></label>
     <p className="central-ai__muted">{t('features.ai.central.billing')}</p>
     <button className="btn btn--ink" disabled={busy} type="submit">{t('features.ai.central.save')}</button>
@@ -59,7 +61,7 @@ export function CentralAISettings(){
      <label className="field"><span className="label">{t('features.ai.central.keyLabel')}</span><input ref={keyInput} type="password" className="input" autoComplete="new-password" autoCapitalize="none" spellCheck={false} name="central-claude-api-key" placeholder="sk-ant-…" required disabled={busy||!c?.id} data-testid="central-key-input"/></label>
      <div className="central-ai__actions"><button type="submit" className="btn" disabled={busy||!c?.id}>{t('features.ai.central.keyCheck')}</button>{c?.configured&&<button type="button" className="btn" disabled={busy} onClick={()=>void run(async()=>{await cloudRequest('DELETE',path+'/key',{version:savedVersion})},'features.ai.central.keyRemoved')}>{t('features.ai.central.remove')}</button>}</div>
     </form>
-    <p className="central-ai__muted">{t(c?.configured?'features.ai.central.keyPresent':'features.ai.central.keyMissing')}{c?.verifiedAt?` · ${new Date(c.verifiedAt).toLocaleString(lang==='de'?'de-DE':'en-US')}`:''}</p>
+    <p className="central-ai__muted">{t(c?.configured?'features.ai.central.keyPresent':c?.id?'features.ai.central.ownerKeyMissing':'features.ai.central.keyMissing')}{c?.verifiedAt?` · ${new Date(c.verifiedAt).toLocaleString(lang==='de'?'de-DE':'en-US')}`:''}</p>
     <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noreferrer noopener">{t('features.ai.central.console')}</a>
    </div>
    {c?.id&&<div className="central-ai__step"><h4>{t('features.ai.central.defaultTitle')}</h4><p>{t('features.ai.central.defaultHelp')}</p><button type="button" className="btn" disabled={busy} onClick={()=>void run(async()=>{await cloudRequest('POST',path+'/defaults',{version:savedVersion})},'features.ai.central.defaultSaved')}>{t('features.ai.central.defaultButton')}</button></div>}
