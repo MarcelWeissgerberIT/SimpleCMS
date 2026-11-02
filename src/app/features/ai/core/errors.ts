@@ -2,6 +2,7 @@
  * AIError: every AI failure, for every provider and for the gate in front of every request (moved here from
  * client.ts, which re-exports it unchanged). The codes are the shared ones (src/shared/ai/errors.ts).
  */
+import {isSharedFailure} from '@/shared/ai/shared-failure'
 import type { AIErrorCode } from '@/shared/ai/errors'
 import type { DataClass, ProviderId, Route } from '@/shared/ai/types'
 import { labelOf, providerLabel } from '@/shared/ai/models'
@@ -43,6 +44,8 @@ export function providerOfLabel(label: string): ProviderId {
 
 /** The friendly sentence for an error code (in the current UI language) — naming the company and host of the route. */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
+  if(v.detail?.startsWith('features.ai.local.host.')&&isSharedFailure(v.detail.slice('features.ai.local.host.'.length)))return t(v.detail)
+  if(code==='context'&&v.detail==='features.ai.local.contextFull')return t(v.detail)
   if(code==='bad_request'&&v.detail==='features.ai.analysis.held')return t(v.detail)
   if(code==='rate_limit'&&v.detail==='features.ai.local.queueFull')return t(v.detail)
   if(v.detail==='features.ai.mock.held')return t(v.detail)

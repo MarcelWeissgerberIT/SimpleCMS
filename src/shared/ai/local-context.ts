@@ -86,3 +86,24 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
   // Never discard the person's question or silently clip their source to make a request fit.
   throw new RangeError('Model context is full. Start a fresh task or select a smaller source passage; no further model request was sent.')
 }
+
+/** Fit current definitions as well as closed results. Only optional native MCP aliases
+ * may be evicted; their discovered schemas remain callable through one_mcp_call or
+ * exact rediscovery. Required wrappers, parameter validation and task text stay intact. */
+export function fitLocalToolPacket<T extends Message,F extends {name:string}>(messages:T[],tools:F[]|undefined,fits:(messages:T[],tools:F[]|undefined)=>boolean,history?:{completedBefore:number;onCompact?:()=>void}) {
+  let selected=tools,compacted=false
+  for(;;){
+    try{
+      const next=fitLocalToolContext(messages,m=>fits(m,selected),history?{completedBefore:history.completedBefore,onCompact:()=>{compacted=true}}:undefined)
+      if(compacted||selected!==tools)history?.onCompact?.()
+      return {messages:next,tools:selected}
+    }catch(e){
+      if(!(e instanceof RangeError))throw e
+      let last=-1
+      selected?.forEach((t,i)=>{if(/^one_remote_\d+$/.test(t.name))last=i})
+      if(last<0||selected?.filter(t=>/^one_remote_\d+$/.test(t.name)).length===1)throw e
+      // Latest discovery/relevant schemas come first; older optional aliases yield space.
+      selected=selected!.filter((_,i)=>i!==last)
+    }
+  }
+}

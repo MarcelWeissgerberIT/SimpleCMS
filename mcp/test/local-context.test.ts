@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fitLocalToolContext } from '../../src/shared/ai/local-context.ts'
+import { fitLocalToolContext,fitLocalToolPacket } from '../../src/shared/ai/local-context.ts'
 import { localChatMessages } from '../src/worker/local-chat.ts'
 
 const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value))
@@ -79,4 +79,18 @@ test('a current K1 read can shed model narration without losing the instruction,
  assert.equal(compacted,1);assert.deepEqual(messages,original);assert.deepEqual(result.slice(0,2),messages.slice(0,2));assert.deepEqual(result[3],messages[3]);assert.deepEqual(JSON.parse(result[2]!.content).find((b:any)=>b.type==='tool_use'),call);assert.match(result[2]!.content,/model narration omitted/)
  const native=localChatMessages(result);assert.equal(native[3].tool_call_id,'k1-read');assert.match(native[3].content,/A12 includes AOX blank/)
  assert.throws(()=>fitLocalToolContext(messages,next=>size(next)<1000,{completedBefore:1}),/fresh task/)
+})
+
+
+test('K2 discovery overflow fits the newest native schema by evicting only older optional aliases',()=>{
+ const messages=[{role:'system' as const,content:'Compiler permissions and instructions. '.repeat(300)},{role:'user' as const,content:'K2 human update: Type, /api/v1, AICM-2246, Sprint 45; only read Atlas 24675 and 23166.'}]
+ const tools=[{name:'one_workspace_search',parameters:{type:'object'}},{name:'one_mcp_call',parameters:{type:'object'}},{name:'one_remote_9',parameters:{description:'Latest Atlas get source schema. '.repeat(30),type:'object'}},{name:'one_remote_3',parameters:{description:'Old optional broad query. '.repeat(300),type:'object'}},{name:'one_remote_2',parameters:{description:'Older project schema. '.repeat(300),type:'object'}}]
+ const before=structuredClone({messages,tools});let notices=0
+ const fitted=fitLocalToolPacket(messages,tools,(m,t)=>size({messages:m,tools:t})<=14000,{completedBefore:1,onCompact:()=>notices++})
+ assert.deepEqual(fitted.messages,messages)
+ assert.deepEqual(fitted.tools?.map(t=>t.name),['one_workspace_search','one_mcp_call','one_remote_9'])
+ assert.deepEqual(fitted.tools?.[2],tools[2],'full source schema remains exact')
+ assert.deepEqual({messages,tools},before);assert.equal(notices,1)
+ assert.throws(()=>fitLocalToolPacket(messages,tools,(m,t)=>size({messages:m,tools:t})<100),/fresh task/)
+ assert.equal(fitLocalToolPacket(messages,tools,()=>true).tools,tools)
 })

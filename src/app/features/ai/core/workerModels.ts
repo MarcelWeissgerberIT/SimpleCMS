@@ -4,7 +4,7 @@ import { assertModelFlow } from './dataFlow'
 import { sharedModelRows, sharedModels, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
 import { flowChoices } from './flowChoices'
 import { SHARED_PREFIX } from '@/shared/ai/shared-model'
-import { fitLocalToolContext } from '@/shared/ai/local-context'
+import { fitLocalToolPacket } from '@/shared/ai/local-context'
 /** Request-only routes discovered from the paired worker. No credentials or persisted model claims. */
 import { useEffect, useSyncExternalStore } from 'react'
 import type { Caps, ModelInfo, Route } from '@/shared/ai/types'
@@ -66,18 +66,19 @@ export async function sendWorkerText(route: Route, messages: Array<{ role: 'syst
   if (route.p === 'local' || route.p === 'copilot') {
     const context = workerModelInfo(route)?.caps.context ?? 32768
     const reserve = Math.min(maxTokens, route.p === 'copilot' ? 8192 : 16384) + 2048 + (extra.attachments?.length??0)*4096
-    const budget=context-reserve-512
-    const wire=route.p==='local'&&route.m.startsWith(SHARED_PREFIX)?sharedWireLimit(route.m)-512:Infinity
+    const budget=context-reserve-1024
+    const wire=route.p==='local'&&route.m.startsWith(SHARED_PREFIX)?sharedWireLimit(route.m)-1536:Infinity
     try {
       // Match the worker's conservative UTF-8 wire estimate, including escaped
       // tool results. Only linked tool results are excerpted; source/task/history
       // remain intact. This also works with an already installed older worker.
-      messages = fitLocalToolContext(messages,next=>{const bytes=new TextEncoder().encode(JSON.stringify([next,extra.tools,extra.schema])).length;return bytes<=wire&&Math.ceil(bytes/WORKER_TEXT_BYTES_PER_TOKEN)<=budget},history)
-    } catch (e) { throw new AIError('context', e instanceof Error ? e.message : String(e),undefined,providerLabel(route.p)+' · '+(workerModelInfo(route)?.label??route.m)) }
+      const fitted=fitLocalToolPacket(messages,extra.tools,(next,tools)=>{const bytes=new TextEncoder().encode(JSON.stringify([next,tools,extra.schema])).length;return bytes<=wire&&Math.ceil(bytes/WORKER_TEXT_BYTES_PER_TOKEN)<=budget},history)
+      messages=fitted.messages;extra={...extra,tools:fitted.tools}
+    } catch (e) { if(!(e instanceof RangeError))throw e;throw new AIError('context', 'features.ai.local.contextFull',undefined,providerLabel(route.p)+' · '+(workerModelInfo(route)?.label??route.m)) }
   }
   if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {
     if (extra.attachments?.length) throw new AIError('capability')
-    try { return await sendSharedText(route.m, messages, maxTokens, signal, undefined, extra) } catch (e) { if(!signal?.aborted&&e instanceof CloudError&&e.status===429)throw new AIError('rate_limit','features.ai.local.queueFull');throw new AIError(signal?.aborted ? 'aborted' : 'unknown', e instanceof Error ? e.message : String(e)) }
+    try { return await sendSharedText(route.m, messages, maxTokens, signal, undefined, extra) } catch (e) { if(!signal?.aborted&&e instanceof AIError)throw e;if(!signal?.aborted&&e instanceof CloudError&&e.status===429)throw new AIError('rate_limit','features.ai.local.queueFull');throw new AIError(signal?.aborted ? 'aborted' : 'unknown', e instanceof Error ? e.message : String(e)) }
   }
   const {auditRun:_auditRun,...workerExtra}=extra
   const api = await import('../../coding')

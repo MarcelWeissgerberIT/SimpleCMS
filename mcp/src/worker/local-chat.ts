@@ -1,3 +1,4 @@
+import { SharedInferenceError } from '../../../src/shared/ai/shared-failure.ts'
 import { randomUUID } from 'node:crypto'
 import type { WorkerTextRequest, WorkerCall } from '../../../src/shared/ai/worker.ts'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js'
@@ -25,14 +26,19 @@ export function localChatMessages(messages: WorkerTextRequest['messages']) {
   })
 }
 
+export class LocalToolOutputError extends SharedInferenceError {
+  readonly functions:string[]
+  constructor(names:unknown[]=[]){super('tool_output');this.functions=names.filter((v):v is string=>typeof v==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(v)).slice(0,8)}
+}
+
 export function localChatResult(message: any, request: WorkerTextRequest): { text: string; calls?: WorkerCall[] } {
   if (!message || message.content !== undefined && typeof message.content !== 'string') throw new Error('Invalid local model answer.')
   const raw = message.tool_calls ?? []
-  if (!Array.isArray(raw) || raw.length > 8 || raw.length && !request.tools?.length) throw new Error('Unexpected local tool calls.')
+  if (!Array.isArray(raw) || raw.length > 8 || raw.length && !request.tools?.length) throw new LocalToolOutputError()
   const validator = new AjvJsonSchemaValidator()
   const calls = raw.map((c: any): WorkerCall => {
     const tool = request.tools?.find(t => t.name === c?.function?.name)
-    if (!tool || !c.function.arguments || typeof c.function.arguments !== 'object' || Array.isArray(c.function.arguments) || !validator.getValidator(tool.parameters)(c.function.arguments).valid) throw new Error('Invalid local tool arguments; no function was executed.')
+    if (!tool || !c.function.arguments || typeof c.function.arguments !== 'object' || Array.isArray(c.function.arguments) || !validator.getValidator(tool.parameters)(c.function.arguments).valid) throw new LocalToolOutputError([c?.function?.name])
     return { id: randomUUID(), name: tool.name, arguments: c.function.arguments }
   })
   const text = message.content ?? ''

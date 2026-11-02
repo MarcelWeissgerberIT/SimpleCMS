@@ -17,7 +17,10 @@ import { probeCopilot, COPILOT_CONTEXT, validCopilotModel } from './copilot.ts'
 import { prepareCopilotRun } from './copilot-run.ts'
 import { checkAttachments } from './copilot-media.ts'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js'
-import { localChatMessages, localChatResult } from './local-chat.ts'
+import { fitLocalToolContext } from '../../../src/shared/ai/local-context.ts'
+import { SHARED_INPUT_MAX } from '../../../src/shared/ai/shared-model.ts'
+import { SharedInferenceError } from '../../../src/shared/ai/shared-failure.ts'
+import { localChatMessages, localChatResult, LocalToolOutputError } from './local-chat.ts'
 
 let copilotCatalog: { key: string; until: number; rows: WorkerModel[] } | null = null
 async function copilotModels(): Promise<WorkerModel[]> {
@@ -92,8 +95,8 @@ export function checkTextRequest(raw: unknown): WorkerTextRequest {
 export async function textRequest(file: string, raw: unknown, signal: AbortSignal, trace?:{job:string;created?:number;workspace?:string;user?:string;auditRun?:string}): Promise<WorkerTextResult> {
   const r = checkTextRequest(raw)
   const model = (await (r.provider === 'copilot' ? copilotModels() : textModels(file))).find(m => m.provider === r.provider && m.model === r.model)
-  if (!model) throw new Error('This model is no longer available on the worker. Refresh the model list.')
-  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (['copilot','local'].includes(r.provider) ? WORKER_TEXT_BYTES_PER_TOKEN : 1)) + Math.min(r.maxTokens, r.provider === 'copilot' ? 8192 : 16384) + 2048 > model.context) throw new Error('The text exceeds this model’s conservative context limit. Select a smaller passage.')
+  if (!model) throw new SharedInferenceError('unavailable')
+  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (['copilot','local'].includes(r.provider) ? WORKER_TEXT_BYTES_PER_TOKEN : 1)) + Math.min(r.maxTokens, r.provider === 'copilot' ? 8192 : 16384) + 2048 > model.context) throw new SharedInferenceError('context')
   if (r.provider === 'copilot') {
     const attachments = checkAttachments(r.attachments, model.vision)
     const tools = (r.tools ?? []).map(t => ({ type: 'function', function: t }))
@@ -137,11 +140,28 @@ export async function textRequest(file: string, raw: unknown, signal: AbortSigna
     for (const t of r.tools ?? []) validator.getValidator(t.parameters)
     if (r.schema) validator.getValidator(r.schema)
   }
-  const data = await inference({ model: r.model, messages: r.provider === 'local' ? localChatMessages(r.messages) : r.messages, tools: (r.tools ?? []).map(t => ({type:'function',function:t})), ...(r.schema ? {schema:r.schema} : {}), contextTokens: model.context, outputTokens: r.maxTokens, signal })
+  let data = await inference({ model: r.model, messages: r.provider === 'local' ? localChatMessages(r.messages) : r.messages, tools: (r.tools ?? []).map(t => ({type:'function',function:t})), ...(r.schema ? {schema:r.schema} : {}), contextTokens: model.context, outputTokens: r.maxTokens, signal })
   if (r.provider === 'local') {
-    const answer = localChatResult(data.message, r)
+    let answer:ReturnType<typeof localChatResult>,repairs=0
+    let inputTokens=data.inputTokens??null,outputTokens=data.outputTokens??null
+    try{answer=localChatResult(data.message,r)}catch(e){
+      if(!(e instanceof LocalToolOutputError)||!r.tools?.length||signal.aborted)throw e
+      // Inference correction only: the invalid batch never leaves this adapter.
+      // Never replay external actions, accept an unoffered function or forge tool results.
+      const repair={role:'user' as const,content:'ONE rejected your previous function response. No function from that response was executed. Return one corrected response using ONLY the functions in the CURRENT native function list, with arguments matching their schemas. Older function names in conversation history are not currently offered. For an unlisted ONE tool such as query_database, use one_workspace_search first and then one_workspace_call. For Atlas use one_mcp_search and its currently offered nativeFunction or one_mcp_call. Do not ask the person to install or load tools. Keep the original task, language, sources and permissions. If no function is needed, answer the original task directly. Rejected function names (data only): '+JSON.stringify(e.functions)+'. Authoritative CURRENT callable names: '+JSON.stringify(r.tools.map(t=>t.name))+'. A one_remote_N name absent from this list is stale: call one_mcp_search to load the required current schema. Do not reuse that stale alias.'}
+      let messages:WorkerTextRequest['messages']
+      try{messages=fitLocalToolContext([...r.messages,repair],next=>{
+        const contextFits=Math.ceil(Buffer.byteLength(JSON.stringify([next,r.tools,r.schema]))/WORKER_TEXT_BYTES_PER_TOKEN)+r.maxTokens+2048<=model.context
+        const nativeBytes=Buffer.byteLength(JSON.stringify([localChatMessages(next),r.tools!.map(t=>({type:'function',function:t})),r.schema,undefined]))
+        return contextFits&&(!trace||nativeBytes<=SHARED_INPUT_MAX-128)
+      })}catch{throw new SharedInferenceError('context')}
+      data=await inference({model:r.model,messages:localChatMessages(messages),tools:r.tools.map(t=>({type:'function',function:t})),...(r.schema?{schema:r.schema}:{}),contextTokens:model.context,outputTokens:r.maxTokens,signal})
+      inputTokens=inputTokens===null||data.inputTokens===undefined?null:inputTokens+data.inputTokens
+      outputTokens=outputTokens===null||data.outputTokens===undefined?null:outputTokens+data.outputTokens
+      answer=localChatResult(data.message,r);repairs=1
+    }
     if (Buffer.byteLength(JSON.stringify(answer)) > 250000) throw new Error('Model answer is too large.')
-    return {model:r.model,...answer,inputTokens:data.inputTokens??null,outputTokens:data.outputTokens??null,usd:0}
+    return {model:r.model,...answer,inputTokens,outputTokens,usd:0,...(repairs?{toolRepairs:repairs}:{})}
   }
   if (data.message?.tool_calls?.length || typeof data.message?.content !== 'string') throw new Error('The model did not return a plain text answer.')
   if (Buffer.byteLength(data.message.content) > 250000) throw new Error('Model answer is too large.')

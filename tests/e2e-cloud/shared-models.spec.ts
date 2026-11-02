@@ -23,15 +23,22 @@ test('shared local model appears and answers without a participant worker; setti
  await page.keyboard.press('Escape')
  const blocked=await page.evaluate(m=>(window as any).__oneAI.precheck({purpose:'palette.ask',sources:[],carries:['memory'],route:{p:'local',m}}),SHARED_PREFIX+w.id)
  expect(blocked.ok).toBe(false)
- let calls=0,seen:any
+ let calls=0,seen:any,failure:string|undefined
  const timer=setInterval(()=>void worker('poll',{publicKey,busy:false,available:true,active:null}).then(async r=>{
   if(!r.job)return
   calls++;const key=await sharedWorkerKey(r.job.box,keys.privateKey);seen=await openShared(r.job.box,key,w.id,r.job.id)
-  await worker('poll',{publicKey,busy:false,available:true,active:null,outcome:{id:r.job.id,box:await sealShared({ok:true,result:{model:'fixture-local',text:'Shared result verified',inputTokens:80,outputTokens:4,usd:0}},key,w.id,r.job.id)}})
+  await worker('poll',{publicKey,busy:false,available:true,active:null,outcome:{id:r.job.id,box:await sealShared(failure?{ok:false,error:{code:failure}}:{ok:true,result:{model:'fixture-local',text:'Shared result verified',inputTokens:80,outputTokens:4,usd:0}},key,w.id,r.job.id)}})
  }).catch(()=>{}),100)
  try{
   const answer=await page.evaluate(async m=>(window as any).__oneAI.ask({purpose:'setup.test',prompt:'Synthetic demo review',route:{p:'local',m}}),SHARED_PREFIX+w.id)
   expect(answer).toMatchObject({ok:true,text:'Shared result verified'});expect(calls).toBe(1);expect(seen.model).toBe('fixture-local');expect(seen.messages.some((m:any)=>m.content.includes('Synthetic demo review'))).toBe(true)
+  for(const code of ['tool_output','context']){
+   failure=code
+   const rejected=await page.evaluate(async m=>(window as any).__oneAI.ask({purpose:'setup.test',prompt:'Synthetic failure classification',route:{p:'local',m}}),SHARED_PREFIX+w.id)
+   expect(rejected.ok).toBe(false)
+   expect(JSON.stringify(rejected)).toContain('features.ai.local.host.'+code)
+   expect(JSON.stringify(rejected)).not.toContain('without an answer')
+  }
  }finally{clearInterval(timer)}
  await api(page,'DELETE',`/api/workspaces/${ws}/model-shares/${w.id}`)
 })

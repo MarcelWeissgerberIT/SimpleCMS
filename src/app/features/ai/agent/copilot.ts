@@ -92,6 +92,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       await audit.tool('ONE','compiled_task',{phase:'compile'},()=>task!.report())
       const transcript = await copilotMessages(messages, material)
       const result = await sendWorkerText(route, [{ role: 'system', content: compiled }, ...transcript], Math.min(local || (prepared.caps?.context??32768)<64000 ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, {auditRun:audit.runId, tools: calls < MAX_TOOL_CALLS&&factRepairs===0&&codeRepairs===0 ? [...definitions,...(remote?.functions()??[])] : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) },contextHistory)
+      if(result.toolRepairs)hooks.note(t('features.agent.toolCorrected'))
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const answerText=unwrapMcpText(result.text)
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: answerText }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }

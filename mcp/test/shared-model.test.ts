@@ -9,14 +9,14 @@ import {sharedRequestBox,openShared,type SharedBox} from '../../src/shared/ai/sh
 
 test('shared worker host runs only its explicitly selected local model, performs function inference without executing host tools, and persists disable',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'one-model-share-')),original=globalThis.fetch
- let publicKey:any,job:any,outcome:any,available=true,enabled=true,modelRequests=0
+ let publicKey:any,job:any,outcome:any,available=true,enabled=true,modelRequests=0,providerFailure=false
  let host:SharedModelHost|undefined
  const seen:any[]=[]
  globalThis.fetch=async(input:any,init:any)=>{
   const u=new URL(String(input));const b=init?.body?JSON.parse(init.body):null
   if(u.pathname==='/api/tags')return Response.json({models:[{name:'safe-local'},{name:'not-local',remote_host:'https://ollama.com'}]})
   if(u.pathname==='/api/show')return Response.json({capabilities:['completion','tools']})
-  if(u.pathname==='/api/chat'){modelRequests++;seen.push(b);return Response.json({message:b.tools?.length?{content:'',tool_calls:[{function:{name:'lookup',arguments:{query:'atlas'}}}]}:{content:'Synthetic answer'},prompt_eval_count:8,eval_count:3})}
+  if(u.pathname==='/api/chat'){if(providerFailure)throw new Error('private-provider-token-DO-NOT-ECHO');modelRequests++;seen.push(b);return Response.json({message:b.tools?.length?{content:'',tool_calls:[{function:{name:'lookup',arguments:{query:'atlas'}}}]}:{content:'Synthetic answer'},prompt_eval_count:8,eval_count:3})}
   if(u.pathname==='/api/coding/shared-model/info')return Response.json({workerId:'worker-test'})
   if(u.pathname.endsWith('/config')){enabled=b.enabled;return Response.json({enabled})}
   if(u.pathname.endsWith('/poll')){
@@ -55,7 +55,12 @@ test('shared worker host runs only its explicitly selected local model, performs
   const badId=crypto.randomUUID(),bad=await sharedRequestBox({...request,tools:[{name:'run_shell'}]} as any,publicKey,'worker-test',badId)
   job={id:badId,box:bad.box}
   for(let i=0;!outcome&&i<400;i++)await new Promise(r=>setTimeout(r,25))
-  assert.equal(outcome.id,badId);assert.equal(outcome.box,undefined);assert.equal(modelRequests,2)
+  assert.equal(outcome.id,badId);assert.equal(modelRequests,2)
+  assert.deepEqual(await openShared(outcome.box,bad.key,'worker-test',badId),{ok:false,error:{code:'invalid_request'}})
+  outcome=null;providerFailure=true
+  const failedId=crypto.randomUUID(),failed=await sharedRequestBox(request,publicKey,'worker-test',failedId);job={id:failedId,box:failed.box}
+  for(let i=0;!outcome&&i<400;i++)await new Promise(r=>setTimeout(r,25))
+  assert.deepEqual(await openShared(outcome.box,failed.key,'worker-test',failedId),{ok:false,error:{code:'host_error'}})
   enabled=false;available=false
   for(let i=0;host.status().choice?.enabled&&i<200;i++)await new Promise(r=>setTimeout(r,25))
   assert.equal(JSON.parse(readFileSync(config.file+'.model-share.json','utf8')).enabled,false)

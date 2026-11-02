@@ -1,3 +1,5 @@
+import {isSharedFailure} from '@/shared/ai/shared-failure'
+import {AIError} from './errors'
 import {useWorkspace} from '../../../store/store'
 import {hasFlowLimits} from '@/shared/ai/dataFlow'
 import {useEffect,useSyncExternalStore} from 'react'
@@ -63,9 +65,13 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
       if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
       if(onProgress)onProgress(state);else setProgress(state)
       if(state.state==='done'&&state.box){
-        const reply=await openShared<{ok:boolean;result:WorkerTextResult}>(state.box,key,share.id,id)
+        const reply=await openShared<{ok:boolean;result:WorkerTextResult;error?:{code:unknown}}>(state.box,key,share.id,id)
         signal?.throwIfAborted()
         if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
+        if(!reply.ok&&isSharedFailure(reply.error?.code)){
+          const code=reply.error!.code
+          throw new AIError(code==='tool_output'?'capability':code==='context'?'context':code==='timeout'?'timeout':code==='unavailable'?'unavailable':'unknown','features.ai.local.host.'+code)
+        }
         if(!reply.ok||reply.result?.model!==share.model||typeof reply.result.text!=='string'||reply.result.calls && (!Array.isArray(reply.result.calls)||reply.result.calls.length>8||reply.result.calls.some(c=>typeof c.id!=='string'||!extra.tools?.some(t=>t.name===c.name)||!c.arguments||typeof c.arguments!=='object'||Array.isArray(c.arguments))))throw new Error('Invalid shared model response')
         finished=true;return {...reply.result,usd:0}
       }

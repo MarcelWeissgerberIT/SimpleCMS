@@ -1,3 +1,4 @@
+import {SharedInferenceError} from '../../../src/shared/ai/shared-failure.ts'
 /** The harness only consumes this contract. Model selection and wire format stay in the adapter. */
 export interface LocalInferenceRequest {
   schema?: Record<string, unknown>
@@ -44,7 +45,11 @@ export function ollamaInference(base: URL, traceHeaders: Record<string,string> =
       method: 'POST', redirect: 'error', signal: AbortSignal.any([request.signal, AbortSignal.timeout(180000)]), headers: { 'Content-Type': 'application/json', ...traceHeaders },
       body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, ...(request.schema ? { format: request.schema } : {}), stream: false, keep_alive: '30m', options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } }),
     })
-    if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`)
+    if (!response.ok) {
+      // Recognise only the gateway's fixed code, never forward arbitrary response text.
+      if(response.status===400){const error=await response.json().catch(()=>null) as any;if(error?.error?.type==='context_limit')throw new SharedInferenceError('context')}
+      throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`)
+    }
     const data = await response.json() as { message?: any; prompt_eval_count?: number; eval_count?: number }
     return { message: data.message, inputTokens: data.prompt_eval_count, outputTokens: data.eval_count }
   }

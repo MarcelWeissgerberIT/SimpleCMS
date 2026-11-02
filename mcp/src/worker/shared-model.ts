@@ -1,4 +1,5 @@
 /** Owner-controlled local model sharing. Polls outbound; never opens Ollama to the LAN. */
+import { SharedInferenceError } from '../../../src/shared/ai/shared-failure.ts'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { cloudOf, type WorkerConfig } from './config.ts'
@@ -79,21 +80,29 @@ export class SharedModelHost {
     finally{this.polling=false;if(!this.stopped)this.timer=setTimeout(()=>void this.poll(),2000)}
   }
   private async run(id:string,box:SharedBox,abort:AbortController,trace?:{created?:number;workspace?:string;user?:string;auditRun?:string}){
-    const timer=setTimeout(()=>abort.abort(),180000)
+    let timedOut=false
+    const timer=setTimeout(()=>{timedOut=true;abort.abort()},180000)
+    let key:Awaited<ReturnType<typeof sharedWorkerKey>>|undefined,share:string|undefined,validated=false
     try{
-      const key=await sharedWorkerKey(box,(await this.keys).privateKey)
-      const share=(await this.apiInfo())
+      key=await sharedWorkerKey(box,(await this.keys).privateKey)
+      share=await this.apiInfo()
       const request=await openShared<SharedText>(box,key,share,id)
       if(!this.choice?.enabled||request.model!==this.choice.model||Buffer.byteLength(JSON.stringify(request))>SHARED_INPUT_MAX||Object.keys(request).some(k=>!['model','messages','maxTokens','tools','schema'].includes(k))||request.maxTokens>4096)throw new Error('Shared request outside the allowed model or size')
       if((request.tools?.length||request.schema)&&!this.tools)throw new Error('Shared model has no verified function support')
       const r=checkTextRequest({...request,provider:'local'})
+      validated=true
       // Function definitions are inference data only. No function executes here; no owner MCP credentials, project paths or arbitrary model URLs enter this path.
       const result=await textRequest(this.config.file,r,abort.signal,{job:id,...trace})
       if(Buffer.byteLength(JSON.stringify(result))>120000)throw new Error('Answer too large')
       const sealed=await sealShared({ok:true,result},key,share,id)
       if(!abort.signal.aborted)this.outcome={id,box:sealed};else this.outcome={id}
       this.log('Shared local model: one inference request completed (no host tools executed).')
-    }catch{this.outcome={id}}
+    }catch(e){
+      // Never reflect provider text, prompts, arguments, credentials or stack traces.
+      const code=e instanceof SharedInferenceError?e.code:abort.signal.aborted?'timeout':validated?'host_error':'invalid_request'
+      this.outcome=key&&share&&(!abort.signal.aborted||timedOut)?{id,box:await sealShared({ok:false,error:{code}},key,share,id)}:{id}
+      this.log('Shared local model: inference failed ('+code+'); no host tools executed.')
+    }
     finally{clearTimeout(timer);this.active=null}
   }
   private async apiInfo():Promise<string>{

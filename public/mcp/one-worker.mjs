@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.5 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.6 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -17420,6 +17420,16 @@ function saveOllamaCloud(workerFile, raw) {
   }
 }
 
+// ../src/shared/ai/shared-failure.ts
+var SharedInferenceError = class extends Error {
+  code;
+  constructor(code) {
+    super(code);
+    this.name = "SharedInferenceError";
+    this.code = code;
+  }
+};
+
 // src/worker/local-inference.ts
 var InferenceLimit = class extends Error {
   kind;
@@ -17444,7 +17454,13 @@ function ollamaInference(base, traceHeaders = {}) {
       headers: { "Content-Type": "application/json", ...traceHeaders },
       body: JSON.stringify({ model: request3.model, messages: request3.messages, tools: request3.tools, ...request3.schema ? { format: request3.schema } : {}, stream: false, keep_alive: "30m", options: { num_ctx: request3.contextTokens, num_predict: request3.outputTokens, temperature: 0.2 } })
     });
-    if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
+    if (!response.ok) {
+      if (response.status === 400) {
+        const error2 = await response.json().catch(() => null);
+        if (error2?.error?.type === "context_limit") throw new SharedInferenceError("context");
+      }
+      throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
+    }
     const data = await response.json();
     return { message: data.message, inputTokens: data.prompt_eval_count, outputTokens: data.eval_count };
   };
@@ -18854,6 +18870,131 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
+// ../src/shared/ai/local-context.ts
+var OMITTED = "\n[Harness context excerpt: tool result shortened. Do not infer omitted facts; request a narrower source if needed.]";
+function fitLocalToolContext(messages, fits, history) {
+  if (fits(messages)) return messages;
+  const next = messages.map((m) => ({ ...m }));
+  const calls = /* @__PURE__ */ new Set();
+  const results = [];
+  for (const message of next) {
+    let parsed;
+    try {
+      parsed = JSON.parse(message.content);
+    } catch {
+      continue;
+    }
+    if (message.role === "assistant") {
+      const listed = Array.isArray(parsed) ? parsed.filter((b) => b?.type === "tool_use").map((b) => ({ id: b.id })) : parsed?.tool_calls;
+      if (Array.isArray(listed)) {
+        for (const call of listed) if (typeof call?.id === "string") calls.add(call.id);
+      }
+    } else if (message.role === "user") {
+      const listed = Array.isArray(parsed) ? parsed.filter((b) => b?.type === "tool_result") : parsed?.tool_result ? [parsed.tool_result] : [];
+      for (const result of listed) {
+        const id = result.tool_use_id ?? result.id;
+        if (!calls.has(id) || typeof result.content !== "string") continue;
+        results.push({ text: result.content, set(text2) {
+          result.content = text2;
+          message.content = JSON.stringify(parsed);
+        } });
+      }
+    }
+  }
+  for (const [index, result] of results.entries()) {
+    const minimum = index === results.length - 1 ? 512 : 128;
+    if (result.text.length <= minimum + OMITTED.length) continue;
+    const excerpt = (end) => {
+      if (end > 0 && /[\uD800-\uDBFF]/.test(result.text.charAt(end - 1))) end--;
+      return result.text.slice(0, end) + OMITTED;
+    };
+    result.set(excerpt(minimum));
+    if (!fits(next)) continue;
+    let low = minimum, high = result.text.length - OMITTED.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      result.set(excerpt(mid));
+      if (fits(next)) low = mid;
+      else high = mid - 1;
+    }
+    result.set(excerpt(low));
+    return next;
+  }
+  if (history && Number.isSafeInteger(history.completedBefore) && history.completedBefore > 1 && history.completedBefore < messages.length) {
+    const ids = /* @__PURE__ */ new Set(), earlier = [];
+    for (const message of messages.slice(0, history.completedBefore)) {
+      let parsed;
+      try {
+        parsed = JSON.parse(message.content);
+      } catch {
+      }
+      if (message.role === "assistant") {
+        const listed = Array.isArray(parsed) ? parsed.filter((b) => b?.type === "tool_use") : parsed?.tool_calls;
+        if (Array.isArray(listed)) {
+          for (const call of listed) if (typeof call?.id === "string") ids.add(call.id);
+        }
+        continue;
+      }
+      const results2 = Array.isArray(parsed) && parsed.length && parsed.every((b) => b?.type === "tool_result") ? parsed : parsed?.tool_result ? [parsed.tool_result] : null;
+      if (message.role === "user" && results2?.every((r) => ids.has(r.tool_use_id ?? r.id))) continue;
+      earlier.push(message);
+    }
+    const marker = { role: "assistant", content: "[Harness history boundary: earlier assistant drafts and their closed tool traces were omitted from this model request to fit context. Every original human message and the current task remain verbatim; the full visible run history is unchanged. Prior answers are not verified source evidence. Re-read Atlas sources if needed; do not infer omitted facts.]" };
+    const folded = [...earlier, marker, ...messages.slice(history.completedBefore)];
+    const fitted = fitLocalToolContext(folded, fits);
+    history.onCompact?.();
+    return fitted;
+  }
+  const narration = "[Harness context: earlier model narration omitted. It is not source evidence. Human instructions and tool calls remain unchanged.]";
+  for (const message of next) {
+    if (message.role !== "assistant" || message.content.length < 256) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(message.content);
+    } catch {
+    }
+    if (Array.isArray(parsed) && parsed.some((b) => b?.type === "tool_use")) {
+      const reduced = [{ type: "text", text: narration }, ...parsed.filter((b) => b?.type !== "text")];
+      const text2 = JSON.stringify(reduced);
+      if (text2.length < message.content.length) message.content = text2;
+    } else if (parsed && Array.isArray(parsed.tool_calls)) {
+      const text2 = JSON.stringify({ ...parsed, content: narration });
+      if (text2.length < message.content.length) message.content = text2;
+    } else message.content = narration;
+    if (fits(next)) {
+      history?.onCompact?.();
+      return next;
+    }
+  }
+  throw new RangeError("Model context is full. Start a fresh task or select a smaller source passage; no further model request was sent.");
+}
+
+// ../src/shared/ai/shared-model.ts
+var SHARED_INPUT_MAX = 36e3;
+var bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+var b64 = (b) => {
+  let s = "";
+  for (const c of new Uint8Array(b)) s += String.fromCharCode(c);
+  return btoa(s);
+};
+var context = (share, id) => new TextEncoder().encode(`one-model-share:v1:${share}:${id}`);
+async function modelShareKey() {
+  return globalThis.crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]);
+}
+async function sealShared(value2, key, share, id) {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const data = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: context(share, id) }, key, new TextEncoder().encode(JSON.stringify(value2)));
+  return { v: 1, iv: b64(iv), data: b64(data) };
+}
+async function openShared(box, key, share, id) {
+  const data = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(box.iv), additionalData: context(share, id) }, key, bytes(box.data));
+  return JSON.parse(new TextDecoder().decode(data));
+}
+async function sharedWorkerKey(box, key) {
+  if (!box.key) throw new Error("Missing request key");
+  return globalThis.crypto.subtle.unwrapKey("raw", bytes(box.key), key, { name: "RSA-OAEP" }, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+
 // src/worker/local-chat.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 function localChatMessages(messages) {
@@ -18883,14 +19024,21 @@ function localChatMessages(messages) {
     return [message];
   });
 }
+var LocalToolOutputError = class extends SharedInferenceError {
+  functions;
+  constructor(names2 = []) {
+    super("tool_output");
+    this.functions = names2.filter((v) => typeof v === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(v)).slice(0, 8);
+  }
+};
 function localChatResult(message, request3) {
   if (!message || message.content !== void 0 && typeof message.content !== "string") throw new Error("Invalid local model answer.");
   const raw = message.tool_calls ?? [];
-  if (!Array.isArray(raw) || raw.length > 8 || raw.length && !request3.tools?.length) throw new Error("Unexpected local tool calls.");
+  if (!Array.isArray(raw) || raw.length > 8 || raw.length && !request3.tools?.length) throw new LocalToolOutputError();
   const validator = new AjvJsonSchemaValidator();
   const calls = raw.map((c) => {
     const tool = request3.tools?.find((t) => t.name === c?.function?.name);
-    if (!tool || !c.function.arguments || typeof c.function.arguments !== "object" || Array.isArray(c.function.arguments) || !validator.getValidator(tool.parameters)(c.function.arguments).valid) throw new Error("Invalid local tool arguments; no function was executed.");
+    if (!tool || !c.function.arguments || typeof c.function.arguments !== "object" || Array.isArray(c.function.arguments) || !validator.getValidator(tool.parameters)(c.function.arguments).valid) throw new LocalToolOutputError([c?.function?.name]);
     return { id: randomUUID2(), name: tool.name, arguments: c.function.arguments };
   });
   const text2 = message.content ?? "";
@@ -18995,8 +19143,8 @@ function checkTextRequest(raw) {
 async function textRequest(file, raw, signal, trace) {
   const r = checkTextRequest(raw);
   const model2 = (await (r.provider === "copilot" ? copilotModels() : textModels(file))).find((m) => m.provider === r.provider && m.model === r.model);
-  if (!model2) throw new Error("This model is no longer available on the worker. Refresh the model list.");
-  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (["copilot", "local"].includes(r.provider) ? WORKER_TEXT_BYTES_PER_TOKEN : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model2.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
+  if (!model2) throw new SharedInferenceError("unavailable");
+  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (["copilot", "local"].includes(r.provider) ? WORKER_TEXT_BYTES_PER_TOKEN : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model2.context) throw new SharedInferenceError("context");
   if (r.provider === "copilot") {
     const attachments = checkAttachments(r.attachments, model2.vision);
     const tools = (r.tools ?? []).map((t) => ({ type: "function", function: t }));
@@ -19044,11 +19192,33 @@ async function textRequest(file, raw, signal, trace) {
     for (const t of r.tools ?? []) validator.getValidator(t.parameters);
     if (r.schema) validator.getValidator(r.schema);
   }
-  const data = await inference({ model: r.model, messages: r.provider === "local" ? localChatMessages(r.messages) : r.messages, tools: (r.tools ?? []).map((t) => ({ type: "function", function: t })), ...r.schema ? { schema: r.schema } : {}, contextTokens: model2.context, outputTokens: r.maxTokens, signal });
+  let data = await inference({ model: r.model, messages: r.provider === "local" ? localChatMessages(r.messages) : r.messages, tools: (r.tools ?? []).map((t) => ({ type: "function", function: t })), ...r.schema ? { schema: r.schema } : {}, contextTokens: model2.context, outputTokens: r.maxTokens, signal });
   if (r.provider === "local") {
-    const answer = localChatResult(data.message, r);
+    let answer, repairs = 0;
+    let inputTokens = data.inputTokens ?? null, outputTokens = data.outputTokens ?? null;
+    try {
+      answer = localChatResult(data.message, r);
+    } catch (e) {
+      if (!(e instanceof LocalToolOutputError) || !r.tools?.length || signal.aborted) throw e;
+      const repair = { role: "user", content: "ONE rejected your previous function response. No function from that response was executed. Return one corrected response using ONLY the functions in the CURRENT native function list, with arguments matching their schemas. Older function names in conversation history are not currently offered. For an unlisted ONE tool such as query_database, use one_workspace_search first and then one_workspace_call. For Atlas use one_mcp_search and its currently offered nativeFunction or one_mcp_call. Do not ask the person to install or load tools. Keep the original task, language, sources and permissions. If no function is needed, answer the original task directly. Rejected function names (data only): " + JSON.stringify(e.functions) + ". Authoritative CURRENT callable names: " + JSON.stringify(r.tools.map((t) => t.name)) + ". A one_remote_N name absent from this list is stale: call one_mcp_search to load the required current schema. Do not reuse that stale alias." };
+      let messages;
+      try {
+        messages = fitLocalToolContext([...r.messages, repair], (next) => {
+          const contextFits = Math.ceil(Buffer.byteLength(JSON.stringify([next, r.tools, r.schema])) / WORKER_TEXT_BYTES_PER_TOKEN) + r.maxTokens + 2048 <= model2.context;
+          const nativeBytes = Buffer.byteLength(JSON.stringify([localChatMessages(next), r.tools.map((t) => ({ type: "function", function: t })), r.schema, void 0]));
+          return contextFits && (!trace || nativeBytes <= SHARED_INPUT_MAX - 128);
+        });
+      } catch {
+        throw new SharedInferenceError("context");
+      }
+      data = await inference({ model: r.model, messages: localChatMessages(messages), tools: r.tools.map((t) => ({ type: "function", function: t })), ...r.schema ? { schema: r.schema } : {}, contextTokens: model2.context, outputTokens: r.maxTokens, signal });
+      inputTokens = inputTokens === null || data.inputTokens === void 0 ? null : inputTokens + data.inputTokens;
+      outputTokens = outputTokens === null || data.outputTokens === void 0 ? null : outputTokens + data.outputTokens;
+      answer = localChatResult(data.message, r);
+      repairs = 1;
+    }
     if (Buffer.byteLength(JSON.stringify(answer)) > 25e4) throw new Error("Model answer is too large.");
-    return { model: r.model, ...answer, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: 0 };
+    return { model: r.model, ...answer, inputTokens, outputTokens, usd: 0, ...repairs ? { toolRepairs: repairs } : {} };
   }
   if (data.message?.tool_calls?.length || typeof data.message?.content !== "string") throw new Error("The model did not return a plain text answer.");
   if (Buffer.byteLength(data.message.content) > 25e4) throw new Error("Model answer is too large.");
@@ -20601,32 +20771,6 @@ async function taskRepoFiles(text2, repo, root, branch) {
   return "\n\nExplicitly selected repository files \u2014 current stage snapshots:\n" + out.join("\n");
 }
 
-// ../src/shared/ai/shared-model.ts
-var SHARED_INPUT_MAX = 36e3;
-var bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-var b64 = (b) => {
-  let s = "";
-  for (const c of new Uint8Array(b)) s += String.fromCharCode(c);
-  return btoa(s);
-};
-var context = (share, id) => new TextEncoder().encode(`one-model-share:v1:${share}:${id}`);
-async function modelShareKey() {
-  return globalThis.crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]);
-}
-async function sealShared(value2, key, share, id) {
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const data = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: context(share, id) }, key, new TextEncoder().encode(JSON.stringify(value2)));
-  return { v: 1, iv: b64(iv), data: b64(data) };
-}
-async function openShared(box, key, share, id) {
-  const data = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(box.iv), additionalData: context(share, id) }, key, bytes(box.data));
-  return JSON.parse(new TextDecoder().decode(data));
-}
-async function sharedWorkerKey(box, key) {
-  if (!box.key) throw new Error("Missing request key");
-  return globalThis.crypto.subtle.unwrapKey("raw", bytes(box.key), key, { name: "RSA-OAEP" }, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-}
-
 // ../src/shared/ai/prices.ts
 var PRICES_DATE = "2026-10-12";
 var row = (cols, overrides) => ({ ...cols, ...overrides ? { overrides } : {}, source: "table", at: PRICES_DATE });
@@ -21167,7 +21311,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.5" : "dev";
+var VERSION = true ? "1.35.6" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -41351,22 +41495,30 @@ var SharedModelHost = class {
     }
   }
   async run(id, box, abort, trace) {
-    const timer = setTimeout(() => abort.abort(), 18e4);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, 18e4);
+    let key, share, validated = false;
     try {
-      const key = await sharedWorkerKey(box, (await this.keys).privateKey);
-      const share = await this.apiInfo();
+      key = await sharedWorkerKey(box, (await this.keys).privateKey);
+      share = await this.apiInfo();
       const request3 = await openShared(box, key, share, id);
       if (!this.choice?.enabled || request3.model !== this.choice.model || Buffer.byteLength(JSON.stringify(request3)) > SHARED_INPUT_MAX || Object.keys(request3).some((k) => !["model", "messages", "maxTokens", "tools", "schema"].includes(k)) || request3.maxTokens > 4096) throw new Error("Shared request outside the allowed model or size");
       if ((request3.tools?.length || request3.schema) && !this.tools) throw new Error("Shared model has no verified function support");
       const r = checkTextRequest({ ...request3, provider: "local" });
+      validated = true;
       const result = await textRequest(this.config.file, r, abort.signal, { job: id, ...trace });
       if (Buffer.byteLength(JSON.stringify(result)) > 12e4) throw new Error("Answer too large");
       const sealed = await sealShared({ ok: true, result }, key, share, id);
       if (!abort.signal.aborted) this.outcome = { id, box: sealed };
       else this.outcome = { id };
       this.log("Shared local model: one inference request completed (no host tools executed).");
-    } catch {
-      this.outcome = { id };
+    } catch (e) {
+      const code = e instanceof SharedInferenceError ? e.code : abort.signal.aborted ? "timeout" : validated ? "host_error" : "invalid_request";
+      this.outcome = key && share && (!abort.signal.aborted || timedOut) ? { id, box: await sealShared({ ok: false, error: { code } }, key, share, id) } : { id };
+      this.log("Shared local model: inference failed (" + code + "); no host tools executed.");
     } finally {
       clearTimeout(timer);
       this.active = null;
@@ -50203,7 +50355,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.5" : "dev";
+var VERSION2 = true ? "1.35.6" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
