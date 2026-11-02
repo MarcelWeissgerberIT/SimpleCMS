@@ -1,3 +1,4 @@
+import {centralKeyReady,centralModelAllowed} from '../core/centralAI'
 import { MODELS } from '@/shared/ai/models'
 import { routeKey } from '@/shared/ai/route'
 import { PROVIDERS } from '@/shared/ai/providers'
@@ -20,7 +21,7 @@ export function McpCheckSetup({ disabled = false }: { disabled?: boolean }) {
   useWorkspace(s => s.settings.aiApiKey)
   const current = routeFor('mcp-setup.inspect').route
   const saved = device?.routes?.['mcp-setup']?.[0]
-  const models = [...(hasAIKey('anthropic') ? MODELS.filter(m => m.route.p === 'anthropic' && m.selectable && m.caps.mcp) : []), ...listedWorkerModelRows(saved ?? current).filter(m => m.caps.mcp && m.caps.mcpListing)]
+  const models = [...(centralKeyReady(hasAIKey('anthropic')) ? MODELS.filter(m => m.route.p === 'anthropic' && m.selectable && m.caps.mcp && centralModelAllowed(m.route.m)) : []), ...listedWorkerModelRows(saved ?? current).filter(m => m.caps.mcp && m.caps.mcpListing)]
   const value = saved ? routeKey(saved) : ''
   const provider = current.p
   const personal = provider === 'local' || provider === 'copilot'

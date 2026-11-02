@@ -1,3 +1,4 @@
+import {centralKeyReady,centralModelAllowed} from './centralAI'
 import { workspaceDeviceAI } from '../../../store/ai'
 import {checkProviderQuantum} from './quandprofile'
 import type {QuantumProof} from '@/shared/quandprofile/runtime'
@@ -565,8 +566,8 @@ function world(): RouteWorld {
     device: workspaceDeviceAI(s),
     aiModel: s.settings.aiModel,
     // Claude's marker is settings.aiApiKey; the others' are settings.aiKeys (store/secrets.ts)
-    hasKey: (p) => isWorkerProvider(p) ? workerProviderReady(p) : p === 'anthropic' ? !!s.settings.aiApiKey.trim() : hasAIKey(p),
-    info: (route, pool) => modelInfo(route, pool),
+    hasKey: (p) => isWorkerProvider(p) ? workerProviderReady(p) : p === 'anthropic' ? centralKeyReady(!!s.settings.aiApiKey.trim()) : hasAIKey(p),
+    info: (route, pool) => route.p==='anthropic'&&!centralModelAllowed(route.m)?null:modelInfo(route, pool),
     shortlist: shortlist().map((r) => r.m),
   }
 }
@@ -900,8 +901,8 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   const rule = workspaceDeviceAI(s)?.routes?.[purpose.cls] ?? s.ai?.routes?.[purpose.cls] ?? []
   for (const pin of rule) if (!isJevRouter(pin.m)) add(row(pin, 'rule'))
   // Claude's models (a key here)
-  const claudeKey = !!s.settings.aiApiKey.trim()
-  if (claudeKey) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) add(row({ p: 'anthropic', m: m.route.m }, 'models'))
+  const claudeKey = centralKeyReady(!!s.settings.aiApiKey.trim())
+  if (claudeKey) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable && centralModelAllowed(m.route.m)) add(row({ p: 'anthropic', m: m.route.m }, 'models'))
   for (const choice of flowChoices(workerModelRows().map(model => row(model.route, 'models')), sharedModels(), now)) add(choice)
   // the OpenRouter shortlist (a key here)
   const orKey = hasAIKey('openrouter')

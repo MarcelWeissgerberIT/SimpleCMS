@@ -32,6 +32,8 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
   const label = String(node.attrs.label ?? '').trim() || t('editor.button.default')
   const variant = asVariant(node.attrs.variant)
   const actions = useMemo(() => normalizeActions(node.attrs.actions), [node.attrs.actions])
+  const defaultProvider=useWorkspace(s=>s.ai?.routes?.['*']?.[0]?.p)
+  const caption=defaultProvider==='anthropic'&&actions.some(a=>a.type==='ai_task')&&/^(Mit Frankfurt vorbereiten|Prepare with Frankfurt)$/.test(label)?t('editor.button.aiTask.claudePrepare'):label
   const pageId = editor.view.dom.getAttribute('data-page-id')
   const trashed = useWorkspace((s) => !!pageId && !!s.pages[pageId] && isEffectivelyTrashed(s.pages, pageId))
   const locked = useWorkspace((s) => !!pageId && !!s.pages[pageId]?.settings.locked)
@@ -61,7 +63,7 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
     setState('busy')
     let ok = false
     try {
-      ok = await runButton({ editor, getPos, label, actions, pageId })
+      ok = await runButton({ editor, getPos, label:caption, actions, pageId })
     } finally {
       running.current = false
     }
@@ -79,7 +81,7 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
   const count = actions.length
   return (
     <NodeViewWrapper className={`ob ob--${variant}${selected ? ' is-selected' : ''}${config ? ' is-configuring' : ''}`} data-type="button" contentEditable={false}>
-      <ButtonKey label={label} variant={variant} state={state} disabled={trashed} onClick={run} />
+      <ButtonKey label={caption} variant={variant} state={state} disabled={trashed} onClick={run} />
       {canEdit && (
         <span className="ob__tools">
           <button type="button" className="ob-edit" onClick={() => setConfig(true)} aria-label={t('editor.button.configure')} aria-haspopup="dialog">

@@ -1,3 +1,4 @@
+import {centralTransport,centralAI} from '../core/centralAI'
 import {taskInputOf} from '../core/gate'
 import {createTaskContract,TASK_QUESTION} from '../core/taskContract'
 import {connectionProblem,mcpConnectionMessage} from '@/shared/ai/connection-problem'
@@ -116,17 +117,24 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
   return { client: cached.client, sdk }
 }
 
+/** Resolve a centrally managed connection before opening any personal vault key. */
+async function configuredClient(): Promise<{client:AnthropicSDK;sdk:SDKModule}> {
+  const central=await centralTransport()
+  if(central){const sdk=await loadSDK();return {sdk,client:new sdk.default({apiKey:'central-managed',dangerouslyAllowBrowser:true,maxRetries:0,fetch:central.fetch,middleware:[wireMiddleware]})}}
+  const key=await getAIKey('anthropic')
+  if(!key)throw new AIError('no_key')
+  return getClient(key)
+}
+
 /**
  * The SDK client for the configured key (workspace agent, agent/run.ts). The key goes to
  * api.anthropic.com only. Throws AIError('no_key') without a key.
  */
 export async function claudeClient(): Promise<{ client: AnthropicSDK; sdk: SDKModule; model: AIModelId }> {
   assertModelFlow('anthropic')
-  const apiKey = await getAIKey('anthropic')
-  if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
-  const { client, sdk } = await getClient(apiKey)
-  return { client, sdk, model: legacyRule(settings.aiModel, true)[0]?.m ?? DEFAULT_CLAUDE_MODEL }
+  const { client, sdk } = await configuredClient()
+  return { client, sdk, model: centralAI()?.assigned ? centralAI()!.model! : legacyRule(settings.aiModel, true)[0]?.m ?? DEFAULT_CLAUDE_MODEL }
 }
 
 export type { SDKModule }
@@ -152,6 +160,7 @@ const NO_CREDIT_RE = /credit balance is too low|usage limits/i
 
 function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, 'names' | 'servers'> | null): AIError {
   if (e instanceof AIError) return e
+  if(e instanceof Error && e.cause instanceof AIError)return e.cause
   if (e instanceof DOMException && e.name === 'AbortError') return new AIError('aborted')
   if (sdk) {
     const A = sdk.default
@@ -302,8 +311,6 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
   let system=opts.system
   const { system:originalSystem, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
   assertModelFlow('anthropic')
-  const apiKey = await getAIKey('anthropic')
-  if (!apiKey) throw new AIError('no_key')
   if (signal?.aborted) throw new AIError('aborted')
   // the model the gate routed to, and what it can do (caps — never a model id check)
   assertPreparedFlow(prepared)
@@ -314,7 +321,7 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
   // an MCP call of this request started (streamWithMcp): no retry without a server after that
   const seen = { mcp: false }
   try {
-    const got = await getClient(apiKey)
+    const got = await configuredClient()
     sdk = got.sdk
     const { client } = got
     if (signal?.aborted) throw new AIError('aborted')
@@ -485,8 +492,6 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
   // servers forced in whatever their scope (the work-order planner's pick); none when `mcp: false`
   const forced = mcp === false ? [] : [...(opts.forced ?? [])]
   assertModelFlow('anthropic')
-  const apiKey = await getAIKey('anthropic')
-  if (!apiKey) throw new AIError('no_key')
   if (signal?.aborted) throw new AIError('aborted')
   // the model the gate routed to, and what it can do (caps — never a model id check)
   assertPreparedFlow(prepared)
@@ -501,7 +506,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
   // a paused turn made MCP calls: no retry without a server after that
   let sawMcp = false
   try {
-    const got = await getClient(apiKey)
+    const got = await configuredClient()
     sdk = got.sdk
     const { client } = got
     if (signal?.aborted) throw new AIError('aborted')

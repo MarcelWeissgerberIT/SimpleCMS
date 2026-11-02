@@ -151,6 +151,7 @@ export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRoute
 export { openAISetup, openAISettings, type AISetupOptions } from './ai/setup/openAISetup'
 export { AINeedsSetup, FixKeys, offersAI, useAIStatus, openFix, type AINeedsSetupProps } from './ai/setup/AINeedsSetup'
 export const AISetupModal = lazy(() => import('./ai/setup/AISetup').then((m) => ({ default: m.AISetupModal })))
+export const CentralAISettings = lazy(() => import('./ai/setup/CentralAISettings').then(m=>({default:m.CentralAISettings})))
 export const ProvidersTab = lazy(() => import('./ai/setup/ProvidersTab').then((m) => ({ default: m.ProvidersTab })))
 /*
  * One memory (features/ai/memory): Claude remembers what the person confirms (a database "One memory" +

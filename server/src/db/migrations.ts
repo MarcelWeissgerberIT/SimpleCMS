@@ -508,4 +508,26 @@ export const migrations: Migration[] = [
       PRIMARY KEY(workspace_id,user_id,id)
     );`,
   },
+  {
+    version:22,
+    name:'central encrypted Claude service, explicit workspace bindings and durable spend reservations',
+    sql:`CREATE TABLE central_ai (
+      id TEXT PRIMARY KEY,anchor TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      owner TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,label TEXT NOT NULL,model TEXT NOT NULL,
+      sealed_key TEXT,verified_at INTEGER,enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN(0,1)),
+      budget_micro INTEGER CHECK(budget_micro IS NULL OR budget_micro>0),version INTEGER NOT NULL
+    );
+    CREATE TABLE central_ai_bindings (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      service_id TEXT NOT NULL REFERENCES central_ai(id) ON DELETE CASCADE
+    );
+    CREATE TABLE central_ai_requests (
+      id TEXT PRIMARY KEY,service_id TEXT NOT NULL REFERENCES central_ai(id) ON DELETE CASCADE,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,month TEXT NOT NULL,state TEXT NOT NULL,
+      cost_micro INTEGER NOT NULL DEFAULT 0,reserved_micro INTEGER NOT NULL DEFAULT 0,
+      input_tokens INTEGER,output_tokens INTEGER,sealed_audit TEXT,created_at INTEGER NOT NULL,finished_at INTEGER
+    );
+    CREATE INDEX central_ai_usage ON central_ai_requests(service_id,month);`,
+  },
 ]

@@ -1388,3 +1388,50 @@ existing editing membership is refused before any email, so the organizer must r
 
 ### Workspace model shares
 See `docs/CODING.md` → Workspace local model sharing. Worker 1.29.0 / server `shared-models:1` offers explicit local text inference to member+ users of one workspace, with a bounded FIFO queue and encrypted ephemeral request/result payloads. The personal coding relay's `(workspace, member)` isolation remains unchanged. Model sharing does not share coding, repository or Atlas permissions. A Frankfurt relay is still a network hop even when host and participants are on the same LAN.
+
+### Central Claude service (v22)
+
+Workspace Settings → AI hosts a write-only Anthropic key form for the service owner. An owner/admin can
+bind a single service to up to 20 workspaces they administer. All bound workspaces share one monthly
+USD limit; members use their session cookie, never the provider key. The key is AES-256-GCM sealed
+under the original workspace's envelope key with service-specific AAD. It is absent from Yjs, browser
+settings, exports, public metadata and request logs. Only its presence and model-verification time return.
+A model GET verifies access without paid inference. Replacing a key disables the service until activation.
+
+Cookie routes under `/api/workspaces/:id/central-ai`:
+
+- `GET`: member-visible service status; owner-only budget and workspace bindings.
+- `PUT`: owner + admin in every affected workspace; versioned configuration, initially disabled.
+- `POST /key`, `DELETE /key`: versioned key verification/replacement or removal; never return a key.
+- `POST /defaults`: owner-authorized shared Opus defaults through live collaboration; preserves data
+  rules and the decision-model setting. Explicit personal model selections still take precedence. Unmodified full route snapshots copied by legacy AJ onboarding are rebased to the new shared default; personal data restrictions and customized route tables are retained.
+- `POST /messages`: member-only Messages transport; the server enforces exact model, membership,
+  service version, standard tier, bounded output, tool types and a shared atomic budget reservation.
+- `GET /requests`, `GET /requests/:request`: only the service owner with admin access to all bound
+  workspaces; last 100 call receipts and encrypted, credential-redacted request/response details.
+
+The browser keeps the native Anthropic SDK and ONE/Atlas harness. Its central transport sends only a
+same-origin cookie request. SDK automatic retries and provider model fallback are disabled for this
+service. Personal Atlas tokens travel only on the requesting member's existing authorized MCP path;
+no owner token is supplied. Unsupported additional paid provider tools are rejected rather than billed
+outside the limit. Interactive ONE AI surfaces and browser agents use this transport; unattended server
+agents keep their separate, explicit server-runner enrollment and do not inherit the key.
+
+Pricing is Opus 5.5 standard, verified 2026-11-02: input $4, output $20, cache hit $0.20, 5m cache write $5,
+1h cache write $8 per million tokens. Every API round reserves the whole possible 1M input context at
+the highest cache rate plus `max_tokens` output. This deliberately covers native MCP results that are
+not present when the request starts. Four API rounds can run concurrently. Complete verified usage
+replaces its reservation with calculated tariff cost. Provider 4xx refusals release the reservation;
+5xx errors, interrupted streams, absent usage or a server restart retain it as uncertain. Raising the
+budget is an explicit owner action. This limit covers this ONE service, not other uses of the API key
+at Anthropic. Provider billing statements remain authoritative.
+
+Full logs are encrypted at rest, redacted for the central key and known personal MCP credentials, and
+unreadable through the API after 30 days. Expired log ciphertext is removed at startup and when a call
+settles. Receipts and durable reservations remain for accounting. Account/workspace removal does not
+silently erase spend from a surviving service. Removing its anchor workspace deletes the service.
+Disabling/removing a key blocks new calls; requests already started can still incur charges.
+
+Validation: `server/test/central-ai.test.ts`, the route-isolation sweep in `server/test/tenancy.test.ts`,
+and `npx playwright test -c playwright.central.config.ts` (root app build and server build required).
+All provider traffic in those tests is local and fictional; no paid requests or real credentials.

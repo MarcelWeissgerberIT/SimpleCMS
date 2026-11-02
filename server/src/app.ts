@@ -1,4 +1,5 @@
 import {programRoutes} from './routes/programs.ts'
+import {centralAIRoutes} from './routes/central-ai.ts'
 import { Hono, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HTTPException } from 'hono/http-exception'
@@ -80,7 +81,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
+      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'central-ai:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
     }),
   )
 
@@ -92,6 +93,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/workspaces', welcomeRoutes(s))
   app.route('/api/workspaces', readinessRoutes(s))
   app.route('/api/workspaces', programRoutes(s))
+  app.route('/api/workspaces', centralAIRoutes(s))
   app.route('/api/workspaces', checkoutRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', mediaFetchRoutes(s))
@@ -178,5 +180,6 @@ function jsonLimit(): MiddlewareHandler<AppEnv> {
   const checkoutLimit = bodyLimit({ maxSize: 16 * 1024 * 1024 })
   // Transient personal Atlas attachment transport: never persisted in ONE.
   const atlasLimit = bodyLimit({ maxSize: 1024 * 1024 })
-  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
+  const centralLimit = bodyLimit({ maxSize: 32 * 1024 * 1024 })
+  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/central-ai\/messages$/.test(c.req.path) ? centralLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
 }

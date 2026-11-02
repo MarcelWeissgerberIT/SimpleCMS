@@ -1,3 +1,4 @@
+import {centralKeyReady} from './core/centralAI'
 import { workerModelRows } from './core/workerModels'
 /**
  * Claude, bring-your-own-key — the facades every call site uses (runAI, streamCompletion, completeStructured), the
@@ -140,7 +141,7 @@ export function resolveModel(id: string | undefined | null): (typeof AI_MODELS)[
  *  Whether a request of a given purpose can go out: aiStatus(purpose). */
 export function isAIConfigured(): boolean {
   const s = useWorkspace.getState().settings
-  return !!s.aiApiKey || Object.values(s.aiKeys ?? {}).some(Boolean) || workerModelRows().length > 0
+  return centralKeyReady(!!s.aiApiKey) || Object.values(s.aiKeys ?? {}).some(Boolean) || workerModelRows().length > 0
 }
 
 /* ------------------------------------------------------------------ */
@@ -242,7 +243,7 @@ function codewordRefusal(e: unknown, opts: Pick<StreamOptions, 'purpose' | 'rout
   const s = useWorkspace.getState()
   const { route } = routeFor(opts.purpose, { route: opts.route })
   const provider = providerLabel(route.p)
-  const claude = !!s.settings.aiApiKey && allowedFor('anthropic', 'mcp', s.ai, s.settings.ai)
+  const claude = centralKeyReady(!!s.settings.aiApiKey) && allowedFor('anthropic', 'mcp', s.ai, s.settings.ai)
   const err = new AIError(e.code, e.detail, cw.forced[0], undefined, claude ? [{ kind: 'askClaude' }] : [])
   // the codewords as typed ("kb"), not the servers' names
   const servers = readServers()

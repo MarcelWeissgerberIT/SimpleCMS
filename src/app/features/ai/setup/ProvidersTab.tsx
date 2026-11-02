@@ -1,3 +1,5 @@
+import {CentralAICard} from './CentralAISettings'
+import {centralAI,centralKeyReady,centralModelAllowed} from '../core/centralAI'
 import { DataFlowSettings } from '../data-flow/DataFlowSettings'
 /**
  * Settings › AI (this device, UX § 5.7): "Set up AI …"; compact provider plates (state, key marker, the free check —
@@ -107,6 +109,7 @@ export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memo
           {t('features.ai.prov.tab.setup')}
         </button>
       </div>
+      <CentralAICard />
       <FrankfurtModelCard />
       <CostSettings />
       <Plates />
@@ -150,7 +153,7 @@ function Plates() {
   const list = settings.ai?.models ?? NO_ROWS
   return (
     <section className="aip__plates" aria-label={t('features.ai.prov.tab.providers')}>
-      {PLATE_ORDER.map((p) => {
+      {PLATE_ORDER.filter(p=>p!=='anthropic'||!centralAI()?.assigned).map((p) => {
         const has = hasKeyIn(settings, p)
         const c = checks[p]
         const state = plateState(p, { hasKey: has, picked: false, check: c, empty: receivesNothing(p, wsAI, settings.ai) })
@@ -257,7 +260,7 @@ function Plates() {
 function routeOptions(t: ReturnType<typeof useT>, classes: FeatureClass[], current?: Route): Array<{ value: string; label: string; rule: RouteRule }> {
   const s = useWorkspace.getState().settings
   const out: Array<{ value: string; label: string; rule: RouteRule }> = []
-  if (hasKeyIn(s, 'anthropic')) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) out.push({ value: routeKey(m.route), label: m.label, rule: [{ p: 'anthropic', m: m.route.m }] })
+  if (centralKeyReady(hasKeyIn(s, 'anthropic'))) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable && centralModelAllowed(m.route.m)) out.push({ value: routeKey(m.route), label: m.label, rule: [{ p: 'anthropic', m: m.route.m }] })
   if (hasKeyIn(s, 'openrouter') && classes.every((c) => routable('openrouter', c))) {
     const list = s.ai?.models ?? []
     for (const r of list) out.push({ value: `openrouter:${r.m}`, label: labelFor({ p: 'openrouter', m: r.m }), rule: [{ p: 'openrouter', m: r.m }] })

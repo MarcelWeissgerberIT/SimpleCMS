@@ -1,3 +1,4 @@
+import {useCentralAI} from './centralAI'
 import {providerLabel} from '@/shared/ai/models'
 import {sharedWireLimit} from './sharedModels'
 import { assertModelFlow } from './dataFlow'
@@ -51,7 +52,7 @@ export function refreshWorkerModels(): Promise<void> {
   return loading
 }
 export function useWorkerModels(): number {
-  const sharedRevision = useSharedModels()
+  const sharedRevision = useSharedModels() + useCentralAI()
   const conn = useCoding(s => s.conn)
   const can = useCoding(s => s.can?.includes('text-models') ?? false)
   useEffect(() => {

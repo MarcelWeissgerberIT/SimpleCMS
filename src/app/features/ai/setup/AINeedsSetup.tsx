@@ -1,3 +1,6 @@
+import {centralAI} from '../core/centralAI'
+import {navigate} from '../../../lib/router'
+import {useUI} from '../../../store/ui'
 import { useWorkerModels } from '../core/workerModels'
 /**
  * <AINeedsSetup>: the one card every "can this run?" surface shows when the answer is no (UX § 3 / § 10.6) — the AI
@@ -110,7 +113,9 @@ export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, o
   let body: string
   let key: { label: string; icon: ReactNode; run: () => void } | null
   let note: string | null = null
-  if (why === 'route') {
+  if ((why==='no_key'||why==='nokey')&&centralAI()?.assigned&&centralAI()?.id) {
+    title=t('features.ai.central.title');body=t('features.ai.central.inactive');key={label:t('features.ai.central.open'),icon:<KeyRound size={13} aria-hidden/>,run:open(()=>{useUI.getState().closeModal();navigate({name:'workspace',section:'ai'})})}
+  } else if (why === 'route') {
     title = t('features.ai.prov.needs.route.title', { work })
     body = t('features.ai.prov.needs.route.body', { work })
     key = { label: t('features.ai.prov.needs.route.open'), icon: <KeyRound size={13} strokeWidth={1.75} aria-hidden />, run: open(() => openAISetup({ reason: 'route', provider: 'anthropic', feature: cls })) }
