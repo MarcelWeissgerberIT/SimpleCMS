@@ -1,12 +1,14 @@
 /** Run-local provenance for static design proposals. Discovery and search excerpts cannot mint sources. */
 import {sha256Hex} from '../mcp/sha256.ts'
-export interface MockSource {id:string;server:string;ref:number;url:string;title:string;body:string;hash:string;readAt:string}
+export interface MockSource {id:string;server:string;ref:number;url:string;title:string;body:string;hash:string;stateHash:string;readAt:string}
 export interface MockCitation {source:string;quote:string}
 export interface MockToken extends MockCitation {name:string;value:string}
 export interface MockComponent extends MockCitation {name:string}
 export interface MockDraft {title:string;width:number;height:number;html:string;css:string;design:MockCitation;authority:MockCitation;target:string;requirements:MockCitation[];tokens:MockToken[];components:MockComponent[];notes:string[]}
 export interface DesignMock {id:string;title:string;width:number;height:number;document:string;htmlHash:string;createdAt:string;sources:Array<Omit<MockSource,'body'>>;draft:Omit<MockDraft,'html'|'css'>;review:'open';target:Omit<MockSource,'body'>;route?:{p:import('./types').ProviderId;m:string}}
 const obj=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v)
+/** Stable source lifecycle fields, not comments/attachments changed by our own upload. */
+export function mockSourceState(record:Record<string,unknown>):string{return sha256Hex(JSON.stringify(Object.fromEntries(['ref','title','project','tenant','tenantSlug','kind','status','fields','archived','confirmed'].filter(k=>Object.hasOwn(record,k)).map(k=>[k,record[k]]))))}
 export class MockSources {
  created=0
  private sources=new Map<string,MockSource>()
@@ -20,7 +22,7 @@ export class MockSources {
   const body=record.body??record.markdown??record.bodyMd
   if(typeof body!=='string'||body.trim().length<30||body.length>160000||record.truncated===true||data.truncated===true)return null
   const key=JSON.stringify([server,origin,args.tenant??null,args.ref]),old=this.sources.get(key)
-  const source:MockSource={id:old?.id??'design-source-'+this.prefix+'-'+(this.sources.size+1),server,ref:Number(record.ref),url:new URL('/r/'+record.ref,origin).href,title:record.title,body,hash:sha256Hex(body),readAt:new Date().toISOString()}
+  const source:MockSource={id:old?.id??'design-source-'+this.prefix+'-'+(this.sources.size+1),server,ref:Number(record.ref),url:new URL('/r/'+record.ref,origin).href,title:record.title,body,hash:sha256Hex(body),stateHash:mockSourceState(record),readAt:new Date().toISOString()}
   if(!old&&this.sources.size>=12)return null
   this.sources.set(key,source)
   return {id:source.id,ref:source.ref,title:source.title,hash:source.hash,readAt:source.readAt,note:'Actually read Atlas body; use this source id and verbatim body quotes in create_design_mock. Still resolve the applicable current design rule; title alone is not evidence.'}

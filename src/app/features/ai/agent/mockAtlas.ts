@@ -7,7 +7,7 @@ import {atlasData} from '@/shared/mcp/facts'
 import {sha256Hex} from '@/shared/mcp/sha256'
 import {validateValue} from '@/shared/quandprofile/program'
 import {cloudAtlasMcpReady} from '../../coding'
-import type {DesignMock} from '@/shared/ai/designMock'
+import {mockSourceState,type DesignMock} from '@/shared/ai/designMock'
 import {beginLiveAudit} from '../core/liveAudit'
 export interface MockFile {filename:string;mime:'text/html'|'image/png'|'application/json';bytes:Uint8Array}
 export interface MockAttachment {filename:string;sha256:string;bytes:number;url:string}
@@ -22,7 +22,7 @@ export async function attachMockToAtlas(a:DesignMock,files:MockFile[],signal:Abo
  const remote=workerMcpSession(attached.worker,signal,()=>{},30000)
  for(const name of ['atlas_get','atlas_attach']){await remote('one_mcp_search',{query:name},crypto.randomUUID());if(!remote.schema(server.name,name))throw Error('Atlas tool is not permitted: '+name)}
  // Re-read every actual source immediately before the first write. A stale design/requirement is not silently published.
- for(const source of a.sources){check();if(source.server!==a.target.server||new URL(source.url).origin!==new URL(a.target.url).origin)throw Error('Cross-server mock sources need separate source checks; recreate the mock using the same personal Atlas connection.');const raw=remote.materializeResult(await remote('one_mcp_call',{server:server.name,name:'atlas_get',arguments:{ref:source.ref,parts:['body'],includeConstraints:'none'}},crypto.randomUUID()));const data=atlasData(raw),item=data?.item??data?.record??data,body=item?.body??item?.markdown??item?.bodyMd;if(item?.ref!==source.ref||typeof body!=='string'||sha256Hex(body)!==source.hash)throw Error('Atlas source changed or is no longer accessible: '+source.title+'. Recreate the mock against the current source before attaching it.')}
+ for(const source of a.sources){check();if(source.server!==a.target.server||new URL(source.url).origin!==new URL(a.target.url).origin)throw Error('Cross-server mock sources need separate source checks; recreate the mock using the same personal Atlas connection.');const raw=remote.materializeResult(await remote('one_mcp_call',{server:server.name,name:'atlas_get',arguments:{ref:source.ref,parts:['body'],includeConstraints:'none'}},crypto.randomUUID()));const data=atlasData(raw),item=data?.item??data?.record??data,body=item?.body??item?.markdown??item?.bodyMd;if(item?.ref!==source.ref||typeof body!=='string'||sha256Hex(body)!==source.hash||mockSourceState(item)!==source.stateHash)throw Error('Atlas source changed or is no longer accessible: '+source.title+'. Recreate the mock against the current source before attaching it.')}
  const audit=a.route?await beginLiveAudit(a.route,'Attach design mock '+a.id+' to '+a.target.url,'terminal.task'):null
  const uploaded:MockAttachment[]=[]
  try{
