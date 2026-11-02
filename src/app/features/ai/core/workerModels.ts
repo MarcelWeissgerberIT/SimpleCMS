@@ -1,3 +1,4 @@
+import {providerLabel} from '@/shared/ai/models'
 import {sharedWireLimit} from './sharedModels'
 import { assertModelFlow } from './dataFlow'
 import { sharedModelRows, sharedModels, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
@@ -72,7 +73,7 @@ export async function sendWorkerText(route: Route, messages: Array<{ role: 'syst
       // tool results. Only linked tool results are excerpted; source/task/history
       // remain intact. This also works with an already installed older worker.
       messages = fitLocalToolContext(messages,next=>{const bytes=new TextEncoder().encode(JSON.stringify([next,extra.tools,extra.schema])).length;return bytes<=wire&&Math.ceil(bytes/WORKER_TEXT_BYTES_PER_TOKEN)<=budget},history)
-    } catch (e) { throw new AIError('context', e instanceof Error ? e.message : String(e)) }
+    } catch (e) { throw new AIError('context', e instanceof Error ? e.message : String(e),undefined,providerLabel(route.p)+' · '+(workerModelInfo(route)?.label??route.m)) }
   }
   if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {
     if (extra.attachments?.length) throw new AIError('capability')

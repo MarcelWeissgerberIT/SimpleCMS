@@ -30,18 +30,19 @@ export class MockSources {
  }
  snapshot(){return [...this.sources.values()].map(s=>({...s}))}
  /** Exact bounded windows, not a model summary. Full bodies remain available to the run-local reader. */
- context(){return this.snapshot().map(({body,...source})=>{
+ context(target?:number){let remaining=17000;return this.snapshot().map(({body,...source})=>{
   // Keep release/supersession notes even when middle-section matches exhaust the excerpt budget.
-  const candidates:Array<[number,number]>=[[0,Math.min(body.length,1800)],[Math.max(0,body.length-2600),body.length]]
-  const headings=[...body.matchAll(/^#{2,4}\s+(.+)$/gm)]
-  for(const match of headings)if(/^(?:colou?r|typography|spacing|radius|tier 1|tier 2|button)/i.test(match[1]!)){
+  const headings=[...body.matchAll(/^#{2,4}\s+(.+)$/gm)],catalogue=headings.some(h=>/^(?:colou?r|typography)\b/i.test(h[1]!)),limit=Math.min(remaining,source.ref===target?2200:catalogue?11000:2800),head=catalogue?900:source.ref===target?1500:1000,tail=catalogue?900:source.ref===target?700:1800
+  const candidates:Array<[number,number]>=[[0,Math.min(body.length,head)],[Math.max(0,body.length-tail),body.length]]
+  const rank=(h:RegExpMatchArray)=>/colou?r/i.test(h[1]!)?0:/typography/i.test(h[1]!)?1:/spacing/i.test(h[1]!)?2:/radius/i.test(h[1]!)?3:/tier 2/i.test(h[1]!)?4:/button/i.test(h[1]!)?5:6
+  for(const match of [...headings].sort((a,b)=>rank(a)-rank(b)))if(/^(?:colou?r|typography|spacing|radius|tier 2|button)/i.test(match[1]!)){
    const from=match.index!,next=headings.find(h=>h.index!>from)?.index??body.length
-   candidates.push([from,Math.min(next,from+(/typography/i.test(match[1]!)?3400:1700))])
+   candidates.push([from,Math.min(next,from+(/typography/i.test(match[1]!)?3000:/spacing|radius/i.test(match[1]!)?800:/button/i.test(match[1]!)?1200:1700))])
   }
   for(const query of ['ConfirmationModal','brand-primary','user confirmation','Benutzerbestätigung']){const at=body.toLowerCase().indexOf(query.toLowerCase());if(at>=0)candidates.push([Math.max(0,at-200),Math.min(body.length,at+1100)])}
-  let left=18000;const accepted:Array<[number,number]>=[]
+  let left=limit;const accepted:Array<[number,number]>=[]
   for(const [from,to] of candidates){let segments:Array<[number,number]>=[[from,to]];for(const [a,b] of accepted)segments=segments.flatMap(([s,e])=>e<=a||s>=b?[[s,e]]:s<a&&e>b?[[s,a],[b,e]]:s<a?[[s,a]]:e>b?[[b,e]]:[]);for(const [s,e] of segments){const end=Math.min(e,s+left);if(end>s){accepted.push([s,end]);left-=end-s}}}
-  accepted.sort((a,b)=>a[0]-b[0]);const merged:Array<[number,number]>=[];for(const span of accepted){const last=merged.at(-1);if(last&&span[0]<=last[1])last[1]=Math.max(last[1],span[1]);else merged.push([...span])}
+  remaining-=limit-left;accepted.sort((a,b)=>a[0]-b[0]);const merged:Array<[number,number]>=[];for(const span of accepted){const last=merged.at(-1);if(last&&span[0]<=last[1])last[1]=Math.max(last[1],span[1]);else merged.push([...span])}
   const excerpts=merged.map(([from,to])=>({offset:from,text:body.slice(from,to)}))
   return {...source,characters:body.length,partial:excerpts.reduce((n,e)=>n+e.text.length,0)<body.length,excerpts}
  })}

@@ -8,13 +8,14 @@ import {beginLiveAudit,type LiveAudit} from '../core/liveAudit'
 import {ToolInputError} from './tools'
 import type {runAgent} from './run'
 export async function repairDesignMock(o:Parameters<typeof runAgent>[0],prepared:Prepared,sources:MockSources,input:unknown,error:unknown,phase:{phase:'draft'|'repair';audit:LiveAudit}|undefined=undefined):Promise<MockDraft>{
- assertPreparedFlow(prepared);const records=sources.snapshot(),context=sources.context(),schema=structuredClone(MOCK_SCHEMA) as Record<string,any>,ids=records.map(r=>r.id)
+ assertPreparedFlow(prepared);const records=sources.snapshot(),schema=structuredClone(MOCK_SCHEMA) as Record<string,any>,ids=records.map(r=>r.id)
  for(const field of ['design','authority'])schema.properties[field].properties.source.enum=ids
  for(const field of ['requirements','tokens','components'])schema.properties[field].items.properties.source.enum=ids
  const requested=/(?:atlas[- ]record|record|datensatz)\s*(?:ref\s*)?#?(\d+)/iu.exec(o.typed??'')
  const target=requested?records.find(r=>r.ref===Number(requested[1])):null
  if(requested&&!target)throw new ToolInputError('The explicitly requested requirement record has not been read; no substitute mock target was chosen.')
  schema.properties.target.enum=target?[target.id]:ids
+ const context=sources.context(target?.ref)
  const system=MOCK_GUIDE+(phase?.phase==='draft'?'\nThis is the initial bounded mock draft. ':'\nThis is the bounded correction. ')+'\nYou are the single tool-free correction phase for a static design mock. Return ONLY the complete JSON object matching the supplied schema. You have NO tools, no external sources and no authority to change business rules. Every quote must be copied verbatim from the exact source excerpts; source is its run-local id, never a title, ref number or made-up name. Use only the actually read catalogue and the most recent applicable superseding rule in the supplied excerpts. A valid response includes ALL required target, requirements, tokens, components and notes fields. HTML is body markup only. Map R1 etc and exact catalogue components. Use declared token variables for ALL visual colours, spacing, radius and typography; do not use px/rem/hex literals for those in CSS. Missing evidence must remain a blocker, never an invented quote. Keep one focused dialog, at most two buttons. This phase is one correction, not an approval.'
  const task=createTaskContract({prepared,goal:o.typed??'',instructions:system,input:{context,target:target?.id},tools:[],one:false,atlas:false,sourcesRequired:true,bounds:{readOnly:true,externalWrite:false,execute:false},signal:o.signal,onReport:o.hooks.contract,output:'json'})
  for(const r of records)task.observe('atlas',true,true,false,true,'atlas_get · run-local mock source '+r.ref)
