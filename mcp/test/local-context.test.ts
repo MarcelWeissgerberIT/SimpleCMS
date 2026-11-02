@@ -49,7 +49,7 @@ test('an oversized task or unrelated JSON cannot be silently removed to fit loca
   assert.equal(task[0]!.content.length > 10000, true)
 })
 
-test('only completed earlier drafts/traces fold, while every human message and current tool call remain',()=>{
+test('completed earlier drafts/traces fold first, while every human message and current tool call remain',()=>{
  const human='Original human instruction: no changes; only Atlas sources.'
  const messages=[
   {role:'system' as const,content:'All permissions unchanged.'},
@@ -67,6 +67,16 @@ test('only completed earlier drafts/traces fold, while every human message and c
  assert.equal(result[0]!.content,messages[0]!.content);assert.equal(result[1]!.content,human)
  assert.match(result[2]!.content,/Harness history boundary/)
  assert.deepEqual(result.slice(3),messages.slice(5))
- assert.throws(()=>fitLocalToolContext(messages,next=>size(next)<500,{completedBefore:1}),/fresh task/)
+ assert.throws(()=>fitLocalToolContext(messages,next=>size(next)<300,{completedBefore:1}),/fresh task/)
  assert.throws(()=>fitLocalToolContext(messages.map(m=>m.role==='user'?{...m,content:human.repeat(500)}:m),next=>size(next)<2500,{completedBefore:5}),/fresh task/)
+})
+
+test('a current K1 read can shed model narration without losing the instruction, native calls or source identity',()=>{
+ const call={type:'tool_use',id:'k1-read',name:'one_remote_2',input:{ref:23166,parts:['body','comments']}}
+ const messages=[{role:'system' as const,content:'Keep source and permission rules. '.repeat(300)},{role:'user' as const,content:'Compare old Q12 with the latest human answers. Only read Atlas ref 23166.'},{role:'assistant' as const,content:JSON.stringify([{type:'text',text:'I will now inspect the actual source. '.repeat(200)},call])},{role:'user' as const,content:JSON.stringify([{type:'tool_result',tool_use_id:'k1-read',content:JSON.stringify({result_id:'mcp-result-k1',path:'/item/comments',content:'Actual comment from Kai: A12 includes AOX blank.',next_offset:null})}])}]
+ const original=structuredClone(messages);let compacted=0
+ const result=fitLocalToolContext(messages,next=>size(next)<12000,{completedBefore:1,onCompact:()=>compacted++})
+ assert.equal(compacted,1);assert.deepEqual(messages,original);assert.deepEqual(result.slice(0,2),messages.slice(0,2));assert.deepEqual(result[3],messages[3]);assert.deepEqual(JSON.parse(result[2]!.content).find((b:any)=>b.type==='tool_use'),call);assert.match(result[2]!.content,/model narration omitted/)
+ const native=localChatMessages(result);assert.equal(native[3].tool_call_id,'k1-read');assert.match(native[3].content,/A12 includes AOX blank/)
+ assert.throws(()=>fitLocalToolContext(messages,next=>size(next)<1000,{completedBefore:1}),/fresh task/)
 })

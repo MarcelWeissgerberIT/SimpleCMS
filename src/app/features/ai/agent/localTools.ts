@@ -14,7 +14,7 @@ export function localWorkspaceTools(tools: AgentTool[]) {
   // These are already in the caller's permitted scope. Exposing their schemas is
   // not a read or a permission grant; normal dispatch/data/source checks still run.
   const basic = tools.filter(t=>!t.write&&['get_current_page','search_pages','read_page'].includes(t.name))
-  const definition = (t:AgentTool) => ({name:t.name,description:t.description,parameters:t.input_schema})
+  const definition = (t:AgentTool) => ({name:t.name,description:t.description.slice(0,400),parameters:t.input_schema})
   const seen = new Set<string>(basic.map(t=>t.name))
   const repaired = new Set<string>()
   return {

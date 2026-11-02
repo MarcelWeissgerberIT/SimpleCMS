@@ -68,6 +68,21 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
     history.onCompact?.()
     return fitted
   }
+  // Current-task narration is model-authored, never source evidence or human
+  // authority. Drop only that prose after source-result excerpting is exhausted;
+  // preserve every native call, its exact arguments and its linked result.
+  const narration='[Harness context: earlier model narration omitted. It is not source evidence. Human instructions and tool calls remain unchanged.]'
+  for(const message of next){
+    if(message.role!=='assistant'||message.content.length<256)continue
+    let parsed:any;try{parsed=JSON.parse(message.content)}catch{/* Plain assistant note. */}
+    if(Array.isArray(parsed)&&parsed.some(b=>b?.type==='tool_use')){
+      const reduced=[{type:'text',text:narration},...parsed.filter(b=>b?.type!=='text')]
+      const text=JSON.stringify(reduced);if(text.length<message.content.length)message.content=text
+    }else if(parsed&&Array.isArray(parsed.tool_calls)){
+      const text=JSON.stringify({...parsed,content:narration});if(text.length<message.content.length)message.content=text
+    }else message.content=narration
+    if(fits(next)){history?.onCompact?.();return next}
+  }
   // Never discard the person's question or silently clip their source to make a request fit.
   throw new RangeError('Model context is full. Start a fresh task or select a smaller source passage; no further model request was sent.')
 }
