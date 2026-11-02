@@ -1,3 +1,12 @@
+---
+id: 2026-11-02-design-mocks
+date: 2026-11-02
+order: 6
+title: BA/PO mocks: preview in ONE, files on the Atlas record
+summary: HTML proposals from current Atlas design sources, rendered PNG and verified requirement-record attachments.
+help: agent
+try: terminal
+---
 # BA/PO mocks: preview in ONE, files on the Atlas record
 
 `/mock <requirement>` lets the selected model prepare a static HTML/CSS proposal from freshly read Atlas requirements, components and design tokens. The card offers preview, HTML download, rendered PNG and a source receipt.

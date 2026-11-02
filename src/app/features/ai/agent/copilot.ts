@@ -65,7 +65,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' || (prepared.caps?.context ?? 32768) < 64000 ? localWorkspaceTools(tools) : null
   const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
-  task=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:system,input:messages,tools:tools.map(t=>t.name),one:tools.some(t=>t.name==='search_pages'),atlas:!!opts.mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
+  task=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:system,input:messages,tools:tools.map(t=>t.name),...(opts.mockSources?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:tools.some(t=>t.name==='search_pages'),atlas:!!opts.mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
   opts.delivery?.bind(task)
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {

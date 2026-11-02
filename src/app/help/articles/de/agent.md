@@ -3,7 +3,7 @@ id: agent
 title: Das KI-Terminal
 section: ai
 order: 3
-keywords: ba, po, anforderungen, requirements, s9, agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, aufgaben-blöcke, list_work_items, update_work_item, verantwortlich, fällig, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
+keywords: mock, mocks, png, html, designsystem, design system, prototyp, atlas, ba, po, anforderungen, requirements, s9, agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, aufgaben-blöcke, list_work_items, update_work_item, verantwortlich, fällig, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, unterseite pro eintrag, seite pro ticket, tabelle mit links, limit, weitermachen, weiter, pipelines, coding-aufgabe, freigeben, verbinden, anmelden, mcp, workspace agent, AI terminal, context, edit, continue, connect
 related: custom-agents, governor, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Gib Claude Aufgaben per Tastatur — es liest deinen Workspace, schlägt Änderungen vor, und du übernimmst sie. Arbeitet auch ausgeblendet weiter.
 ---

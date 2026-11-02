@@ -301,7 +301,7 @@ export async function runAgent(opts: {
   const mockSources=new MockSources()
   const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&/\b(?:mock|mocks|mockup|mockups|prototyp|prototype)\b/i.test(opts.typed??'')
   const baseTools=opts.tools??TERMINAL_TOOLS
-  if(mockEnabled)opts={...opts,mockSources,tools:[...baseTools,mockReadTool(mockSources),mockTool(mockSources,a=>hooks.mock!({...a,route:prepared?.route??undefined}))],system:(opts.system??AGENT_SYSTEM)+'\n'+MOCK_GUIDE}
+  if(mockEnabled)opts={...opts,mockSources,tools:[...baseTools.filter(t=>!t.write),mockReadTool(mockSources),mockTool(mockSources,a=>hooks.mock!({...a,route:prepared?.route??undefined}))],system:(opts.system??AGENT_SYSTEM)+'\n'+MOCK_GUIDE}
   const delivery=groundedTask(opts.typed??'',opts.targetPage??null,opts.tools??TERMINAL_TOOLS,stage,signal,hooks,opts.readLimit)
   opts={...opts,delivery,tools:delivery.tools,system:(opts.system??AGENT_SYSTEM)+delivery.guide}
   const mcp = opts.mcp ?? null
@@ -346,7 +346,7 @@ export async function runAgent(opts: {
       const { runCopilotAgent } = await import('./copilot')
       return await runCopilotAgent(opts, prepared, messages)
     }
-    compiledTask=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
+    compiledTask=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),...(opts.mockSources?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
     const task=compiledTask
     delivery.bind(task)
     const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined):null

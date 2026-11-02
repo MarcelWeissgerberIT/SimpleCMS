@@ -3,7 +3,7 @@ id: agent
 title: The AI terminal
 section: ai
 order: 3
-keywords: ba, po, anforderungen, requirements, s9, agent, ai terminal, terminal, claude, automate, bulk, tasks, task blocks, list_work_items, update_work_item, owner, due, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, sub-page per item, page per ticket, table of links, limit, continue, pipelines, coding task, approve, connect, sign in, mcp, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen, Unterseite pro Ticket, weiter, verbinden, anmelden
+keywords: mock, mocks, png, html, designsystem, design system, prototyp, atlas, ba, po, anforderungen, requirements, s9, agent, ai terminal, terminal, claude, automate, bulk, tasks, task blocks, list_work_items, update_work_item, owner, due, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, sub-page per item, page per ticket, table of links, limit, continue, pipelines, coding task, approve, connect, sign in, mcp, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen, Unterseite pro Ticket, weiter, verbinden, anmelden
 related: custom-agents, governor, ai-menu, mcp-servers, mcp-bridge, coding-pipeline, pipelines
 summary: Give Claude tasks by keyboard — it reads your workspace, proposes changes, and you apply them. Keeps working while hidden.
 ---
