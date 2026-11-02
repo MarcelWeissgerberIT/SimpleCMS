@@ -104,8 +104,13 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
           const read=await request({action:'call',servers,server:args.server,name:'atlas_get',arguments:{ref:receipt.refs[0],parts:['body'],includeConstraints:'none'}},readProof) as {result:string}
           task?.observe('atlas',JSON.parse(read.result).isError!==true,true,false,true,'atlas_get · readback')
           receipt.verification=checkAtlasReadback(actual,receipt,read.result)
-          event({...verifyActivity,state:receipt.verification==='unavailable'||receipt.verification==='read_back_differs'?'err':'ok'})
-        }catch(e){if(e instanceof LiveAuditError)throw e;task?.observe('atlas',false,true,false,true,'atlas_get · readback');if(signal?.aborted)throw new AIError('aborted');receipt.verification='unavailable';event({...verifyActivity,state:'err'})}
+          const readReceipt=atlasReceipt('atlas_get',read.result)
+          readReceipt.server=server.name;readReceipt.verification=receipt.verification;readReceipt.quantum=readProof
+          // A successful read with different content (e.g. Atlas translation) is
+          // not a failed tool call. Keep the mismatch visible and unverified,
+          // without poisoning the run's transport-error status or replaying writes.
+          event({...verifyActivity,state:receipt.verification==='unavailable'?'err':'ok',receipt:readReceipt,...(receipt.verification==='unavailable'?{error:readReceipt.outcome==='error'?mcpConnectionMessage(read.result,'call'):'Atlas read-back returned no matching record. The write may exist; check the returned reference before retrying.'}:{})})
+        }catch(e){if(e instanceof LiveAuditError)throw e;task?.observe('atlas',false,true,false,true,'atlas_get · readback');if(signal?.aborted)throw new AIError('aborted');receipt.verification='unavailable';event({...verifyActivity,state:'err',error:mcpConnectionMessage(e,'call')})}
       }
       const mockSource=!failed?mockSources?.observe(actual.server,new URL(selected.url).origin,actual.name,actual.arguments,out.result):null
       const packed=results.pack(out.result)

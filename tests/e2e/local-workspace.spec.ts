@@ -181,7 +181,7 @@ test.describe('Atlas Flow across workspace features',()=>{
     await page.keyboard.press(`${MOD}+j`)
     const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
     await prompt.fill('Read this source.');await prompt.press('Enter')
-    await expect(term).toContainText('Discover the permitted tool before calling it.')
+    await expect(term).toContainText('you do not need to install tools.')
     expect(fake.textAsked).toHaveLength(2)
     expect(JSON.stringify(fake.textAsked[1].messages)).toContain('only discovery-correction retry')
     expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)).not.toContain('Unauthorized staged text')
@@ -203,6 +203,47 @@ test.describe('Atlas Flow across workspace features',()=>{
     expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call'])
     expect(fake.mcpAsked[1],JSON.stringify(fake.mcpAsked[1])).toMatchObject({name:'atlas_whoami'})
     expect(JSON.stringify(fake.textAsked)).not.toContain('private-discovery-token')
+  })
+
+  test('K1 reads its ONE brief and real Atlas comments without a workspace discovery detour',async({page})=>{
+    const id=await createPage(page,{title:'K1 · Probentypen: beantwortet oder wirklich noch offen?',content:doc(para('Compare the old open Q12 with the latest human answers on Atlas record 43. Read only; report sources.'))})
+    await gotoPage(page,id)
+    await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'k1-atlas',name:'atlas',url:'https://atlas.example.org/mcp',token:'private-k1-token',enabled:true,prompt:'Read approved sources.',tools:['atlas_get'],checkedAt:Date.now()}]}))
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:43,title:'Sample types',body:'Q12 remains open in the old description.',status:'ICM Integration in Progress',comments:[{author:'Kai',at:'2026-10-05',body:'A12: the corrected list contains AOX blank.'}]}})}]})}
+    let round=0
+    fake.onText=r=>{
+      const n=round++,calls=[{id:'open',name:'get_current_page',arguments:{}},{id:'brief',name:'read_page',arguments:{id}},{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_get'}},{id:'actual-record',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:43}}}]
+      return {model:r.model,text:n===4?'Q12 was answered by Kai on 2026-10-05: the corrected list includes AOX blank. The old description is stale. Source: https://atlas.example.org/r/43. Integration in progress does not prove acceptance.':'',...(n<4?{calls:[calls[n]]}:{}),inputTokens:200,outputTokens:40,usd:0}
+    }
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+    await input.fill('Please answer K1 from this page and Atlas record 43, including current comments. Read only.');await input.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Q12 was answered by Kai',{timeout:20000})
+    await expect(term.locator('.term-head__status')).toHaveText('Done')
+    expect(fake.textAsked).toHaveLength(5)
+    for(const name of ['get_current_page','search_pages','read_page'])expect(fake.textAsked[0].tools.some((t:any)=>t.name===name&&t.parameters.type==='object')).toBe(true)
+    expect(fake.textAsked[0].tools.some((t:any)=>t.name==='append_to_page')).toBe(false)
+    expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call'])
+    await expect(term.locator('#term-review-title')).toHaveCount(0)
+    expect(JSON.stringify(fake.textAsked)).not.toContain('private-k1-token')
+  })
+
+  test('ONE corrects two distinct malformed read wrappers without asking the participant to load tools',async({page})=>{
+    const id=await createPage(page,{title:'Read repair source',content:doc(para('Verified source value: 43.'))});await gotoPage(page,id)
+    let round=0
+    fake.onText=r=>{
+      const n=round++,calls=[{id:'missing-open-args',name:'one_workspace_call',arguments:{name:'get_current_page'}},{id:'open',name:'one_workspace_call',arguments:{name:'get_current_page',arguments:{}}},{id:'missing-read-args',name:'one_workspace_call',arguments:{name:'read_page'}},{id:'read',name:'one_workspace_call',arguments:{name:'read_page',arguments:{id}}}]
+      return {model:r.model,text:n===4?'The actual source value is 43.':'',...(n<4?{calls:[calls[n]]}:{}),inputTokens:100,outputTokens:20,usd:0}
+    }
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL);await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'});await input.fill('Read this page and report its source value.');await input.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('actual source value is 43',{timeout:20000})
+    await expect(term.locator('.term-head__status')).toHaveText('Done')
+    expect(fake.textAsked).toHaveLength(5)
+    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('ONE loaded the permitted read schema')
+    expect(JSON.stringify(fake.textAsked[3].messages)).toContain('ONE loaded the permitted read schema')
+    await expect(term.locator('.term-step[data-tool="read_page"]')).toHaveCount(1)
   })
 
   test('personal Atlas connections can be tested with a local model and no Claude key',async({page})=>{

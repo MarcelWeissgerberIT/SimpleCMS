@@ -58,6 +58,10 @@ When you use the [coding pipelines](help:coding-pipeline), Claude can read them 
 - Claude can't move a task to any stage, change Repo or Branch of a task, confirm it, change approvals, run git commands or edit the pipeline.
 
 ## Connect an MCP server
+Basic ONE readers are already loaded for tool-capable local models. ONE can load missing permitted read descriptions through bounded corrections; you do not need to install tools. Your personal Atlas connection and its permissions remain required.
+
+After an Atlas write, ONE distinguishes **read failed** from **read succeeded, stored content differs**. Atlas may translate text when saving. A difference still needs content review; it is neither a token error nor verified equivalence. Check existing records before repeating a sync.
+
 `/connect` lists your [MCP servers](help:mcp-servers) and how they stand. `/connect wiki` (a name, a codeword like `kb:` or an address) signs in — the sign-in window opens right from your <kbd>Enter</kbd> — or only tests the server when its token works. `/connect https://…` adds a new server first. When a task fails because a server rejected its token, **Sign in to <server>** sits under it (or press <kbd>Enter</kbd> on the empty prompt); once connected, **Run the task again** (<kbd>Enter</kbd>) runs it with the new sign-in.
 
 ## It keeps working

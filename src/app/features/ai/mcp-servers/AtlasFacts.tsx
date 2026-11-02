@@ -6,7 +6,7 @@ const QuantumInspector=lazy(()=>import('./QuantumInspector'))
 export function AtlasFactsView({receipt}:{receipt:AtlasReceipt}){
   const t=useT(),[inspect,setInspect]=useState(false)
   return <details className="atlas-facts" data-outcome={receipt.outcome}>
-    <summary>{t('features.ai.facts.receipt')} · {t('features.ai.facts.'+(receipt.outcome==='error'?'error':receipt.effect))}</summary>
+    <summary>{t('features.ai.facts.receipt')} · {t('features.ai.facts.'+(receipt.outcome==='error'?'error':receipt.effect))}{receipt.verification==='read_back_differs'&&<> · {t('features.ai.facts.read_back_differs')}</>}</summary>
     <div>{receipt.tool} · {t('features.ai.facts.'+receipt.outcome)}</div>
     {receipt.person&&<div>{receipt.person}</div>}
     {receipt.counts.length>0&&<div>{receipt.counts.map(c=>`${t('features.ai.facts.unit.'+c.unit)}: ${c.value}${c.scope?' ('+t('features.ai.facts.'+c.scope)+')':''}`).join(' · ')}</div>}

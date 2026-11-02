@@ -9,7 +9,7 @@ import {t} from '../../../i18n'
 import {unwrapMcpText} from '@/shared/mcp/results'
 import {ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
 import {atlasFactsFallback} from '../core/atlasFacts'
-import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, LOCAL_DISCOVERY_REPAIR, localWorkspaceTools } from './localTools'
+import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, localWorkspaceTools } from './localTools'
 import { priceFor } from '../core/registry'
 import { connectionProblem } from '@/shared/ai/connection-problem'
 /** Browser-owned One tools; Copilot supplies bounded decisions through the personal worker. */
@@ -61,7 +61,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
   let mockRepairs=0
-  let calls = opts.delivery?.calls()??0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0, atlasDiscovered = false, atlasQueried = false
+  let calls = opts.delivery?.calls()??0, rounds = 0, spent = 0, formatRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' || (prepared.caps?.context ?? 32768) < 64000 ? localWorkspaceTools(tools) : null
@@ -73,7 +73,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
     if (!opts.mcp.worker || !prepared.allows('mcp')) throw new AIError('capability', 'Selected MCP connections are unavailable on this route.')
     remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000,audit,task,opts.mockSources)
   }
-  const definitions: WorkerFunction[] = [TASK_QUESTION,...(local ? LOCAL_WORKSPACE_FUNCTIONS : tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema }))), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
+  const definitions: WorkerFunction[] = [TASK_QUESTION,...(local ? [...LOCAL_WORKSPACE_FUNCTIONS,...local.functions] : tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema }))), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
   let contextNoted=false
   const contextHistory={completedBefore:1+opts.history.length,onCompact:()=>{if(!contextNoted){contextNoted=true;hooks.note(t('features.agent.context.compacted'))}}}
   const proceed=async()=>{
@@ -155,14 +155,17 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         let resolved: ReturnType<ReturnType<typeof localWorkspaceTools>['resolve']> | null = null
         try { resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null }
         catch (e) {
-          if (!(e instanceof AIError) || e.detail !== 'features.ai.local.discovery' || discoveryRepairs++ >= 1) throw e
+          if (!(e instanceof AIError) || e.detail !== 'features.ai.local.discovery') throw e
+          const correction=local?.correction(c.arguments)
+          if(!correction)throw e
           // The failed call never ran. Let the model correct discovery once, without granting
           // access or counting a later valid call as a repeated write.
           repeated.delete(key)
-          results.push({type:'tool_result' as const,tool_use_id:c.id,content:LOCAL_DISCOVERY_REPAIR,is_error:true})
+          hooks.note(t('features.ai.local.loadingTool'))
+          results.push({type:'tool_result' as const,tool_use_id:c.id,content:correction,is_error:true})
           continue
         }
-        const tool = resolved?.tool ?? (!local ? tools.find(t => t.name === c.name) : undefined)
+        const tool = resolved?.tool ?? (local ? local.direct(c.name) : tools.find(t => t.name === c.name))
         const input = resolved?.input ?? c.arguments
         if(c.name===TASK_QUESTION.name){content=await task!.modelQuestion(c.arguments);failed=JSON.parse(content).isError===true}
         else if (local && c.name==='one_workspace_search') { content = await audit.tool('ONE','one_workspace_search',c.arguments,()=>local.search(c.arguments)) }

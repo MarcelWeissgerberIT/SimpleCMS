@@ -58,6 +58,10 @@ Nutzt du die [Coding-Pipelines](help:coding-pipeline), kann Claude sie lesen —
 - Claude kann keine Aufgabe in eine beliebige Stufe schieben, Repo oder Branch einer Aufgabe ändern, sie bestätigen, Freigaben ändern, Git-Befehle ausführen oder die Pipeline bearbeiten.
 
 ## Einen MCP-Server verbinden
+Grundlegende ONE-Lesewerkzeuge sind bei werkzeugfähigen lokalen Modellen bereits geladen. Fehlende erlaubte Lesebeschreibungen kann ONE begrenzt selbst nachladen; du musst keine Werkzeuge installieren. Die persönliche Atlas-Verbindung und ihre Berechtigungen bleiben erforderlich.
+
+Nach einem Atlas-Schreibzugriff unterscheidet ONE **Lesen fehlgeschlagen** von **Lesen erfolgreich, gespeicherte Fassung weicht ab**. Beispielsweise kann Atlas Texte beim Speichern übersetzen. Eine Abweichung bleibt zur inhaltlichen Prüfung offen; sie ist kein Tokenfehler und keine bestätigte Übereinstimmung. Vor einem erneuten Sync die bereits angelegten Records prüfen.
+
 `/verbinden` listet deine [MCP-Server](help:mcp-servers) und wie sie stehen. `/verbinden wiki` (ein Name, ein Codewort wie `kb:` oder eine Adresse) meldet an — das Anmeldefenster öffnet sich direkt mit deinem <kbd>Enter</kbd> — oder testet den Server nur, wenn sein Token funktioniert. `/verbinden https://…` fügt zuerst einen neuen Server hinzu. Scheitert eine Aufgabe, weil ein Server sein Token abgelehnt hat, steht **Bei <Server> anmelden** darunter (oder drück <kbd>Enter</kbd> in der leeren Eingabe); ist er verbunden, führt **Aufgabe erneut ausführen** (<kbd>Enter</kbd>) sie mit der neuen Anmeldung aus.
 
 ## Es arbeitet weiter

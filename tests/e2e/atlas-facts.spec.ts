@@ -98,6 +98,22 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_get','atlas_update','atlas_get'])
   expect(fake.textAsked).toHaveLength(5);expect(JSON.stringify(fake.textAsked[2].messages)).toContain('NOT executed');expect(JSON.stringify(fake.textAsked[4].messages)).toContain('read_back_matches');expect(JSON.stringify(fake.textAsked[4].messages)).toContain('one_mcp')
  })
+ for(const provider of ['local','copilot','anthropic'] as const)for(const unavailable of [false,true])test(`${provider}: ${unavailable?'a refused read-back remains a real error':'translated read-back is a successful read with a visible content mismatch'}`,async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_create',inputSchema:{type:'object',properties:{kind:{type:'string'},project:{type:'string'},title:{type:'string'},body:{type:'string'}}}}]}:r.name==='atlas_create'?{result:envelope({item:{ref:42},translated:true})}:{result:unavailable?JSON.stringify({isError:true,content:[{type:'text',text:'403 Forbidden'}]}):envelope({item:{ref:42,title:'Sample types',body:'Translated text. Original: Probentypen.'}})}
+  const requests=[{name:'one_mcp_search',input:{query:'atlas_create'}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_create',arguments:{kind:'doc',project:'fixture',title:'Probentypen',body:'Probentypen.'}}}]
+  const answer=unavailable?'Record Ref: 42 wurde vom Server angenommen. Rücklesen nicht möglich; keine unabhängige Bestätigung.':'Record Ref: 42 wurde vom Server angenommen. Rücklesen erfolgreich; Text weicht ab. Inhaltliche Prüfung offen.'
+  let round=0;fake.onText=r=>{const c=requests[round++];return{model:r.model,text:c?'':answer,calls:c?[{id:'c'+round,name:c.name,arguments:c.input}]:[],inputTokens:100,outputTokens:30,usd:0}}
+  const host=provider==='anthropic'?await mockClaudeScript(page,[...requests.map((c,i)=>({blocks:[{type:'tool_use' as const,id:'c'+i,name:c.name,input:c.input}]})),text(answer)]):null
+  if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Create one Atlas doc in project fixture, title Probentypen and body Probentypen. Report any verification differences.');await input.press('Enter')
+  await expect.poll(()=>fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_create','atlas_get'])
+  if(unavailable){await expect(term.locator('.task-contract')).toContainText('Blocked',{timeout:20000});await expect(term).toContainText('Permission denied. Check project membership');await expect(term.locator('.term-error')).toBeVisible()}
+  else {await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:20000});await expect(term.locator('.term-answer')).toContainText('Text weicht ab');await expect(term.locator('.term-error')).toHaveCount(0);await expect(term).not.toContainText('Tool error');await expect(term.locator('.atlas-facts summary').filter({hasText:'Read succeeded · stored content differs · review needed'})).toHaveCount(2)}
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(1)
+  expect(JSON.stringify(host?.requests??fake.textAsked)).not.toContain('private-facts-token')
+ })
  test('revoking the MCP connection while inference runs blocks the next dispatch',async({page})=>{
   fake.onText=async r=>{
    await wsEval(page,s=>s.updateSettings({mcpServers:[]}))
