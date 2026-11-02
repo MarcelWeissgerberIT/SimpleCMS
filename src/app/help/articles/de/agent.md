@@ -152,3 +152,20 @@ Wenn du die konkreten Quellen kennst, kann ONE ihre Abrufe selbst kontrollieren:
 ONE liest diese drei ausdrücklich genannten Records über deinen persönlichen Atlas-Zugang, übergibt genaue Quellenausschnitte und ein vollständiges Ausgabeschema. Es gibt höchstens eine Korrektur. Bei fehlenden Quellen oder gescheiterten Prüfungen entsteht kein Ersatz-Mock. Zitate, statisches HTML und Token-Verweise sind Mindestprüfungen; fachliche Vollständigkeit und visuelle Übereinstimmung bleiben menschlich zu prüfen.
 
 Mit `/pm 9602 <Auftrag>` liest ONE deine persönliche Atlas-Identität und genau den genannten Record selbst. Bis zu drei Refs sind mit Komma möglich. Das Modell erstellt daraus ohne eigene Werkzeuge ein kurzes PM-Lagebild mit wörtlichen Belegen, höchstens drei offenen Fragen und einem vorgeschlagenen nächsten Schritt. Es werden keine Entscheidungen getroffen oder Inhalte geschrieben. Nur die genannten Bodies werden frisch gelesen; Kommentare und Anhänge bleiben ausdrücklich ungeprüft.
+
+
+## Würfel-Profile und Kompilierung
+
+Öffne im Kopf des KI-Terminals **Würfel-Profile**. Im Dialog erklärt die anklickbare Grafik den Weg von Auftrag und Profil über Rust/WebAssembly, Werkzeugprüfung und echte Belege bis zur Ergebnisprüfung und menschlichen Abnahme. Sie erklärt den Ablauf; echte Laufnachweise findest du in der Karte **Kompilierter Auftrag**.
+
+Wähle eine Dimension am Glaswürfel. Die klickbare Legende benennt Kanten und Gegenprüfungen anderer Dimensionen. Eine Gegenprüfung ist eine ergänzende Anforderung, kein Beweis, dass fachliche Widersprüche ausgeschlossen sind.
+
+Du kannst Pflichtquellen als ONE-Seiten-IDs oder globale Atlas-Refs festlegen, echte Inhaltsabrufe verlangen, diese vor Effekten erzwingen, auf reine Lesezugriffe einschränken oder Atlas-Schreibziele begrenzen. Bei einer Liste erlaubter Schreibziele sind neue Records ohne feste Ziel-Ref blockiert. JSON und wörtliche Ergebnisbegriffe sind formale Prüfungen. Fachliche Hinweise werden an das Modell gegeben und bleiben bis zu deiner Abnahme offen.
+
+**Version speichern und aktivieren** gilt ab dem nächsten Terminal-Lauf, unabhängig vom gewählten unterstützten Anbieter. **Nur Version speichern** ändert die aktive Auswahl nicht. **Zusatzprofil ausschalten** nutzt wieder die Basisprüfungen. Jede Aufgabe behält ihre gebundene Version und deren Hash. Die Bibliothek ist privat auf diesem Gerät, getrennt nach Workspace und Konto; keine Zugangsdaten hineinschreiben.
+
+Ein Profil erteilt keine Zugriffsrechte und lockert keine Anbieterregeln. Es garantiert keine fachliche Wahrheit. ONE-Änderungen müssen separat übernommen werden; erlaubte externe Schreibzugriffe können bereits während des Werkzeugaufrufs wirksam werden.
+
+## Fehler direkt an der Eingabe
+
+Der Fehler der jüngsten Aufgabe steht fest oberhalb der Eingabe, auch wenn die Vorschlagsliste lang ist. Dort kannst du den Auftrag zum Korrigieren übernehmen, zu seinem Verlauf springen oder bei Verbindungsfehlern die passende Einrichtung öffnen. Es wird nichts automatisch wiederholt. Prüfe vor einem neuen Start bereits ausgeführte externe Aktionen. Fehlt bei einer echten Seitenüberarbeitung der Kontext, kannst du die offene Seite ausdrücklich wieder als Kontext auswählen.

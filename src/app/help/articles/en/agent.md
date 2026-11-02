@@ -154,3 +154,20 @@ For known source records, ONE can control the reads directly:
 ONE reads those three explicitly supplied records through your personal Atlas connection and supplies exact excerpts plus a complete output schema. There is at most one correction. Missing sources or failed checks never produce a substitute mock. Quote origin, static markup and token mechanics are minimum checks; semantic completeness and visual conformity still need human review.
 
 With `/pm 9602 <task>`, ONE reads your personal Atlas identity and exactly the requested record itself. Supply at most three comma-separated refs. Without model-controlled tools, the model drafts a small PM brief with verbatim quotations, at most three open questions and one proposed next step. No decisions or writes occur. Only those bodies are refreshed; comments and attachments remain explicitly unchecked.
+
+
+## Cube profiles and compilation
+
+Open **Cube profiles** in the terminal header. The clickable diagram explains task and profile binding, Rust/WebAssembly compilation, tool dispatch checks, real evidence, output checks and human acceptance. It is an explanation; actual run receipts are in the **Compiled task** card.
+
+Choose a dimension on the glass cube. Its clickable legend names edges and counterpart checks in other dimensions. A cross-check is a complementary requirement, not proof that domain contradictions are impossible.
+
+Set required ONE page IDs or global Atlas refs, require actual body reads, enforce these before effects, restrict tasks to reading, or limit Atlas write targets. A target allowlist blocks new records without a fixed target ref. JSON and literal output terms are formal checks. Domain guidance is sent to the model and stays open until human acceptance.
+
+**Save version and activate** applies from the next terminal run across supported providers. **Save version only** keeps the current selection. **Disable additional profile** restores base checks. Each task keeps its bound version and hash. The library is private on this device, scoped to workspace and account. Keep credentials out of profiles.
+
+A profile grants no permissions and cannot loosen provider policies. It does not guarantee domain truth. ONE proposals need separate application; permitted external writes may take effect during the tool call.
+
+## Errors beside the input
+
+The latest task failure stays above the input even below a long proposal list. Edit the stopped task, jump to its log or open the relevant connection settings there. No action retries automatically. Review already completed external actions before a new start. If a true page rewrite has no context, explicitly select the open page as context again.

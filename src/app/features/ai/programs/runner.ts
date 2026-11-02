@@ -1,3 +1,4 @@
+import {activeReviewProfile} from '../profiles/storage'
 import {groundedTask} from '../agent/grounding'
 import {tapSignal} from '../core/meter'
 import {bindInputs,programDigest,readProgram,resolveExpr,validateValue,fixedProgramInstructions,decodeMcpProgramResult,type Json,type SavedProgram,type ProgramRun} from '@/shared/quandprofile/program'
@@ -18,6 +19,7 @@ export interface ProgramInvocation {saved:SavedProgram;inputs:Record<string,unkn
 const parse=(text:string):Json=>{try{return JSON.parse(text) as Json}catch{return text}}
 /** Fixed program counter. Models receive data, never a tool catalogue or control over the next instruction. */
 export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:ProgramInvocation){
+ const reviewProfile=await activeReviewProfile()
  const p=readProgram(inv.saved.compiled),inputs=bindInputs(p,inv.inputs),{hooks,signal}=o
  const scope=programScope();if(scope.key!==inv.scope.key)throw Error('Account or workspace changed before program start.')
  const saved=(await listPrograms()).find(x=>x.id===inv.saved.id&&x.version===inv.saved.version)
@@ -33,7 +35,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
  const delivery=groundedTask(p.goal,target,o.tools??TERMINAL_TOOLS,o.stage,signal,hooks,o.readLimit)
  const tools=delivery.tools,results:Record<string,Json>={},shape=shapeOf(prepared),seen=shape?prepared.visible:null
  const check=()=>{signal.throwIfAborted();if(scope.key!==programScope().key)throw Error('Account or workspace changed. Start a new run.');assertPreparedFlow(prepared)}
- const task=(()=>{try{return createTaskContract({prepared,instructions:delivery.guide+'\n'+fixedProgramInstructions(o.system??'',[agentSystemText(true),agentSystemText(false),TASK_RULES,CODING_RULES])+'\n'+(o.mcp?.system??''),goal:p.goal,input:{artifact:saved.compiled.hash,inputs},tools:p.steps.flatMap(s=>s.kind==='tool'&&!s.server?[s.tool]:[]),sourcesRequired:!!delivery.plan.urls.length,one:p.steps.some(s=>s.kind==='tool'&&!s.server),atlas:p.steps.some(s=>s.kind==='tool'&&!!s.server),signal,onReport:r=>hooks.contract?.({...r,program:{id:saved.id,version:saved.version,hash:saved.compiled.hash,runId:receipt.id}}),interactive:true,bounds:{readOnly:!effects,externalWrite:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='write'),execute:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='execute')}})}catch(e){settle(prepared);throw e}})()
+ const task=(()=>{try{return createTaskContract({reviewProfile,prepared,instructions:delivery.guide+'\n'+fixedProgramInstructions(o.system??'',[agentSystemText(true),agentSystemText(false),TASK_RULES,CODING_RULES])+'\n'+(o.mcp?.system??''),goal:p.goal,input:{artifact:saved.compiled.hash,inputs},tools:p.steps.flatMap(s=>s.kind==='tool'&&!s.server?[s.tool]:[]),sourcesRequired:!!delivery.plan.urls.length,one:p.steps.some(s=>s.kind==='tool'&&!s.server),atlas:p.steps.some(s=>s.kind==='tool'&&!!s.server),signal,onReport:r=>hooks.contract?.({...r,program:{id:saved.id,version:saved.version,hash:saved.compiled.hash,runId:receipt.id}}),interactive:true,bounds:{readOnly:!effects,externalWrite:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='write'),execute:inv.effectsConfirmed&&p.steps.some(s=>s.kind==='tool'&&s.effect==='execute')}})}catch(e){settle(prepared);throw e}})()
  const untap=tapSignal(signal,{onEntry:entry=>hooks.usage(entry.usage,entry)})
  let audit:Awaited<ReturnType<typeof beginLiveAudit>>|undefined
  try{
@@ -62,7 +64,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
      if(!input||typeof input!=='object'||Array.isArray(input))throw Error('Tool arguments must be an object')
      if(step.server){if(atlasTaskEffect(step.tool,input)!==step.effect)throw Error('Resolved tool effect differs from the saved step');const raw=await remote!('one_mcp_call',{server:step.server,name:step.tool,arguments:input},crypto.randomUUID());result=parse(remote!.materializeResult(raw));if(step.decode==='mcp-json')result=decodeMcpProgramResult(result);if(result&&typeof result==='object'&&!Array.isArray(result)&&(result.isError===true||result.oneNotExecuted===true))throw Error('MCP tool did not execute successfully: '+step.tool)}
      else {const tool=tools.find(t=>t.name===step.tool)!;task.dispatch(tool.name,oneTaskEffect(tool.name,tool.write));const id=hooks.toolStart(tool.name,argLabel(tool.name,input,o.stage)),start=performance.now()
-      try{const out=await audit.tool('ONE',tool.name,input,()=>withShape(shape,()=>withToolScope(seen,()=>withReadLimit(o.readLimit??null,()=>tool.run(input as Record<string,unknown>,o.stage)))));check();hooks.toolEnd(id,{state:out.state,summary:out.summary,changeId:out.changeId,ms:performance.now()-start});result=parse(out.content);const read=step.effect==='read';task.observe('one',true,read,out.state==='staged',read,tool.name);if(tool.write)remote?.facts.noteOtherWrite()}
+      try{const out=await audit.tool('ONE',tool.name,input,()=>withShape(shape,()=>withToolScope(seen,()=>withReadLimit(o.readLimit??null,()=>tool.run(input as Record<string,unknown>,o.stage)))));check();hooks.toolEnd(id,{state:out.state,summary:out.summary,changeId:out.changeId,ms:performance.now()-start});result=parse(out.content);const read=step.effect==='read';if(tool.name==='read_page'&&out.state==='ok'&&!/\[Content withheld\./u.test(out.content))task.observeSource('one',String((input as Record<string,unknown>).id??''));task.observe('one',true,read,out.state==='staged',read,tool.name);if(tool.write)remote?.facts.noteOtherWrite()}
       catch(e){hooks.toolEnd(id,{state:'err',summary:'',ms:performance.now()-start});throw e}
      }
     }

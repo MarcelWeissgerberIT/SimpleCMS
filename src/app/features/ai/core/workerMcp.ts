@@ -5,7 +5,7 @@ import {LiveAuditError,type LiveAudit} from './liveAudit'
 import {McpBindings,selectMcpSchemas,type DiscoveredMcpTool} from '@/shared/mcp/bindings'
 import {McpEvidence} from '@/shared/mcp/evidence'
 import {McpResults} from '@/shared/mcp/results'
-import {AtlasFacts,checkAtlasReadback,modelAtlasReceipt,atlasTaskEffect} from '@/shared/mcp/facts'
+import {AtlasFacts,atlasData,atlasReceipt,checkAtlasReadback,modelAtlasReceipt,atlasTaskEffect} from '@/shared/mcp/facts'
 import {checkQuantum} from './quandprofile'
 import type {QuantumProof} from '@/shared/quandprofile/runtime'
 import {useWorkspace} from '../../../store/store'
@@ -80,12 +80,13 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const selected=servers.find(s=>s.name===args.server)
       if(!selected)throw new AIError('policy','features.ai.quantum.blocked')
       const proof=dispatchProof(selected,actual.name,actual.arguments)
-      task?.dispatch(actual.server+':'+actual.name,atlasTaskEffect(actual.name,actual.arguments))
+      task?.dispatch(actual.server+':'+actual.name,atlasTaskEffect(actual.name,actual.arguments),typeof actual.arguments.ref==='number'?String(actual.arguments.ref):null)
       attempts++;dispatched=true
       const out=await request({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},proof) as {result:string}
       if(typeof out?.result!=='string')throw new AIError('mcp')
       const failed=JSON.parse(out.result).isError===true
       task?.observe(args.name.startsWith('atlas_')?'atlas':'other',!failed,atlasTaskEffect(actual.name,actual.arguments)==='read'&&(actual.name!=='atlas_whoami'||task.identityOnly()),false,(!['atlas_whoami','atlas_record_kinds','atlas_setup_bootstrap','atlas_setup_changelog'].includes(actual.name)||actual.name==='atlas_whoami'&&task?.identityOnly()===true),actual.name)
+      if(!failed&&actual.name==='atlas_get'&&atlasReceipt(actual.name,out.result).outcome==='ok'){const item=atlasData(out.result)?.item;if(item&&Number.isSafeInteger(item.ref)&&typeof item.body==='string'&&item.body.trim())task?.observeSource('atlas',String(item.ref))}
       if(!failed){const schema=schemas.get(JSON.stringify([actual.server,actual.name]));const effect=atlasTaskEffect(actual.name,actual.arguments);if(schema&&['read','write','execute'].includes(effect))task?.capture({kind:'tool',server:actual.server,endpoint:selected.url,tool:actual.name,schema:schema.inputSchema,args:actual.arguments,effect:effect as 'read'|'write'|'execute'})}
       const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
       if(receipt)receipt.quantum=proof

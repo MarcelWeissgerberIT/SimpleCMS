@@ -14,7 +14,7 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
  const plan=explicitMockSources(o.typed??'');if(!plan||!o.mcp?.worker?.length)throw new ToolInputError('The explicit mock sources need a selected personal Atlas connection.')
  const candidates=o.mcp.worker.filter(s=>/atlas/i.test(s.name+new URL(s.url).hostname))
  if(candidates.length!==1)throw new ToolInputError('Select exactly one personal Atlas connection for this explicit mock; no server was guessed.')
- const server=candidates[0],task=createTaskContract({prepared,goal:o.typed??'',instructions:MOCK_GUIDE,input:plan,tools:['create_design_mock'],one:false,atlas:true,sourcesRequired:true,bounds:{readOnly:true,externalWrite:false,execute:false},signal:o.signal,onReport:o.hooks.contract})
+ const server=candidates[0],task=createTaskContract({reviewProfile:o.reviewProfile,prepared,goal:o.typed??'',instructions:MOCK_GUIDE,input:plan,tools:['create_design_mock'],one:false,atlas:true,sourcesRequired:true,bounds:{readOnly:true,externalWrite:false,execute:false},signal:o.signal,onReport:o.hooks.contract})
  const audit=await beginLiveAudit(prepared.route!,o.typed??'',o.purpose),untap=tapSignal(o.signal,{onEntry:e=>o.hooks.usage(e.usage,e)})
  let state='failed',failure:unknown,answer=''
  try{

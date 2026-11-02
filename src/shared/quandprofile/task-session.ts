@@ -25,11 +25,11 @@ export class TaskSession {
     this.contract=structuredClone(contract);this.pinned=host.signature();host.check();this.evidence.provider_checked=true
     this.compiled=this.check('compile');this.publish()
   }
-  private check(phase:TaskPhase,tool:string|null=null,effect:TaskEffect|null=null){
+  private check(phase:TaskPhase,tool:string|null=null,effect:TaskEffect|null=null,target:string|null=null){
     this.evidence.scope_current=this.host.signature()===this.pinned&&!this.closed&&!this.host.signal?.aborted
     this.evidence.provider_checked=false
     try{this.host.check();this.evidence.provider_checked=true}catch{ /* compiled failure is visible */ }
-    this.compiled=this.host.compile({contract:this.contract,evidence:this.evidence,phase,tool,effect})
+    this.compiled=this.host.compile({contract:this.contract,evidence:this.evidence,phase,tool,effect,target})
     return this.compiled
   }
   capture(step:CapturedStep){if(this.trace.length<40)this.trace.push(structuredClone(step))}
@@ -47,8 +47,8 @@ export class TaskSession {
   }
   /** Only selected host definitions can extend the exact tool catalogue. */
   expose(names:string[]){const next=[...new Set([...this.contract.allowed_tools,...names])].sort();if(next.length>256)throw new TaskBlocked('Compiled tool catalogue limit.');if(JSON.stringify(next)!==JSON.stringify(this.contract.allowed_tools)){this.contract.allowed_tools=next;this.contract.revision++}}
-  dispatch(tool:string,effect:TaskEffect){
-    const c=this.check('dispatch',tool,effect)
+  dispatch(tool:string,effect:TaskEffect,target:string|null=null){
+    const c=this.check('dispatch',tool,effect,target)
     if(c.decision!=='allow'){this.evidence.denied_actions++;this.phase='blocked';this.publish();throw new TaskBlocked('Compiled task blocked this action. Read-only bounds, an unresolved decision, unknown effects or a changed workspace/provider prevent dispatch. Do not retry the same effect. Continue independent reads or request a precise prerequisite decision after inspecting sources.')}
     return this.report()
   }
@@ -58,6 +58,12 @@ export class TaskSession {
     if(inspects){if(area==='one')this.evidence.one_checked=true;if(area==='atlas')this.evidence.atlas_checked=true}
     if(success&&contentRead){this.evidence.source_reads++;if(area==='atlas')this.evidence.atlas_reads++}
     if(success&&staged)this.evidence.staged_changes++
+  }
+  /** Only adapters call this after a successful actual page/record body read; never discovery or model prose. */
+  observeSource(area:'one'|'atlas',id:string){
+    const key=area==='one'?'one_pages':'atlas_records'
+    const list=this.evidence[key]??=[]
+    if(id&&list.length<100&&!list.includes(id))list.push(id)
   }
   async question(input:Record<string,unknown>):Promise<string>{
     if(this.questions.length>=12)throw new TaskBlocked('Decision limit; split this task.')

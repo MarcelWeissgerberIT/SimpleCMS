@@ -23,7 +23,7 @@ export async function runGroundedAnalysis(o:Parameters<typeof runAgent>[0],prepa
  const protocol={version:'one.ba-po.conformance.v7',common,ba:BA_INSTRUCTION,po:PO_INSTRUCTION,baSchema:baSchema(refs),checks:'owning-source-sections-refs-numbers-reactions-obligations-conformance-shape-v7',maxRepairs:1,maxTokens:2400}
  const protocolHash=sha256Hex(JSON.stringify(protocol))
  const instructions=fixedProgramInstructions(o.system??'',[agentSystemText(true),agentSystemText(false),TASK_RULES,CODING_RULES])+'\n'+common+'\nBound BA/PO phase definition SHA-256: '+protocolHash
- const task=createTaskContract({prepared,goal:o.typed??'',instructions,input:JSON.stringify({snapshot,references:refs}),tools:['read_page'],bounds:{readOnly:true,externalWrite:false,execute:false},one:true,atlas:false,sourcesRequired:true,signal,onReport:hooks.contract,interactive:false})
+ const task=createTaskContract({reviewProfile:o.reviewProfile,prepared,goal:o.typed??'',instructions,input:JSON.stringify({snapshot,references:refs}),tools:['read_page'],bounds:{readOnly:true,externalWrite:false,execute:false},one:true,atlas:false,sourcesRequired:true,signal,onReport:hooks.contract,interactive:false})
  delivery.bind(task)
  const untap=tapSignal(signal,{onEntry:e=>hooks.usage(e.usage,e)})
  let audit:Awaited<ReturnType<typeof beginLiveAudit>>|undefined,state='failed',error:unknown,answer=''

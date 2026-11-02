@@ -17,3 +17,8 @@ test('non-source ordinary edits retain their existing behavior',()=>assert.deepE
 test('asking how to rewrite or forbidding a rewrite does not authorize an edit',()=>{for(const goal of ['Explain how to rewrite this page using EARS.','Do not rewrite this page; only read it.','Wie kann ich diese Seite neu schreiben?'])assert.equal(deliveryPlan(goal,'page').rewrite,false)})
 
 test('an event missing its clause separator cannot masquerade as a ubiquitous requirement',()=>{assert.deepEqual(completeEarsSentences('When a measurement starts the logger shall record its start time.'),[]);assert.equal(completeEarsSentences('While the aircraft is on ground, when reverse thrust is commanded, the engine control system shall enable reverse thrust.').length,1)})
+
+test('Atlas record creation from a page is not misclassified by Beschreibung and neuen',()=>{
+ for(const goal of ['mach aus dieser seite in atlas die unterseiten zu dossiers und die tests zu test records mit ihrer beschreibung und verlinke die neuen atlas records','Erstelle aus dieser Seite neue Atlas-Records mit Beschreibung und Verknüpfung.','Beschreibe diese Seite und erstelle neue Atlas Records.']) assert.equal(deliveryPlan(goal,'source-page').rewrite,false)
+ for(const goal of ['Schreibe diese Seite neu.','Überarbeite diese Seite.','Formuliere diese Seite neu.','Rewrite this page.'])assert.equal(deliveryPlan(goal,'source-page').target,'source-page')
+})

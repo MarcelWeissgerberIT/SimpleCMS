@@ -1,3 +1,5 @@
+import {activeReviewProfile} from '../profiles/storage'
+import type {ReviewProfile} from '@/shared/quandprofile/review-profile'
 import {MockSources,MOCK_GUIDE,mockIntent,type DesignMock} from '@/shared/ai/designMock'
 import {mockTool,mockReadTool} from './designMocks'
 import {CODE_DELIVERY_RULES,codeDeliveryIssues} from '@/shared/ai/codeDelivery'
@@ -261,6 +263,7 @@ export async function runAgent(opts: {
   purpose: PurposeId
   /** Host-pinned page at task start, never a model-supplied target. */
   targetPage?: string | null
+  reviewProfile?:ReviewProfile|null
   mockSources?: MockSources
   delivery?: ReturnType<typeof groundedTask>
   route?: import('@/shared/ai/types').Route | null
@@ -298,6 +301,7 @@ export async function runAgent(opts: {
   run?: PrepareInput['run']
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
+  opts={...opts,reviewProfile:opts.purpose==='terminal.task'?await activeReviewProfile():null}
   const mockSources=new MockSources()
   const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&(mockIntent(opts.typed??'')||/\b(?:ui|design|html|png|dialog|screen|oberfläche)\b[\s\S]*\b(?:mocks?|mockups?|prototyp(?:e)?)\b|\b(?:mocks?|mockups?|prototyp(?:e)?)\b[\s\S]*\b(?:ui|design|html|png|dialog|screen|oberfläche)\b/i.test(opts.typed??''))
   const baseTools=opts.tools??TERMINAL_TOOLS
@@ -348,7 +352,7 @@ export async function runAgent(opts: {
       const { runCopilotAgent } = await import('./copilot')
       return await runCopilotAgent(opts, prepared, messages)
     }
-    compiledTask=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),...(opts.mockSources?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
+    compiledTask=createTaskContract({reviewProfile:opts.reviewProfile,prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),...(opts.mockSources?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
     const task=compiledTask
     delivery.bind(task)
     const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined):null
@@ -402,6 +406,7 @@ export async function runAgent(opts: {
           throw new Error(msg)
         }
         task.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
+          if(tool.name==='read_page'&&out.state==='ok'&&!/\[Content withheld\./u.test(out.content))task.observeSource('one',String(input.id??''))
           task.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
         ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })

@@ -3,7 +3,7 @@ export type DeliveryPlan={urls:string[];target:string|null;rewrite:boolean;ears:
 export function deliveryPlan(goal:string,target?:string|null):DeliveryPlan {
  const advice=/(?:how to|how can i|how would you|wie kann ich|wie würdest du|wie wuerdest du|wie sollte ich).{0,60}(?:rewrite|überarbeit|ueberarbeit|schreib)|(?:explain|describe|erkläre|erklaere|beschreibe).{0,30}(?:how|wie)/iu.test(goal)
  const denied=/(?:do not|don't|never|nicht).{0,20}(?:rewrite|rework|überarbeit|ueberarbeit|neu schreib)/iu.test(goal)
- const rewrite=!advice&&!denied&&/(?:rewrite|rework|überarbeite|ueberarbeite|formuliere.{0,35}(?:um|neu)|schreib\w*.{0,65}(?:erneut|neu|um)|ersetze)/iu.test(goal)&&/(?:diese(?:r|n)?\s+seite|die\s+seite|this\s+page|current\s+page|offene\s+seite)/iu.test(goal)
+ const rewrite=!advice&&!denied&&/(?:(?<![\p{L}\p{N}_])(?:rewrite|rework|überarbeite|ueberarbeite|ersetze)\b|\bformuliere\b.{0,35}\b(?:um|neu)\b|\bschreib(?:e|en)?\b.{0,65}\b(?:erneut|neu|um)\b)/iu.test(goal)&&/(?:diese(?:r|n)?\s+seite|die\s+seite|this\s+page|current\s+page|offene\s+seite)/iu.test(goal)
  const reads=/(?:read|using|based|according|rewrite|analyse|analyze|lies|lesen|nutze|verwende|beschreib|analy[sz]|schreib|überarbeite|ueberarbeite|auf\s+basis|gemäß)/iu.test(goal)
  const urls:string[]=[]
  if(reads)for(const match of goal.matchAll(/https:\/\/[^\s<>"'`]+/giu)){

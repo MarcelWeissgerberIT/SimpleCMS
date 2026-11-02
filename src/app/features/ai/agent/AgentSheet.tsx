@@ -1,3 +1,4 @@
+import {openReviewProfiles} from '../profiles/dialog'
 import {DesignMockCard} from './DesignMockCard'
 import {openPrograms} from '../programs/dialog'
 import {TaskContractCard} from '../mcp-servers/TaskContractCard'
@@ -392,6 +393,7 @@ function Head() {
       <span className="term-head__status" aria-live="polite">
         {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
       </span>
+<button type="button" className="term-key" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
 <button type="button" className="term-key" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
       <span className="term-spacer" />
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
@@ -576,7 +578,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
   const ctx = turn.context
   const ctxParts = ctx ? [ctx.page ? `▣ ${ctx.page}` : '', ctx.refs ? tn('features.agent.ctx.refs', ctx.refs) : '', ...ctx.mentions.map((m) => `@${m}`)].filter(Boolean) : []
   return (
-    <section className="term-turn" data-status={turn.status} aria-label={`${t('features.agent.task')} ${pad(turn.n)}`}>
+    <section className="term-turn" data-turn={turn.n} data-status={turn.status} aria-label={`${t('features.agent.task')} ${pad(turn.n)}`}>
       <div className="term-turn__head">
         <span className="term-mark" aria-hidden>
           {turn.continues ? '↻' : '›'}
@@ -621,7 +623,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       <TurnHalt n={turn.n} />
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
       {turn.status === 'limit' && <LimitNote last={last} />}
-      {turn.status === 'error' && turn.error && <TurnError error={turn.error} n={turn.n} last={last} />}
+      {turn.status === 'error' && turn.error && !last && <TurnError error={turn.error} n={turn.n} last={false} />}
       {turn.status === 'done' && last && turn.signIn?.length ? <SignInOffer turn={turn} /> : null}
     </section>
   )
@@ -715,7 +717,7 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
   const keyIssue = error.code === 'invalid_key' || error.code === 'no_key' || error.code === 'permission' || error.code === 'key_in_text'
   const signIn = error.code === 'mcp_auth' && !!error.server && last
   return (
-    <div className="term-error" role="alert">
+    <div className="term-error" role={last?'alert':undefined}>
       <span className="term-error__code">✗ ERR · {error.code.toUpperCase()}</span>
       <p>{error.message}</p>
       {signIn && <SignInKey server={error.server!} retry={retryOf(n)} />}
@@ -1591,6 +1593,24 @@ function PageChip({ pageId, title }: { pageId: string; title: string }) {
   )
 }
 
+/** Latest failure lives beside the input, outside the scrollable log and proposal list. No automatic retry. */
+function FailureDock(){
+ const t=useT(),turn=useAgent(s=>s.turns.at(-1)),route=useRoute()
+ if(turn?.status!=='error'||!turn.error)return null
+ const missingTarget=/Open the (?:source )?page (?:to rewrite )?first/u.test(turn.error.message)
+ const failed=turn.contract?.compiled.findings.filter(f=>f.hard&&f.status!=='verified')??[]
+ return <section className="term-failure-dock" aria-label={t('features.ai.terminal.blocked')}>
+  <strong>{t('features.ai.terminal.blocked')} · {pad(turn.n)}</strong>
+  {missingTarget?<p role="alert">{t('features.ai.terminal.missingTarget')}</p>:<TurnError error={turn.error} n={turn.n} last/>}
+  {!!failed.length&&<ul>{failed.slice(0,4).map(f=><li key={f.id}>{t('features.ai.task.finding.'+f.id)}</li>)}</ul>}
+  <div className="term-failure-dock__actions">
+   {missingTarget&&route.name==='page'&&<button type="button" className="btn btn--sm" onClick={()=>{useAgent.setState({pageOff:null,draft:turn.task});focusPrompt()}}>{t('features.ai.terminal.restoreContext')}</button>}
+   <button type="button" className="btn btn--sm" onClick={()=>{useAgent.setState({draft:turn.task});focusPrompt()}}>{t('features.ai.terminal.editFailed')}</button>
+   <button type="button" className="btn btn--sm" onClick={()=>{const el=document.querySelector<HTMLElement>('.term-turn[data-turn="'+turn.n+'"]');el?.scrollIntoView({block:'start',behavior:'smooth'});el?.setAttribute('tabindex','-1');el?.focus({preventScroll:true})}}>{t('features.ai.terminal.errorDetails')}</button>
+  </div><small>{t('features.ai.terminal.reviewBeforeRetry')}</small>
+ </section>
+}
+
 function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boolean }) {
   const t = useT()
   const lang = useLang()
@@ -1788,6 +1808,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
         submit()
       }}
     >
+      <FailureDock />
       <Chips />
       <RepoFilesControl value={draft} onChange={v=>setDraft(v)} disabled={running} />
       {comp && (

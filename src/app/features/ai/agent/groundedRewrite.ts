@@ -21,7 +21,7 @@ export async function runGroundedRewrite(o:Parameters<typeof runAgent>[0],prepar
  const SCHEMA={type:'object',properties:{markdown:{type:'string',minLength:100,maxLength:24000},source_refs:{type:'array',minItems:1,maxItems:6,items:{type:'string',enum:references.sources.map(r=>r.ref)}},requirements:{type:'array',minItems:delivery.plan.ears?1:0,maxItems:20,items:{type:'object',properties:{statement:{type:'string',minLength:20,maxLength:1000},target_ref:{type:'string',enum:references.targets.map(r=>r.ref)},acceptance_check:{type:'string',minLength:15,maxLength:1000}},required:['statement','target_ref','acceptance_check'],additionalProperties:false}}},required:['markdown','source_refs','requirements'],additionalProperties:false}
  const {hooks,signal}=o,de=useWorkspace.getState().settings.language==='de'
  const instructions=fixedProgramInstructions(o.system??'',[agentSystemText(true),agentSystemText(false),TASK_RULES,CODING_RULES])+delivery.guide
- const task=createTaskContract({prepared,goal:o.typed??'',instructions,input:delivery.context(),tools:delivery.tools.map(t=>t.name),one:true,atlas:false,sourcesRequired:true,signal,onReport:hooks.contract,interactive:false})
+ const task=createTaskContract({reviewProfile:o.reviewProfile,prepared,goal:o.typed??'',instructions,input:delivery.context(),tools:delivery.tools.map(t=>t.name),one:true,atlas:false,sourcesRequired:true,signal,onReport:hooks.contract,interactive:false})
  delivery.bind(task)
  const untap=tapSignal(signal,{onEntry:e=>hooks.usage(e.usage,e)})
  let audit:Awaited<ReturnType<typeof beginLiveAudit>>|undefined

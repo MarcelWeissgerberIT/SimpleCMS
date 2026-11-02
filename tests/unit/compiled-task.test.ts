@@ -59,3 +59,9 @@ test('explicit personal Polarion login is separate from write and execution auth
  for(const tool of ['atlas:atlas_agent_trigger','atlas:atlas_polarion_apply_change'])for(const effect of ['execute','write','authenticate'])assert.equal(check({...req,tool,effect}).decision,'block')
  for(const field of ['scope_current','provider_checked'])assert.equal(check({...req,evidence:{...evidence(),[field]:false}}).decision,'block')
 })
+
+test('explicit page-to-Atlas transfer intent is allowed while descriptions and negation cannot grant it',()=>{
+ assert.equal(taskBoundaries('mach aus dieser seite in atlas die unterseiten zu dossiers und die tests zu test records mit ihrer beschreibung und verlinke die neuen atlas records').externalWrite,true)
+ assert.equal(taskBoundaries('Kommentiere die offenen Fragen in Atlas.').externalWrite,true)
+ for(const text of ['Wie mache ich aus dieser Seite in Atlas ein Dossier?','Bitte nicht kommentieren oder verlinken in Atlas.','Kommentiere nicht in Atlas.','Übertrage nicht nach Atlas.','Ändere nicht in Atlas.','Nur lesen. Verlinke die Records in Atlas.'])assert.equal(taskBoundaries(text).externalWrite,false)
+})

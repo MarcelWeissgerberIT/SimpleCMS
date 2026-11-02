@@ -1,3 +1,6 @@
+import {openReviewProfiles} from '../profiles/dialog'
+import {CompilationFlow} from '../profiles/CompilationFlow'
+import '../profiles/profiles.css'
 import {pmBriefPlan} from '@/shared/ai/pmBrief'
 import {mockIntent} from '@/shared/ai/designMock'
 import {analysisIntent} from '@/shared/ai/analysis'
@@ -22,6 +25,10 @@ export function TaskContractCard({report,historical=false}:{report:TaskReport;hi
    <summary><span className="label">{t('features.ai.task.title')} · {c.contract_hash.slice(0,12)} · R{c.contract.revision}</span><strong>{t('features.ai.task.phase.'+report.phase)}</strong></summary>
    <div className="task-contract__body">
     <p>{c.contract.goal}</p>
+    {c.contract.review_profile&&<p className="label">{c.contract.review_profile.spec.name} · V{c.contract.review_profile.version} · {c.contract.review_profile.hash.slice(0,12)}</p>}
+    {!historical&&<button className="btn btn--sm" onClick={openReviewProfiles}>{t('features.ai.cube.title')}</button>}
+    <details><summary>{t('features.ai.cube.flowTitle')}</summary><CompilationFlow/></details>
+    {c.contract.review_profile&&Object.entries(c.contract.review_profile.spec.guidance).map(([d,note])=><p key={d}><strong>{t('features.ai.quantum.dimension.'+d)} · {t('features.ai.cube.guidance')}</strong><br/>{note}</p>)}
     {report.program&&<p className="label">IR · V{report.program.version} · {report.program.hash.slice(0,12)} · {report.program.runId.slice(0,8)}</p>}
     {report.program&&<button className="btn btn--sm" onClick={()=>openPrograms()}>{t('features.ai.program.history')}</button>}
     {question&&historical&&<p><strong>{question.question}</strong><br/>{question.neededFor}</p>}
