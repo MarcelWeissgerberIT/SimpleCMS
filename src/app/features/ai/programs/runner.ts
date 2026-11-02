@@ -1,7 +1,7 @@
 import {activeReviewProfile} from '../profiles/storage'
 import {groundedTask} from '../agent/grounding'
 import {tapSignal} from '../core/meter'
-import {bindInputs,programDigest,readProgram,resolveExpr,validateValue,fixedProgramInstructions,decodeMcpProgramResult,type Json,type SavedProgram,type ProgramRun} from '@/shared/quandprofile/program'
+import {bindInputs,programDigest,readProgram,resolveExpr,validateValue,fixedProgramInstructions,decodeMcpProgramResult,workflowStep,type Json,type SavedProgram,type ProgramRun} from '@/shared/quandprofile/program'
 import {atlasTaskEffect} from '@/shared/mcp/facts'
 import {streamCompletion,completeStructured} from '../client'
 import {prepare,settle,assertPreparedFlow} from '../core/gate'
@@ -24,6 +24,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
  const scope=programScope();if(scope.key!==inv.scope.key)throw Error('Account or workspace changed before program start.')
  const saved=(await listPrograms()).find(x=>x.id===inv.saved.id&&x.version===inv.saved.version)
  if(saved?.compiled.hash!==inv.saved.compiled.hash)throw Error('Saved artifact was not found or its hash changed.')
+ if(workflowStep(p))return (await import('./workflow')).runSavedWorkflow(o,inv,saved)
  const effects=p.steps.some(s=>s.kind==='tool'&&s.effect!=='read')
  if(effects&&!inv.effectsConfirmed)throw Error('Review this run’s staged changes and external effects before starting.')
  const receipt:ProgramRun={id:crypto.randomUUID(),programId:saved.id,version:saved.version,hash:saved.compiled.hash,inputHash:programDigest(inputs),route:{provider:o.route?.p??'',model:o.route?.m??''},startedAt:Date.now(),finishedAt:0,status:'failed',steps:[]}
@@ -53,6 +54,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
   for(const step of p.steps){check();task.packet();hooks.note(t('features.ai.program.step',{step:step.id,kind:step.kind==='tool'?step.tool:step.kind}));let input:Json=null,result:Json=null
    const proof:ProgramRun['steps'][number]={id:step.id,inputHash:programDigest(null),at:Date.now(),status:'failed'};receipt.steps.push(proof)
    try{
+    if(step.kind==='workflow')throw Error('A fresh workflow cannot run inside a fixed tool program.')
     if(step.kind==='decision'){input={question:step.question,needed_for:step.neededFor};proof.inputHash=programDigest(input);result=parse(await task.question(input))}
     else if(step.kind==='generate'){
      input=resolveExpr(step.context,inputs,results);if(observed)input={program_step_data:input,host_source_inputs:observed};proof.inputHash=programDigest(input)

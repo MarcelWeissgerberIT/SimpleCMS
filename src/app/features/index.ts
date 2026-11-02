@@ -16,6 +16,7 @@
  *   - openTodayJournal()
  */
 import { lazy } from 'react'
+export const ProgramsRoute=lazy(()=>import('./ai/programs/ProgramsDialog').then(m=>({default:m.ProgramsPage})))
 export { startHistory, seedDemoHistory } from './history/snapshots'
 /* a version of a page right now, before a structural edit (editor: "Turn into page") */
 export { snapshotNow } from './history/snapshots'

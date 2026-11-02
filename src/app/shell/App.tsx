@@ -1,4 +1,5 @@
 import { isTestAccess } from '../cloud/testScope'
+import { ProgramsRoute } from '../features'
 import { Suspense } from 'react'
 import { useRoute, type Route } from '../lib/router'
 import { useWorkspace } from '../store/store'
@@ -211,6 +212,8 @@ function RouteView({ route }: { route: Route }) {
       return <Discover />
     case 'regler':
       return <ReglerRoute />
+    case 'programs':
+      return <ProgramsRoute />
     case 'mcp':
       return <McpConnectionsRoute />
     case 'patchbay':
@@ -236,5 +239,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'personal-guides' ? t('shell.nav.personalGuides') : route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : route.name === 'patchbay' ? t('features.patchbay.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'programs' ? t('features.ai.program.database') : route.name === 'personal-guides' ? t('shell.nav.personalGuides') : route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : route.name === 'patchbay' ? t('features.patchbay.title') : t('shell.nav.home')}</span>
 }

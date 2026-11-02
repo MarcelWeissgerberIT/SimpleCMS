@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {compileProgram,readProgram,bindInputs,resolveExpr,draftProgram,validateValue,type ProgramSpec} from '../../src/shared/quandprofile/program.ts'
+import {compileProgram,readProgram,draftWorkflow,workflowTarget,workflowStep,bindInputs,resolveExpr,draftProgram,validateValue,type ProgramSpec} from '../../src/shared/quandprofile/program.ts'
 const spec=():ProgramSpec=>({protocol:'one.program.v1',goal:'Read the selected source. No writes.',parameters:{ref:{schema:{type:'integer',minimum:1}}},steps:[{id:'read',kind:'tool',server:'atlas',endpoint:'https://atlas.example/mcp',tool:'atlas_get',schema:{type:'object',properties:{ref:{type:'integer'}},required:['ref'],additionalProperties:false},effect:'read',args:{object:{ref:{input:'ref'}}}},{id:'decision',kind:'decision',question:'Which audience?',neededFor:'Draft output'},{id:'answer',kind:'generate',instruction:'Use fresh evidence only',context:{object:{source:{result:'read',path:[]},audience:{result:'decision',path:[]}}}}],output:{result:'answer',path:[]}})
 test('canonical executable is stable across object order, reload and new run inputs',()=>{const p=spec(),a=compileProgram(p),b=compileProgram(JSON.parse(JSON.stringify(p)));assert.equal(a.hash,b.hash);assert.equal(compileProgram({...p,goal:p.goal,parameters:{...p.parameters}}).hash,a.hash);assert.deepEqual(readProgram(a),p);const first=bindInputs(p,{ref:42}),second=bindInputs(p,{ref:43});assert.equal(a.hash,b.hash);const step=p.steps[0];assert(step.kind==='tool');assert.deepEqual(resolveExpr(step.args,first,{}),{ref:42});assert.deepEqual(resolveExpr(step.args,second,{}),{ref:43});assert.notEqual(compileProgram({...p,goal:'Another goal'}).hash,a.hash)})
 test('artifact tampering, unsupported version, future result, prototype and unknown effect fail closed',()=>{const a=compileProgram(spec());assert.throws(()=>readProgram({...a,hash:'0'.repeat(64)}),/integrity/);assert.throws(()=>readProgram({...a,compiler:'v2' as any}),/version/);assert.throws(()=>compileProgram({...spec(),output:{result:'future',path:[]}}),/binding/);assert.throws(()=>compileProgram(JSON.parse('{"__proto__":1}')),/unsafe key/);assert.throws(()=>compileProgram({...spec(),steps:[{...spec().steps[0],effect:'arbitrary'}]}),/tool/);assert.throws(()=>resolveExpr({result:'read',path:['constructor']},{},{read:{}}),/path/);assert.throws(()=>compileProgram({...spec(),steps:[...spec().steps,...spec().steps]}),/duplicate/)})
@@ -36,4 +36,21 @@ test('an explicit MCP decoder exposes fresh JSON fields and keeps host proof sep
  const value={content:[{type:'text',text:JSON.stringify({item:{ref:42,body:'Actual body'}})}],oneObservedFacts:{refs:[42]}}
  assert.deepEqual(decodeMcpProgramResult(value),{source:{item:{ref:42,body:'Actual body'}},oneObservedFacts:{refs:[42]},oneSourceLinks:null})
  for(const bad of [{content:[{type:'text',text:'not JSON'}]},{isError:true,content:[{type:'text',text:'{}'}]},{content:[{type:'image',data:'x'}]}])assert.throws(()=>decodeMcpProgramResult(bad))
+})
+
+
+test('fresh BA, PO, PM and mock recipes keep source bindings without old results or approvals',()=>{
+ for(const mode of ['ba','po','pm','mock'] as const){
+  const goal=mode==='pm'?'/pm 42 Read current sources':mode==='mock'?'/mock 42 design 43':'/'+mode+' inspect requirements'
+  const p=draftWorkflow(goal,mode,mode==='ba'||mode==='po'?'original-page':null,[{name:'atlas',endpoint:'https://atlas.example/mcp'}]),c=compileProgram(p)
+  assert.equal(readProgram(c).steps.length,1);assert.equal(workflowStep(p)?.mode,mode)
+  assert.equal(workflowTarget(p,{}),mode==='ba'||mode==='po'?'original-page':null)
+  assert.equal(workflowTarget(p,{page_id:'new-page'}),'new-page');assert.equal(compileProgram(p).hash,c.hash)
+  assert(!c.canonical.includes('approval'));assert(!c.canonical.includes('answer'))
+ }
+ assert.throws(()=>workflowTarget(draftWorkflow('/ba inspect','ba',null,[]),{}),/selected source/)
+ assert.throws(()=>compileProgram(draftWorkflow('/po inspect','ba','p',[])),/mode differs/)
+ const p=draftWorkflow('/pm 42 inspect','pm',null,[])
+ assert.throws(()=>compileProgram({...p,steps:[...p.steps,{id:'extra',kind:'generate',instruction:'Reuse old result',context:{literal:'old'}}]}),/workflow/)
+ assert.throws(()=>compileProgram(draftWorkflow('/pm 42 inspect','pm',null,[{name:'atlas',endpoint:'https://atlas.example/mcp?token=bad'}])),/unsafe/)
 })

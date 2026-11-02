@@ -13,7 +13,7 @@ import type { TermMention } from './types'
 import { examples } from '../memory/example'
 import { memoryInUse } from '../memory/settings'
 
-export type CommandId = 'new' | 'stop' | 'continue' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'pipelines' | 'connect' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example' | 'ba' | 'po' | 'mock'
+export type CommandId = 'new' | 'stop' | 'continue' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'pipelines' | 'connect' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example' | 'ba' | 'po' | 'mock' | 'programs'
 
 export interface Command {
   id: CommandId
@@ -25,6 +25,7 @@ export interface Command {
 
 /** The commands with their names (/help lists them in this order). */
 export const COMMANDS: Command[] = [
+  { id: 'programs', en: ['programs', 'compilates'], de: ['kompilate', 'aufträge', 'auftraege'] },
   { id: 'new', en: ['new', 'clear'], de: ['neu', 'leeren'] },
   { id: 'stop', en: ['stop'], de: ['stopp'] },
   // a task that stopped at the tool-call limit goes on with a fresh budget (session.ts continueTask)

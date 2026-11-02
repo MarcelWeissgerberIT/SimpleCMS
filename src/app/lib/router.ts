@@ -31,6 +31,7 @@ import { useSyncExternalStore } from 'react'
 
 export type Route =
   | { name: 'home' }
+  | { name: 'programs' }
   /** Recipient-only cloud preparation; never redirects to a configured workspace start page. */
   | { name: 'personal-guides'; id?: string }
   | { name: 'page'; id: string; block?: string }
@@ -89,6 +90,7 @@ export function parseHash(hash: string): Route {
   const params = new URLSearchParams(query)
   const parts = path.split('/').filter(Boolean)
   if (parts.length === 0) return { name: 'home' }
+  if (parts[0] === 'compilates') return { name: 'programs' }
   if (parts[0] === 'p' && parts[1]) return { name: 'page', id: parts[1], block: params.get('b') ?? undefined }
   if (parts[0] === 'my-start') return { name: 'personal-guides', ...(parts[1] ? { id: parts[1] } : {}) }
   if (parts[0] === 'graph') return { name: 'graph' }
@@ -174,6 +176,8 @@ export function routeHref(r: Route): string {
       return '#/discover'
     case 'regler':
       return '#/regler'
+    case 'programs':
+      return '#/compilates'
     case 'mcp':
       return '#/mcp'
     case 'patchbay': {

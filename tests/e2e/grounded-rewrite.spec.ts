@@ -90,7 +90,7 @@ test.describe('Source-grounded existing-page rewrite',()=>{
   await expect(term.locator('.term-step[data-tool="edit_page"]')).toHaveCount(0);await expect(term.locator('#term-review-title')).toHaveCount(0)
   expect(await wsEval(page,(s,id)=>s.pages[id].plain,target)).toContain('not merged and not verified')
   await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Ready for review')
-  await term.getByRole('region',{name:'Compiled task'}).locator('summary').first().click();await expect(term.getByRole('button',{name:'Save as executable program',exact:true})).toHaveCount(0)
+  await term.getByRole('region',{name:'Compiled task'}).locator('summary').first().click();await expect(term.getByRole('button',{name:'Save as executable program',exact:true})).toHaveCount(1)
  })
  test('/po refuses an excluded source before inference',async({page})=>{
   await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})

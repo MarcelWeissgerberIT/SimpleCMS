@@ -2,7 +2,7 @@ import {readReviewProfile,type ReviewProfile} from '@/shared/quandprofile/review
 import {pmBriefPlan} from '@/shared/ai/pmBrief'
 import {mockIntent} from '@/shared/ai/designMock'
 import {analysisIntent} from '@/shared/ai/analysis'
-import {draftProgram} from '@/shared/quandprofile/program'
+import {draftProgram,draftWorkflow} from '@/shared/quandprofile/program'
 import {TaskSession} from '@/shared/quandprofile/task-session'
 import {taskBoundaries,type TaskReport} from '@/shared/quandprofile/task'
 import {stateHash} from '@/shared/quandprofile/runtime'
@@ -12,7 +12,19 @@ import {useCloud} from '../../../cloud/state'
 import {compileTask} from './quandprofile'
 import {assertPreparedFlow,taskInputOf,type Prepared} from './gate'
 const sessions=new Map<string,TaskSession>()
-export const taskProgramDraft=(id:string)=>{const task=sessions.get(id);if(!task||!['ready','accepted'].includes(task.report().phase))throw Error('Run is not ready or is no longer available.');if(task.report().compiled.contract.authenticate)throw Error('Personal sign-in must be explicitly requested again, not saved as an executable program.');if(pmBriefPlan(task.report().compiled.contract.goal)||analysisIntent(task.report().compiled.contract.goal)||mockIntent(task.report().compiled.contract.goal)||task.captured().some(s=>s.kind==='tool'&&s.tool==='create_design_mock'))throw Error('Repeat with /ba, /po, /pm or /mock to read current sources again.');return draftProgram(task.report().compiled.contract.goal,task.captured())}
+export const taskProgramDraft=(id:string)=>{
+ const task=sessions.get(id);if(!task||!['ready','accepted'].includes(task.report().phase))throw Error('Run is not ready or is no longer available.')
+ const contract=task.report().compiled.contract,goal=contract.goal,trace=task.captured()
+ if(contract.authenticate)throw Error('Personal sign-in must be explicitly requested again, not saved as an executable program.')
+ const mode=analysisIntent(goal)?.role??(pmBriefPlan(goal)?'pm':mockIntent(goal)||task.report().observations.some(o=>o.tool==='create_design_mock')?'mock':null)
+ if(mode){
+  const readTarget=trace.find(s=>s.tool==='read_page')?.args?.id as string|undefined
+  const target=(mode==='ba'||mode==='po'?contract.source_pointers.map(p=>{try{return JSON.parse(p)?.page as string|undefined}catch{return undefined}}).find(Boolean):undefined)??readTarget
+  const connections=[...new Map(trace.filter(s=>s.server&&s.endpoint).map(s=>[s.server!,{name:s.server!,endpoint:s.endpoint!}])).values()]
+  return draftWorkflow(goal,mode,target??null,connections)
+ }
+ return draftProgram(goal,trace)
+}
 export const answerTaskDecision=(id:string,question:string,answer:string)=>{try{return sessions.get(id)?.answer(question,answer)??false}catch{return false}}
 export const acceptTaskResult=(id:string)=>{try{return sessions.get(id)?.accept()??false}catch{return false}}
 export const TASK_QUESTION:WorkerFunction={name:'one_task_question',description:'After inspecting available ONE and Atlas sources, ask a precise unresolved prerequisite question in the decision cube. The human answers. Dependent effects pause; do not invent decisions or approval. Only when the requested next action cannot proceed without a human answer now. When asked to formulate questions, list open questions in the final answer without pausing. Not for routine reads or an analysis that can already be delivered.',parameters:{type:'object',properties:{question:{type:'string',maxLength:2000},needed_for:{type:'string',maxLength:1000},options:{type:'array',maxItems:3,items:{type:'object',properties:{label:{type:'string'},effect:{type:'string'}},required:['label','effect'],additionalProperties:false}}},required:['question','needed_for'],additionalProperties:false}}

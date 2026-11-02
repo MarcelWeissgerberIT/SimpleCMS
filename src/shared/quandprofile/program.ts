@@ -6,6 +6,7 @@ export type ProgramStep=
  |{id:string;kind:'tool';tool:string;server?:string;endpoint?:string;schema:Record<string,unknown>;args:Expr;decode?:'mcp-json';effect:'read'|'stage'|'write'|'execute'}
  |{id:string;kind:'generate';instruction:string;context:Expr;schema?:Record<string,unknown>}
  |{id:string;kind:'decision';question:string;neededFor:string}
+ |{id:string;kind:'workflow';mode:'ba'|'po'|'pm'|'mock';target:Expr;connections:Array<{name:string;endpoint:string}>}
 export interface ProgramSpec {protocol:'one.program.v1';goal:string;parameters:Record<string,{schema:Record<string,unknown>;default?:Json}>;steps:ProgramStep[];output:Expr}
 export interface CompiledProgram {compiler:'one.program.compiler.v1';hash:string;canonical:string}
 export interface SavedProgram {id:string;name:string;version:number;createdAt:number;compiled:CompiledProgram}
@@ -55,11 +56,31 @@ export function compileProgram(input:unknown):CompiledProgram{
  if(s.kind==='tool'){if(typeof s.tool!=='string'||!/^[a-zA-Z_][a-zA-Z0-9_.-]{0,127}$/.test(s.tool)||!['read','stage','write','execute'].includes(String(s.effect))||!object(s.schema))fail('invalid tool');if(s.server!==undefined){if(typeof s.server!=='string'||!s.server||typeof s.endpoint!=='string')fail('missing MCP binding');const url=new URL(s.endpoint);if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)fail('unsafe MCP endpoint')}else if(s.endpoint!==undefined)fail('unexpected endpoint');if(s.decode!==undefined&&(s.decode!=='mcp-json'||typeof s.server!=='string'))fail('invalid MCP result decoder');validateSchema(s.schema);if(Object.keys(s).some(k=>!['id','kind','tool','server','endpoint','schema','args','effect','decode'].includes(k)))fail('unknown tool field');expression(s.args,inputs,results)}
  else if(s.kind==='generate'){if(typeof s.instruction!=='string'||!s.instruction.trim()||s.instruction.length>12000||s.schema!==undefined&&!object(s.schema)||Object.keys(s).some(k=>!['id','kind','instruction','context','schema'].includes(k)))fail('invalid generation');if(s.schema)validateSchema(s.schema as Record<string,unknown>);expression(s.context,inputs,results)}
  else if(s.kind==='decision'){if(typeof s.question!=='string'||!s.question.trim()||s.question.length>2000||typeof s.neededFor!=='string'||!s.neededFor.trim()||s.neededFor.length>1000||Object.keys(s).some(k=>!['id','kind','question','neededFor'].includes(k)))fail('invalid decision')}
+ else if(s.kind==='workflow'){
+  if(input.steps.length!==1||!['ba','po','pm','mock'].includes(String(s.mode))||!Array.isArray(s.connections)||s.connections.length>10||Object.keys(s).some(k=>!['id','kind','mode','target','connections'].includes(k)))fail('invalid fresh workflow')
+  if((s.mode==='ba'||s.mode==='po')&&!new RegExp('^/'+s.mode+'(?:\\s|$)','i').test(input.goal.trim())||s.mode==='pm'&&!/^\/pm\s+[1-9]\d*(?:\s*,\s*[1-9]\d*){0,2}(?:\s|$)/i.test(input.goal.trim())||s.mode==='mock'&&!/\bmock(?:up)?s?\b/i.test(input.goal))fail('workflow mode differs from goal')
+  const names=new Set<string>()
+  for(const connection of s.connections){if(!object(connection)||typeof connection.name!=='string'||!connection.name||connection.name.length>120||names.has(connection.name)||typeof connection.endpoint!=='string'||Object.keys(connection).some(k=>!['name','endpoint'].includes(k)))fail('invalid workflow connection');names.add(connection.name);const url=new URL(connection.endpoint);if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)fail('unsafe workflow endpoint')}
+  expression(s.target,inputs,results)
+ }
  else fail('unknown step kind')
  results.add(s.id)
  }
  expression(input.output,inputs,results)
  return {compiler:'one.program.compiler.v1',hash:sha256Hex(text),canonical:text}
+}
+
+/** Store the source binding and analysis recipe, never a historical tool trace, generated mock or approval. */
+export function draftWorkflow(goal:string,mode:'ba'|'po'|'pm'|'mock',target:string|null,connections:Array<{name:string;endpoint:string}>):ProgramSpec{
+ return {protocol:'one.program.v1',goal,parameters:{page_id:{schema:{type:['string','null'],minLength:1},default:target}},steps:[{id:'workflow',kind:'workflow',mode,target:{input:'page_id'},connections}],output:{result:'workflow',path:[]}}
+}
+export function workflowStep(p:ProgramSpec){return p.steps.find((s):s is Extract<ProgramStep,{kind:'workflow'}>=>s.kind==='workflow')}
+export function workflowTarget(p:ProgramSpec,values:Record<string,unknown>):string|null|undefined{
+ const step=workflowStep(p);if(!step)return undefined
+ const value=resolveExpr(step.target,bindInputs(p,values),{})
+ if(value!==null&&(typeof value!=='string'||!value.trim()))fail('workflow target must be a page id or null')
+ if((step.mode==='ba'||step.mode==='po')&&!value)fail('analysis needs its selected source page')
+ return value as string|null
 }
 export function readProgram(c:CompiledProgram):ProgramSpec{if(c.compiler!=='one.program.compiler.v1')fail('compiler version differs');const next=compileProgram(JSON.parse(c.canonical));if(next.hash!==c.hash||next.canonical!==c.canonical)fail('artifact integrity');return JSON.parse(c.canonical) as ProgramSpec}
 export function bindInputs(p:ProgramSpec,values:Record<string,unknown>):Record<string,Json>{const out:Record<string,Json>={};if(Object.keys(values).some(k=>!Object.hasOwn(p.parameters,k)))fail('unknown parameter');for(const [k,d]of Object.entries(p.parameters)){const v=Object.hasOwn(values,k)?values[k]:d.default;if(v===undefined)fail('missing input '+k);safe(v);validateValue(v,d.schema,k);out[k]=structuredClone(v)}return out}

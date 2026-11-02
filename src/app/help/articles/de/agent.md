@@ -173,3 +173,14 @@ Ein Profil erteilt keine Zugriffsrechte und lockert keine Anbieterregeln. Es gar
 ## Fehler direkt an der Eingabe
 
 Der Fehler der jüngsten Aufgabe steht fest oberhalb der Eingabe, auch wenn die Vorschlagsliste lang ist. Dort kannst du den Auftrag zum Korrigieren übernehmen, zu seinem Verlauf springen oder bei Verbindungsfehlern die passende Einrichtung öffnen. Es wird nichts automatisch wiederholt. Prüfe vor einem neuen Start bereits ausgeführte externe Aktionen. Fehlt bei einer echten Seitenüberarbeitung der Kontext, kannst du die offene Seite ausdrücklich wieder als Kontext auswählen.
+
+
+## Meine Kompilate
+
+**Meine Kompilate** in der Seitenleiste öffnet deine interne ONE-Datenbank. Sie ist außerdem über die Suche (⌘K → Meine Kompilate), den Terminal-Button **Kompilate** und `/kompilate` erreichbar. Du siehst ausschließlich deine Einträge im aktuellen Workspace; auch andere Teammitglieder und Workspace-Administratoren erhalten darüber keinen Zugriff auf deine Bibliothek. Im Team-Workspace liegen Einträge und Laufnachweise verschlüsselt auf dem Server, im lokalen Workspace in diesem Browser.
+
+Fertige, quellenbasierte Terminal-Aufträge werden automatisch gespeichert. Angehaltene oder fehlgeschlagene Aufgaben und Anmeldungen werden nicht automatisch zu ausführbaren Kompilaten. Die Suche findet Namen und Hashes; **Alle Versionen zeigen** blendet frühere unveränderliche Fassungen ein. Wähle einen Eintrag, prüfe Eingaben und drücke **Diese Version ausführen**. Unter **Laufnachweise** stehen Ergebnisse, Fehler und die Bindung an die ausgeführte Version. Eine fertige Analyse bleibt ein Vorschlag zur fachlichen Prüfung.
+
+BA-, PO-, PM- und Mock-Aufträge speichern ein Rezept mit Ziel und Quellenbezügen. Ein neuer Lauf liest die gebundene ONE-Seite bzw. die genannten Atlas-Records und das aktuelle Designsystem neu. Er startet ohne früheres Gespräch und ohne übernommene Entscheidungen oder Freigaben. Eine fehlende Quellenseite oder geänderte persönliche MCP-Adresse stoppt den Lauf. Die aktuell offene Seite wird nicht als Ersatz verwendet. Mocks werden neu erstellt und erst nach einer gesonderten Aktion am Atlas-Record abgelegt; ONE wird dadurch nicht zur Dokumentenablage.
+
+Ein festes Werkzeug-Kompilat behält seine Reihenfolge und Schemas. Ein Analyse-Rezept durchläuft die aktuellen Fachprüfungen. Beide verwenden das aktuell gewählte Modell und deinen persönlichen Zugang; generierte Texte und neue Quellen können zu anderen Ergebnissen führen.

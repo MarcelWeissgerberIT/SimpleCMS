@@ -175,3 +175,14 @@ A profile grants no permissions and cannot loosen provider policies. It does not
 ## Errors beside the input
 
 The latest task failure stays above the input even below a long proposal list. Edit the stopped task, jump to its log or open the relevant connection settings there. No action retries automatically. Review already completed external actions before a new start. If a true page rewrite has no context, explicitly select the open page as context again.
+
+
+## My compiled tasks
+
+**My compiled tasks** in the sidebar opens your internal ONE database. Find it through search (⌘K → My compiled tasks), the terminal **Programs** button or `/programs`. Only your entries in the current workspace are shown; other members and workspace administrators cannot access your library through these endpoints. Team entries and receipts are encrypted on the server; local entries remain in this browser.
+
+Completed source-backed terminal tasks are saved automatically. Failed or paused tasks and sign-ins do not automatically become executable programs. Search names or hashes and select **Show all versions** for immutable earlier versions. Choose an entry, review inputs and select **Run this version**. **Run receipts** contains results, failures and version bindings. A completed analysis remains a proposal for domain review.
+
+BA, PO, PM and mock tasks save a recipe with its goal and source bindings. Every run rereads its bound ONE page or explicit Atlas records and current design system, with no previous conversation, decisions or approvals. A missing source page or changed personal MCP endpoint stops the run; the currently open page is never substituted. Mocks are generated anew and only attached to an Atlas record through a separate explicit action. ONE does not become a document repository.
+
+Fixed tool programs retain their order and schemas. Analysis recipes run the current domain checks. Both use the currently selected model and your personal access; generated wording and changed sources may produce different results.

@@ -1,4 +1,4 @@
-import {test,expect,openApp,wsEval,MOD} from './fixtures'
+import {test,expect,openApp,wsEval,MOD,createPage,gotoPage,doc,para} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {mockClaudeScript,text as claudeText} from './helpers/providers'
 import {DEFAULT_CLAUDE_MODEL} from '../../src/shared/ai/models'
@@ -36,6 +36,41 @@ test.describe('Saved executable compiled programs',()=>{
   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{...schema,properties:{ref:{type:'string'}}}}]}:{result:'{"isError":true}'}
   await dialog.getByRole('button',{name:'Run this version'}).click();await expect(term).toContainText('MCP tool schema changed or unavailable',{timeout:25000});expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(2)
  })
+ for(const role of ['ba','po'] as const)test(role+': a completed analysis is archived privately and reruns from its bound current source on the database route',async({page},info)=>{
+  const source=await createPage(page,{title:'Bound analysis source',content:doc(para('AICM-2065: When a measurement starts the logger records its start time. REVISIONONE'))});await gotoPage(page,source)
+  let calls=0
+  const ba=JSON.stringify({requirements:[{statement:'When a measurement starts, the logger shall record its start time.',source_refs:['T01'],checks:[{observation:'A measurement starts and its original start time is recorded.',conforms:true},{observation:'A measurement starts but no original start time is recorded.',conforms:false}]}],questions:[{question:'What timestamp precision is required?',reason:'No precision is specified by the actual source.',source_refs:['T01']}]})
+  const po=JSON.stringify({reviews:[{requirement:'R1',support:'partial',check_support:'supported',finding:'The required start-time precision is unspecified; acceptance needs that clarification.'}],contradictions:[],questions:['What timestamp precision must the team agree?']})
+  fake.onText=r=>({model:r.model,text:calls++%2?po:ba,inputTokens:200,outputTokens:100,usd:0})
+  const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('/'+role+' measurement');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000});await expect(term).toContainText('Compiled task and result saved')
+  await wsEval(page,(s,id)=>s.setContent(id,{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'AICM-2065: When a measurement starts the logger records its start time. REVISIONTWO'}]}]},'e2e'),source)
+  await page.keyboard.press(`${MOD}+j`);await page.getByRole('button',{name:'My compiled tasks',exact:true}).click();await expect(page).toHaveURL(/#\/compilates$/)
+  const database=page.getByRole('region',{name:'My compiled tasks'})
+  await database.getByRole('button',{name:'/'+role+' measurement',exact:true}).click();await expect(page.getByLabel('Source page',{exact:true})).toHaveValue(source)
+  await expect(page.getByRole('button',{name:'Run this version'})).toBeDisabled()
+  for(const theme of ['light','dark'])for(const width of [1440,390]){await page.setViewportSize({width,height:width===390?844:900});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);await page.screenshot({path:info.outputPath(`database-${theme}-${width}.png`),animations:'disabled'});expect(await page.locator('.programs-page').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)}
+  await page.setViewportSize({width:1440,height:900})
+  await page.getByRole('checkbox',{name:/Run this task again/}).check();await page.getByRole('button',{name:'Run this version'}).click()
+  await expect(term.locator('.term-answer').last()).toContainText('PO · second model review',{timeout:25000});await expect(term).toContainText('Program run receipt saved')
+  expect(calls).toBe(4);expect(JSON.stringify(fake.textAsked.slice(2))).toContain('REVISIONTWO');expect(JSON.stringify(fake.textAsked.slice(2))).not.toContain('REVISIONONE')
+  expect(fake.textAsked.every(r=>!r.tools?.length)).toBe(true);expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(0)
+  await page.keyboard.press(`${MOD}+j`);await page.getByRole('button',{name:'Run receipts',exact:true}).click();await expect.poll(async()=>{const receipts=await page.locator('.programs__history pre').allTextContents();return receipts.map(x=>JSON.parse(x)).filter(x=>x.status==='done').length}).toBe(2)
+ })
+
+ for(const blocker of ['missing-source','changed-connection'] as const)test('fresh workflow stops before inference: '+blocker,async({page})=>{
+  const source=await createPage(page,{title:'Bound prerequisite',content:doc(para('A current source.'))})
+  const term=page.getByRole('region',{name:'AI terminal'});await term.getByRole('button',{name:'Saved compiled programs'}).click();const dialog=page.getByRole('dialog',{name:'Saved compiled programs'})
+  await dialog.getByRole('button',{name:'New program',exact:true}).click()
+  const goal=blocker==='missing-source'?'/ba inspect requirements':'/pm 42 Prepare a PM brief'
+  const spec={protocol:'one.program.v1',goal,parameters:{page_id:{schema:{type:['string','null']},default:blocker==='missing-source'?source:null}},steps:[{id:'workflow',kind:'workflow',mode:blocker==='missing-source'?'ba':'pm',target:{input:'page_id'},connections:blocker==='changed-connection'?[{name:'atlas',endpoint:'https://atlas.example.org/changed-endpoint'}]:[]}],output:{result:'workflow',path:[]}}
+  await dialog.getByRole('textbox',{name:'Executable JSON definition'}).fill(JSON.stringify(spec));await dialog.getByLabel('Name',{exact:true}).fill('Prerequisite guard');await dialog.getByRole('button',{name:'Compile and save'}).click()
+  if(blocker==='missing-source')await wsEval(page,(s,id)=>s.trashPage(id),source)
+  await dialog.getByRole('checkbox',{name:/Run this task again/}).check();await dialog.getByRole('button',{name:'Run this version'}).click()
+  await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:20000});await expect(term).toContainText(blocker==='missing-source'?'saved source page is missing':'endpoint changed')
+  expect(fake.textAsked).toHaveLength(0);expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(0)
+ })
+
  test('capture is reviewable; a fixed generation step can stage fresh content without reusing the old answer',async({page})=>{
   const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'});let round=0
   const calls=[{name:'one_workspace_search',arguments:{query:'search_pages'}},{name:'one_workspace_call',arguments:{name:'search_pages',arguments:{query:'Welcome'}}},{name:'one_workspace_search',arguments:{query:'create_page'}},{name:'one_workspace_call',arguments:{name:'create_page',arguments:{title:'Old adaptive draft',markdown:'OLD GENERATED CONTENT'}}}]
@@ -46,7 +81,7 @@ test.describe('Saved executable compiled programs',()=>{
   p.steps.splice(p.steps.indexOf(write),0,{id:'fresh_draft',kind:'generate',instruction:'Draft a title and markdown using only the current source.',context:{result:p.steps[0].id,path:[]},schema:{type:'object',properties:{title:{type:'string'},markdown:{type:'string'}},required:['title','markdown'],additionalProperties:false}})
   write.args={object:{title:{result:'fresh_draft',path:['title']},markdown:{result:'fresh_draft',path:['markdown']}}}
   await editor.fill(JSON.stringify(p,null,2));await dialog.getByLabel('Name',{exact:true}).fill('Fresh staged proposal');await dialog.getByRole('button',{name:'Compile and save'}).click()
-  await expect(dialog.getByRole('button',{name:'Run this version'})).toBeDisabled();await dialog.getByRole('checkbox').check()
+  await expect(dialog.getByRole('button',{name:'Run this version'})).toBeDisabled();await dialog.getByRole('checkbox',{name:/I reviewed the inputs/}).check()
   fake.onText=r=>({model:r.model,text:r.schema?JSON.stringify({title:'Fresh compiled draft',markdown:'FRESH COMPILED CONTENT'}):'Fresh proposal staged.',inputTokens:200,outputTokens:40,usd:0})
   await dialog.getByRole('button',{name:'Run this version'}).click();await expect(term.locator('.term-answer').last()).toContainText('Fresh proposal staged.',{timeout:25000});await expect(term).toContainText('Program run receipt saved');expect(fake.textAsked.at(-2).schema).toBeTruthy();expect(fake.textAsked.slice(round).every(r=>!r.tools?.length)).toBe(true)
   const staged=await page.evaluate(()=>(window as any).__oneTerm.state.getState().changes);expect(staged.some((s:any)=>s.title==='Fresh compiled draft'&&s.status==='pending')).toBe(true);expect(await page.evaluate(()=>Object.values((window as any).__one.workspace.getState().pages).some((p:any)=>p.title==='Fresh compiled draft'))).toBe(false)

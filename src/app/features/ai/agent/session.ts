@@ -1,4 +1,6 @@
-import {readProgram} from '@/shared/quandprofile/program'
+import {readProgram,workflowTarget} from '@/shared/quandprofile/program'
+import {taskProgramDraft} from '../core/taskContract'
+import {programScope,archiveProgram} from '../programs/storage'
 import {openPrograms} from '../programs/dialog'
 import type {ProgramInvocation} from '../programs/runner'
 import { repoFileRefs, repoFileContext } from '@/shared/repo-files'
@@ -396,6 +398,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const n = get().turns.length + 1
   const prevTurn = opts.continues ? get().turns[get().turns.length - 1] : undefined
   let runProvider: ProviderId | null = null
+  let runModel = ''
   let providerChangeNoted = false
   const ac = new AbortController()
   controller = ac
@@ -408,7 +411,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // "Run the task again" (after a sign-in): the references and mentions the task had; the chips stay for the next one
   const refs = opts.program || prevTurn ? [] : opts.again ? opts.again.refs : get().refs
   const mentions = opts.program || prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
-  const pageId = contextPageId()
+  const programSpec=opts.program?readProgram(opts.program.saved.compiled):null
+  const pageId = programSpec?workflowTarget(programSpec,opts.program!.inputs)??(programSpec.steps.some(s=>s.kind==='workflow')?null:contextPageId()):contextPageId()
+  const archiveScope=programScope()
   const suffix = pageId ? contextSuffix(pageId) : ''
   const ctx: TurnContext = {
     refs: refs.length,
@@ -421,7 +426,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
   const prepared = opts.program?{setup:currentSetup(),prompt:task,memTools:false,codingTools:hasPipelines()||useCoding.getState().enabled,upsert:unlocked('upsert'),taskRules:canCreateItems()}:prepareTask(task)
-  if(opts.program){const names=new Set(readProgram(opts.program.saved.compiled).steps.flatMap(s=>s.kind==='tool'&&s.server?[s.server]:[]));prepared.setup={...prepared.setup,servers:prepared.setup.servers.filter(s=>names.has(s.name))}}
+  if(opts.program){const names=new Set(programSpec!.steps.flatMap(s=>s.kind==='tool'&&s.server?[s.server]:s.kind==='workflow'?s.connections.map(c=>c.name):[]));prepared.setup={...prepared.setup,servers:prepared.setup.servers.filter(s=>names.has(s.name))}}
   const { setup, memTools: withMemTools, codingTools: withCoding, upsert: withUpsert } = prepared
   const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
   set((s) => ({
@@ -585,6 +590,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const pre = precheck({ purpose: 'terminal.task', route: get().route, sources, typed: task })
     if (opts.continues && historyProvider && historyProvider !== pre.route?.p) throw new AIError('capability', t('features.agent.err.providerChanged'))
     runProvider = pre.route?.p ?? null
+    runModel = pre.route?.m ?? ''
     if (history.length && historyProvider !== runProvider && !providerChangeNoted) {
       note(t('features.agent.providerFresh'))
       providerChangeNoted = true
@@ -667,7 +673,17 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     }
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
     else if(end==='done'&&failedMcp.size)finish('error',{code:'mcp',message:t('features.agent.err.mcpIncomplete')})
-    else finish(end === 'limit' ? 'limit' : 'done')
+    else {
+      finish(end === 'limit' ? 'limit' : 'done')
+      if(!opts.program&&end==='done'&&here()){
+        const report=get().turns.find(x=>x.n===n)?.contract
+        if(report&&!report.compiled.contract.authenticate&&['ready','accepted'].includes(report.phase)){
+          let spec:ReturnType<typeof taskProgramDraft>|undefined
+          try{spec=taskProgramDraft(report.id)}catch{ /* Not every conversation contains an executable source-backed task. */ }
+          if(spec)try{await archiveProgram(report.id,spec,answer,{provider:runProvider??'',model:runModel},archiveScope,get().turns.find(x=>x.n===n)?.startedAt);if(here())note(t('features.ai.program.autoSaved'))}catch{if(here())note(t('features.ai.program.autoFailed'))}
+        }
+      }
+    }
   } catch (e) {
     const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
     if (err.code === 'aborted') finish('stopped')
@@ -866,6 +882,9 @@ export async function submitPrompt(raw?: string): Promise<void> {
       echo(input, 'ask', { key: `features.agent.echo.clearHistory.ask.${count === 1 ? 'one' : 'other'}`, vars: { count }, ask: { what: 'clearhistory', state: 'open' } })
       return
     }
+    case 'programs':
+      openPrograms()
+      return
     case 'help':
       echo(input, 'help')
       return

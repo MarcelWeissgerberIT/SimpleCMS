@@ -268,6 +268,7 @@ export function useRouteEffects(route: Route) {
     else if (route.name === 'kit') name = t('features.kit.title')
     else if (route.name === 'discover') name = t('shell.discover.title')
     else if (route.name === 'regler') name = t('features.governor.title')
+    else if (route.name === 'programs') name = t('features.ai.program.database')
     else if (route.name === 'mcp') name = t('features.mcp.page.title')
     else if (route.name === 'patchbay') name = t('features.patchbay.title')
     else if (route.name === 'workspace') name = t('shell.ws.title')
