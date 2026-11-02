@@ -22,4 +22,11 @@ test.describe('Fixed source-bound PM brief',()=>{
  test('repeated fabricated quote is held after one correction without writing',async({page})=>{
   fake.onText=r=>({model:r.model,text:JSON.stringify({observations:[{source:'S1',quote:'The whole release has already been approved.',interpretation:'Invented approval.'}],questions:[],next_step:'This must remain a proposal.'}),inputTokens:200,outputTokens:100,usd:0});const term=await start(page);await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:30000});expect(fake.textAsked).toHaveLength(2);await expect(term).toContainText('PM draft held');await expect(term.getByText('Apply all',{exact:true})).toHaveCount(0)
  })
+ test('valid quotes cannot turn an unverified project hint into an action target',async({page})=>{
+  const body='Change value from abort to ignore'
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:r.query,inputSchema:{type:'object',properties:r.query==='atlas_get'?{ref:{type:'integer'},parts:{type:'array',items:{type:'string'}}}:{},...(r.query==='atlas_get'?{required:['ref']}:{}),additionalProperties:false}}]}:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify(r.name==='atlas_whoami'?{person:'Synthetic PM'}:{item:{ref:9602,title:'Default value',project:'flux-part-cnsx',body}})}]})}
+  fake.onText=r=>({model:r.model,text:JSON.stringify({observations:[{source:'S1',quote:body,interpretation:'The source requests abort to become ignore.'}],questions:[],next_step:'Check the implementation in the FeliX systems.'}),inputTokens:200,outputTokens:100,usd:0})
+  const term=await start(page);await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:30000});expect(fake.textAsked).toHaveLength(2);await expect(term).toContainText('No read source establishes a FeliX relationship');await expect(term.getByText('Apply all',{exact:true})).toHaveCount(0)
+ })
+
 })
