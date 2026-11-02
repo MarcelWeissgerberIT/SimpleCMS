@@ -301,7 +301,7 @@ export async function runAgent(opts: {
   const mockSources=new MockSources()
   const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&(mockIntent(opts.typed??'')||/\b(?:ui|design|html|png|dialog|screen|oberfläche)\b[\s\S]*\b(?:mocks?|mockups?|prototyp(?:e)?)\b|\b(?:mocks?|mockups?|prototyp(?:e)?)\b[\s\S]*\b(?:ui|design|html|png|dialog|screen|oberfläche)\b/i.test(opts.typed??''))
   const baseTools=opts.tools??TERMINAL_TOOLS
-  if(mockEnabled)opts={...opts,mockSources,tools:[...baseTools.filter(t=>!t.write),mockReadTool(mockSources),mockTool(mockSources,a=>hooks.mock!({...a,route:prepared?.route??undefined}))],system:(opts.system??AGENT_SYSTEM)+'\n'+MOCK_GUIDE}
+  if(mockEnabled)opts={...opts,mockSources,tools:[...baseTools.filter(t=>!t.write),mockReadTool(mockSources),mockTool(mockSources,a=>hooks.mock!({...a,route:prepared?.route??undefined}),async(input,error)=>{const {repairDesignMock}=await import('./repairDesignMock');return repairDesignMock(opts,prepared!,mockSources,input,error)})],system:(opts.system??AGENT_SYSTEM)+'\n'+MOCK_GUIDE}
   const delivery=groundedTask(opts.typed??'',opts.targetPage??null,opts.tools??TERMINAL_TOOLS,stage,signal,hooks,opts.readLimit)
   opts={...opts,delivery,tools:delivery.tools,system:(opts.system??AGENT_SYSTEM)+delivery.guide}
   const mcp = opts.mcp ?? null

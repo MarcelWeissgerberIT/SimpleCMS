@@ -259,7 +259,7 @@ export async function viaNeutral(
   prepared: Prepared,
   call: MeterCall,
   r: { system: string; parts: Part[]; output: ChatRequest['output']; maxTokens: number; promptChars?: number; cache?: ChatRequest['cache']; mcp?: import('./mcp-servers/config').McpAttachment | null },
-  o: { signal?: AbortSignal; onToken?: (delta: string) => void; onMcp?: (calls: import('./mcp-servers/activity').McpCall[]) => void },
+  o: { audit?: import('./core/liveAudit').LiveAudit; signal?: AbortSignal; onToken?: (delta: string) => void; onMcp?: (calls: import('./mcp-servers/activity').McpCall[]) => void },
 ): Promise<string> {
   if (!prepared.route) throw new AIError('no_key')
   const { sendNeutral } = await import('./core/call')
@@ -268,7 +268,7 @@ export async function viaNeutral(
   // the governor's cap (a text answer near the red line): the visible budget, never above the call's own
   const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: capped(r.maxTokens, prepared), cache: r.cache ?? 'none' }
   const promptChars = r.promptChars ?? r.system.length + r.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 0), 0)
-  const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars, mcp: r.mcp, onMcp: o.onMcp })
+  const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars, mcp: r.mcp, onMcp: o.onMcp, audit:o.audit })
   if (turn.stop === 'refusal' || turn.stop === 'content_filter') throw new AIError('refusal')
   const text = turn.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
   if (!text.trim()) throw new AIError('empty')
@@ -280,6 +280,8 @@ export async function viaNeutral(
 /* ------------------------------------------------------------------ */
 
 export interface StructuredOptions extends RouteOptions {
+  /** Bind fixed BA/PO phases to the owning live-test trace; credentials never enter this value. */
+  audit?: import('./core/liveAudit').LiveAudit
   /** what the request is for (features/ai/core/purposes.ts) */
   purpose: PurposeId
   /** what it carries (core/sources.ts): [] only for a purpose without page data */

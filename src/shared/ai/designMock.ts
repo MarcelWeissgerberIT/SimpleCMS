@@ -11,6 +11,7 @@ const obj=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.
 export function mockSourceState(record:Record<string,unknown>):string{return sha256Hex(JSON.stringify(Object.fromEntries(['ref','title','project','tenant','tenantSlug','kind','status','fields','archived','confirmed'].filter(k=>Object.hasOwn(record,k)).map(k=>[k,record[k]]))))}
 export class MockSources {
  created=0
+ repaired=false
  private sources=new Map<string,MockSource>()
  private prefix=crypto.randomUUID().slice(0,8)
  observe(server:string,origin:string,name:string,args:Record<string,unknown>,raw:string){
@@ -27,6 +28,15 @@ export class MockSources {
   this.sources.set(key,source)
   return {id:source.id,ref:source.ref,title:source.title,hash:source.hash,readAt:source.readAt,note:'Actually read Atlas body; use this source id and verbatim body quotes in create_design_mock. Still resolve the applicable current design rule; title alone is not evidence.'}
  }
+ snapshot(){return [...this.sources.values()].map(s=>({...s}))}
+ /** Exact bounded windows, not a model summary. Full bodies remain available to the run-local reader. */
+ context(){return this.snapshot().map(({body,...source})=>{
+  const spans:Array<[number,number]>=[[0,Math.min(body.length,1800)],[Math.max(0,body.length-3000),body.length]]
+  for(const query of ['ConfirmationModal','Button','Typography','Spacing','Radius','brand-primary','background','user confirmation','Benutzerbestätigung']){const at=body.toLowerCase().indexOf(query.toLowerCase());if(at>=0)spans.push([Math.max(0,at-180),Math.min(body.length,at+1100)])}
+  spans.sort((a,b)=>a[0]-b[0]);const merged:Array<[number,number]>=[];for(const span of spans){const last=merged.at(-1);if(last&&span[0]<=last[1])last[1]=Math.max(last[1],span[1]);else merged.push([...span])}
+  let left=10500;const excerpts=merged.flatMap(([from,to])=>{const end=Math.min(to,from+left);left-=end-from;return end>from?[{offset:from,text:body.slice(from,end)}]:[]})
+  return {...source,characters:body.length,partial:excerpts.reduce((n,e)=>n+e.text.length,0)<body.length,excerpts}
+ })}
  get(id:string){return [...this.sources.values()].find(s=>s.id===id)}
  excerpt(id:string,query:string,offset=0){
   const s=this.get(id);if(!s)throw Error('Use an actual oneMockSource id from this run.')

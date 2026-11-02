@@ -102,6 +102,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   })
 
 export interface NeutralOpts {
+  audit?: import('./liveAudit').LiveAudit
   mcp?: import('../mcp-servers/config').McpAttachment | null
   onMcp?: (calls: import('../mcp-servers/activity').McpCall[]) => void
   signal?: AbortSignal

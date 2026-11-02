@@ -25,7 +25,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY + '\n' + COMPILED_WORK_POLICY : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
   let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
-  const audit=await beginLiveAudit(req.route,messages.filter(m=>m.role==='user').at(-1)?.content??prepared.purpose,prepared.purpose)
+  const audit=o.audit??await beginLiveAudit(req.route,messages.filter(m=>m.role==='user').at(-1)?.content??prepared.purpose,prepared.purpose)
   let task:ReturnType<typeof createTaskContract>|undefined
   let auditState='failed',auditAnswer:unknown,auditError:unknown
   const done=(turn:Turn)=>{auditState='done';auditAnswer=turn.parts;return turn}
@@ -91,5 +91,5 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
     }
   }
   throw new AIError('mcp', 'Model reached the twelve-round limit.')
-  }catch(e){auditError=e;throw e}finally{task?.release();await audit.end(o.signal?.aborted?'cancelled':auditState,auditAnswer,auditError)}
+  }catch(e){auditError=e;throw e}finally{task?.release();if(!o.audit)await audit.end(o.signal?.aborted?'cancelled':auditState,auditAnswer,auditError)}
 }

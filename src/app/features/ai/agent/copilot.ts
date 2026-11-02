@@ -187,6 +187,10 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         // A stopped/failed batch still closes every requested call, without executing any more.
         messages.push({role:'user',content:closeToolBatch(result.calls??[],results)})
       }
+      if(opts.mockSources?.created&&opts.mockSources.repaired&&mockIntent(opts.typed??'')){
+        const answer='Statischer Design-Mock nach einer begrenzten Korrektur zur Prüfung vorbereitet. HTML und Quellenbelege stehen in der Mock-Karte; PNG wird erst beim Export gerendert. Keine Atlas- oder ONE-Inhalte gespeichert, fachliche Abnahme offen.'
+        task!.finish(answer);await audit.tool('ONE','compiled_task',{phase:'result'},()=>task!.report());hooks.text(answer);hooks.textDone('answer');messages.push({role:'assistant',content:answer});return 'done' as const
+      }
     }
     hooks.limit()
     return 'limit' as const
