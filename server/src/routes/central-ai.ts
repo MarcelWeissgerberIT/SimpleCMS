@@ -2,6 +2,7 @@
  * No bearer relay, browser key, participant impersonation, provider fallback or arbitrary upstream URLs.
  */
 import {randomUUID} from 'node:crypto'
+import type {MessageCreateParamsBase} from '@anthropic-ai/sdk/resources/messages'
 import {Hono} from 'hono'
 import {z} from 'zod'
 import type {AppEnv,Services} from '../context.ts'
@@ -42,7 +43,7 @@ function payload(raw:unknown):Record<string,unknown>{
   if(Object.keys(p).some(k=>!allowed.has(k))||p.model!==CENTRAL_CLAUDE_MODEL||!Number.isSafeInteger(p.max_tokens)||Number(p.max_tokens)<1||Number(p.max_tokens)>128000||!Array.isArray(p.messages)||p.messages.length<1||p.messages.length>10000||(p.stream!==undefined&&typeof p.stream!=='boolean'))throw badRequest('central_request','This central service accepts only the configured Opus model and standard Messages requests')
   if(p.tools!==undefined&&(!Array.isArray(p.tools)||p.tools.some(t=>!t||typeof t!=='object'||!['custom','mcp_toolset'].includes(t.type??'custom'))))throw badRequest('central_tools','Only ONE client tools and personal MCP toolsets are enabled; additional paid server tools are not enabled')
   const {fallbacks:_fallbacks,...exact}=p
-  return {...exact,service_tier:'standard'}
+  return {...exact,service_tier:'standard_only' satisfies NonNullable<MessageCreateParamsBase['service_tier']>}
 }
 // Cost rates in USD / million tokens: Opus 5.5, official pricing 2026-11-02. Reserve the entire 1M context
 // at the most expensive cache rate + maximum output, including unseen native MCP results. No optimistic token estimates.
@@ -62,6 +63,15 @@ export function scrubCentral(value:unknown,secrets:string[]=[]):unknown{
   if(Array.isArray(value))return value.map(x=>scrubCentral(x,secrets))
   if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,/^(authorization_token|authorization|api_key|x-api-key|token|password|secret)$/i.test(k)?'[redacted]':scrubCentral(v,secrets)]))
   return value
+}
+/** Preserve bounded, redacted diagnostics in the private audit, never echo request content to members. */
+export async function centralProviderFailure(response:Response,secrets:string[]){
+  const reader=response.body?.getReader(),chunks:Uint8Array[]=[];let bytes=0,truncated=false
+  try{if(reader)for(;;){const next=await reader.read();if(next.done)break;bytes+=next.value.length;if(bytes>65536){truncated=true;await reader.cancel();break}chunks.push(next.value)}}catch{/* status remains useful even when the error body is interrupted */}
+  let type='',message=''
+  if(!truncated)try{const raw=JSON.parse(Buffer.concat(chunks).toString('utf8'));type=typeof raw.error?.type==='string'?raw.error.type.slice(0,100):'';message=typeof raw.error?.message==='string'?raw.error.message.slice(0,4000):''}catch{/* never include arbitrary HTML or a non-JSON proxy body */}
+  const status=response.status,code=status===401||status===403?'central_provider_auth':status===429?'central_provider_rate':status===404?'central_provider_model':status===400&&/credit balance|insufficient credits|billing|spend limit/i.test(message)?'central_provider_credits':status>=500?'central_provider_unavailable':'central_provider_request'
+  return {code,audit:scrubCentral({status,type,message,requestId:(response.headers.get('request-id')??'').slice(0,200),truncated},secrets)}
 }
 function secretsIn(p:Record<string,unknown>,key:string){const out=[key];for(const m of Array.isArray(p.mcp_servers)?p.mcp_servers:[])if(m&&typeof m==='object'&&typeof m.authorization_token==='string')out.push(m.authorization_token);return out}
 export function centralAIRoutes(s:Services){
@@ -161,8 +171,13 @@ export function centralAIRoutes(s:Services){
     let response:Response
     try{response=await fetch(upstream(s,'/v1/messages'),{method:'POST',headers:upstreamHeaders(key,beta),body:JSON.stringify(p),redirect:'error',signal:ctrl.signal})}
     catch{clearTimeout(timeout);c.req.raw.signal.removeEventListener('abort',abort);finish('uncertain',null,{error:'Transport interrupted; reservation retained'});throw new ApiError(502,'central_transport','Claude could not complete the connection. Check the central request log before retrying; the safety reservation is retained.')}
-    if(!response.ok){await response.body?.cancel();clearTimeout(timeout);c.req.raw.signal.removeEventListener('abort',abort);finish(response.status<500?'rejected':'uncertain',null,{status:response.status});return c.json({type:'error',error:{type:response.status===429?'rate_limit_error':response.status===401?'authentication_error':'api_error',message:'Central Claude provider rejected the request. Check key access, credits and provider limits in central settings.'}},response.status===429?429:response.status===401||response.status===403?403:502)}
     c.header('x-one-central-request',id)
+    if(!response.ok){
+      const failure=await centralProviderFailure(response,secrets)
+      clearTimeout(timeout);c.req.raw.signal.removeEventListener('abort',abort)
+      finish(response.status<500?'rejected':'uncertain',null,failure.audit)
+      return c.json({type:'error',error:{type:response.status===429?'rate_limit_error':response.status===401?'authentication_error':response.status<500?'invalid_request_error':'api_error',code:failure.code,message:'Central Claude request failed. The service owner can inspect the redacted provider diagnostic in the private request log.',requestId:id}},response.status===429?429:response.status===401||response.status===403?403:response.status<500?400:502)
+    }
     if(!p.stream){try{const answer=await response.json() as {model?:string;usage?:Record<string,unknown>};finish(answer.model===r.model?'done':'uncertain',answer.usage??null,answer);return c.json(redactKey(answer,key))}catch{finish('uncertain',null,{error:'Incomplete provider response'});throw new ApiError(502,'central_response','Incomplete Claude response; reservation retained')}finally{clearTimeout(timeout);c.req.raw.signal.removeEventListener('abort',abort)}}
     const reader=response.body?.getReader();if(!reader){finish('uncertain',null,{error:'Missing stream'});clearTimeout(timeout);throw new ApiError(502,'central_response','Missing Claude stream')}
     const decoder=new TextDecoder(),usage:Record<string,unknown>={},events:unknown[]=[]

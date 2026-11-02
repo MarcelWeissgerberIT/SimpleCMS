@@ -13,10 +13,12 @@ const OUT='/Users/marcelweissgerber/Documents/Playground/artifacts/one-central-c
 
 test('owner config, write-only key, member use, private logs and responsive views',async({page,context,browser})=>{
  mkdirSync(OUT,{recursive:true})
- let calls=0
+ let calls=0,rejectRequest=false
  const fake=createServer(async(req,res)=>{
   if(req.method==='GET'){res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({id:'claude-opus-5-5'}));return}
   let raw='';for await(const b of req)raw+=b;const p=JSON.parse(raw);calls++
+  if(p.service_tier!=='standard_only'){res.writeHead(400,{'content-type':'application/json'}).end(JSON.stringify({error:{type:'invalid_request_error',message:'service_tier: expected auto or standard_only'}}));return}
+  if(rejectRequest){res.writeHead(400,{'content-type':'application/json'}).end(JSON.stringify({error:{type:'invalid_request_error',message:'fixture invalid parameter'}}));return}
   const text='Central Claude answered through the ONE server. No browser API key was used.'
   res.writeHead(200,{'content-type':p.stream?'text/event-stream':'application/json'}).end(p.stream?claudeSse({blocks:[{type:'text',text}]},p.model):JSON.stringify({id:'msg_test',model:p.model,type:'message',role:'assistant',content:[{type:'text',text}],stop_reason:'end_turn',usage:{input_tokens:100,output_tokens:50}}))
  })
@@ -78,6 +80,11 @@ test('owner config, write-only key, member use, private logs and responsive view
   await expect(page.locator('.central-ai__detail')).toContainText('message_start')
   await expect(page.locator('.central-ai__detail')).not.toContainText(KEY)
   await m.screenshot({path:`${OUT}/member-config.png`,fullPage:true,animations:'disabled'})
+  rejectRequest=true
+  await run(m,'Antworte erneut kurz ohne Werkzeuge und Änderungen.')
+  await expect(m.getByRole('region',{name:'AI terminal'})).toContainText('Claude rejected the request format.',{timeout:30000})
+  await expect(m.getByRole('region',{name:'AI terminal'})).not.toContainText('fixture invalid parameter')
+  rejectRequest=false
   const latest=(await owner.get(`/api/workspaces/${w1}/central-ai`)).body
   await owner.json('PUT',`/api/workspaces/${w1}/central-ai`,{version:latest.version,label:latest.label,workspaces:[w1,w2],budgetUsd:1,enabled:true})
   await m.reload();await waitForApp(m);await openTerminal(m)

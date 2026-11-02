@@ -53,7 +53,12 @@ export async function centralTransport():Promise<{fetch:typeof fetch;model:strin
    const beta=new Headers(init.headers).get('anthropic-beta')
    const res=await fetch(`${import.meta.env.BASE_URL}api/workspaces/${workspace}/central-ai/messages`,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'content-type':'application/json','x-one-central-version':String(version),...(beta?{'anthropic-beta':beta}:{})},body:init.body,signal:init.signal})
    if(!res.ok){let code='';try{code=(await res.clone().json()).error?.code??''}catch{/* SDK maps upstream errors */}
-     if(code.startsWith('central_')){void refreshCentralAI();throw new AIError(code==='central_budget'?'budget':code==='central_busy'?'rate_limit':code==='central_transport'?'unavailable':'bad_request',code==='central_budget'?'features.ai.central.budget':'features.ai.central.failed')}
+     if(code.startsWith('central_')){
+       void refreshCentralAI()
+       const reason=code.startsWith('central_provider_')?code.slice('central_provider_'.length):''
+       const known=['request','auth','credits','rate','unavailable','model'].includes(reason)
+       throw new AIError(code==='central_budget'?'budget':code==='central_busy'||reason==='rate'?'rate_limit':code==='central_transport'||reason==='unavailable'?'unavailable':'bad_request',code==='central_budget'?'features.ai.central.budget':known?`features.ai.central.provider.${reason}`:'features.ai.central.failed')
+     }
    }
    return res
  }}

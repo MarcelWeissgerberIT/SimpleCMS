@@ -5,7 +5,7 @@ import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 import Anthropic from '@anthropic-ai/sdk'
 import {startServer,signIn,type Client} from './helpers.ts'
-import {reserveMicro,usageCost,scrubCentral} from '../src/routes/central-ai.ts'
+import {reserveMicro,usageCost,scrubCentral,centralProviderFailure} from '../src/routes/central-ai.ts'
 
 const secret='sk-ant-test-only-central-key-12345678',atlas='personal-atlas-token-test-12345678',model='claude-opus-5-5'
 test('central tariff accounting includes both cache TTLs and refuses invalid usage',()=>{
@@ -26,7 +26,8 @@ test('central Claude: owner-only encrypted key, native SDK/MCP, durable atomic b
   let raw='';for await(const b of req)raw+=b
   const p=JSON.parse(raw);upstream.push({p,headers:req.headers})
   if(delay)await new Promise(r=>setTimeout(r,delay))
-  if(mode==='reject'){res.writeHead(401,{'content-type':'application/json'}).end(JSON.stringify({error:{message:secret}}));return}
+  if(p.service_tier!=='standard_only'){res.writeHead(400,{'content-type':'application/json'}).end(JSON.stringify({error:{type:'invalid_request_error',message:'service_tier: expected auto or standard_only'}}));return}
+  if(mode==='reject'||mode==='bad-request'){res.writeHead(mode==='reject'?401:400,{'content-type':'application/json','request-id':'req_provider_fixture'}).end(JSON.stringify({error:{type:mode==='reject'?'authentication_error':'invalid_request_error',message:'Provider detail '+secret+' '+atlas}}));return}
   const usage={input_tokens:100,output_tokens:50,cache_read_input_tokens:10,cache_creation_input_tokens:0}
   const content=[{type:'text',text:'Verified Atlas answer '+atlas+' '+secret},{type:'tool_use',id:'toolu_test',name:'read_page',input:{id:'source-page'}}]
   if(p.stream){res.writeHead(200,{'content-type':'text/event-stream'})
@@ -83,7 +84,7 @@ test('central Claude: owner-only encrypted key, native SDK/MCP, durable atomic b
   assert.equal(upstream.at(-1).headers['x-api-key'],secret)
   assert.equal(upstream.at(-1).p.mcp_servers[0].authorization_token,atlas)
   assert.equal(upstream.at(-1).p.fallbacks,undefined)
-  assert.equal(upstream.at(-1).p.service_tier,'standard')
+  assert.equal(upstream.at(-1).p.service_tier,'standard_only')
   assert.ok(!upstream.at(-1).headers['anthropic-beta'].includes('server-side-fallback'))
   const list=(await owner.get(path+'/requests')).body;assert.equal(list[0].state,'done');assert.equal(list[0].usd,.001402);assert.equal(list[0].reservedUsd,0)
   const audit=await owner.get(path+'/requests/'+list[0].id);assert.equal(audit.status,200);assert.ok(audit.body.response.events.some((e:any)=>e.type==='message_start'))
@@ -112,6 +113,16 @@ test('central Claude: owner-only encrypted key, native SDK/MCP, durable atomic b
   mode='reject';const response=await send(member);const raw=await response.text();assert.equal(response.status,403);assert.equal(raw.includes(secret),false);mode='normal'
   const list=(await owner.get(path+'/requests')).body;assert.equal(list[0].state,'rejected');assert.equal(list[0].reservedUsd,0)
  })
+ await t.test('invalid request preserves a safe actionable code and private redacted provider diagnostic',async()=>{
+  mode='bad-request';const response=await send(member);const result:any=await response.json();mode='normal'
+  assert.equal(response.status,400);assert.equal(result.error.code,'central_provider_request')
+  assert.equal(JSON.stringify(result).includes('Provider detail'),false)
+  assert.equal(response.headers.get('x-one-central-request'),result.error.requestId)
+  const audit=(await owner.get(path+'/requests/'+result.error.requestId)).body
+  assert.equal(audit.state,'rejected');assert.equal(audit.response.status,400);assert.equal(audit.response.type,'invalid_request_error');assert.equal(audit.response.requestId,'req_provider_fixture')
+  assert.equal(audit.response.message,'Provider detail [redacted] [redacted]')
+  const list=(await owner.get(path+'/requests')).body;assert.equal(list[0].reservedUsd,0)
+ })
  await t.test('incomplete streaming keeps a durable safety reservation and cannot masquerade as success',async()=>{
   mode='partial';const response=await send(member,{...packet,stream:true});await response.text();mode='normal'
   const list=(await owner.get(path+'/requests')).body;assert.equal(list[0].state,'uncertain');assert.equal(list[0].reservedUsd,8.002)
@@ -123,4 +134,16 @@ test('central Claude: owner-only encrypted key, native SDK/MCP, durable atomic b
  })
  assert.equal(app.logs().includes(secret),false);assert.equal(app.logs().includes(atlas),false)
  }finally{await app.stop();await new Promise<void>(r=>fake.close(()=>r()))}
+})
+
+test('central provider diagnostics classify billing, limits and availability without leaking credentials',async()=>{
+ for(const [status,message,code]of [[400,'Your credit balance is too low','credits'],[401,'invalid key','auth'],[403,'denied','auth'],[404,'model missing','model'],[429,'rate limited','rate'],[500,'upstream failed','unavailable'],[400,'bad parameter','request']]as const){
+  const result=await centralProviderFailure(new Response(JSON.stringify({error:{type:'fixture',message:message+' '+secret+' '+atlas}}),{status,headers:{'request-id':'req_fixture'}}),[secret,atlas])
+  assert.equal(result.code,'central_provider_'+code)
+  assert.equal(JSON.stringify(result).includes(secret),false);assert.equal(JSON.stringify(result).includes(atlas),false)
+ }
+ const oversized=await centralProviderFailure(new Response('x'.repeat(65537),{status:400}),[])
+ assert.equal((oversized.audit as any).truncated,true);assert.equal((oversized.audit as any).message,'')
+ const html=await centralProviderFailure(new Response('<html>Proxy failed</html>',{status:502}),[])
+ assert.equal((html.audit as any).message,'')
 })
