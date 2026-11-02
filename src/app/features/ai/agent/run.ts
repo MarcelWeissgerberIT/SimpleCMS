@@ -84,6 +84,7 @@ ${
 }- Questions across databases (counts, sums, filters, groups, look-ups) are one run_query call: a read-only One Script query. When the task asks for a script, a reusable automation or a saved query, draft it with write_script — the person saves it and runs it themselves (a dry run first); it never runs on its own.
 - Prefer one query_database call over reading rows one by one. You have at most ${MAX_TOOL_CALLS} tool calls per task (create_pages counts once); independent calls can go in parallel. When you reach the limit, the person can let you continue with a fresh budget: then pick up where you stopped and never stage anything twice.
 - Set database properties by their exact names with plain JSON values: text, numbers, true/false, option names for select and status (a list of names for multi-select), dates as "YYYY-MM-DD" or {"start": …, "end": …}, people by name, relations by row title or id. Computed properties (formulas, rollups, created/edited times, IDs) cannot be set. If a value does not fit, the tool says why: fix it and call again.
+- For PDFs and other attachments, read_page shows file metadata only. Use read_page_files to read the actual document text before extracting facts. Never infer amounts, issuer or invoice direction from a filename. Report scans/unreadable files precisely. For a calculation grid or Tabellenkalkulation use create_spreadsheet with actual numeric values and formulas, not create_database or a Markdown table. Include source filenames/page numbers; unknown amounts remain null, never zero.
 - Existing page-table values (including tables inside plates): use read_tables to list tables and read one table, then update_table_cells with only the exact existing cellIds requested. Never rebuild a table or its surrounding plate with edit_page to fill cells. These edits always wait for review. Missing source facts stay missing; do not manufacture decisions or evidence.
 - Adding versus changing: to add a section, notes or items to a page, use append_to_page. Change existing text with edit_page only when the task asks to fix, rewrite, update, shorten or remove it: read the page with read_page and refs: true, then cite the refs of exactly the blocks the task is about. Never rewrite, reorder or "improve" blocks the task does not touch, and keep their wording, links and formatting. Use replace_all only when the task asks for the whole page to be rewritten.
 - Write page content in Markdown: headings, lists, task lists ("- [ ] …"), tables, quotes, code. Link to a page with [Title](#/p/<page id>). Refs (⟦b3⟧) are labels for edit_page, never part of the text you write.
@@ -311,7 +312,7 @@ export async function runAgent(opts: {
   const mcp = opts.mcp ?? null
   const reviewSources = new ReviewSources()
   const atlasFacts=new AtlasFacts()
-  const reviewTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
+  const reviewTool: AgentTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
   const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool]
   const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (mcp?'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY:'')
   const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
@@ -397,6 +398,7 @@ export async function runAgent(opts: {
         const stepId = hooks.toolStart(tool.name, arg)
         let out: ToolOutcome
         try {
+          if(tool.data && !prepared!.allows(tool.data)) throw new ToolInputError('File content is excluded for the selected model by the active AI data rules.')
           task.dispatch(tool.name,oneTaskEffect(tool.name,tool.write))
           out = await withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))))
         } catch (e) {
@@ -407,7 +409,7 @@ export async function runAgent(opts: {
         }
         task.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
           if(tool.name==='read_page'&&out.state==='ok'&&!/\[Content withheld\./u.test(out.content))task.observeSource('one',String(input.id??''))
-          task.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
+          task.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
         ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
         if(tool.write)atlasFacts.noteOtherWrite()

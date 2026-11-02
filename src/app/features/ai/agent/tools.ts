@@ -23,6 +23,7 @@ import { redactInScope } from '@/shared/ai/redact'
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 import { SCRIPT_REFERENCE } from '../../script/reference'
 import { currentReadLimit, currentToolScope, LIMITED_NOTE, ToolInputError } from './toolScope'
+import { documentTools, pageFiles } from './documentTools'
 import { currentShape } from '../core/shape'
 import { rowFactsFor } from '../rowFacts'
 import { commitItems, itemsWithNeeds, listWorkItems, pagePrivate, registerChange, registerItems, scratchSession, stageBlocks, stageItems, stagedPrivacy, updateWorkItem, withNeeds, type ItemSession, type ItemStaging } from './workItems'
@@ -59,6 +60,8 @@ export interface AgentTool {
   input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[]; additionalProperties?: boolean }
   /** stages changes (shown with a different verb in the log) */
   write: boolean
+  /** Additional source class required at dispatch; page visibility still applies. */
+  data?: 'files'
   /** most tools answer at once; run_query / write_script load the script engine first */
   run(input: Record<string, unknown>, stage: StageApi): ToolOutcome | Promise<ToolOutcome>
 }
@@ -409,6 +412,7 @@ const readPage: AgentTool = {
         summary: t('features.agent.res.withheld'),
         state: 'ok',
       }
+    if (pageFiles(p.content, lim ? new Set(lim.ids ?? []) : undefined).length) head.push('[This page has file attachments. The links below are metadata, not their content. Use read_page_files to list and read the actual PDF/file text before extracting or calculating values.]')
     if (lim) head.push(`[${LIMITED_NOTE}: only the ${lim.blocks} block${lim.blocks === 1 ? '' : 's'} they marked are shown below — the rest of the page is not available to you.]`)
     const withRefs = input.refs === true || input.refs === 'true'
     if (withRefs && p.kind !== 'database') head.push('[Blocks are labelled with refs (⟦b1⟧ …) for edit_page: cite them as "b1". The labels are not part of the text: never write them into content.]')
@@ -1618,7 +1622,7 @@ const updateTableCells: AgentTool = {
 }
 
 /** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, readTables, updateTableCells, createRow, updateRow, upsertRows, setPageTitle, runQuery, listWorkItems, updateWorkItem]
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, ...documentTools(pageOrThrow), listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, readTables, updateTableCells, createRow, updateRow, upsertRows, setPageTitle, runQuery, listWorkItems, updateWorkItem]
 
 /**
  * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools, write_script
@@ -1644,6 +1648,8 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     case 'search_pages':
       return `“${s('query')}”`
     case 'read_page':
+    case 'read_page_files':
+    case 'create_spreadsheet':
     case 'read_tables':
     case 'update_table_cells':
     case 'append_to_page':

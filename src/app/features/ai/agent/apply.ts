@@ -664,7 +664,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
       const prev = page.content
-      const add = blocksOf(c.markdown ?? '', toDoc, c, { pageId: id, private: pagePrivate(id) }, prev)
+      const add: JSONContent[] = c.spreadsheet ? [{ type: 'spreadsheet', attrs: c.spreadsheet }] : blocksOf(c.markdown ?? '', toDoc, c, { pageId: id, private: pagePrivate(id) }, prev)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       as(() => ws().setContent(id, next, ORIGIN))
       const rev = ws().pages[id]?.contentRev

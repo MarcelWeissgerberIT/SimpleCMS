@@ -500,6 +500,7 @@ export function guardPipelineRows(tool: AgentTool, who: RowGuardFor = 'terminal'
         if (roles.some((r) => r && !FREE_ROLES.has(r))) throw new ToolInputError(say.fields)
         return id
       }
+      case 'create_spreadsheet':
       case 'update_table_cells':
       case 'edit_page':
       case 'append_to_page':
@@ -509,8 +510,8 @@ export function guardPipelineRows(tool: AgentTool, who: RowGuardFor = 'terminal'
         return null
     }
   }
-  if (!['create_row', 'upsert_rows', 'add_property', 'update_row', 'edit_page', 'update_table_cells', 'append_to_page', 'set_page_title'].includes(tool.name)) return tool
-  const writesText = tool.name === 'append_to_page' || tool.name === 'edit_page' || tool.name === 'update_table_cells'
+  if (!['create_row', 'upsert_rows', 'add_property', 'update_row', 'edit_page', 'update_table_cells', 'create_spreadsheet', 'append_to_page', 'set_page_title'].includes(tool.name)) return tool
+  const writesText = tool.name === 'create_spreadsheet' || tool.name === 'append_to_page' || tool.name === 'edit_page' || tool.name === 'update_table_cells'
   return {
     ...tool,
     run(input, stage) {

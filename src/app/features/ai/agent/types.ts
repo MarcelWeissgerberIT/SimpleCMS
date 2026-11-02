@@ -30,6 +30,8 @@ export type ToolName =
   | 'append_to_page'
   /** changes existing content, block by block (staged one change per edit, kind 'edit') */
   | 'edit_page'
+  | 'read_page_files'
+  | 'create_spreadsheet'
   | 'read_tables'
   | 'update_table_cells'
   | 'create_row'
@@ -241,6 +243,8 @@ export interface StagedChange {
   beforeTitle?: string
   /** create_page / create_row: content · append: what gets added · edit: the new blocks (none for a delete) */
   markdown?: string
+  /** A calculated spreadsheet appended through the usual review/apply/undo path. */
+  spreadsheet?: import('../../sheets').SpreadsheetAttrs
   /** edit (edit_page): which blocks, as they were when staged; one change per edit, each applied or discarded on its own */
   edit?: BlockEdit
   props?: PropChange[]
