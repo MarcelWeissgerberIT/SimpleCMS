@@ -1,3 +1,4 @@
+import {anthropicOutputSchema} from '@/shared/ai/anthropic-schema'
 /**
  * Claude reads a file block: the request (the file as a `document` content block — a PDF as base64, any
  * other file as its text — + the task as text, one user message) and the prompts of the four actions.
@@ -171,7 +172,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
       format: material.type === 'pdf' ? 'pdf' : material.format,
       clipped: material.type === 'text' && material.clipped,
     })
-    const format = action === 'tables' ? { type: 'json_schema' as const, schema: TABLE_SCHEMA } : null
+    const format = action === 'tables' ? { type: 'json_schema' as const, schema: anthropicOutputSchema(TABLE_SCHEMA) } : null
     // a transcription can be long; a summary or an answer is short
     const maxTokens = action === 'extract' ? 64000 : action === 'tables' ? 32000 : 16000
     // the request's size: the task, the system prompt and the file as it counts (a stopped request is estimated from it)

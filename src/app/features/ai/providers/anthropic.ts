@@ -1,3 +1,4 @@
+import {anthropicOutputSchema} from '@/shared/ai/anthropic-schema'
 import {centralTransport,centralAI} from '../core/centralAI'
 import {taskInputOf} from '../core/gate'
 import {createTaskContract,TASK_QUESTION} from '../core/taskContract'
@@ -422,7 +423,7 @@ async function streamWithMcp(
     for(let round=0;round<Math.min(40,(more.maxResumes??MAX_RESUMES)+12);round++){
       assertPreparedFlow(more.prepared)
       const definitions=[TASK_QUESTION,...WORKER_MCP_FUNCTIONS,...remote.functions()]
-      const params:BetaMessageStreamParams={model,max_tokens:capped(more.schema?4096:opus?16000:8000,more.prepared),system:task.packet(),messages,tools:definitions.map(d=>({name:d.name,description:d.description,input_schema:d.parameters as {type:'object'}})),...(opus?{betas:[FALLBACK_BETA],fallbacks:'default' as const}:{}),...((opus||more.schema)?{output_config:{...(opus?{effort:'low' as const}:{}),...(more.schema?{format:{type:'json_schema' as const,schema:more.schema}}:{})}}:{})}
+      const params:BetaMessageStreamParams={model,max_tokens:capped(more.schema?4096:opus?16000:8000,more.prepared),system:task.packet(),messages,tools:definitions.map(d=>({name:d.name,description:d.description,input_schema:d.parameters as {type:'object'}})),...(opus?{betas:[FALLBACK_BETA],fallbacks:'default' as const}:{}),...((opus||more.schema)?{output_config:{...(opus?{effort:'low' as const}:{}),...(more.schema?{format:{type:'json_schema' as const,schema:anthropicOutputSchema(more.schema)}}:{})}}:{})}
       const stream=client.beta.messages.stream(params),abort=()=>stream.abort();signal?.addEventListener('abort',abort,{once:true})
       let final:BetaMessage
       try{final=await finalOf(stream,more.call,()=>JSON.stringify(params).length,more.sdk,signal)}finally{signal?.removeEventListener('abort',abort)}
@@ -511,7 +512,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     const { client } = got
     if (signal?.aborted) throw new AIError('aborted')
     const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content: prompt }]
-    const format = { type: 'json_schema' as const, schema }
+    const format = { type: 'json_schema' as const, schema: anthropicOutputSchema(schema) }
     const promptChars = () => system.length + prompt.length
     let stopReason: string | null
     let blocks: Array<{ type: string; text?: string }>

@@ -59,19 +59,22 @@ test.describe('Typed AI across task kinds and models',()=>{
   const definition=page.getByRole('textbox',{name:'Executable JSON definition',exact:true})
   await expect(definition).toBeVisible();const captured=JSON.parse(await definition.inputValue());expect(captured.profile.spec.typedAI.tags.some((t:any)=>t.kind==='rule'&&t.version==='5')).toBe(true)
  })
- for(const role of ['ba','po']as const)test(role+': bounded analysis uses the same fresh Atlas rule preflight and typed compiler',async({page})=>{
-  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:LOCAL})
-  const term=await configure(page,role==='ba'?'BA analysis':'PO specification')
+ for(const role of ['ba','po','claude-ba']as const)test(role+': bounded analysis uses the same fresh Atlas rule preflight and typed compiler',async({page})=>{
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:role==='claude-ba'?'anthropic':'local',m:role==='claude-ba'?DEFAULT_CLAUDE_MODEL:LOCAL})
+  if(role==='claude-ba')await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+  const term=await configure(page,role==='po'?'PO specification':'BA analysis')
   const source=await createPage(page,{title:'Typed source requirement',content:doc(para('AICM-2065: When a measurement starts the logger records its start time.'))});await gotoPage(page,source)
   const ba=JSON.stringify({requirements:[{statement:'When a measurement starts, the logger shall record its start time.',source_refs:['T01'],checks:[{observation:'A measurement starts and its original start time is recorded.',conforms:true},{observation:'A measurement starts but no original start time is recorded.',conforms:false}]}],questions:[{question:'What timestamp precision is required?',reason:'No precision is specified by the actual source.',source_refs:['T01']}]})
   const po=JSON.stringify({reviews:[{requirement:'R1',support:'partial',check_support:'supported',finding:'The required start-time precision is unspecified; acceptance needs clarification.'}],contradictions:[],questions:['What timestamp precision must the team agree?']})
   let calls=0;fake.onText=r=>({model:r.model,text:calls++%2?po:ba,inputTokens:200,outputTokens:100,usd:0})
-  await term.getByRole('textbox',{name:'Task for the agent'}).fill('/'+role+' measurement');await term.getByRole('textbox',{name:'Task for the agent'}).press('Enter')
+  const claude=role==='claude-ba'?await mockClaudeScript(page,[text(ba),text(po)]):null
+  await term.getByRole('textbox',{name:'Task for the agent'}).fill('/'+(role==='po'?'po':'ba')+' measurement');await term.getByRole('textbox',{name:'Task for the agent'}).press('Enter')
   await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
   const card=term.getByRole('region',{name:'Compiled task'});await card.locator('summary').first().click();const report=JSON.parse(await card.locator('pre').last().textContent()??'{}')
-  expect(report.evidence.typed_sources).toHaveLength(1);expect(report.evidence.one_pages).toContain(source);expect(calls).toBe(2)
+  expect(report.evidence.typed_sources).toHaveLength(1);expect(report.evidence.one_pages).toContain(source);expect(claude?.requests.length??calls).toBe(2)
   expect(report.compiled.findings.filter((f:any)=>f.id.startsWith('typed_')).every((f:any)=>f.status==='verified')).toBe(true)
-  expect(fake.textAsked.every(r=>!r.tools?.length)).toBe(true);expect(JSON.stringify(fake.textAsked)).toContain('Rule version 5')
+  expect(fake.textAsked.every(r=>!r.tools?.length)).toBe(true);expect(JSON.stringify(claude?.requests??fake.textAsked)).toContain('Rule version 5')
+  if(claude)for(const request of claude.requests){const schema=request.body.output_config?.format?.schema;expect(schema).toBeTruthy();const walk=(node:any)=>{if(!node||typeof node!=='object')return;if(Array.isArray(node)){node.forEach(walk);return}for(const key of ['maxItems','minLength','maxLength','minimum','maximum'])expect(node).not.toHaveProperty(key);if(node.minItems!==undefined)expect([0,1]).toContain(node.minItems);for(const[key,value]of Object.entries(node))if(['properties','$defs','definitions'].includes(key))Object.values(value as any).forEach(walk);else if(['items','anyOf','oneOf','allOf'].includes(key))walk(value)};walk(schema)}
  })
  test('a changed rule body stops before any paid model call',async({page})=>{
   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:LOCAL})

@@ -1,3 +1,4 @@
+import {anthropicOutputSchema} from '@/shared/ai/anthropic-schema'
 /**
  * Claude looks at an image block: the request (the image as a base64 image block + the task as text, one
  * user message) and the prompts of the four actions.
@@ -168,7 +169,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
     const model = prepared.route?.m ?? got.model
     if (signal?.aborted) throw new AIError('aborted')
     const schema = action === 'describe' ? DESCRIBE_SCHEMA : action === 'table' ? TABLE_SCHEMA : null
-    const format = schema ? { type: 'json_schema' as const, schema } : null
+    const format = schema ? { type: 'json_schema' as const, schema: anthropicOutputSchema(schema) } : null
     const source = { type: 'base64' as const, media_type: image.mediaType, data: image.data }
     let text = ''
     const onText = (delta: string) => {
