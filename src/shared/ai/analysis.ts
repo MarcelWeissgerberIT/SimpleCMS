@@ -3,7 +3,7 @@ export type AnalysisIntent={role:'ba'|'po';focus:string}
 export type AnalysisRef={ref:string;quote:string}
 export type BADraft={requirements:Array<{statement:string;source_refs:string[];checks:Array<{observation:string;conforms:boolean}>}>;questions:Array<{question:string;reason:string;source_refs:string[]}>}
 export type POReview={reviews:Array<{requirement:string;support:'supported'|'partial'|'unsupported';check_support:'supported'|'partial'|'unsupported';finding:string}>;contradictions:Array<{left_ref:string;right_ref:string;reason:string}>;questions:string[]}
-export function analysisIntent(goal:string):AnalysisIntent|null{const m=/^\/(ba|po)(?:\s+([\s\S]*))?$/iu.exec(goal.trim());return m?{role:m[1].toLowerCase() as 'ba'|'po',focus:(m[2]??'').trim()}:null}
+export function analysisIntent(goal:string):AnalysisIntent|null{const m=/^\/(ba|po)(?:\s+([\s\S]*))?$/iu.exec(goal.trim());return m?{role:m[1]!.toLowerCase() as 'ba'|'po',focus:(m[2]??'').trim()}:null}
 const str=(min=1,max=1200)=>({type:'string',minLength:min,maxLength:max})
 const arr=(items:unknown,min=0,max=3)=>({type:'array',minItems:min,maxItems:max,items})
 const obj=(properties:Record<string,unknown>)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false})
@@ -13,8 +13,8 @@ const behaviorRef=(r:AnalysisRef)=>!/^\s*#/u.test(r.quote)&&!/^\s*(?:[-|]\s*)?(?
 /** A cited behavior inherits the context of its actual owning source section. Headings alone are not evidence. */
 export function analysisEvidence(refs:AnalysisRef[],ids:string[]):string{
  const indices=new Set<number>()
- for(const id of ids){const i=refs.findIndex(r=>r.ref===id);if(i<0||!behaviorRef(refs[i]))continue;let start=i;while(start>=0&&!/^\s*#{1,6}\s/u.test(refs[start].quote))start--;const level=start<0?0:/^\s*(#{1,6})/u.exec(refs[start].quote)![1].length;start=Math.max(0,start);let end=start+1;while(end<refs.length){const h=/^\s*(#{1,6})\s/u.exec(refs[end].quote);if(h&&(level===0||h[1].length<=level))break;end++}for(let n=start;n<end;n++)indices.add(n)}
- return [...indices].sort((a,b)=>a-b).map(i=>refs[i].quote).join('\n')
+ for(const id of ids){const i=refs.findIndex(r=>r.ref===id);if(i<0||!behaviorRef(refs[i]!))continue;let start=i;while(start>=0&&!/^\s*#{1,6}\s/u.test(refs[start]!.quote))start--;const level=start<0?0:/^\s*(#{1,6})/u.exec(refs[start]!.quote)![1]!.length;start=Math.max(0,start);let end=start+1;while(end<refs.length){const h=/^\s*(#{1,6})\s/u.exec(refs[end]!.quote);if(h&&(level===0||h[1]!.length<=level))break;end++}for(let n=start;n<end;n++)indices.add(n)}
+ return [...indices].sort((a,b)=>a-b).map(i=>refs[i]!.quote).join('\n')
 }
 export function baIssues(draft:BADraft,refs:AnalysisRef[]):string[]{
  const issues:string[]=[]
@@ -72,10 +72,10 @@ export function focusAnalysisRefs(refs:AnalysisRef[],focus:string):{refs:Analysi
  const wanted=focus.trim(),escaped=wanted.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
  if(!wanted)return {refs,scope:'page'}
  const pattern=new RegExp('(^|[^\\p{L}\\p{N}])'+escaped+'($|[^\\p{L}\\p{N}])','iu')
- let matches=refs.map((r,i)=>({i,heading:/^(#{1,6})\s+(.+)/u.exec(r.quote)})).filter(x=>x.heading&&pattern.test(x.heading[2]))
- const label=new RegExp('^(?:[A-Z][A-Z0-9]{1,10}-\\d+\\s+)?'+escaped+'($|[^\\p{L}\\p{N}])','iu'),primary=matches.filter(x=>label.test(x.heading![2].replace(/^\[/u,'')))
+ let matches=refs.map((r,i)=>({i,heading:/^(#{1,6})\s+(.+)/u.exec(r.quote)})).filter(x=>x.heading&&pattern.test(x.heading[2]!))
+ const label=new RegExp('^(?:[A-Z][A-Z0-9]{1,10}-\\d+\\s+)?'+escaped+'($|[^\\p{L}\\p{N}])','iu'),primary=matches.filter(x=>label.test(x.heading![2]!.replace(/^\[/u,'')))
  if(primary.length)matches=primary
- if(matches.length===1){const {i,heading}=matches[0];let end=i+1;while(end<refs.length){const next=/^(#{1,6})\s+/u.exec(refs[end].quote);if(next&&next[1].length<=heading![1].length)break;end++}return {refs:refs.slice(i,end),scope:heading![2]}}
+ if(matches.length===1){const {i,heading}=matches[0]!;let end=i+1;while(end<refs.length){const next=/^(#{1,6})\s+/u.exec(refs[end]!.quote);if(next&&next[1]!.length<=heading![1]!.length)break;end++}return {refs:refs.slice(i,end),scope:heading![2]!}}
  if(/^(?:S\d+|[A-Z][A-Z0-9]{1,10}-\d+(?:\s+S\d+)?)$/iu.test(wanted))throw Error('The focus must match one actual source heading. Choose a unique section such as S9; missing or ambiguous identifiers cannot be resolved by model guesswork.')
  return {refs,scope:'page · topic: '+wanted}
 }

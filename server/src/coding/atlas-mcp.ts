@@ -1,3 +1,4 @@
+import {mcpArgumentsWithinLimit} from '../../../src/shared/mcp/attachment.ts'
 import {connectionProblem,mcpConnectionMessage} from '../../../src/shared/ai/connection-problem.ts'
 import {atlasScopedArgs,atlasTenantHint} from '../../../src/shared/mcp/scope.ts'
 import {selectMcpSchemas} from '../../../src/shared/mcp/bindings.ts'
@@ -24,7 +25,7 @@ export function checkAtlasMcp(v:unknown):v is WorkerMcpRequest{
  const s=v.servers[0],names=(x:unknown)=>Array.isArray(x)&&x.length<=600&&x.every(n=>typeof n==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(n))
  if(!object(s)||Object.keys(s).some(k=>!['name','url','token','allow','deny'].includes(k))||!(/^[a-z][a-z0-9_-]{0,31}$/.test(s.name))||s.url!==ENDPOINT||typeof s.token!=='string'||s.token.length<8||s.token.length>8192||/\s/.test(s.token)||s.allow!==null&&!names(s.allow)||!names(s.deny))return false
  if(v.action==='search'&&(typeof v.query!=='string'||v.query.length>200))return false
- if(v.action==='call'&&(v.server!==s.name||typeof v.name!=='string'||!/^[A-Za-z0-9_.:-]{1,128}$/.test(v.name)||!object(v.arguments)||JSON.stringify(v.arguments).length>20000))return false
+ if(v.action==='call'&&(v.server!==s.name||typeof v.name!=='string'||!/^[A-Za-z0-9_.:-]{1,128}$/.test(v.name)||!object(v.arguments)||!mcpArgumentsWithinLimit(v.name,v.arguments)))return false
  return true
 }
 

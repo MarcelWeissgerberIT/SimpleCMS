@@ -10,6 +10,14 @@ test('personal Atlas proxy rejects arbitrary destinations, headers and malformed
  for(const patch of [{url:'https://eh-atlas.com/api/atlas/mcp'},{url:'http://127.0.0.1:8080'},{url:'https://aj-atlas.com/api/atlas/mcp?token=x'},{token:secret+'\n'},{headers:{Cookie:'private'}}])assert.equal(checkAtlasMcp({...request,servers:[{...server,...patch}]}),false)
  assert.equal(checkAtlasMcp({...request,servers:[server,server]}),false)
 })
+test('large generated HTML/PNG attachment payloads are narrowly bounded without relaxing other MCP tools',()=>{
+ const attachment={...request,name:'atlas_attach',arguments:{ref:42,filename:'mock.png',mime:'image/png',contentBase64:'AAAA'.repeat(20000)}}
+ assert.equal(checkAtlasMcp(attachment),true)
+ assert.equal(checkAtlasMcp({...attachment,name:'atlas_update'}),false)
+ assert.equal(checkAtlasMcp({...attachment,arguments:{...attachment.arguments,ref:0}}),false)
+ assert.equal(checkAtlasMcp({...attachment,arguments:{...attachment.arguments,contentBase64:'A'.repeat(850001)}}),false)
+ assert.equal(checkAtlasMcp({...attachment,arguments:{...attachment.arguments,mime:'application/javascript'}}),false)
+})
 test('calls are selected from the actual allowed catalogue, schema checked and token redacted',async()=>{
  let called=0,closed=false
  const factory=()=>({connect:async()=>{},listTools:async()=>({tools:[{name:'atlas_whoami',description:'identity',inputSchema:{type:'object',additionalProperties:false}}]}),callTool:async()=>{called++;return {content:[{type:'text',text:secret}] }},close:async()=>{closed=true}}) as any

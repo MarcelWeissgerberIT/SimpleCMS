@@ -1,3 +1,4 @@
+import {mockIntent} from '@/shared/ai/designMock'
 import {deliveryPlan,deliveryIssues,DELIVERY_GUIDE} from '@/shared/ai/delivery'
 import {sha256Hex} from '@/shared/mcp/sha256'
 import type {AgentTool,StageApi,ReadLimit} from './tools'
@@ -13,7 +14,7 @@ const PART=7000
 const referenceLines=(text:string,prefix:string)=>text.split(/\n+/).map(x=>x.replace(/⟦b\d+⟧\s*/g, '').trim()).filter(x=>x.length>=16&&x.length<=1000).slice(0,80).map((quote,i)=>({ref:prefix+String(i+1).padStart(2,'0'),quote}))
 /** Run-local receipt store. Only URLs in the trusted user instruction can be fetched. */
 export function groundedTask(goal:string,target:string|null,base:AgentTool[],stage:StageApi,signal:AbortSignal,hooks:RunHooks,readLimit?:((id:string)=>ReadLimit|null)|null){
- const analysis=analysisIntent(goal),plan=deliveryPlan(goal,target),readTarget=analysis?target:plan.target,enabled=!!(analysis||plan.urls.length||plan.rewrite)
+ const analysis=analysisIntent(goal),plan=mockIntent(goal)?{urls:[] as string[],target:null,rewrite:false,ears:false}:deliveryPlan(goal,target),readTarget=analysis?target:plan.target,enabled=!!(analysis||plan.urls.length||plan.rewrite)
  const epoch=useWorkspace.getState().epoch,active=useCloud.getState().active
  let prepared:Prepared|null=null,targetRead=false,staged=0,targetNext=0,targetFingerprint=''
  let observedContext='',readAt='',partial=false

@@ -176,5 +176,7 @@ function jsonLimit(): MiddlewareHandler<AppEnv> {
     },
   })
   const checkoutLimit = bodyLimit({ maxSize: 16 * 1024 * 1024 })
-  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
+  // Transient personal Atlas attachment transport: never persisted in ONE.
+  const atlasLimit = bodyLimit({ maxSize: 1024 * 1024 })
+  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
 }

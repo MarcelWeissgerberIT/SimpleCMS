@@ -1,3 +1,4 @@
+import {DesignMockCard} from './DesignMockCard'
 import {openPrograms} from '../programs/dialog'
 import {TaskContractCard} from '../mcp-servers/TaskContractCard'
 import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
@@ -615,6 +616,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <MarkdownLite source={turn.answer} />
         </div>
       )}
+      {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock}/>)}
       <TurnMedia n={turn.n} />
       <TurnHalt n={turn.n} />
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}

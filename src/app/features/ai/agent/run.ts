@@ -1,3 +1,5 @@
+import {MockSources,MOCK_GUIDE,mockIntent,type DesignMock} from '@/shared/ai/designMock'
+import {mockTool,mockReadTool} from './designMocks'
 import {CODE_DELIVERY_RULES,codeDeliveryIssues} from '@/shared/ai/codeDelivery'
 import {groundedTask} from './grounding'
 import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
@@ -206,6 +208,7 @@ export function untilStopped(p: Promise<HaltChoice>, signal: AbortSignal): Promi
 }
 
 export interface RunHooks {
+  mock?(artifact:DesignMock):void
   contract?(report:import('@/shared/quandprofile/task').TaskReport):void
   /** a tool call starts: returns the step id */
   toolStart(name: ToolName, arg: string): string
@@ -258,6 +261,7 @@ export async function runAgent(opts: {
   purpose: PurposeId
   /** Host-pinned page at task start, never a model-supplied target. */
   targetPage?: string | null
+  mockSources?: MockSources
   delivery?: ReturnType<typeof groundedTask>
   route?: import('@/shared/ai/types').Route | null
   /** what it reads: the open page, references, the agent's scope — { all: true } for the workspace as a whole */
@@ -294,6 +298,10 @@ export async function runAgent(opts: {
   run?: PrepareInput['run']
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
+  const mockSources=new MockSources()
+  const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&/\b(?:mock|mocks|mockup|mockups|prototyp|prototype)\b/i.test(opts.typed??'')
+  const baseTools=opts.tools??TERMINAL_TOOLS
+  if(mockEnabled)opts={...opts,mockSources,tools:[...baseTools,mockReadTool(mockSources),mockTool(mockSources,a=>hooks.mock!({...a,route:prepared?.route??undefined}))],system:(opts.system??AGENT_SYSTEM)+'\n'+MOCK_GUIDE}
   const delivery=groundedTask(opts.typed??'',opts.targetPage??null,opts.tools??TERMINAL_TOOLS,stage,signal,hooks,opts.readLimit)
   opts={...opts,delivery,tools:delivery.tools,system:(opts.system??AGENT_SYSTEM)+delivery.guide}
   const mcp = opts.mcp ?? null
@@ -341,7 +349,7 @@ export async function runAgent(opts: {
     compiledTask=createTaskContract({prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
     const task=compiledTask
     delivery.bind(task)
-    const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task):null
+    const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined):null
     let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
     sdk = got.sdk
@@ -561,7 +569,7 @@ export async function runAgent(opts: {
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             if(msg.stop_reason!=='pause_turn'){
-              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;const codeIssues=codeDeliveryIssues(opts.typed??'',text);if(codeIssues.length){task.fail('C++ minimum review failed; no compiler verification recorded.');throw new AIError('capability',codeIssues.join(' '))}delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
+              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;const codeIssues=codeDeliveryIssues(opts.typed??'',text);if(codeIssues.length){task.fail('C++ minimum review failed; no compiler verification recorded.');throw new AIError('capability',codeIssues.join(' '))}if(mockIntent(opts.typed??'')&&!mockSources.created){task.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','No source-grounded mock was produced. Resolve the missing design/requirement source; no substitute was saved.')}delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
               else if(!(remote?.facts??atlasFacts).check(draftText).length)hooks.text(draftText)
             }
             hooks.textDone(toolUse ? 'note' : 'answer')

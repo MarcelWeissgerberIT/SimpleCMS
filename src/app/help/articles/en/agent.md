@@ -129,3 +129,18 @@ For grounded rewrites ONE supplies numbered original passages, copies their actu
 ## Checking code output
 
 A code block is not build evidence. ONE statically detects a narrow set of C++ defects, including missing direct integer-limit headers and unsafe character classification. Local and Copilot routes allow at most one tool-free correction, then stop on repeated defects. This is not a compiler, test runner or security review; use the repository task worker verification stage.
+# BA/PO mocks from the current Atlas design system
+
+In the AI terminal, try:
+
+```text
+/mock Create a conflict-screen proposal for Atlas record 32155 using its requirements and the currently applicable FluX design system. Show unresolved design questions.
+```
+
+The selected model reads requirements, the design catalogue and its current applicability/version rule through your personal Atlas connection. `read_design_source` supplies bounded original component/token/version passages from a large catalogue. Search excerpts and remembered facts are insufficient. Missing versions or components require source investigation and, when necessary, a focused prerequisite question.
+
+The mock card presents **static HTML/CSS** with component and requirement mappings. PNG is rendered from that exact HTML. You can download HTML, PNG and a JSON source receipt. **Attach to Atlas record** stores all three files on the displayed requirement record using `atlas_attach`. ONE is the transient creation/preview/controller surface, not a document repository; this action changes no ONE page. Direct attachment currently requires the prepared personal AJ-Atlas connection in a cloud workspace; older local workers have a smaller attachment bound.
+
+Before uploading, ONE rereads every source and compares its content hash. Changed or inaccessible sources stop the upload. Atlas must then confirm each file's size and SHA-256. Partial uploads are listed individually; retrying the same proposal uses the same filenames. The files remain **proposals**, never approved specifications.
+
+Automatic checks cover citation origin, component references, some token mechanics and static HTML without scripts or external resources. They do not prove semantic completeness or pixel-perfect design compliance. External font files and images are not loaded in this first static version; missing assets and interactions must remain explicit. BA and PO review states, exceptions, priorities and acceptance criteria. The model makes no business decisions.

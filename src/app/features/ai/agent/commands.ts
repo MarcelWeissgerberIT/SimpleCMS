@@ -13,7 +13,7 @@ import type { TermMention } from './types'
 import { examples } from '../memory/example'
 import { memoryInUse } from '../memory/settings'
 
-export type CommandId = 'new' | 'stop' | 'continue' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'pipelines' | 'connect' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example' | 'ba' | 'po'
+export type CommandId = 'new' | 'stop' | 'continue' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'pipelines' | 'connect' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example' | 'ba' | 'po' | 'mock'
 
 export interface Command {
   id: CommandId
@@ -40,6 +40,7 @@ export const COMMANDS: Command[] = [
   { id: 'pipelines', en: ['pipelines'], de: [] },
   // an MCP server: list, sign in (the window opens from the key press), test, or add one by its address (connect.ts)
   { id: 'connect', en: ['connect'], de: ['verbinden'] },
+  { id: 'mock', en: ['mock'], de: [] },
   { id: 'ba', en: ['ba'], de: [] },
   { id: 'po', en: ['po'], de: [] },
   { id: 'cost', en: ['cost'], de: ['kosten'] },
@@ -67,7 +68,7 @@ export function helpNames(c: Command, lang: 'en' | 'de'): string[] {
 const byName = (word: string) => COMMANDS.find((c) => c.en.includes(word) || c.de.includes(word))
 
 /** Commands that take text after their name ("/remember Reports go out on Fridays"). */
-const WITH_TEXT: CommandId[] = ['remember', 'nomemory', 'example', 'pipelines', 'connect', 'ba', 'po']
+const WITH_TEXT: CommandId[] = ['remember', 'nomemory', 'example', 'pipelines', 'connect', 'ba', 'po', 'mock']
 
 /** A command with text after its name ("/merken Berichte auf Deutsch"): its id and the text; null for anything else. */
 export function parseCommandText(input: string): { id: CommandId; text: string } | null {

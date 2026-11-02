@@ -15,6 +15,8 @@ import type { ModelLine } from '../core/meter'
 import type { JevCheck } from '@/shared/ai/decide'
 
 export type ToolName =
+  | 'read_design_source'
+  | 'create_design_mock'
   | 'check_finding'
   | 'search_pages'
   | 'read_page'
@@ -336,6 +338,7 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  mocks?:import('@/shared/ai/designMock').DesignMock[]
   program?:{id:string;version:number;hash:string}
   contract?:import('@/shared/quandprofile/task').TaskReport
   n: number

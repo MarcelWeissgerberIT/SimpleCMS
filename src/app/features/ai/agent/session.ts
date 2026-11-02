@@ -518,6 +518,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     limit() {
       note(t('features.agent.limitNote'))
     },
+    mock(artifact){if(here()){const turn=get().turns.find(t=>t.n===n);patchTurn(n,{mocks:[...(turn?.mocks??[]),artifact]})}},
     media(items) {
       if (!here()) return
       // the cards under this task: saving stages "insert media" on the page it worked on
@@ -803,7 +804,7 @@ export async function submitPrompt(raw?: string): Promise<void> {
     if (withText.id === 'remember') return rememberText(input, withText.text)
     if (withText.id === 'example') return exampleDialog(input, withText.text)
     if (get().status === 'running') return info(input, 'features.agent.echo.wait')
-    if(withText.id === 'ba' || withText.id === 'po') return runTask('/'+withText.id+' '+withText.text, { history: false })
+    if(withText.id === 'ba' || withText.id === 'po' || withText.id === 'mock') return runTask('/'+withText.id+' '+withText.text, { history: false })
     return runTask(withText.text, { noMemory: true, history: false })
   }
   const cmd = parseCommand(input)
@@ -815,6 +816,7 @@ export async function submitPrompt(raw?: string): Promise<void> {
   switch (cmd) {
     case 'ba':
     case 'po':
+    case 'mock':
       if(running) return info(input, 'features.agent.echo.wait')
       return runTask('/'+cmd, { history: false })
     case 'new':

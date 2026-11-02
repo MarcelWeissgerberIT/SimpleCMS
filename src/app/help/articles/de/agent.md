@@ -127,3 +127,18 @@ Die Prüfung belegt Quellenabruf, Zitatübereinstimmung, Seitenziel und Mindests
 ## Code-Ausgaben prüfen
 
 Ein Codeblock ist noch kein Build-Nachweis. ONE erkennt einige konkrete C++-Mängel bereits statisch, etwa fehlende direkte Integergrenzen-Header und problematische Zeichenprüfung. Im lokalen Modellkanal und bei Copilot wird dafür höchstens eine werkzeugfreie Korrektur angefordert; wiederholt fehlerhafte Entwürfe werden angehalten. Diese schmale Vorprüfung ersetzt weder Kompilieren noch Tests oder Security-Review. Nutze dafür die Prüfphase der Repository-Aufgabe im Worker.
+# BA-/PO-Mocks aus dem aktuellen Atlas-Designsystem
+
+Öffne das KI-Terminal und starte zum Beispiel:
+
+```text
+/mock Erstelle für Atlas-Record 32155 einen Entwurf der Konfliktanzeige. Nutze das aktuell gültige FluX-Designsystem und die Anforderungen dieses Records. Zeige offene Designfragen.
+```
+
+Die gewählte KI liest Anforderungen, Designkatalog und die geltende Versionsregel aus deiner persönlichen Atlas-Verbindung. Bei großen Katalogen kann sie mit `read_design_source` gezielt echte Komponenten-, Token- und Versionspassagen lesen. Suchtreffer oder ein Modellgedächtnis ersetzen diese Quellen nicht. Fehlt eine verbindliche Version oder Komponente, muss die KI zuerst die Quellen prüfen und gegebenenfalls eine konkrete Frage stellen.
+
+Die Mock-Karte zeigt einen **statischen HTML-/CSS-Entwurf** mit Komponenten- und Anforderungsbezug. PNG wird aus genau diesem HTML gerendert. HTML, PNG und ein JSON-Quellennachweis lassen sich herunterladen. **„Am Atlas-Record ablegen“** speichert alle drei Dateien am angezeigten Anforderungs-Record über `atlas_attach`. ONE verwaltet diese Dateien nicht als Dokumentenablage und verändert dabei keine ONE-Seite. Für diese direkte Dateiablage wird die vorbereitete persönliche AJ-Atlas-Verbindung eines Cloud-Workspaces benötigt; ein alter lokaler Worker hat noch eine kleinere Dateigrenze.
+
+Vor der Ablage liest ONE die verwendeten Atlas-Quellen erneut und vergleicht die Inhaltsstände. Geänderte oder unzugängliche Quellen stoppen die Ablage. Danach bestätigt Atlas Größe und SHA-256 jeder Datei. Teilweise erfolgreiche Übertragungen werden einzeln angezeigt; eine Wiederholung verwendet dieselben Dateinamen für denselben Entwurf. Die Dateien bleiben **Entwürfe**, keine freigegebenen Spezifikationen.
+
+Die automatischen Prüfungen belegen Zitatursprung, Komponentenbezüge, einige Tokenregeln und statisches HTML ohne Skripte oder externe Ressourcen. Sie beweisen weder fachliche Vollständigkeit noch eine pixelgenaue Umsetzung des Designsystems. Externe Schriftdateien und Bilder werden in dieser ersten statischen Variante nicht nachgeladen; fehlende Ressourcen und Interaktionen gehören in die offenen Punkte. BA und PO prüfen insbesondere Zustände, Ausnahmen, Prioritäten und Abnahmekriterien. Die KI trifft keine fachlichen Entscheidungen.

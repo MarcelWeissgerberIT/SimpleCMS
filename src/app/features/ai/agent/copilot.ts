@@ -1,3 +1,4 @@
+import {mockIntent} from '@/shared/ai/designMock'
 import {codeDeliveryIssues} from '@/shared/ai/codeDelivery'
 import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
 import {beginLiveAudit,LiveAuditError} from '../core/liveAudit'
@@ -69,7 +70,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {
     if (!opts.mcp.worker || !prepared.allows('mcp')) throw new AIError('capability', 'Selected MCP connections are unavailable on this route.')
-    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000,audit,task)
+    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000,audit,task,opts.mockSources)
   }
   const definitions: WorkerFunction[] = [TASK_QUESTION,...(local ? LOCAL_WORKSPACE_FUNCTIONS : tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema }))), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
   let contextNoted=false
@@ -128,7 +129,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       const discoveryOnly=!!remote&&atlasDiscovered&&!atlasQueried&&!result.calls?.length&&!repair
       if(discoveryOnly&&atlasRepairs++<1){if(!await proceed())return 'held' as const;messages.push({role:'user',content:ATLAS_DISCOVERY_REPAIR});continue}
       if(discoveryOnly)throw new AIError('mcp','Only tool discovery completed. No Atlas content query was executed.')
-      if(!result.calls?.length&&!repair){opts.delivery?.finish();task!.finish(answerText);await audit.tool('ONE','compiled_task',{phase:'result'},()=>task!.report())}
+      if(!result.calls?.length&&!repair){if(mockIntent(opts.typed??'')&&!opts.mockSources?.created){hooks.text(answerText);hooks.textDone('answer');task!.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','No source-grounded mock was produced. Resolve the missing design/requirement source; no substitute was saved.')}opts.delivery?.finish();task!.finish(answerText);await audit.tool('ONE','compiled_task',{phase:'result'},()=>task!.report())}
       if (answerText && !repair) hooks.text(answerText)
       if (!repair) hooks.textDone(result.calls?.length ? 'note' : 'answer')
       messages.push({ role: 'assistant', content: [...(result.text ? [{ type: 'text' as const, text: answerText }] : []), ...(result.calls ?? []).map(c => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.arguments }))] })

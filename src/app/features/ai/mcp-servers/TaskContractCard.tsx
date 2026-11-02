@@ -1,3 +1,4 @@
+import {mockIntent} from '@/shared/ai/designMock'
 import {analysisIntent} from '@/shared/ai/analysis'
 import {taskProgramDraft} from '../core/taskContract'
 import {openPrograms} from '../programs/dialog'
@@ -36,7 +37,7 @@ export function TaskContractCard({report,historical=false}:{report:TaskReport;hi
     {report.observations.length>0&&<details><summary>{t('features.ai.task.sources')}</summary><ul>{report.observations.map((o,i)=><li key={i}>{o.area.toUpperCase()} · {o.tool} · {t(o.success?'features.ai.quantum.status.verified':'features.ai.quantum.status.violated')}</li>)}</ul></details>}
     <p className="task-contract__note">{t('features.ai.task.limit')}</p>
     {report.phase==='ready'&&!historical&&<button className="btn btn--sm" onClick={()=>{setError(!acceptTaskResult(report.id))}}>{t('features.ai.task.accept')}</button>}
-    {!analysisIntent(c.contract.goal)&&!report.program&&!historical&&['ready','accepted'].includes(report.phase)&&<button className="btn btn--sm" onClick={()=>{try{openPrograms(taskProgramDraft(report.id))}catch(e){setSaveError(String(e))}}}>{t('features.ai.program.capture')}</button>}
+    {!analysisIntent(c.contract.goal)&&!mockIntent(c.contract.goal)&&!report.observations.some(o=>o.tool==='create_design_mock')&&!report.program&&!historical&&['ready','accepted'].includes(report.phase)&&<button className="btn btn--sm" onClick={()=>{try{openPrograms(taskProgramDraft(report.id))}catch(e){setSaveError(String(e))}}}>{t('features.ai.program.capture')}</button>}
     {saveError&&<p role="alert">{saveError}</p>}
     {error&&!question&&<p role="alert">{t('features.ai.task.stale')}</p>}
     <details><summary>{t('features.ai.task.packet')}</summary><pre>{JSON.stringify(c.model_context,null,2)}</pre></details>

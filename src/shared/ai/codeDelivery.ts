@@ -3,7 +3,7 @@ export const CODE_DELIVERY_RULES='Code is unverified until actual compiler/test 
 export function codeDeliveryIssues(goal:string,text:string):string[]{
  if(/^\s*(?:explain|what|why|erkläre|erklaere|warum|was)\b/iu.test(goal))return []
  if(!/\b(?:implement\w*|header|function|funktion|generat\w*)\b/iu.test(goal))return []
- const blocks=[...text.matchAll(/```(?:cpp|c\+\+|cxx)\s*\n([\s\S]*?)```/giu)].map(m=>m[1]);const issues:string[]=[]
+ const blocks=[...text.matchAll(/```(?:cpp|c\+\+|cxx)\s*\n([\s\S]*?)```/giu)].map(m=>m[1]!);const issues:string[]=[]
  for(const code of blocks){
   if(/\b(?:UINT_MAX|INT_MAX|INT_MIN|ULONG_MAX|LONG_MAX|CHAR_BIT)\b/u.test(code)&&!/#\s*include\s*[<"](?:climits|limits\.h)[>"]/u.test(code))issues.push('C++ uses an integer-limit macro without directly including <climits> or <limits.h>.')
   if(/\b(?:ascii|ASCII)\b/u.test(goal)&&/std::is(?:digit|alnum|alpha)\s*\(/u.test(code))issues.push('The requested ASCII-only parser uses locale-sensitive cctype classification. Use explicit byte ranges.')
