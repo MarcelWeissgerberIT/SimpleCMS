@@ -19,3 +19,6 @@ Einfügen mit `/schaltfläche` (oder `/button`), eine **Beschriftung** und einen
 Texte können `{{date}}`, `{{time}}` und `{{user}}` enthalten, die beim Klick ausgefüllt werden; Datumsfelder lassen sich auf heute oder jetzt setzen, ein Personenfeld auf **Ich**. **Bearbeiten** an der Schaltfläche ändert sie.
 
 > Freigabe-Links, Exporte und veröffentlichte Websites behalten die Beschriftung, aber nie die Aktionen (keine Webhook-URL verlässt deinen Workspace).
+
+
+Mit der Schaltflächen-Aktion **KI-Auftrag vorbereiten** hinterlegst du einen konkreten Prompt. Beim Klick öffnet ONE ihn im KI-Terminal mit dem Workspace-Standardmodell; die Person startet ihn sichtbar selbst. In einem vorbereiteten AJ-Atlas-Workspace führt ein fehlender persönlicher Token zuerst zum Atlas-Einstieg. Der Button vergibt keine Rechte und startet beim Import keine Anfrage.

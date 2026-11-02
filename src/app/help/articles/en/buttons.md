@@ -19,3 +19,6 @@ Insert one with `/button`, give it a **Label** and a style (**Signal**, **Ink**,
 Texts can contain `{{date}}`, `{{time}}` and `{{user}}`, filled in when the button is clicked; date properties can be set to today or now, a person property to **Me**. Click **Edit** on the button to change it.
 
 > Share links, exports and published sites keep the button's label but never its actions (no webhook URL leaves your workspace).
+
+
+The **Prepare an AI task** button action stores a concrete prompt. Clicking opens it in the AI terminal with the workspace default; the person visibly starts it. In a prepared AJ-Atlas workspace, a missing personal token sends them to Atlas setup first. The button grants no permissions and never starts inference on import.

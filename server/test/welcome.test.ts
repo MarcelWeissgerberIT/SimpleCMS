@@ -137,3 +137,14 @@ test('welcome send refuses an existing editing membership for a guest before any
   assert.equal((await owner.get(p)).body.recipients[0].status,'draft')
   assert.equal((await bob.get('/api/me')).body.workspaces.find((v:any)=>v.id===w).role,'member')
 })
+
+
+import {welcomeMail} from '../src/mail/templates.ts'
+test('cloud Atlas welcome uses Frankfurt/token-only steps in both languages, with no workshop setup instructions',()=>{
+ for(const lang of ['de','en'] as const){
+  const mail=welcomeMail(lang,{name:'Synthetic Member',title:'CNSx',workspace:'CNSx test',link:'https://one.example/app/#/invite/synthetic',atlasLink:'https://aj-atlas.com/',startLink:'https://one.example/app/?w=test#/p/start',guest:false,note:'Prepared BA work list',cloudAtlas:true})
+  assert.match(mail.text,/Frankfurt/);assert.match(mail.html,/FRANKFURT/);assert.match(mail.text,/token/i)
+  assert.ok(!mail.text.includes('MCP-Server'));assert.ok(!mail.text.includes('Start step by step'));assert.ok(!mail.text.includes('je einem echten Atlas-Leseversuch'))
+  assert.ok(mail.text.includes('#/p/start'));assert.ok(!mail.text.includes('SYNTHETIC-SECRET'))
+ }
+})

@@ -38,6 +38,7 @@ const ACTION_ICON: Record<ButtonActionType, LucideIcon> = {
   message: MessageSquare,
   run_script: SquareCode,
   worker_setup: Download,
+  ai_task: MessageSquare,
 }
 
 const TYPE_GLYPH: Partial<Record<PropertyDef['type'], string>> = {
@@ -273,6 +274,9 @@ function ActionCard({
       break
     case 'run_script':
       body = <ScriptFields action={action} onChange={onChange} />
+      break
+    case 'ai_task':
+      body = <label>{t('editor.button.aiTask.prompt')}<textarea className="input" rows={7} maxLength={8000} value={action.prompt} onChange={e=>onChange({...action,prompt:e.target.value})}/><small>{t('editor.button.aiTask.hint')}</small></label>
       break
     case 'worker_setup':
       body = <p className="bcfg__note">{t('editor.button.workerSetupHint')}</p>

@@ -318,6 +318,21 @@ async function runAction(ctx: RunContext, a: ButtonAction, now: Date): Promise<S
       return { ok: true, text: '', quiet: true }
     case 'run_script':
       return runScriptAction(ctx, a)
+    case 'ai_task': {
+      const prompt = a.prompt.trim()
+      if (!prompt) return fail(t('editor.button.aiTask.empty'))
+      const {useAgent, openAgent} = await import('../../features/ai/agent/state')
+      if (useAgent.getState().status === 'running') return fail(t('editor.button.aiTask.busy'))
+      const s = useWorkspace.getState(), setup = s.ai?.onboarding
+      if (setup && !s.settings.workspaceMcpServers?.some(server => server.name === setup.mcpName && server.url === setup.mcpUrl && server.enabled && server.token && server.checkedAt)) {
+        openPage(setup.startPageId)
+        return fail(t('editor.button.aiTask.token'))
+      }
+      // A button prepares a visible draft. It never grants permissions or starts inference on import.
+      useAgent.setState({route:s.ai?.routes?.['*']?.[0] ?? null, refs:[], mentions:[], pageOff:ctx.pageId})
+      openAgent({task:prompt, run:false})
+      return {ok:true, text:'', quiet:true}
+    }
     case 'worker_setup': {
       // Only open the person's existing setup UI. Tokens/files are created by its explicit download press.
       const { openCodingSettings } = await import('../../features/coding')

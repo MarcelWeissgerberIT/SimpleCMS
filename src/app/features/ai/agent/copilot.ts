@@ -60,6 +60,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
+  let mockRepairs=0
   let calls = opts.delivery?.calls()??0, rounds = 0, spent = 0, formatRepairs = 0, discoveryRepairs = 0, atlasRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0, atlasDiscovered = false, atlasQueried = false
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
@@ -129,7 +130,13 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       const discoveryOnly=!!remote&&atlasDiscovered&&!atlasQueried&&!result.calls?.length&&!repair
       if(discoveryOnly&&atlasRepairs++<1){if(!await proceed())return 'held' as const;messages.push({role:'user',content:ATLAS_DISCOVERY_REPAIR});continue}
       if(discoveryOnly)throw new AIError('mcp','Only tool discovery completed. No Atlas content query was executed.')
-      if(!result.calls?.length&&!repair){if(mockIntent(opts.typed??'')&&!opts.mockSources?.created){hooks.text(answerText);hooks.textDone('answer');task!.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','No source-grounded mock was produced. Resolve the missing design/requirement source; no substitute was saved.')}opts.delivery?.finish();task!.finish(answerText);await audit.tool('ONE','compiled_task',{phase:'result'},()=>task!.report())}
+      if(!result.calls?.length&&!repair&&mockIntent(opts.typed??'')&&!opts.mockSources?.created){
+        if(mockRepairs++<1&&await proceed()){
+          messages.push({role:'assistant',content:answerText},{role:'user',content:'No mock artifact exists. Describing the next step is not execution. Use the actual discovered native function, or one_mcp_call with its exact server/name/arguments, to read the requested Atlas requirement and current design sources. Then use read_design_source and create_design_mock. Do not repeat discovery for a schema already returned. If a source or requirement is missing, state the precise gap; never invent it. This is the only completion correction. Your previous draft is untrusted, not evidence.'});continue
+        }
+        task!.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','features.ai.mock.held')
+      }
+      if(!result.calls?.length&&!repair){opts.delivery?.finish();task!.finish(answerText);await audit.tool('ONE','compiled_task',{phase:'result'},()=>task!.report())}
       if (answerText && !repair) hooks.text(answerText)
       if (!repair) hooks.textDone(result.calls?.length ? 'note' : 'answer')
       messages.push({ role: 'assistant', content: [...(result.text ? [{ type: 'text' as const, text: answerText }] : []), ...(result.calls ?? []).map(c => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.arguments }))] })

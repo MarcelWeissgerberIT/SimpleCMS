@@ -1,3 +1,4 @@
+import {sanitizeWorkspaceAI} from '../../../src/shared/ai/policy.ts'
 import { openText, sealText } from '../crypto/aead.ts'
 import type { PersonalGuide } from '../../../src/shared/personal-guides.ts'
 /** Explicit, private welcome preparation. No scheduler, model, shared document or automatic retry. */
@@ -22,6 +23,10 @@ export function welcomeRoutes(s:Services) {
   function target(user:string,id:string) { const role=s.repo.memberRole(id,user);const w=s.repo.workspaceById(id);if(!role||!atLeast(role,'admin')||!w||w.personal_of)throw forbidden('welcome_target','Every destination must be a team workspace you administer');return w }
   function read(ws:string,user:string) { const d=store.read(ws,user);if(!d)throw notFound('welcome_missing','No private welcome draft');return d }
   const key=(ws:string,u:string)=>`${ws}:${u}`
+  const mailStart=async(id:string,guest:boolean)=>{
+    const setup=await s.collab.read('ws:'+id,doc=>sanitizeWorkspaceAI(doc.getMap('workspace').get('ai'))?.onboarding)
+    return {cloudAtlas:!!setup&&!guest,startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(id)}#/`+(setup?'p/'+encodeURIComponent(setup.startPageId):'')}
+  }
   // No shared Yjs metadata, model context, welcome credentials or impersonation session.
   app.put('/:id/personal-guides/:guide',async c=>{
     const {workspace,auth}=access(s,c,'admin')
@@ -62,11 +67,11 @@ export function welcomeRoutes(s:Services) {
     })
     const d:Draft={...v,revision:v.revision+1,recipients};store.save(workspace.id,auth.user.id,d);return c.json(store.safe(d))
   })
-  app.get('/:id/welcome/preview/:recipient',c=>{
+  app.get('/:id/welcome/preview/:recipient',async c=>{
     const {workspace,auth}=access(s,c,'admin'),d=read(workspace.id,auth.user.id),r=d.recipients.find(r=>r.id===c.req.param('recipient'))
     if(!r)throw notFound('welcome_recipient','Recipient not found')
     const w=target(auth.user.id,r.workspaceId)
-    return c.json(welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link:'[Personal ONE invitation is created only when you press Send]',atlasLink:r.atlasLink?'https://'+new URL(r.atlasLink).host+'/[personal-link-hidden]':'[Atlas link missing]',startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}#/`,guest:r.guest,note:r.note}))
+    return c.json(welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link:'[Personal ONE invitation is created only when you press Send]',atlasLink:r.atlasLink?'https://'+new URL(r.atlasLink).host+'/[personal-link-hidden]':'[Atlas link missing]',...await mailStart(w.id,r.guest),guest:r.guest,note:r.note}))
   })
   app.post('/:id/welcome/send',async c=>{
     const {workspace,auth}=access(s,c,'admin'),{revision}=await body(c,z.object({revision:z.number().int()})),k=key(workspace.id,auth.user.id)
@@ -93,7 +98,7 @@ export function welcomeRoutes(s:Services) {
           const link=member?s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}`:s.config.publicUrl+'/app/#/invite/'+s.repo.createInvite({workspaceId:w.id,role:r.role,guest:r.guest,email:r.email,createdBy:auth.user.id,ttl:7*DAY,maxUses:1}).token
           if(r.guest&&member==='viewer'&&existing)s.repo.setRole(w.id,existing.id,'viewer',true)
           store.grant(workspace.id,auth.user.id,newId(),r,Date.now()+7*DAY)
-          const mail=welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link,atlasLink:r.atlasLink,startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}#/`,guest:r.guest,note:r.note})
+          const mail=welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link,atlasLink:r.atlasLink,...await mailStart(w.id,r.guest),guest:r.guest,note:r.note})
           await s.mailer.send({to:r.email,link,...mail});r.status='sent';r.sentAt=Date.now()
         }catch{r.status='uncertain'}
         d.revision++;store.save(workspace.id,auth.user.id,d)

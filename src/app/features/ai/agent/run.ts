@@ -299,7 +299,7 @@ export async function runAgent(opts: {
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mockSources=new MockSources()
-  const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&/\b(?:mock|mocks|mockup|mockups|prototyp|prototype)\b/i.test(opts.typed??'')
+  const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&(mockIntent(opts.typed??'')||/\b(?:ui|design|html|png|dialog|screen|oberfläche)\b[\s\S]*\b(?:mocks?|mockups?|prototyp(?:e)?)\b|\b(?:mocks?|mockups?|prototyp(?:e)?)\b[\s\S]*\b(?:ui|design|html|png|dialog|screen|oberfläche)\b/i.test(opts.typed??''))
   const baseTools=opts.tools??TERMINAL_TOOLS
   if(mockEnabled)opts={...opts,mockSources,tools:[...baseTools.filter(t=>!t.write),mockReadTool(mockSources),mockTool(mockSources,a=>hooks.mock!({...a,route:prepared?.route??undefined}))],system:(opts.system??AGENT_SYSTEM)+'\n'+MOCK_GUIDE}
   const delivery=groundedTask(opts.typed??'',opts.targetPage??null,opts.tools??TERMINAL_TOOLS,stage,signal,hooks,opts.readLimit)
@@ -569,7 +569,7 @@ export async function runAgent(opts: {
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             if(msg.stop_reason!=='pause_turn'){
-              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;const codeIssues=codeDeliveryIssues(opts.typed??'',text);if(codeIssues.length){task.fail('C++ minimum review failed; no compiler verification recorded.');throw new AIError('capability',codeIssues.join(' '))}if(mockIntent(opts.typed??'')&&!mockSources.created){task.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','No source-grounded mock was produced. Resolve the missing design/requirement source; no substitute was saved.')}delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
+              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;const codeIssues=codeDeliveryIssues(opts.typed??'',text);if(codeIssues.length){task.fail('C++ minimum review failed; no compiler verification recorded.');throw new AIError('capability',codeIssues.join(' '))}if(mockIntent(opts.typed??'')&&!mockSources.created){task.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','features.ai.mock.held')}delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
               else if(!(remote?.facts??atlasFacts).check(draftText).length)hooks.text(draftText)
             }
             hooks.textDone(toolUse ? 'note' : 'answer')
