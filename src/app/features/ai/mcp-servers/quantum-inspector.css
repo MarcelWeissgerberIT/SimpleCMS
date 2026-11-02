@@ -35,3 +35,8 @@
   .quantum-inspector__facts > div { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
   .quantum-cube__caption { flex-wrap: wrap; }
 }
+
+.quantum-cube__caption code{font:inherit;overflow-wrap:anywhere}.quantum-cube__number{fill:var(--ink);font:600 11px var(--font-mono);pointer-events:none;paint-order:stroke;stroke:var(--surface-2);stroke-width:3px;stroke-linejoin:round}
+.quantum-cube__evidence[data-status=open]{fill-opacity:.015;stroke-dasharray:4 3;stroke-opacity:.8}.quantum-cube__binding[data-status=open]{stroke-dasharray:4 4;stroke-opacity:.65}
+.quantum-cube__evidence[data-status=violated]{fill:var(--c-red-text);stroke:var(--c-red-text)}.quantum-cube__binding[data-status=violated]{stroke:var(--c-red-text)}
+.quantum-cube__relations{border-top:1px solid var(--rule);padding:var(--sp-3);font-size:var(--text-xs)}.quantum-cube__relations ul{list-style:none!important;padding:0!important;margin:0!important;display:grid;gap:var(--sp-2)}.quantum-cube__relations li{display:flex;gap:var(--sp-3);align-items:baseline}.quantum-cube__relations strong{font-weight:500}.quantum-cube__relations small{display:block;color:var(--ink-2);margin-top:2px}.quantum-cube__relations code{font:inherit;overflow-wrap:anywhere}.quantum-cube__relations li[data-status=violated] strong{color:var(--c-red-text)}.quantum-cube__relations p{margin:0;font-size:inherit;color:var(--ink-2)}

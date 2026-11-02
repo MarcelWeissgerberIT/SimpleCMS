@@ -31,7 +31,13 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
    const opener=facts.getByRole('button',{name:/Compiled dispatch check/});await opener.focus();await page.keyboard.press('Enter')
    const dialog=page.getByRole('dialog',{name:'Evidence cube · dispatch check'});await expect(dialog).toBeVisible()
    await expect(dialog.getByRole('button',{name:'Permission',exact:true})).toHaveAttribute('aria-pressed','true')
+   const permissionPlane=await dialog.locator('.quantum-cube__plane[data-selected=true]').getAttribute('d')
+   const bound=await dialog.locator('.quantum-cube__evidence').first().getAttribute('data-quantum-id')
    await dialog.getByRole('button',{name:'Provenance',exact:true}).click();await expect(dialog).toContainText('selected MCP origin')
+   expect(await dialog.locator('.quantum-cube__plane[data-selected=true]').getAttribute('d')).not.toBe(permissionPlane)
+   expect(await dialog.locator('.quantum-cube__evidence').first().getAttribute('data-quantum-id')).toBe(bound)
+   await expect(dialog.locator('.quantum-cube__relations li')).toHaveCount(1)
+
    const before=await dialog.locator('svg[role=img] path').first().getAttribute('d');await dialog.getByRole('button',{name:'Rotate cube right'}).click();expect(await dialog.locator('svg[role=img] path').first().getAttribute('d')).not.toBe(before)
    await dialog.getByText('Bound values and dependencies',{exact:true}).click();await expect(dialog).toContainText('https://atlas.example.org');await expect(dialog).toContainText('atlas_get')
    for(const theme of ['light','dark'])for(const width of [1440,390]){

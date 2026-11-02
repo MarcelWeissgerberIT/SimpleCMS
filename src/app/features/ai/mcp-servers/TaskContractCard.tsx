@@ -11,8 +11,10 @@ import './quantum-inspector.css'
 import './task-contract.css'
 /** Only the person's UI calls the decision resolver; no answer/approval function is offered to models. */
 export function TaskContractCard({report,historical=false}:{report:TaskReport;historical?:boolean}){
- const t=useT(),[dimension,setDimension]=useState('interpretation'),[answer,setAnswer]=useState(''),[error,setError]=useState(false),[saveError,setSaveError]=useState('')
+ const t=useT(),[selected,setDimension]=useState('interpretation'),[answer,setAnswer]=useState(''),[error,setError]=useState(false),[saveError,setSaveError]=useState('')
  const question=report.questions.find(q=>q.state==='open'),c=report.compiled
+ const dimensions=[...new Set(c.findings.flatMap(f=>f.dimensions))],dimension=dimensions.includes(selected)?selected:dimensions[0]??''
+ const references=c.findings.map(f=>({key:f.id,id:c.quanta.find(q=>q.obligation_id===f.id)?.id,label:t('features.ai.task.finding.'+f.id),dimensions:f.dimensions,status:f.status}))
  const submit=(value:string)=>{const ok=!!question&&answerTaskDecision(report.id,question.id,value);setError(!ok);if(ok)setAnswer('')}
  return <section className="task-contract" data-phase={report.phase} aria-label={t('features.ai.task.title')}>
   <details open={report.questions.length>0?true:undefined}>
@@ -31,8 +33,7 @@ export function TaskContractCard({report,historical=false}:{report:TaskReport;hi
     </form>}
     {report.questions.filter(q=>q.state==='answered').map(q=><p key={q.id}><strong>{q.question}</strong><br/>{q.answer}</p>)}
     <details><summary>{t('features.ai.task.cube')}</summary>
-    <QuantumCube dimensions={[...new Set(c.findings.flatMap(f=>f.dimensions))]} selected={dimension} onSelect={setDimension} label={t('features.ai.task.cube')}/>
-    <ul className="task-contract__checks">{c.findings.filter(f=>f.dimensions.includes(dimension)).map(f=><li key={f.id} data-status={f.status}><strong>{t('features.ai.task.finding.'+f.id)}</strong><span>{t('features.ai.quantum.status.'+f.status)}</span></li>)}</ul>
+    <QuantumCube dimensions={dimensions} references={references} coreId={c.contract_hash} selected={dimension} onSelect={setDimension} label={t('features.ai.task.cube')}/>
     </details>
     {report.observations.length>0&&<details><summary>{t('features.ai.task.sources')}</summary><ul>{report.observations.map((o,i)=><li key={i}>{o.area.toUpperCase()} · {o.tool} · {t(o.success?'features.ai.quantum.status.verified':'features.ai.quantum.status.violated')}</li>)}</ul></details>}
     <p className="task-contract__note">{t('features.ai.task.limit')}</p>
