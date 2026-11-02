@@ -11,7 +11,7 @@
  *  - A secret: record "s:<scope>|<name>" → { v: 1, iv: 12 random bytes (fresh per seal), data:
  *    ciphertext + GCM tag, hint: its last 4 characters, at }. AAD = "one-vault/1\n<scope>\n<name>",
  *    so a sealed value copied to another name or workspace does not open.
- *  - Scope: the workspace a secret belongs to ("local:local", "cloud:<id>").
+ *  - Scope: the workspace ("local:local", "cloud:<id>") or an explicit account-bound personal-atlas:<user id> scope.
  *  - Callers keep a MARKER where the plaintext used to be ("vault:<seal id>:<last 4>"): enough to
  *    say "a key is set" synchronously and to show "•••• 1a2B", useless to anyone who reads it.
  *  - Writes take the Web Lock "one-vault" exclusively, reads share it: a tab that reads right after

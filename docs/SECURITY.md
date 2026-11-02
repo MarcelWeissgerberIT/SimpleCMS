@@ -118,3 +118,15 @@ It exposes a run-scoped MCP proxy with an exact tool allow-list and read-only pl
 are immediate; restricting the token in Atlas remains necessary. The worker and OS are trusted recipients, and
 locking the browser vault does not revoke a credential already granted to a running process. Stop the task or revoke
 the upstream token to end that authority. Local vault changes use a Web Lock and revision check when available.
+
+## Personal AJ-Atlas access across team workspaces
+
+`src/app/shell/cloud/personalAtlas.ts` offers optional reuse only for the current signed-in ONE account and the exact
+`https://aj-atlas.com/api/atlas/mcp` endpoint, on this browser profile. The token is sealed by the existing WebCrypto
+vault under `personal-atlas:<user id>`. Separate IndexedDB metadata contains only the verified display name, endpoint
+and timestamp. It is not workspace content, a backup payload or model context. Reuse requires an explicit click and
+a new real identity check through the destination workspace; it does not grant membership or project rights, and
+does not copy workspace model/data policies. Another ONE account or endpoint cannot use this profile through the
+reuse API. Forgetting the offer removes this account-level copy; already configured workspace connections remain.
+A different device/browser still needs personal setup. This is protection at rest and an application account boundary,
+not isolation against malicious same-origin script or someone controlling the unlocked browser profile.
