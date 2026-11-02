@@ -120,3 +120,8 @@ In the AI terminal and direct source handoff, ONE shows a short repair card for 
 - **Result or context too large:** Read fewer records or specific sections; preserve the original source.
 
 Discovery and identity checks do not establish project content. A failed search means “not checked”, not “no data exists”. ONE checks recognizable false references, counts and success claims and allows at most one answer correction without further tools. This does not replace domain review.
+
+
+## Connect your personal Polarion access
+
+The FluX start page prepares **Connect my Polarion access.** Choose **START** to authorize personal sign-in through `atlas_polarion_connect`. This does not authorize content changes, approvals or arbitrary agent execution. ONE still checks identity, workspace and data flow; unresolved decisions also block authentication. A read-only status request never starts login. Open a returned protected sign-in link promptly; enter your password and MFA only there. With `worker_offline`, first start the already assigned Polarion worker. A successful Atlas connection alone is not a Polarion login.

@@ -120,3 +120,8 @@ Im KI-Terminal und bei der direkten Quellenübergabe zeigt ONE zu einem gescheit
 - **Ergebnis oder Kontext zu groß:** Weniger Records oder gezielte Abschnitte lesen; die Originalquelle erhalten.
 
 Werkzeugsuche und Identitätsprüfung belegen keine Projektinhalte. Eine fehlgeschlagene Suche bedeutet „nicht geprüft“, nicht „keine Daten vorhanden“. ONE prüft erkennbare falsche Referenzen, Zahlen und Erfolgsaussagen und lässt höchstens eine Antwortkorrektur ohne weitere Werkzeuge zu. Das ersetzt keine fachliche Prüfung.
+
+
+## Polarion persönlich verbinden
+
+Die FluX-Startseite bereitet über **Polarion verbinden** den Auftrag „Verbinde meinen Polarion-Zugang.“ vor. Mit **STARTEN** erlaubst du gezielt die persönliche Anmeldung über `atlas_polarion_connect`. Dies erlaubt keine Inhaltsänderung, Freigabe oder beliebige Agentenausführung. ONE prüft weiter Identität, Workspace und Datenweg; offene Entscheidungen blockieren auch den Anmeldeschritt. Ein rein lesender Statusauftrag startet keinen Login. Geschützte Anmeldelinks sofort öffnen; Kennwort und MFA nur dort eingeben. Bei `worker_offline` zuerst den bereits zugeordneten Polarion-Worker starten. Die erfolgreiche Atlas-Verbindung allein ist kein Polarion-Login.

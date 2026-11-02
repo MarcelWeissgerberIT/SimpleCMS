@@ -47,3 +47,15 @@ test('a premature model question can recover without opening a decision or weake
 })
 
 test('a host result-check failure publishes a blocked card and cannot be accepted',()=>{const task=new TaskSession(contract(),{compile:r=>runtime.task(r),signature:()=>'',check:()=>{}});task.observe('atlas',true,true);task.fail('No reviewable draft passed the host checks.');assert.equal(task.report().phase,'blocked');assert.equal(task.report().evidence.issues,1);assert.equal(task.accept(),false);task.close()})
+
+test('explicit personal Polarion login is separate from write and execution authority',()=>{
+ for(const goal of ['Verbinde meinen Polarion-Zugang. Keine Änderungen an Inhalten.','Starte die Polarion-Anmeldung. Nur lesen.','Connect my Polarion access. Do not write.']){const b=taskBoundaries(goal);assert.equal(b.authenticate,true,goal);assert.equal(b.externalWrite,false);assert.equal(b.execute,false)}
+ for(const goal of ['Erkläre mir Polarion.','Erkläre „Verbinde meinen Polarion-Zugang“.','Verbinde meinen Polarion-Zugang nicht.','Do not connect my Polarion access.','Prüfe den Polarion-Status.'])assert.equal(taskBoundaries(goal).authenticate,false,goal)
+ const c={...contract(),read_only:true,authenticate:true,allowed_tools:['atlas:atlas_polarion_connect','atlas:atlas_agent_trigger','atlas:atlas_polarion_apply_change']}
+ const req={phase:'dispatch',contract:c,tool:'atlas:atlas_polarion_connect',effect:'authenticate'}
+ assert.equal(check(req).decision,'allow')
+ assert.equal(check({...req,contract:{...c,authenticate:false}}).decision,'block')
+ assert.equal(check({...req,evidence:{...evidence(),pending_decisions:1}}).decision,'block')
+ for(const tool of ['atlas:atlas_agent_trigger','atlas:atlas_polarion_apply_change'])for(const effect of ['execute','write','authenticate'])assert.equal(check({...req,tool,effect}).decision,'block')
+ for(const field of ['scope_current','provider_checked'])assert.equal(check({...req,evidence:{...evidence(),[field]:false}}).decision,'block')
+})

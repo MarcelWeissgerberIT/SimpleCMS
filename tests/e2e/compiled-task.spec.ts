@@ -90,4 +90,17 @@ test.describe('Compiled tasks and human decision cube',()=>{
   const wire=host?host.requests.map(r=>r.body):fake.textAsked;expect(JSON.stringify(wire.at(-1))).toContain('oneNotExecuted');expect(JSON.stringify(wire.at(-1))).toContain('without pausing')
  })
 
+ for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: explicit Polarion authentication dispatches without granting content writes`,async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_polarion_connect',inputSchema:{type:'object',properties:{},additionalProperties:false}}]}:{result:envelope({job:{id:'auth-job-fixture',status:'running'},interaction:{url:'https://atlas.example.org/secure-input/fixture'}})}
+  const calls=[{name:'one_mcp_search',arguments:{query:'atlas_polarion_connect'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_polarion_connect',arguments:{}}}]
+  const final='Sign-in started; use the protected link. This is not a successful Polarion read.'
+  let round=0;fake.onText=r=>{const c=calls[round++];return{model:r.model,text:c?'':final,calls:c?[{id:'auth-'+round,...c}]:[],inputTokens:200,outputTokens:60,usd:0}}
+  const host=provider==='anthropic'?await mockClaudeScript(page,[...calls.map((c,i):ClaudeTurn=>({blocks:[{type:'tool_use',id:'auth-'+i,name:c.name,input:c.arguments}]})),text(final)]):null
+  if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'});await term.getByRole('textbox',{name:'Task for the agent'}).fill('Verbinde meinen Polarion-Zugang. Keine Änderungen an Inhalten.');await term.getByRole('textbox',{name:'Task for the agent'}).press('Enter')
+  await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000});expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_polarion_connect'])
+  const card=term.getByRole('region',{name:'Compiled task'});await card.locator('summary').first().click();const raw=JSON.parse((await card.locator('pre').last().textContent())!);expect(raw.compiled.contract.authenticate).toBe(true);expect(raw.compiled.contract.external_write).toBe(false);expect(raw.compiled.contract.execute).toBe(false);await expect(card.getByRole('button',{name:'Save as executable program',exact:true})).toHaveCount(0)
+ })
+
 })

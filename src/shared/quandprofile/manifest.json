@@ -1,7 +1,7 @@
 {
   "abi": 1,
-  "sourceHash": "adba3d9e6ca03a7da9b4a40d0d5fdfe6fbc8a014100e0d3afc9ff92c4ce2f92f",
-  "wasmHash": "7832f38652afa9330c87d90f4de70487f1c13956350d58b7d05c757d3ee56887",
+  "sourceHash": "ee00b407683d11d5dde3e2d2a56b6e905c8b19f3b288fa1796a815dbe829a6b8",
+  "wasmHash": "c7591bcc788160cde7d9815534e66f989e7220e3409f5b17a71f5e54b3d63947",
   "sources": {
     "Cargo.lock": "af39a675f089effd3138eb1d766fd48ff056e23e501c5b14b3c27d2508deed93",
     "Cargo.toml": "1a8b78ded1fb4b9dc8f052f38eee0a8bbbc20835b0ac3d692f4a1a83885029f1",
@@ -11,7 +11,7 @@
     "src/integration.rs": "393363e6bc4bdb9114787903492c6316393b5cc5de9dd8024f47d21c5d70ba1e",
     "src/lib.rs": "610c80635f9a6f5601fdf9f93499f56e2270537003d09144ac2c84a97ff05f24",
     "src/main.rs": "3256cc33d158ed379c26af4287acc56226dbd3f81841969de7f9117aa5611484",
-    "src/task.rs": "c64da814ca7a56bcbc5c1caa6bbb69b1da5eeb93f41debdd79a104775d511811",
+    "src/task.rs": "695b765fae038575bb2d2b343fc577528d6c4e9b3c446534da2ce0577f8457bb",
     "src/wasm.rs": "c1731915d42d764c0069c5195cb0c9afd851b7312a851af26f1543b5953d564d"
   }
 }

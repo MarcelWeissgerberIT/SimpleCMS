@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {AtlasFacts,atlasReceipt,checkAtlasReadback} from '../../src/shared/mcp/facts.ts'
+import {AtlasFacts,atlasReceipt,checkAtlasReadback,atlasTaskEffect} from '../../src/shared/mcp/facts.ts'
 const envelope=(data:unknown,isError=false)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(data)}],isError})
 const observe=(facts:AtlasFacts,name:string,data:unknown,args:Record<string,unknown>={},failed=false)=>facts.observe({server:'atlas',name,arguments:args},envelope(data,failed),failed)
 
@@ -113,3 +113,5 @@ test('stability: discovery-only and malformed query results never establish abse
  const counts=atlasReceipt('atlas_query',envelope({rows:[{ref:42}],total:20})).counts
  assert.deepEqual(counts,[{unit:'records',value:1,scope:'returned'},{unit:'records',value:20,scope:'total'}])
 })
+
+test('Polarion login is classified as authentication, not read or general execution',()=>{assert.equal(atlasTaskEffect('atlas_polarion_connect',{}),'authenticate');assert.equal(atlasTaskEffect('atlas_polarion_apply_change',{}),'execute');assert.equal(atlasTaskEffect('atlas_agent_trigger',{}),'execute');assert.equal(atlasTaskEffect('unknown_auth',{}),'forbidden')})
