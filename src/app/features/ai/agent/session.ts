@@ -19,6 +19,7 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError } from '../client'
 import { precheck } from '../core/gate'
+import {refreshCentralAI} from '../core/centralAI'
 import { appliedOf } from '../core/shape'
 import { mayReceive } from '../core/status'
 import { looksLikeKey, scrubSecrets } from '@/shared/ai/keys'
@@ -586,6 +587,10 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id })), ...(task.includes('one-repo://') ? [{file:'upload' as const}] : [])]
   const attempt = async () => {
     answered = 0
+    // Prepared task buttons may start before the status poll has returned on a member's new device.
+    // Resolve only public central metadata first; never ask them to copy the owner's API key.
+    await refreshCentralAI()
+    if(ac.signal.aborted||!here())throw new AIError('aborted')
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
     const pre = precheck({ purpose: 'terminal.task', route: get().route, sources, typed: task })
     if (opts.continues && historyProvider && historyProvider !== pre.route?.p) throw new AIError('capability', t('features.agent.err.providerChanged'))

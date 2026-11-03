@@ -1,4 +1,4 @@
-import {centralAI} from '../core/centralAI'
+import {centralAI,refreshCentralAI} from '../core/centralAI'
 import {navigate} from '../../../lib/router'
 import {useUI} from '../../../store/ui'
 import { useWorkerModels } from '../core/workerModels'
@@ -113,8 +113,8 @@ export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, o
   let body: string
   let key: { label: string; icon: ReactNode; run: () => void } | null
   let note: string | null = null
-  if ((why==='no_key'||why==='nokey')&&centralAI()?.assigned&&centralAI()?.id) {
-    title=t('features.ai.central.title');body=t('features.ai.central.inactive');key={label:t('features.ai.central.open'),icon:<KeyRound size={13} aria-hidden/>,run:open(()=>{useUI.getState().closeModal();navigate({name:'workspace',section:'ai'})})}
+  if ((why==='no_key'||why==='nokey')&&centralAI()?.assigned) {
+    title=t('features.ai.central.title');body=t(centralAI()?.id?'features.ai.central.inactive':'features.ai.central.unreachable');key=centralAI()?.id?{label:t('features.ai.central.open'),icon:<KeyRound size={13} aria-hidden/>,run:open(()=>{useUI.getState().closeModal();navigate({name:'workspace',section:'ai'})})}:{label:t('features.ai.central.refreshAccess'),icon:<RotateCw size={13} aria-hidden/>,run:open(()=>{void refreshCentralAI()})}
   } else if (why === 'route') {
     title = t('features.ai.prov.needs.route.title', { work })
     body = t('features.ai.prov.needs.route.body', { work })

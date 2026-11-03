@@ -14,3 +14,6 @@ try: terminal
 Unter **Ablauf und Blöcke** siehst du Werkzeugfolge und Datenbezüge. **Quantenraum** zeigt Würfel mit anklickbaren Details, Abhängigkeiten und einem **Dimensionsschnitt**. Neue Laufnachweise speichern die tatsächlichen Compiler-Prüfungen und das gebundene Modellpaket; ältere Einträge zeigen nur vorgesehene, offene Prüfungen. Historische Nachweise ersetzen keine aktuelle Freigabe.
 
 BA-/PO-Analysen verlieren lange Absätze und kurze Überschriften nicht mehr stillschweigend. Mehrdeutige Abschnitte halten vor der Modellanfrage mit konkreten Auswahlhinweisen an. In Laufnachweisen bleibt ein Fehler auch neben einer Teilantwort sichtbar. Vollständige persönliche Nachweise werden erst beim Öffnen geladen.
+
+
+Beim gemeinsamen Claude-Zugang wartet der Aufgabenstart auf die zentrale Freigabe. Eine vorübergehend nicht geladene Konfiguration wird als Verbindungsproblem erklärt und verlangt keinen persönlichen Teilnehmer-Key.

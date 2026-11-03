@@ -14,3 +14,6 @@ try: terminal
 **Flow and blocks** shows instruction order and data dependencies. **Quantum space** offers clickable cubes, dependencies and a **Dimension slice**. New run receipts retain actual compiler checks and the bound model packet; older entries show intended, open checks only. Historical evidence never replaces current approval.
 
 BA/PO analysis no longer silently drops long paragraphs or short headings. Ambiguous sections stop before inference with real choices. Run receipts keep errors visible alongside partial answers. Full personal evidence loads only when a run is opened.
+
+
+For shared Claude access, task startup waits for central availability. A temporarily unavailable configuration is explained as a connection problem, without asking a participant to enter a personal key.

@@ -1,4 +1,4 @@
-import {centralKeyReady,centralModelAllowed} from './centralAI'
+import {centralAI,centralKeyReady,centralModelAllowed} from './centralAI'
 import { workspaceDeviceAI } from '../../../store/ai'
 import {checkProviderQuantum} from './quandprofile'
 import type {QuantumProof} from '@/shared/quandprofile/runtime'
@@ -665,6 +665,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   // 4 · the route
   const caps = [...new Set([...purpose.caps, ...(input.needs ?? [])])]
   const res = resolveFor(purpose.cls, { chip: input.route, model: input.model, decider: input.decider, caps, classes: [...classes] })
+  if(!res.ok&&res.code==='no_key'&&centralAI()?.assigned&&(res.none||res.route.p==='anthropic'))throw new AIError('unavailable',centralAI()?.id?'features.ai.central.inactive':'features.ai.central.unreachable')
   // a decision nobody chose a Vorprüfer for: nothing is sent (never demo, never Claude)
   if (!res.ok && res.none && res.code === 'no_route') throw new AIError('no_route', 'gate', undefined, undefined, [{ kind: 'step', step: 'models', provider: 'openrouter' }])
   if (!res.ok && res.none) {
