@@ -10,7 +10,7 @@ import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { Switch } from '../../ui/controls'
 import { PageIcon } from '../../ui/PageIcon'
 import { useWorkspace } from '../../store/store'
-import { pageTitle, sortPages } from '../../store/selectors'
+import { pageTitle, sortPages, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, PropertyDef, PropertyValue } from '../../store/types'
 import { tagStyle } from '../../lib/colors'
 import { useT } from '../../i18n'
@@ -276,7 +276,7 @@ function ActionCard({
       body = <ScriptFields action={action} onChange={onChange} />
       break
     case 'ai_task':
-      body = <label>{t('editor.button.aiTask.prompt')}<textarea className="input" rows={7} maxLength={8000} value={action.prompt} onChange={e=>onChange({...action,prompt:e.target.value})}/><small>{t('editor.button.aiTask.hint')}</small></label>
+      body = <AITaskFields action={action} onChange={onChange}/>
       break
     case 'worker_setup':
       body = <p className="bcfg__note">{t('editor.button.workerSetupHint')}</p>
@@ -306,6 +306,13 @@ function ActionCard({
       </div>
     </li>
   )
+}
+
+function AITaskFields({action,onChange}:{action:Act<'ai_task'>;onChange:(a:ButtonAction)=>void}){
+ const t=useT(),pages=useWorkspace(s=>s.pages),sourceId=useId(),helpId=sourceId+'-help'
+ const available=sortPages(Object.values(pages).filter(p=>!isEffectivelyTrashed(pages,p.id)))
+ return <><label>{t('editor.button.aiTask.prompt')}<textarea className="input" rows={7} maxLength={8000} value={action.prompt} onChange={e=>onChange({...action,prompt:e.target.value})}/><small>{t('editor.button.aiTask.hint')}</small></label>
+ <div className="bcfg__field"><label htmlFor={sourceId}>{t('editor.button.aiTask.source')}</label><select id={sourceId} aria-describedby={helpId} className="input" value={action.sourcePageId??''} onChange={e=>{const next={...action};if(e.target.value)next.sourcePageId=e.target.value;else delete next.sourcePageId;onChange(next)}}><option value="">{t('editor.button.aiTask.sourceNone')}</option>{action.sourcePageId&&!available.some(p=>p.id===action.sourcePageId)&&<option value={action.sourcePageId}>{t('editor.button.aiTask.sourceMissing')}</option>}{available.map(p=><option key={p.id} value={p.id}>{pageTitle(p,t('common.untitled'))}</option>)}</select><small id={helpId}>{t('editor.button.aiTask.sourceHelp')}</small></div></>
 }
 
 /* ------------------------------------------------------------------ */

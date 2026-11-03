@@ -34,3 +34,5 @@ For document-analysis requests on an empty page, ONE now explains before calling
 Previously handed-off or uncertain welcome emails can now be prepared for resend per recipient. Review the recipient and preview, then explicitly send only that person another email. Sending history remains visible. New welcome emails include a personal single-use sign-in link (15 minutes), so no second verification email is needed. Opening the link alone does not consume it; the recipient confirms the displayed address. A mail-server handoff still does not confirm inbox delivery.
 
 - When email is unavailable: owners can activate new prepared accounts through a personal single-use link without email; 24-hour expiry, existing accounts excluded, ownership checked again on redemption.
+
+- Guided AI preparation buttons can bind an accessible source page: it opens as visible context before Start. Missing sources stop preparation; no inference starts automatically.

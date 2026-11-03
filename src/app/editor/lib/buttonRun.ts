@@ -324,12 +324,17 @@ async function runAction(ctx: RunContext, a: ButtonAction, now: Date): Promise<S
       const {useAgent, openAgent} = await import('../../features/ai/agent/state')
       if (useAgent.getState().status === 'running') return fail(t('editor.button.aiTask.busy'))
       const s = useWorkspace.getState(), setup = s.ai?.onboarding
+      const source=a.sourcePageId?s.pages[a.sourcePageId]:undefined
+      if(a.sourcePageId&&(!source||isEffectivelyTrashed(s.pages,a.sourcePageId)))return fail(t('editor.button.aiTask.sourceMissing'))
       if (setup && !s.settings.workspaceMcpServers?.some(server => server.name === setup.mcpName && server.url === setup.mcpUrl && server.enabled && server.token && server.checkedAt)) {
         openPage(setup.startPageId)
         return fail(t('editor.button.aiTask.token'))
       }
       // A button prepares a visible draft. It never grants permissions or starts inference on import.
-      useAgent.setState({route:s.ai?.routes?.['*']?.[0] ?? null, refs:[], mentions:[], pageOff:ctx.pageId})
+      // A guide can bind a real source page. Opening it keeps the visible context chip and
+      // the host's bounded /ba read on that page; the guide is never substituted as evidence.
+      if(source)openPage(source.id)
+      useAgent.setState({route:s.ai?.routes?.['*']?.[0] ?? null, refs:[], mentions:[], pageOff:source?null:ctx.pageId})
       openAgent({task:prompt, run:false})
       return {ok:true, text:'', quiet:true}
     }

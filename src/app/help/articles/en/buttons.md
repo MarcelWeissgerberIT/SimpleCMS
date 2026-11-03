@@ -22,3 +22,7 @@ Texts can contain `{{date}}`, `{{time}}` and `{{user}}`, filled in when the butt
 
 
 The **Prepare an AI task** button action stores a concrete prompt. Clicking opens it in the AI terminal with the workspace default; the person visibly starts it. In a prepared AJ-Atlas workspace, a missing personal token sends them to Atlas setup first. The button grants no permissions and never starts inference on import.
+
+### Choose a source page for a prepared AI task
+
+For Prepare AI task, you can optionally choose the **Source page when preparing**. The button opens this page and keeps it visible as AI terminal context. Before Start, check its title, the task and the actual model. Preparing sends no inference request and grants no write access. Missing or trashed sources stop preparation; selected source blocks and data rules still apply. Buttons without a fixed source keep their existing behavior.

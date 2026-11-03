@@ -34,3 +34,5 @@ Bei Dokument-Aufträgen auf einer leeren Seite meldet ONE jetzt vor der Modellan
 Bereits übergebene oder unklare Willkommensmails lassen sich jetzt gezielt pro Person erneut vorbereiten. Die Vorschau zeigt Empfänger und Hinweise; nur die ausdrücklich bestätigte Person erhält eine weitere Mail. Der Versandverlauf bleibt sichtbar. Neue Willkommensmails enthalten einen persönlichen Einmal-Anmeldelink (15 Minuten), damit keine zweite Verifikationsmail benötigt wird. Das Öffnen allein verbraucht den Link nicht; die Person bestätigt ihre angezeigte Adresse. Eine Mailserver-Übergabe bestätigt weiterhin keine Zustellung ins Postfach.
 
 - Bei ausbleibender Mail: Inhaber können neue vorbereitete Konten mit einem persönlichen Einmal-Aktivierungslink ohne Mail freischalten; 24 Stunden gültig, bestehende Konten ausgeschlossen, erneute Rechteprüfung beim Einlösen.
+
+- Geführte KI-Startbuttons können eine erreichbare Quellenseite binden: Sie wird vor dem Start geöffnet und sichtbar als Kontext übernommen. Fehlende Quellen stoppen die Vorbereitung; keine automatische Modellanfrage.
