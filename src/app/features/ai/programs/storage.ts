@@ -1,3 +1,6 @@
+import {summarizeProgramRun,type ProgramRunPreview} from '@/shared/quandprofile/program-run-summary'
+import {captureProgramInspection,readProgramInspection} from '@/shared/quandprofile/program-inspection'
+import type {TaskReport} from '@/shared/quandprofile/task'
 import {useCloud} from '../../../cloud/state'
 import {request} from '../../../cloud/api'
 import {isTestAccess} from '../../../cloud/testScope'
@@ -14,15 +17,24 @@ export async function saveProgram(name:string,spec:ProgramSpec,previous?:SavedPr
  else {value={id,name:name.trim(),version:(previous?.version??0)+1,createdAt:Date.now(),compiled};await local<SavedProgram[]>('library',scope.key,rows=>{guard(scope);const all=rows??[];if(Math.max(0,...all.filter(p=>p.id===id).map(p=>p.version))!==(previous?.version??0))throw Error('Version changed. Reload.');if(value.version>100)throw Error('Version limit (100). Create a new program.');if(all.length>=200)throw Error('Library limit (200 versions).');return [value,...all]})}
  guard(scope);return value
 }
-export async function listProgramRuns(){const scope=programScope();guard(scope);const rows=scope.cloud?(await request<{runs:ProgramRun[]}>('GET',`api/workspaces/${scope.cloud}/programs/runs`)).runs:await local<ProgramRun[]>('runs',scope.key)??[];guard(scope);return rows}
-export async function saveProgramRun(run:ProgramRun,scope:ReturnType<typeof programScope>){guard(scope);if(looksLikeKey(JSON.stringify(run)))throw Error('Receipt may contain credentials; not saved.');if(scope.cloud)await request('POST',`api/workspaces/${scope.cloud}/programs/runs`,run);else await local<ProgramRun[]>('runs',scope.key,rows=>{guard(scope);return [run,...(rows??[]).filter(r=>r.id!==run.id)].slice(0,100)})}
+export async function listProgramRuns(options:{summary?:boolean}={}){const scope=programScope();guard(scope);const rows:ProgramRunPreview[]=scope.cloud?(await request<{runs:ProgramRunPreview[]}>('GET',`api/workspaces/${scope.cloud}/programs/runs${options.summary?'?summary=1':''}`)).runs:await local<ProgramRun[]>('runs',scope.key)??[];guard(scope);return options.summary?rows.map(run=>run.summary?run:summarizeProgramRun(run)):rows}
+const runCache=new Map<string,ProgramRun>()
+export async function getProgramRun(id:string){
+ const scope=programScope();guard(scope);const key=scope.key+':'+id,cached=runCache.get(key);if(cached)return cached
+ const run=scope.cloud?await request<ProgramRun>('GET',`api/workspaces/${scope.cloud}/programs/runs/${encodeURIComponent(id)}`):(await listProgramRuns()).find(run=>run.id===id)
+ guard(scope);if(!run||run.id!==id)throw Error('Private run receipt not found')
+ if(run.inspection)readProgramInspection(run.inspection)
+ runCache.set(key,run);if(runCache.size>5)runCache.delete(runCache.keys().next().value!)
+ return run
+}
+export async function saveProgramRun(run:ProgramRun,scope:ReturnType<typeof programScope>){guard(scope);if(run.inspection)readProgramInspection(run.inspection);if(looksLikeKey(JSON.stringify(run)))throw Error('Receipt may contain credentials; not saved.');if(scope.cloud)await request('POST',`api/workspaces/${scope.cloud}/programs/runs`,run);else await local<ProgramRun[]>('runs',scope.key,rows=>{guard(scope);return [run,...(rows??[]).filter(r=>r.id!==run.id)].slice(0,100)})}
 const archived=new Map<string,SavedProgram>()
 /** Called only after a completed terminal task; no failed run or sign-in becomes an executable approval. */
-export async function archiveProgram(taskId:string,spec:ProgramSpec,answer:string,route:ProgramRun['route'],scope:ReturnType<typeof programScope>,startedAt=Date.now()){
+export async function archiveProgram(taskId:string,spec:ProgramSpec,answer:string,route:ProgramRun['route'],scope:ReturnType<typeof programScope>,startedAt=Date.now(),report?:TaskReport){
  guard(scope);const key=scope.key+':'+taskId
  let saved=archived.get(key)
  if(!saved){const hash=compileProgram(spec).hash;const existing=(await listPrograms()).find(p=>p.compiled.hash===hash);guard(scope);saved=existing??await saveProgram(spec.goal.replace(/\s+/g,' ').slice(0,100),spec,undefined,scope);archived.set(key,saved);if(archived.size>200)archived.delete(archived.keys().next().value!)}
  guard(scope)
- await saveProgramRun({id:taskId,programId:saved.id,version:saved.version,hash:saved.compiled.hash,inputHash:programDigest({goal:spec.goal,parameters:spec.parameters}),route,startedAt,finishedAt:Date.now(),status:'done',steps:[],answer:answer.slice(0,100000)},scope)
+ await saveProgramRun({id:taskId,programId:saved.id,version:saved.version,hash:saved.compiled.hash,inputHash:programDigest({goal:spec.goal,parameters:spec.parameters}),route,startedAt,finishedAt:Date.now(),status:'done',steps:[],answer:answer.slice(0,100000),...(report?{inspection:captureProgramInspection(report)}:{})},scope)
  return saved
 }

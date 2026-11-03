@@ -942,6 +942,29 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'compiled-inspection'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const source=await createPage(page,'Measurement · Source review',doc(h(2,'Measurement start'),para('When a measurement starts, the logger records its original start time.')))
+    const mod=process.platform==='darwin'?'Meta':'Control'
+    await page.keyboard.press(mod+'+j')
+    await page.getByRole('button',{name:'Saved compiled programs'}).click()
+    const dialog=page.getByRole('dialog',{name:'Saved compiled programs'})
+    await dialog.getByRole('button',{name:'New BA / PO task',exact:true}).click()
+    const recipe=dialog.getByRole('region',{name:'Prepare a BA / PO analysis'})
+    await recipe.getByLabel('Source page',{exact:true}).selectOption(source)
+    await recipe.getByLabel('Section or topic · optional',{exact:true}).fill('Measurement start')
+    await recipe.getByLabel('Name',{exact:true}).fill('Measurement · BA review')
+    await recipe.getByRole('button',{name:'Save recipe and review start',exact:true}).click()
+    await page.keyboard.press('Escape');await page.keyboard.press(mod+'+j')
+    await page.getByRole('button',{name:'My compiled tasks',exact:true}).click()
+    await page.getByRole('button',{name:'Measurement · BA review',exact:true}).click()
+    await page.getByRole('button',{name:'Quantum space',exact:true}).click()
+    const cube=page.locator('.programs__details .quantum-cube')
+    await cube.getByRole('button',{name:'Dimension slice',exact:true}).click()
+    await cube.scrollIntoViewIfNeeded();await rest(page)
+    await save(page,'compiled-inspection')
+    await ctx.close()
+  },
   async 'frankfurt-costs'(browser) {
     const {ctx,page}=await freshPage(browser,{setup:async ctx=>{
       await ctx.route(`${LOCAL}/api/config`,route=>route.fulfill({json:{version:'shot',signup:{mode:'open'},max_upload_mb:25,dev_mode:true,source_url:'https://example.test/source',supports:['ai']}}))

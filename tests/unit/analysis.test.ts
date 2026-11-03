@@ -23,6 +23,14 @@ test('work instructions are not runtime behavioral requirements',()=>{const d=st
 test('an audit obligation after an allowed takeover does not repeat its separate prerequisite clause',()=>{const d=structuredClone(draft);d.requirements[0].statement='Wenn ein Administrator die Übernahme erlaubt, muss das System Grund und Audit erfassen.';assert.deepEqual(baIssues(d,refs),[])})
 test('ticket label beats an auxiliary table heading merely mentioning the same ticket',()=>{const refs=[{ref:'T01',quote:'### AICM-2065 S4: Stream behavior'},{ref:'T02',quote:'Offered streams reload snapshots.'},{ref:'T03',quote:'# EARS table for AICM-2065 S4'},{ref:'T04',quote:'Auxiliary table text'}];assert.deepEqual(focusAnalysisRefs(refs,'S4').refs.map(r=>r.ref),['T01','T02']);assert.deepEqual(focusAnalysisRefs(refs,'AICM-2065 S4').refs.map(r=>r.ref),['T01','T02'])})
 
+test('ambiguous named headings never broaden silently to the full page; exact heading wins over mentions',()=>{
+ const refs=[{ref:'T1',quote:'## Access Control · CNSx'},{ref:'T2',quote:'CNSx behavior.'},{ref:'T3',quote:'## Access Control · FeliX'},{ref:'T4',quote:'FeliX behavior.'}]
+ assert.throws(()=>focusAnalysisRefs(refs,'Access Control'),/several source sections/)
+ assert.deepEqual(focusAnalysisRefs(refs,'Access Control · FeliX').refs.map(r=>r.ref),['T3','T4'])
+ const exact=[{ref:'T1',quote:'## Access Control'},{ref:'T2',quote:'Selected behavior.'},...refs]
+ assert.deepEqual(focusAnalysisRefs(exact,'Access Control').refs.map(r=>r.ref),['T1','T2'])
+})
+
 test('conformance checks need an allowed and a violating observation; no invented runtime response field',()=>{const d=structuredClone(draft);d.requirements[0].checks[1].conforms=true;assert(baIssues(d,refs).some(x=>x.includes('both a conforming')));assert(!JSON.stringify(baSchema(refs)).includes('"expected"'))})
 
 test('S9 explicit reason and audit cannot vanish from the entire draft',()=>{const d=structuredClone(draft);d.requirements[0].statement=d.requirements[0].statement.replace('mit Grund und Audit','');assert(baIssues(d,refs).some(x=>x.includes('reason AND audit')))})

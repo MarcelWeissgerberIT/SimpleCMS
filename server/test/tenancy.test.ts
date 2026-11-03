@@ -294,6 +294,7 @@ const ROUTES: Record<string, Entry> = {
   'GET /api/workspaces/:id/programs': {scope:'workspace',req:ws=>({method:'GET',path:`${W(ws)}/programs`}),own:200},
   'POST /api/workspaces/:id/programs': {scope:'workspace',req:ws=>({method:'POST',path:`${W(ws)}/programs`,json:{}})},
   'GET /api/workspaces/:id/programs/runs': {scope:'workspace',req:ws=>({method:'GET',path:`${W(ws)}/programs/runs`}),own:200},
+  'GET /api/workspaces/:id/programs/runs/:runId': {scope:'workspace',req:ws=>({method:'GET',path:`${W(ws)}/programs/runs/00000000-0000-4000-8000-000000000000`}),own:404},
   'POST /api/workspaces/:id/programs/runs': {scope:'workspace',req:ws=>({method:'POST',path:`${W(ws)}/programs/runs`,json:{}})},
   'GET /api/workspaces/:id/model-audit': {scope:'workspace',req:ws=>({method:'GET',path:`${W(ws)}/model-audit`}),own:404},
   'POST /api/workspaces/:id/model-audit': {scope:'workspace',req:ws=>({method:'POST',path:`${W(ws)}/model-audit`,json:{}}),own:404},

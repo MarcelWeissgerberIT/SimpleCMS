@@ -34,7 +34,7 @@ import { unlocked } from '../../agents/integrations/status'
 import { initialAgentState, openAgent, patchConnect, pushEcho, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type HaltView, type MemCard, type MemItem } from './state'
 import { clearHistory, loadHistory, pushHistory } from './history'
 import { parseCommand, parseCommandText } from './commands'
-import { MAX_TOOL_CALLS, TERMINAL_TOOLS, type AgentTool, type ReadLimit, type StageApi } from './tools'
+import { MAX_TOOL_CALLS, TERMINAL_TOOLS, ToolInputError, type AgentTool, type ReadLimit, type StageApi } from './tools'
 import { CODING_RULES, CODING_TOOLS, guardPipelineRows } from './coding'
 import { connectCommand } from './connect'
 import { hasPipelines, isPipelineKind, useCoding, type PipelineKind } from '../../coding'
@@ -680,13 +680,13 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
         if(report&&!report.compiled.contract.authenticate&&['ready','accepted'].includes(report.phase)){
           let spec:ReturnType<typeof taskProgramDraft>|undefined
           try{spec=taskProgramDraft(report.id)}catch{ /* Not every conversation contains an executable source-backed task. */ }
-          if(spec)try{await archiveProgram(report.id,spec,answer,{provider:runProvider??'',model:runModel},archiveScope,get().turns.find(x=>x.n===n)?.startedAt);if(here())note(t('features.ai.program.autoSaved'))}catch{if(here())note(t('features.ai.program.autoFailed'))}
+          if(spec)try{await archiveProgram(report.id,spec,answer,{provider:runProvider??'',model:runModel},archiveScope,get().turns.find(x=>x.n===n)?.startedAt,report);if(here())note(t('features.ai.program.autoSaved'))}catch{if(here())note(t('features.ai.program.autoFailed'))}
         }
       }
     }
   } catch (e) {
     const detail=e instanceof AIError?e.detail:e instanceof Error?e.message:String(e)
-    const err = detail?.startsWith('Typed AI check blocked:')?new AIError('bad_request',detail):e instanceof AIError ? e : new AIError('unknown',detail)
+    const err = detail?.startsWith('Typed AI check blocked:')||e instanceof ToolInputError?new AIError('bad_request',detail):e instanceof AIError ? e : new AIError('unknown',detail)
     if (err.code === 'aborted') finish('stopped')
     // a server that rejected its token: named, so the terminal can offer to sign in to it
     else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })

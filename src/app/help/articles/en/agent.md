@@ -186,3 +186,18 @@ Completed source-backed terminal tasks are saved automatically. Failed or paused
 BA, PO, PM and mock tasks save a recipe with its goal and source bindings. Every run rereads its bound ONE page or explicit Atlas records and current design system, with no previous conversation, decisions or approvals. A missing source page or changed personal MCP endpoint stops the run; the currently open page is never substituted. Mocks are generated anew and only attached to an Atlas record through a separate explicit action. ONE does not become a document repository.
 
 Fixed tool programs retain their order and schemas. Analysis recipes run the current domain checks. Both use the currently selected model and your personal access; generated wording and changed sources may produce different results.
+
+
+### Create a BA/PO task without JSON
+
+Choose **New BA / PO task**, an existing source page and BA or PO. ONE suggests that page's actual headings; a free topic remains possible. **Save recipe and review start** only saves your private task. It starts no inference and changes nothing in Atlas. Ambiguous headings are returned for clarification before a model request. Large sources require one bounded section or selected blocks; BA source passages are never silently dropped from the catalogue.
+
+Saved inputs use suitable fields: text, numbers, explicit Yes/No, fixed choices or object fields. **Edit as JSON** remains available for complex values. Free text stays free; a closed contract enum stays binding. **Check what is still missing** checks inputs, selected sources, connection definitions and current AI configuration locally, without a model request or external action. It is not an Atlas connectivity test and does not replace current execution checks.
+
+### Flow, cubes and evidence
+
+Select a compiled task, then switch between **Task and start**, **Flow and blocks**, **Quantum space** and **Run evidence**. The flow shows the saved instructions and data dependencies, not model thoughts. Choose cubes directly or through the legend; **Dimension slice** highlights references in the selected dimension. Details show the check, status, identifier and dependencies.
+
+New receipts retain actual host checks, observed source/tool operations and the compiled model packet. Packets above 120,000 characters retain their hash with an explicit omission notice. This is not the full provider transport log or proof of semantic correctness. Older runs without these receipts show only intended checks, all open. Historical evidence grants no current authority.
+
+The overview loads metadata first; full private answers and cubes load when a run is opened. An error remains visible alongside a partial answer. Failed prechecks for saved tasks also create a run receipt; they do not create a new executable program.

@@ -645,6 +645,7 @@ export async function runAgent(opts: {
   } catch (e) {
     cut(e)
     if (signal.aborted) throw new AIError('aborted')
+    if (e instanceof ToolInputError) throw new AIError('bad_request',e.message)
     throw toAIError(e, sdk, mcp)
   } finally {
     compiledTask?.release()

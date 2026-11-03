@@ -1,3 +1,4 @@
+import {captureProgramInspection} from '@/shared/quandprofile/program-inspection'
 import {prepareTypedAI} from '../core/typedAI'
 import {activeReviewProfile} from '../profiles/storage'
 import {groundedTask} from '../agent/grounding'
@@ -5,7 +6,7 @@ import {tapSignal} from '../core/meter'
 import {bindInputs,programDigest,readProgram,resolveExpr,validateValue,fixedProgramInstructions,decodeMcpProgramResult,workflowStep,type Json,type SavedProgram,type ProgramRun} from '@/shared/quandprofile/program'
 import {atlasTaskEffect} from '@/shared/mcp/facts'
 import {streamCompletion,completeStructured} from '../client'
-import {prepare,settle,assertPreparedFlow} from '../core/gate'
+import {prepare,settle,assertPreparedFlow,type Prepared} from '../core/gate'
 import {shapeOf,withShape} from '../core/shape'
 import {createTaskContract,oneTaskEffect} from '../core/taskContract'
 import {workerMcpSession} from '../core/workerMcp'
@@ -30,8 +31,11 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
  if(effects&&!inv.effectsConfirmed)throw Error('Review this run’s staged changes and external effects before starting.')
  const receipt:ProgramRun={id:crypto.randomUUID(),programId:saved.id,version:saved.version,hash:saved.compiled.hash,inputHash:programDigest(inputs),route:{provider:o.route?.p??'',model:o.route?.m??''},startedAt:Date.now(),finishedAt:0,status:'failed',steps:[]}
  hooks.note(t('features.ai.program.runBinding',{version:saved.version,hash:saved.compiled.hash.slice(0,12),run:receipt.id.slice(0,8)}))
+ let receiptAttempted=false,reservation:Prepared|undefined
+ try{
  // Gate/classification is current. A saved artifact is never an authority token.
  const prepared=prepare({purpose:o.purpose,sources:o.sources,typed:[p.goal,JSON.stringify(inputs)].join('\n'),route:o.route,applied:o.applied,carries:o.mcp?['mcp']:[],size:{promptChars:0,maxTokens:1},...(o.run?{run:o.run}:{}),...(o.mcp?{mcp:{servers:o.mcp.servers.length}}:{})})
+ reservation=prepared
  let target=o.targetPage??null
  const firstRead=p.steps.find(s=>s.kind==='tool'&&!s.server&&s.tool==='read_page');if(firstRead?.kind==='tool'){try{const args=resolveExpr(firstRead.args,inputs,{});if(args&&typeof args==='object'&&!Array.isArray(args)&&typeof args.id==='string')target=args.id}catch{ /* later dependent reads remain bound by the current target */ }}
  const delivery=groundedTask(p.goal,target,o.tools??TERMINAL_TOOLS,o.stage,signal,hooks,o.readLimit)
@@ -79,10 +83,19 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
   // The ordinary Atlas fact guard remains a hard gate, even for a fixed program.
   const issues=remote?.facts.check(answer)??[];if(issues.length)throw Error('Atlas result verification: '+JSON.stringify(issues))
   delivery.finish();task.finish(answer);receipt.answer=answer.slice(0,100000);receipt.status='done';hooks.text(answer);hooks.textDone('answer');return 'done' as const
- }catch(e){receipt.status=signal.aborted?'stopped':'failed';receipt.error=(e instanceof AIError?e.code+': '+(e.detail??e.message):e instanceof Error?e.message:String(e)).slice(0,4000);if(e instanceof AIError&&!e.label)throw new AIError(e.code,e.detail,e.server,prepared.label,e.fixes);throw e}
+ }catch(e){try{task.fail('Program execution did not complete; inspect the failed step and existing effects before another run.')}catch{/* Preserve the original failure. */}receipt.status=signal.aborted?'stopped':'failed';receipt.error=(e instanceof AIError?e.code+': '+(e.detail??e.message):e instanceof Error?e.message:String(e)).slice(0,4000);if(e instanceof AIError&&!e.label)throw new AIError(e.code,e.detail,e.server,prepared.label,e.fixes);throw e}
  finally{
-  receipt.finishedAt=Date.now();untap();task.release();settle(prepared)
+  receipt.finishedAt=Date.now();try{receipt.inspection=captureProgramInspection(task.report())}catch{hooks.note(t('features.ai.program.inspection.notSaved'))}untap();task.release();settle(prepared)
   try{await audit?.end(receipt.status,receipt.answer??'',receipt.error)}catch(e){hooks.note(String(e))}
+  receiptAttempted=true
   try{await saveProgramRun(receipt,scope);hooks.note(t('features.ai.program.receiptSaved'))}catch(e){hooks.note(t('features.ai.program.receiptFailed')+' '+String(e))}
  }
+ }catch(e){
+  if(!receiptAttempted){
+   settle(reservation);receipt.finishedAt=Date.now();receipt.status=signal.aborted?'stopped':'failed';receipt.error=(e instanceof Error?e.message:String(e)).slice(0,4000)
+   try{await saveProgramRun(receipt,scope);hooks.note(t('features.ai.program.receiptSaved'))}catch{hooks.note(t('features.ai.program.receiptFailed'))}
+  }
+  throw e
+ }
+
 }

@@ -17,6 +17,7 @@ test.describe('Source-grounded existing-page rewrite',()=>{
   await page.route('**/api/config',r=>r.fulfill({json:{version:'fixture',signup:{mode:'open',domains:[]},max_upload_mb:20,dev_mode:false,source_url:'',schema_min:1,supports:['ai','providers'],coding_relay:false}}))
   await page.route('**/api/session',r=>r.fulfill({json:{user:null,workspaces:[]}}))
   await page.route('**/api/workspaces/grounded-fixture/model-hosts',r=>r.fulfill({json:{hosts:[]}}))
+  await page.route('**/api/workspaces/grounded-fixture/central-ai',r=>r.fulfill({json:{assigned:false,ready:false}}))
   await openApp(page);await wsEval(page,s=>{const allow=['public','structure','selection','page','rows','workspace'];s.setWorkspaceAI({policy:{restricted:[],providers:{local:{allow},copilot:{allow}}}});s.updateSettings({ai:{allow:{local:['mcp'],copilot:['mcp']}}})})
   await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}));await page.getByRole('tab',{name:/Coding worker/}).click();await page.getByLabel('Port',{exact:true}).fill(String(PORT));await page.getByLabel('Port',{exact:true}).press('Enter');await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click();await expect(page.getByTestId('coding-conn')).toContainText('grounded-rewrite-fixture');await page.keyboard.press('Escape')
   target=await createPage(page,{title:'CNSx grounded rewrite target',content:doc(para('AICM-2065: When a measurement starts the logger records its start time. Implementation not merged and not verified.'))});await gotoPage(page,target)

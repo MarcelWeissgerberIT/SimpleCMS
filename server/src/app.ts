@@ -181,5 +181,5 @@ function jsonLimit(): MiddlewareHandler<AppEnv> {
   // Transient personal Atlas attachment transport: never persisted in ONE.
   const atlasLimit = bodyLimit({ maxSize: 1024 * 1024 })
   const centralLimit = bodyLimit({ maxSize: 32 * 1024 * 1024 })
-  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/central-ai\/messages$/.test(c.req.path) ? centralLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
+  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/programs\/runs$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/central-ai\/messages$/.test(c.req.path) ? centralLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
 }

@@ -29,7 +29,7 @@ import { CodingAgentPick } from '../features/coding/AgentPick'
 import { codingAgentProperty } from '../features/coding/agent'
 import './database.css'
 
-function containsAITask(node:JSONContent|undefined):boolean{
+function containsAITask(node:JSONContent|null|undefined):boolean{
  return !!node&&((node.type==='button'&&Array.isArray(node.attrs?.actions)&&node.attrs.actions.some((action:{type?:string})=>action.type==='ai_task'))||!!node.content?.some(containsAITask))
 }
 

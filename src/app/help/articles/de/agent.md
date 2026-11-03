@@ -184,3 +184,18 @@ Fertige, quellenbasierte Terminal-Aufträge werden automatisch gespeichert. Ange
 BA-, PO-, PM- und Mock-Aufträge speichern ein Rezept mit Ziel und Quellenbezügen. Ein neuer Lauf liest die gebundene ONE-Seite bzw. die genannten Atlas-Records und das aktuelle Designsystem neu. Er startet ohne früheres Gespräch und ohne übernommene Entscheidungen oder Freigaben. Eine fehlende Quellenseite oder geänderte persönliche MCP-Adresse stoppt den Lauf. Die aktuell offene Seite wird nicht als Ersatz verwendet. Mocks werden neu erstellt und erst nach einer gesonderten Aktion am Atlas-Record abgelegt; ONE wird dadurch nicht zur Dokumentenablage.
 
 Ein festes Werkzeug-Kompilat behält seine Reihenfolge und Schemas. Ein Analyse-Rezept durchläuft die aktuellen Fachprüfungen. Beide verwenden das aktuell gewählte Modell und deinen persönlichen Zugang; generierte Texte und neue Quellen können zu anderen Ergebnissen führen.
+
+
+### Neue BA-/PO-Aufgabe ohne JSON
+
+Wähle **Neue BA-/PO-Aufgabe**, dann eine vorhandene Quellenseite und BA oder PO. Für den Ausschnitt bietet ONE die echten Überschriften dieser Seite an; ein eigenes Thema bleibt möglich. **Rezept speichern und Start prüfen** legt nur deinen privaten Auftrag an. Es startet keine KI und ändert nichts in Atlas. Mehrdeutige Überschriften werden vor der Modellanfrage zur Auswahl zurückgegeben. Große Quellen brauchen einen begrenzten Abschnitt oder markierte Blöcke; Text wird nicht stillschweigend aus der BA-Quellenliste entfernt.
+
+Eingaben eines gespeicherten Kompilats erscheinen als passende Felder: Text, Zahl, Ja/Nein, vorgegebene Auswahl oder Unterfelder. **Als JSON bearbeiten** bleibt für komplexe Werte verfügbar. Eigene Texte bleiben frei; feste Vertragsauswahlen bleiben verbindlich. **Prüfen, was noch fehlt** prüft lokal Werte, Quellenauswahl, Verbindungsdefinition und aktuelle KI-Konfiguration, ohne eine Modellanfrage oder externe Aktion. Es ist kein Atlas-Verbindungstest und ersetzt die aktuelle Prüfung beim Start nicht.
+
+### Ablauf, Würfel und Nachweise
+
+Nach Auswahl eines Kompilats kannst du zwischen **Auftrag und Start**, **Ablauf und Blöcke**, **Quantenraum** und **Laufnachweis** wechseln. Der Ablauf zeigt die gespeicherten Schritte und Datenbezüge. Er stellt keine Gedanken des Modells dar. Im Quantenraum lassen sich Würfel direkt oder über die Legende wählen; **Dimensionsschnitt** hebt die Bezüge der gewählten Dimension hervor. Das Detail zeigt Prüfung, Zustand, Kennung und Abhängigkeiten.
+
+Neue Laufnachweise speichern die tatsächlichen Host-Prüfungen, beobachteten Quellen-/Werkzeugschritte und das kompilierte Modellpaket. Über 120.000 Zeichen bleibt dessen Hash erhalten und die Auslassung wird ausdrücklich angezeigt. Das ist kein vollständiges Anbieter-Transportprotokoll und kein Beweis fachlicher Richtigkeit. Bei älteren Läufen ohne diesen Nachweis zeigt ONE nur die vorgesehenen, noch offenen Prüfungen. Historische Nachweise erlauben keine neue Aktion.
+
+Die Übersicht lädt zuerst Metadaten; vollständige persönliche Antworten und Würfel werden erst beim Öffnen eines Laufs geladen. Ein Fehler bleibt auch dann sichtbar, wenn eine Teilantwort vorliegt. Fehlgeschlagene Vorprüfungen eines gespeicherten Auftrags erhalten ebenfalls einen Laufnachweis; sie erzeugen kein neues ausführbares Kompilat.

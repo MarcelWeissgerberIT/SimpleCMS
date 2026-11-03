@@ -74,6 +74,11 @@ export function renderAnalysis(draft:BADraft,review:POReview,refs:AnalysisRef[],
 }
 
 /** A unique real Markdown heading owns its descendants until the next peer/ancestor. */
+export class AnalysisFocusError extends Error{
+ readonly focus:string
+ readonly headings:string[]
+ constructor(focus:string,headings:string[]){super(headings.length?'The analysis focus matches several source sections. Choose one unique heading or select the relevant blocks.':'The analysis focus does not match an actual source heading. Choose a real heading or select the relevant blocks.');this.name='AnalysisFocusError';this.focus=focus;this.headings=headings}
+}
 export function focusAnalysisRefs(refs:AnalysisRef[],focus:string):{refs:AnalysisRef[];scope:string}{
  const wanted=focus.trim(),escaped=wanted.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
  if(!wanted)return {refs,scope:'page'}
@@ -81,7 +86,9 @@ export function focusAnalysisRefs(refs:AnalysisRef[],focus:string):{refs:Analysi
  let matches=refs.map((r,i)=>({i,heading:/^(#{1,6})\s+(.+)/u.exec(r.quote)})).filter(x=>x.heading&&pattern.test(x.heading[2]!))
  const label=new RegExp('^(?:[A-Z][A-Z0-9]{1,10}-\\d+\\s+)?'+escaped+'($|[^\\p{L}\\p{N}])','iu'),primary=matches.filter(x=>label.test(x.heading![2]!.replace(/^\[/u,'')))
  if(primary.length)matches=primary
+ const exact=matches.filter(x=>x.heading![2]!.trim().toLocaleLowerCase()===wanted.toLocaleLowerCase())
+ if(exact.length)matches=exact
  if(matches.length===1){const {i,heading}=matches[0]!;let end=i+1;while(end<refs.length){const next=/^(#{1,6})\s+/u.exec(refs[end]!.quote);if(next&&next[1]!.length<=heading![1]!.length)break;end++}return {refs:refs.slice(i,end),scope:heading![2]!}}
- if(/^(?:S\d+|[A-Z][A-Z0-9]{1,10}-\d+(?:\s+S\d+)?)$/iu.test(wanted))throw Error('The focus must match one actual source heading. Choose a unique section such as S9; missing or ambiguous identifiers cannot be resolved by model guesswork.')
+ if(matches.length>1||/^(?:S\d+|[A-Z][A-Z0-9]{1,10}-\d+(?:\s+S\d+)?)$/iu.test(wanted))throw new AnalysisFocusError(wanted,matches.slice(0,8).map(x=>x.heading![2]!))
  return {refs,scope:'page · topic: '+wanted}
 }

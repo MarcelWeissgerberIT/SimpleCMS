@@ -141,9 +141,10 @@ export function workspaceRoutes(s: Services) {
       if (actorRole !== 'owner') throw forbidden('owner_only', 'Only the owner can hand over ownership')
       if (userId !== auth.user.id) {
         s.repo.transferOwnership(workspace.id, userId)
-        // the new owner's sockets reconnect with the new role (a viewer's were read-only; the app refreshes its
-        // role on 'role-changed': owner-only parts, the workspace look); the old owner stays admin
+        // Both people reconnect with their current roles. Otherwise the old owner's first subsequent
+        // edit would be rejected by beforeHandleMessage rather than refreshing their role immediately.
         s.collab.closeUser(userId, workspace.id, 'role-changed')
+        s.collab.closeUser(auth.user.id, workspace.id, 'role-changed')
         s.log.info('ownership transferred', { workspace: workspace.id, from: auth.user.id, to: userId })
       }
     } else if (role !== current || guest !== undefined) {

@@ -33,6 +33,8 @@ import { commitItems, itemsWithNeeds, listWorkItems, pagePrivate, registerChange
 /* ------------------------------------------------------------------ */
 
 export interface ToolOutcome {
+  /** Host-only source coordinates; document prose cannot forge these. */
+  pageRead?:import('@/shared/ai/sourcePassages').PageReadWindow
   /** what Claude gets back */
   content: string
   /** localized readout for the step log */
@@ -444,7 +446,7 @@ const readPage: AgentTool = {
     const size = t(lim ? 'features.agent.res.limited' : 'features.agent.res.chars', { count: md.length.toLocaleString() })
     const summary = total > 1 && offset < md.length
       ? `${t('features.agent.res.part', { number, total })} · ${size}` : size
-    return { content: `${head.join('\n')}\n\n${body}`, summary, state: 'ok' }
+    return { content: `${head.join('\n')}\n\n${body}`, summary, state: 'ok',pageRead:{pageId:p.id,offset,nextOffset:more?offset+part.length:null,totalCharacters:md.length,bodyStart:head.join('\n').length+2,characters:part.length,partial:!!lim} }
   },
 }
 

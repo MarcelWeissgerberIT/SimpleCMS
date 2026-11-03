@@ -1,3 +1,4 @@
+import type {ProgramInspection} from './program-inspection.ts'
 import {readReviewProfile,type ReviewProfile} from './review-profile.ts'
 /** A bounded executable IR. No eval, source text interpolation, stored results or stored approvals. */
 import {sha256Hex} from '../mcp/sha256.ts'
@@ -11,7 +12,7 @@ export type ProgramStep=
 export interface ProgramSpec {profile?:ReviewProfile;protocol:'one.program.v1';goal:string;parameters:Record<string,{schema:Record<string,unknown>;default?:Json}>;steps:ProgramStep[];output:Expr}
 export interface CompiledProgram {compiler:'one.program.compiler.v1';hash:string;canonical:string}
 export interface SavedProgram {id:string;name:string;version:number;createdAt:number;compiled:CompiledProgram}
-export interface ProgramRun {id:string;programId:string;version:number;hash:string;inputHash:string;route:{provider:string;model:string};startedAt:number;finishedAt:number;status:'done'|'failed'|'stopped';steps:Array<{id:string;inputHash:string;outputHash?:string;at:number;status:'done'|'failed';contractHash?:string}>;answer?:string;error?:string}
+export interface ProgramRun {id:string;programId:string;version:number;hash:string;inputHash:string;route:{provider:string;model:string};startedAt:number;finishedAt:number;status:'done'|'failed'|'stopped';steps:Array<{id:string;inputHash:string;outputHash?:string;at:number;status:'done'|'failed';contractHash?:string}>;answer?:string;error?:string;inspection?:ProgramInspection}
 const bad=new Set(['__proto__','prototype','constructor'])
 const ident=/^[a-z][a-z0-9_]{0,63}$/
 const schemaKeys=new Set(['type','description','title','examples','example','default','$schema','$id','deprecated','readOnly','writeOnly','properties','required','additionalProperties','propertyNames','items','minItems','maxItems','uniqueItems','enum','const','allOf','anyOf','oneOf','minLength','maxLength','pattern','minimum','maximum','exclusiveMinimum','exclusiveMaximum','minProperties','maxProperties','multipleOf'])

@@ -16,7 +16,7 @@ export function TaskContractCard({report,historical=false}:{report:TaskReport;hi
  const t=useT(),[selected,setDimension]=useState('interpretation'),[answer,setAnswer]=useState(''),[error,setError]=useState(false),[saveError,setSaveError]=useState('')
  const question=report.questions.find(q=>q.state==='open'),c=report.compiled
  const dimensions=[...new Set(c.findings.flatMap(f=>f.dimensions))],dimension=dimensions.includes(selected)?selected:dimensions[0]??''
- const references=c.findings.map(f=>({key:f.id,id:c.quanta.find(q=>q.obligation_id===f.id)?.id,label:t('features.ai.task.finding.'+f.id),dimensions:f.dimensions,status:f.status}))
+ const references=c.findings.map(f=>({key:f.id,id:c.quanta.find(q=>q.obligation_id===f.id)?.id,label:t('features.ai.task.finding.'+f.id),dimensions:f.dimensions,status:f.status,detail:f.detail,verifier:c.quanta.find(q=>q.obligation_id===f.id)?.verifier,dependencies:c.quanta.find(q=>q.obligation_id===f.id)?.dependencies}))
  const submit=(value:string)=>{const ok=!!question&&answerTaskDecision(report.id,question.id,value);setError(!ok);if(ok)setAnswer('')}
  return <section className="task-contract" data-phase={report.phase} aria-label={t('features.ai.task.title')}>
   <details open={report.questions.length>0?true:undefined}>
