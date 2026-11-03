@@ -97,3 +97,36 @@ test('Start reveals only the signed-in recipient’s credentials on a click; exp
   await page.reload();await cloud(page);await page.evaluate(()=>{location.hash='#/'})
   await expect(start).toHaveCount(0)
 })
+
+test('a sent welcome email can be previewed and explicitly resent to just one recipient',async({page},info)=>{
+  const sentAt=Date.now()-86400000
+  let draft:any={revision:4,title:'Your PM start',notBefore:0,lang:'en',recipients:[{id:'a',name:'Nadine Test',email:'nadine@example.test',workspaceId:'ws_team',role:'member',guest:false,note:'PM work list',status:'sent',sentAt,hasAtlasLink:true,hasAtlasToken:false,atlasHost:'atlas.example.test'},{id:'b',name:'Other person',email:'other@example.test',workspaceId:'ws_team',role:'member',guest:false,note:'Other work',status:'sent',sentAt,hasAtlasLink:true,hasAtlasToken:false,atlasHost:'atlas.example.test'}]},sends=0,batch=0,preview=0
+  await page.route('**/api/workspaces/ws_team/welcome**',async route=>{
+    const req=route.request(),url=req.url()
+    if(url.includes('welcome-access'))return route.fulfill({json:[]})
+    if(url.includes('/preview/')){preview++;return route.fulfill({json:{text:'Welcome · Your PM start\n\nYour workspace AI is centrally provided. Enter only your own Atlas token. Personal invitation hidden.'}})}
+    if(url.endsWith('/resend/a')){sends++;expect(req.postDataJSON()).toEqual({revision:4,confirm:true});draft={...draft,revision:6,recipients:draft.recipients.map((r:any)=>r.id==='a'?{...r,sentAt:Date.now(),deliveryAttempts:[{startedAt:sentAt,finishedAt:sentAt,status:'sent',resend:false,legacy:true},{startedAt:Date.now(),finishedAt:Date.now(),status:'sent',resend:true}]}:r)}}
+    if(url.endsWith('/send'))batch++
+    return route.fulfill({json:draft})
+  })
+  await openApp(page);await cloud(page);await page.evaluate(()=>{location.hash='#/workspace/people'})
+  const editor=page.getByRole('region',{name:'Welcome emails'}),card=editor.getByTestId('welcome-recipient').first()
+  await expect(editor).toContainText('No pending emails');await expect(editor.getByRole('button',{name:/Send welcome emails/})).toHaveCount(0)
+  await card.locator('summary').click();await expect(card).toContainText('Last confirmed mail-server handoff')
+  await card.getByRole('button',{name:'Prepare email resend',exact:true}).click()
+  let modal=page.getByRole('dialog',{name:'Resend email · preview'})
+  await expect(modal).toContainText('nadine@example.test');await expect(modal).not.toContainText('other@example.test')
+  await expect(modal.getByRole('button',{name:'Resend email now'})).toBeDisabled();expect(sends).toBe(0)
+  await page.keyboard.press('Escape');await expect(modal).toHaveCount(0);expect(sends).toBe(0)
+  await card.getByRole('button',{name:'Prepare email resend',exact:true}).click();modal=page.getByRole('dialog',{name:'Resend email · preview'})
+  await expect(modal.getByRole('checkbox')).not.toBeChecked()
+  for(const theme of ['light','dark'])for(const width of [1440,390]){
+    await page.setViewportSize({width,height:width===390?844:900});await wsEval(page,(s,t)=>s.updateSettings({theme:t}),theme)
+    expect(await modal.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
+    await modal.screenshot({path:info.outputPath(`welcome-resend-${theme}-${width}.png`),animations:'disabled'})
+  }
+  await modal.getByRole('checkbox').check();await modal.getByRole('button',{name:'Resend email now',exact:true}).click()
+  await expect(modal).toHaveCount(0);await expect(editor).toContainText('Resend attempt finished')
+  await card.getByText('Sending history',{exact:false}).click();await expect(card).toContainText('Previous handoff receipt');await expect(card).toContainText('Resend')
+  expect(sends).toBe(1);expect(batch).toBe(0);expect(preview).toBe(2)
+})

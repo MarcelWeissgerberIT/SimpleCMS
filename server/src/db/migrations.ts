@@ -530,4 +530,17 @@ export const migrations: Migration[] = [
     );
     CREATE INDEX central_ai_usage ON central_ai_requests(service_id,month);`,
   },
+  {
+    version:23,
+    name:'explicit owner-assisted enrollment for new prepared accounts only',
+    sql:`ALTER TABLE login_tokens ADD COLUMN owner_activation INTEGER NOT NULL DEFAULT 0 CHECK(owner_activation IN(0,1));
+    CREATE TABLE owner_activations (
+      token_hash TEXT PRIMARY KEY REFERENCES login_tokens(token_hash) ON DELETE CASCADE,
+      actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('member','viewer')),
+      guest INTEGER NOT NULL CHECK(guest IN(0,1))
+    );`,
+  },
 ]

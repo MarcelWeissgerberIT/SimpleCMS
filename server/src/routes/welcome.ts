@@ -1,8 +1,10 @@
 import {sanitizeWorkspaceAI} from '../../../src/shared/ai/policy.ts'
+import {issueLoginLink} from '../auth/login-link.ts'
+import {issueOwnerActivation} from '../auth/owner-activation.ts'
 import { openText, sealText } from '../crypto/aead.ts'
 import type { PersonalGuide } from '../../../src/shared/personal-guides.ts'
 /** Explicit, private welcome preparation. No scheduler, model, shared document or automatic retry. */
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import type { AppEnv, Services } from '../context.ts'
 import { body, idSchema, requireAuth } from '../http/util.ts'
@@ -61,7 +63,7 @@ export function welcomeRoutes(s:Services) {
       target(auth.user.id,r.workspaceId)
       if(r.guest&&r.role!=='viewer')throw badRequest('welcome_guest','Guests must have viewer access in their destination workspace')
       const previous=old?.recipients.find(p=>p.id===r.id)
-      const next={...r,email:normalizeEmail(r.email),status:previous?.status??'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null,atlasLink:r.atlasLink??previous?.atlasLink??'',atlasToken:r.atlasToken??previous?.atlasToken??'',...(previous?.sentAt?{sentAt:previous.sentAt}:{})} satisfies Recipient
+      const next={...r,email:normalizeEmail(r.email),status:previous?.status??'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null,atlasLink:r.atlasLink??previous?.atlasLink??'',atlasToken:r.atlasToken??previous?.atlasToken??'',...(previous?.sentAt?{sentAt:previous.sentAt}:{}),...(previous?.deliveryAttempts?{deliveryAttempts:previous.deliveryAttempts}:{})} satisfies Recipient
       if(previous&&previous.status!=='draft'&&(['name','email','workspaceId','role','guest','note','atlasLink','atlasToken'] as const).some(k=>next[k]!==previous[k]))throw conflict('welcome_locked','Sent or uncertain recipients cannot be changed')
       return next
     })
@@ -71,22 +73,52 @@ export function welcomeRoutes(s:Services) {
     const {workspace,auth}=access(s,c,'admin'),d=read(workspace.id,auth.user.id),r=d.recipients.find(r=>r.id===c.req.param('recipient'))
     if(!r)throw notFound('welcome_recipient','Recipient not found')
     const w=target(auth.user.id,r.workspaceId)
-    return c.json(welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link:'[Personal ONE invitation is created only when you press Send]',atlasLink:r.atlasLink?'https://'+new URL(r.atlasLink).host+'/[personal-link-hidden]':'[Atlas link missing]',...await mailStart(w.id,r.guest),guest:r.guest,note:r.note}))
+    return c.json(welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link:'[Personal ONE invitation is created only when you press Send]',signInLink:'[Personal single-use sign-in link: created only when you press Send; valid for 15 minutes]',atlasLink:r.atlasLink?'https://'+new URL(r.atlasLink).host+'/[personal-link-hidden]':'[Atlas link missing]',...await mailStart(w.id,r.guest),guest:r.guest,note:r.note}))
   })
-  app.post('/:id/welcome/send',async c=>{
-    const {workspace,auth}=access(s,c,'admin'),{revision}=await body(c,z.object({revision:z.number().int()})),k=key(workspace.id,auth.user.id)
+  app.post('/:id/welcome/activate/:recipient',async c=>{
+    const {workspace,auth}=access(s,c,'owner'),v=await body(c,z.object({revision:z.number().int(),confirm:z.literal(true)}).strict())
+    if(auth.testAccess||workspace.personal_of)throw forbidden('activation_owner','Use your own owner account in a team workspace.')
+    const d=read(workspace.id,auth.user.id)
+    if(d.revision!==v.revision)throw conflict('welcome_changed','Reload and review the current draft')
+    if(locks.has(key(workspace.id,auth.user.id)))throw conflict('welcome_busy','Sending is already in progress')
+    const r=d.recipients.find(x=>x.id===c.req.param('recipient'))
+    if(!r)throw notFound('welcome_recipient','Recipient not found')
+    const w=target(auth.user.id,r.workspaceId)
+    if(s.repo.memberRole(w.id,auth.user.id)!=='owner')throw forbidden('activation_owner','Only the destination owner can activate a new account.')
+    if(s.repo.userByEmail(r.email))throw conflict('activation_existing','This account already exists. Owner activation cannot replace its sign-in or recover its identity.')
+    if(Date.now()<d.notBefore||r.status==='sending')throw conflict('activation_state','The prepared access is not ready.')
+    const wait=s.limiter.hit(`owner-activation:${auth.user.id}`,5,60*60_000);if(wait)throw rateLimited(wait)
+    const result=s.db.tx(()=>{
+      const link=issueOwnerActivation(s,{email:r.email,name:r.name,actorId:auth.user.id,sourceId:workspace.id,workspaceId:w.id,role:r.role,guest:r.guest,lang:d.lang})
+      store.grant(workspace.id,auth.user.id,newId(),r,Date.now()+7*DAY)
+      return link
+    })
+    s.log.info('owner activation issued',{actor:auth.user.id,workspace:w.id,recipient:r.id,expiresAt:result.expiresAt})
+    return c.json({...result,email:r.email,workspaceId:w.id},201)
+  })
+  async function send(c:Context<AppEnv>,resend=false){
+    const {workspace,auth}=access(s,c,'admin'),{revision}=await body(c,resend?z.object({revision:z.number().int(),confirm:z.literal(true)}).strict():z.object({revision:z.number().int()}).strict()),k=key(workspace.id,auth.user.id)
+    if(auth.testAccess)throw forbidden('welcome_test','Sending is unavailable during access tests')
     if(locks.has(k))throw conflict('welcome_busy','Sending is already in progress')
     const d=read(workspace.id,auth.user.id)
     if(d.revision!==revision)throw conflict('welcome_changed','Reload and review the current draft')
     if(Date.now()<d.notBefore)throw conflict('welcome_early','Manual sending is not enabled yet')
     if(s.mailer.mode!=='smtp'&&!s.config.devMode)throw conflict('welcome_mail','SMTP is not configured')
-    const pending=d.recipients.filter(r=>r.status==='draft')
+    const selected=resend?d.recipients.find(r=>r.id===c.req.param('recipient')):null
+    if(resend&&!selected)throw notFound('welcome_recipient','Recipient not found')
+    if(resend&&selected&&!['sent','uncertain'].includes(selected.status))throw conflict('welcome_retry_state','Only a completed or uncertain handoff can be explicitly resent. Review the current status.')
+    const pending=resend?[selected!]:d.recipients.filter(r=>r.status==='draft')
     if(!pending.length)throw conflict('welcome_done','No unsent recipients')
     for(const r of pending){target(auth.user.id,r.workspaceId);const existing=s.repo.userByEmail(r.email),role=existing&&s.repo.memberRole(r.workspaceId,existing.id);if(r.guest&&(r.role!=='viewer'||(role&&role!=='viewer')))throw conflict('welcome_guest','Guest recipients must have viewer access; review existing membership first');if(!r.atlasLink)throw badRequest('welcome_atlas','Every recipient needs their Atlas link')}
     for(const id of new Set(pending.map(r=>r.workspaceId)))if(s.repo.countInvitesSince(id,Date.now()-DAY)+pending.filter(r=>r.workspaceId===id).length>50)throw rateLimited(3600)
     locks.add(k)
     // Persist before any mail: process death or ambiguous SMTP failure must never trigger a silent duplicate.
-    for(const r of pending)r.status='sending'
+    for(const r of pending){
+      const previous=r.status
+      const history=r.deliveryAttempts??=[]
+      if(!history.length&&previous==='sent'&&r.sentAt)history.push({startedAt:r.sentAt,finishedAt:r.sentAt,status:'sent',resend:false,legacy:true})
+      history.push({startedAt:Date.now(),status:'sending',resend});r.deliveryAttempts=history.slice(-20);r.status='sending'
+    }
     d.revision++;store.save(workspace.id,auth.user.id,d)
     try {
       for(const r of pending){
@@ -95,18 +127,23 @@ export function welcomeRoutes(s:Services) {
           if(!atLeast(s.repo.memberRole(workspace.id,auth.user.id)??'viewer','admin'))throw new Error('Access changed')
           const w=target(auth.user.id,r.workspaceId),existing=s.repo.userByEmail(r.email),member=existing&&s.repo.memberRole(w.id,existing.id)
           if(r.guest&&member&&member!=='viewer')throw new Error('Guest membership changed')
-          const link=member?s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}`:s.config.publicUrl+'/app/#/invite/'+s.repo.createInvite({workspaceId:w.id,role:r.role,guest:r.guest,email:r.email,createdBy:auth.user.id,ttl:7*DAY,maxUses:1}).token
+          const invite=member?null:s.repo.createInvite({workspaceId:w.id,role:r.role,guest:r.guest,email:r.email,createdBy:auth.user.id,ttl:7*DAY,maxUses:1})
+          const link=member?s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}`:s.config.publicUrl+'/app/#/invite/'+invite!.token
           if(r.guest&&member==='viewer'&&existing)s.repo.setRole(w.id,existing.id,'viewer',true)
           store.grant(workspace.id,auth.user.id,newId(),r,Date.now()+7*DAY)
-          const mail=welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link,atlasLink:r.atlasLink,...await mailStart(w.id,r.guest),guest:r.guest,note:r.note})
-          await s.mailer.send({to:r.email,link,...mail});r.status='sent';r.sentAt=Date.now()
+          const {link:signInLink}=issueLoginLink(s,{email:r.email,lang:d.lang,redirect:link.slice(s.config.publicUrl.length),inviteHash:invite?s.repo.hash(invite.token):null})
+          const mail=welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link,signInLink,atlasLink:r.atlasLink,...await mailStart(w.id,r.guest),guest:r.guest,note:r.note})
+          await s.mailer.send({to:r.email,link:signInLink,...mail});r.status='sent';r.sentAt=Date.now()
         }catch{r.status='uncertain'}
+        const attempt=r.deliveryAttempts!.at(-1)!;attempt.status=r.status;attempt.finishedAt=Date.now()
         d.revision++;store.save(workspace.id,auth.user.id,d)
       }
       s.log.info('welcome batch completed',{workspace:workspace.id,user:auth.user.id,sent:pending.filter(r=>r.status==='sent').length,uncertain:pending.filter(r=>r.status==='uncertain').length})
       return c.json(store.safe(d))
     }finally{locks.delete(k)}
-  })
+  }
+  app.post('/:id/welcome/send',c=>send(c))
+  app.post('/:id/welcome/resend/:recipient',c=>send(c,true))
   app.get('/:id/welcome-access',c=>{
     const {workspace,auth}=access(s,c,'viewer')
     // The first-start guide can reopen the same person's setup after its welcome

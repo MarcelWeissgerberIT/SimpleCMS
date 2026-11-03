@@ -29,3 +29,8 @@ Page AI keeps the tool log, source receipts, errors and answer in one scroll are
 
 
 For document-analysis requests on an empty page, ONE now explains before calling the model when only a title was supplied. Open and select the imported source or use AI on its file block. Atlas searches combining a topic with an overriding AQL query are held before dispatch for correction. Fact checks distinguish totals from observed tenant subsets and structured source links from records actually read or available as write targets.
+
+
+Previously handed-off or uncertain welcome emails can now be prepared for resend per recipient. Review the recipient and preview, then explicitly send only that person another email. Sending history remains visible. New welcome emails include a personal single-use sign-in link (15 minutes), so no second verification email is needed. Opening the link alone does not consume it; the recipient confirms the displayed address. A mail-server handoff still does not confirm inbox delivery.
+
+- When email is unavailable: owners can activate new prepared accounts through a personal single-use link without email; 24-hour expiry, existing accounts excluded, ownership checked again on redemption.

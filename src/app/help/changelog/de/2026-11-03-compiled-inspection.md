@@ -29,3 +29,8 @@ Die Seiten-KI hält Werkzeugprotokoll, Quellennachweise, Fehler und Antwort in e
 
 
 Bei Dokument-Aufträgen auf einer leeren Seite meldet ONE jetzt vor der Modellanfrage, wenn nur der Titel und kein Dokumentinhalt mitgegeben wurde. Öffne und markiere die importierte Quelle oder nutze die KI am Dateiblock. Atlas-Suchaufrufe mit gleichzeitigem Suchtext und überschreibender AQL-Abfrage werden vor dem Versand zur Korrektur zurückgegeben. Die Faktenprüfung unterscheidet Gesamtzahlen von belegten Tenant-Teilmengen und strukturierte Quellenverweise von tatsächlich gelesenen oder beschreibbaren Records.
+
+
+Bereits übergebene oder unklare Willkommensmails lassen sich jetzt gezielt pro Person erneut vorbereiten. Die Vorschau zeigt Empfänger und Hinweise; nur die ausdrücklich bestätigte Person erhält eine weitere Mail. Der Versandverlauf bleibt sichtbar. Neue Willkommensmails enthalten einen persönlichen Einmal-Anmeldelink (15 Minuten), damit keine zweite Verifikationsmail benötigt wird. Das Öffnen allein verbraucht den Link nicht; die Person bestätigt ihre angezeigte Adresse. Eine Mailserver-Übergabe bestätigt weiterhin keine Zustellung ins Postfach.
+
+- Bei ausbleibender Mail: Inhaber können neue vorbereitete Konten mit einem persönlichen Einmal-Aktivierungslink ohne Mail freischalten; 24 Stunden gültig, bestehende Konten ausgeschlossen, erneute Rechteprüfung beim Einlösen.

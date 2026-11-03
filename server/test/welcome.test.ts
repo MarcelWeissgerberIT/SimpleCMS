@@ -103,8 +103,8 @@ test('one explicit send grants read-only guest access to the shared workspace, h
   const aMail=(await mailbox(server,'alice@welcome.test'))[0]!,bMail=(await mailbox(server,'bob@welcome.test'))[0]!
   assert.ok(aMail.text.includes('ALICE-INVITE'));assert.ok(!aMail.text.includes('ALICE-MCP'));assert.ok(!aMail.text.includes('BOB-'));assert.ok(bMail.text.includes('BOB-INVITE'))
   assert.equal((await owner.post(path()+'/send',{revision:r.body.revision})).status,409);assert.equal((await mailbox(server)).length,before+2)
-  assert.equal((await alice.post('/api/invites/'+aMail.link.split('#/invite/')[1]+'/accept')).status,200)
-  assert.equal((await bob.post('/api/invites/'+bMail.link.split('#/invite/')[1]+'/accept')).status,200)
+  assert.equal((await alice.post('/api/invites/'+aMail.text.match(/\/app\/#\/invite\/([A-Za-z0-9_-]+)/)![1]+'/accept')).status,200)
+  assert.equal((await bob.post('/api/invites/'+bMail.text.match(/\/app\/#\/invite\/([A-Za-z0-9_-]+)/)![1]+'/accept')).status,200)
   const members=(await owner.get(`/api/workspaces/${ws}/members`)).body
   assert.ok(members.some((m:any)=>m.user.email==='alice@welcome.test'&&m.role==='member'));assert.ok(members.some((m:any)=>m.user.email==='bob@welcome.test'&&m.role==='viewer'&&m.guest===true))
   assert.ok(aMail.text.includes('ONE team workspace'));assert.ok(bMail.text.includes('read-only access to the shared workshop workspace'))
@@ -140,11 +140,142 @@ test('welcome send refuses an existing editing membership for a guest before any
 
 
 import {welcomeMail} from '../src/mail/templates.ts'
-test('cloud Atlas welcome uses Frankfurt/token-only steps in both languages, with no workshop setup instructions',()=>{
+test('cloud Atlas welcome uses current-workspace/token-only steps in both languages, with no workshop setup instructions',()=>{
  for(const lang of ['de','en'] as const){
   const mail=welcomeMail(lang,{name:'Synthetic Member',title:'CNSx',workspace:'CNSx test',link:'https://one.example/app/#/invite/synthetic',atlasLink:'https://aj-atlas.com/',startLink:'https://one.example/app/?w=test#/p/start',guest:false,note:'Prepared BA work list',cloudAtlas:true})
-  assert.match(mail.text,/Frankfurt/);assert.match(mail.html,/FRANKFURT/);assert.match(mail.text,/token/i)
+  assert.doesNotMatch(mail.text,/Frankfurt/);assert.match(mail.html,/ONE · ATLAS/);assert.match(mail.text,/token/i)
   assert.ok(!mail.text.includes('MCP-Server'));assert.ok(!mail.text.includes('Start step by step'));assert.ok(!mail.text.includes('je einem echten Atlas-Leseversuch'))
   assert.ok(mail.text.includes('#/p/start'));assert.ok(!mail.text.includes('SYNTHETIC-SECRET'))
  }
+})
+
+test('resend is one explicit recipient handoff, revision-bound, private and recorded without replay',async()=>{
+  const w=(await owner.post('/api/workspaces',{name:'Explicit resend'})).body.id,p=`/api/workspaces/${w}/welcome`
+  const input={...draft(),notBefore:0,recipients:draft().recipients.map(r=>({...r,workspaceId:w}))}
+  await owner.json('PUT',p,input)
+  const original=await owner.post(p+'/send',{revision:1});assert.equal(original.status,200)
+  const revision=original.body.revision,before=(await mailbox(server)).length
+  assert.equal((await owner.get(p+'/preview/alice')).status,200);assert.equal((await mailbox(server)).length,before)
+  assert.equal((await owner.post(p+'/resend/alice',{revision})).status,400)
+  assert.equal((await owner.post(p+'/resend/alice',{revision,confirm:false})).status,400)
+  assert.equal((await other.post(p+'/resend/alice',{revision,confirm:true})).status,404)
+  assert.equal((await owner.post(p+'/resend/absent',{revision,confirm:true})).status,404)
+  const pair=await Promise.all([owner.post(p+'/resend/alice',{revision,confirm:true}),owner.post(p+'/resend/alice',{revision,confirm:true})])
+  assert.equal(pair.filter(r=>r.status===200).length,1);assert.equal(pair.filter(r=>r.status===409).length,1)
+  const saved=pair.find(r=>r.status===200)!.body
+  assert.equal((await mailbox(server)).length,before+1)
+  const a=saved.recipients.find((r:any)=>r.id==='alice'),b=saved.recipients.find((r:any)=>r.id==='bob')
+  assert.equal(a.deliveryAttempts.length,2);assert.equal(a.deliveryAttempts[1].resend,true);assert.equal(a.deliveryAttempts[1].status,'sent');assert.ok(a.deliveryAttempts[1].finishedAt)
+  assert.deepEqual(b,original.body.recipients.find((r:any)=>r.id==='bob'))
+  assert.ok(!JSON.stringify(saved).includes('ALICE-MCP'));assert.ok(!JSON.stringify(saved).includes('ALICE-INVITE'))
+  assert.equal((await owner.post(p+'/resend/alice',{revision,confirm:true})).status,409)
+  assert.equal((await owner.post(p+'/send',{revision:saved.revision})).status,409)
+  assert.equal((await mailbox(server)).length,before+1)
+  const update=await owner.json('PUT',p,{...input,title:'Updated title',revision:saved.revision})
+  assert.equal(update.status,200);assert.deepEqual(update.body.recipients.find((r:any)=>r.id==='alice').deliveryAttempts,a.deliveryAttempts)
+})
+
+test('an uncertain handoff can be explicitly resent; normal batch sending never retries it',async()=>{
+  let reject=true
+  const sink=await smtpSink({reject:email=>email==='retry@welcome.test'&&reject}),srv=await startServer({SMTP_URL:`smtp://127.0.0.1:${sink.port}`})
+  try{
+    const c=await signIn(srv,'resend-owner@failure.test'),w=(await c.post('/api/workspaces',{name:'Retry one recipient'})).body.id,p=`/api/workspaces/${w}/welcome`
+    const input={...draft(),notBefore:0,recipients:[{...draft().recipients[0],email:'retry@welcome.test',workspaceId:w}]}
+    await c.json('PUT',p,input)
+    assert.equal((await c.post(p+'/resend/alice',{revision:1,confirm:true})).status,409,'a draft uses the ordinary first-send path')
+    let r=await c.post(p+'/send',{revision:1});assert.equal(r.body.recipients[0].status,'uncertain')
+    assert.equal((await c.post(p+'/send',{revision:r.body.revision})).status,409)
+    reject=false
+    r=await c.post(p+'/resend/alice',{revision:r.body.revision,confirm:true});assert.equal(r.status,200);assert.equal(r.body.recipients[0].status,'sent')
+    assert.deepEqual(r.body.recipients[0].deliveryAttempts.map((a:any)=>[a.status,a.resend]),[['uncertain',false],['sent',true]])
+  }finally{await srv.stop();await sink.close()}
+})
+
+test('the emailed welcome link signs in only its recipient without a second email; scanners and replay cannot consume it',async()=>{
+  const w=(await owner.post('/api/workspaces',{name:'Direct welcome sign-in'})).body.id,p=`/api/workspaces/${w}/welcome`,email='new-person@welcome.test'
+  const input={...draft(),notBefore:0,recipients:[{...draft().recipients[0],email,workspaceId:w}]}
+  await owner.json('PUT',p,input)
+  const before=(await mailbox(server,email)).length,preview=await owner.get(p+'/preview/alice')
+  assert.ok(!JSON.stringify(preview.body).includes('/api/auth/verify?token='));assert.ok(preview.body.text.includes('15 minutes'))
+  assert.equal((await mailbox(server,email)).length,before)
+  const sent=await owner.post(p+'/send',{revision:1});assert.equal(sent.status,200)
+  const mail=(await mailbox(server,email))[0]!,url=new URL(mail.link),token=url.searchParams.get('token')!
+  assert.equal(url.pathname,'/api/auth/verify');assert.ok(token)
+  assert.ok(!JSON.stringify(sent.body).includes(token));assert.ok(mail.text.includes('No second verification email'))
+  const device=new Client(server.url),scanner=new Client(server.url)
+  assert.equal((await scanner.fetch(url.pathname+url.search)).status,200)
+  assert.equal((await device.fetch(url.pathname+url.search)).status,200)
+  assert.equal((await device.get('/api/me')).status,401)
+  const confirm=await device.fetch('/api/auth/verify',{method:'POST',json:{token}})
+  assert.equal(confirm.status,303)
+  const location=confirm.headers.get('location')!;assert.match(location,/^\/app\/#\/invite\//)
+  assert.equal((await device.get('/api/me')).body.user.email,email)
+  assert.equal((await mailbox(server,email)).length,before+1,'no second email challenge')
+  const invite=location.split('#/invite/')[1]
+  assert.equal((await owner.post('/api/invites/'+invite+'/accept')).status,403,'wrong identity cannot accept')
+  assert.equal((await device.post('/api/invites/'+invite+'/accept')).body.role,'member')
+  assert.equal((await device.get('/api/me')).body.workspaces.find((x:any)=>x.id===w).role,'member')
+  assert.equal((await new Client(server.url).fetch('/api/auth/verify',{method:'POST',json:{token}})).status,400)
+  const db=new DatabaseSync(join(server.dataDir,'one.sqlite'));try{const row=db.prepare('SELECT created_at,expires_at,redirect FROM login_tokens WHERE email=?').get(email) as any;assert.equal(row.expires_at-row.created_at,15*60000);assert.ok(row.redirect.startsWith('v1.'));assert.ok(!row.redirect.includes(invite))}finally{db.close()}
+})
+
+test('an address-bound invitation can be prepared for copying without mailing or signing anyone in',async()=>{
+ const w=(await owner.post('/api/workspaces',{name:'Copy only invite'})).body.id,email='copy-person@welcome.test',before=(await mailbox(server,email)).length
+ const r=await owner.post(`/api/workspaces/${w}/invites`,{email,role:'member',guest:false,max_uses:1,send_email:false})
+ assert.equal(r.status,201);assert.equal(r.body.email_sent,undefined);assert.match(r.body.link,/\/app\/#\/invite\//)
+ assert.equal((await mailbox(server,email)).length,before)
+ const token=r.body.link.split('#/invite/')[1],visitor=new Client(server.url)
+ assert.equal((await visitor.get('/api/invites/'+token)).body.email,email)
+ assert.equal((await visitor.get('/api/me')).status,401)
+ assert.equal((await visitor.post('/api/invites/'+token+'/accept')).status,401)
+ assert.equal((await owner.post('/api/invites/'+token+'/accept')).status,403)
+})
+
+
+test('owner activation replaces unavailable mail for a new prepared identity, once, without touching existing accounts',async()=>{
+ const w=(await owner.post('/api/workspaces',{name:'Owner-approved first access'})).body.id,p=`/api/workspaces/${w}/welcome`,email='owner-approved-new@welcome.test'
+ await owner.json('PUT',p,{...draft(),notBefore:0,recipients:[{...draft().recipients[0],email,name:'New Person',workspaceId:w}]})
+ const before=(await mailbox(server)).length
+ assert.equal((await owner.post(p+'/activate/alice',{revision:1})).status,400)
+ assert.equal((await other.post(p+'/activate/alice',{revision:1,confirm:true})).status,404)
+ const issued=await owner.post(p+'/activate/alice',{revision:1,confirm:true});assert.equal(issued.status,201,JSON.stringify(issued.body))
+ const url=new URL(issued.body.link),token=url.searchParams.get('token')!,device=new Client(server.url)
+ assert.equal(issued.body.email,email);assert.ok(issued.body.expiresAt>Date.now()+23*60*60000)
+ assert.equal((await mailbox(server)).length,before,'owner distributes the link; no email is sent')
+ assert.equal((await device.fetch(url.pathname+url.search)).status,200)
+ assert.equal((await new Client(server.url).fetch(url.pathname+url.search)).status,200,'scanner GET does not activate')
+ assert.equal((await device.get('/api/me')).status,401)
+ const pair=await Promise.all([device.fetch('/api/auth/verify',{method:'POST',json:{token}}),new Client(server.url).fetch('/api/auth/verify',{method:'POST',json:{token}})])
+ assert.deepEqual(pair.map(r=>r.status).sort(),[303,400])
+ assert.equal(pair[0].headers.get('location'),`/app/?w=${w}`)
+ const me=(await device.get('/api/me')).body
+ assert.equal(me.user.email,email);assert.equal(me.user.name,'New Person');assert.deepEqual(me.workspaces.map((x:any)=>[x.id,x.role]),[[w,'member']])
+ assert.equal((await device.get(`/api/workspaces/${ws}/members`)).status,404)
+ assert.ok((await device.get(`/api/workspaces/${w}/welcome-access`)).body.length)
+ assert.equal((await owner.post(p+'/activate/alice',{revision:1,confirm:true})).status,409,'cannot issue identity recovery for existing accounts')
+ assert.equal((await mailbox(server)).length,before)
+})
+
+test('owner activation expires, is replaced explicitly and fails closed if approval metadata or ownership disappears',async()=>{
+ const w=(await owner.post('/api/workspaces',{name:'Activation validity'})).body.id,p=`/api/workspaces/${w}/welcome`,email='activation-replaced@welcome.test'
+ await owner.json('PUT',p,{...draft(),notBefore:0,recipients:[{...draft().recipients[0],email,workspaceId:w}]})
+ const issue=async()=>{const r=await owner.post(p+'/activate/alice',{revision:1,confirm:true});assert.equal(r.status,201);return new URL(r.body.link).searchParams.get('token')!}
+ const first=await issue(),second=await issue(),device=new Client(server.url)
+ assert.equal((await device.fetch('/api/auth/verify',{method:'POST',json:{token:first}})).status,400)
+ const db=new DatabaseSync(join(server.dataDir,'one.sqlite'))
+ try{
+  const row=db.prepare('SELECT token_hash,expires_at,created_at,owner_activation FROM login_tokens WHERE email=? AND used_at IS NULL').get(email) as any
+  assert.equal(row.expires_at-row.created_at,DAY);assert.equal(row.owner_activation,1);assert.ok(!JSON.stringify(row).includes(second))
+  db.prepare('UPDATE login_tokens SET expires_at=? WHERE token_hash=?').run(Date.now()-1,row.token_hash)
+  assert.equal((await device.fetch('/api/auth/verify',{method:'POST',json:{token:second}})).status,400)
+  const third=await issue()
+  db.prepare('DELETE FROM owner_activations WHERE workspace_id=?').run(w)
+  assert.equal((await device.fetch('/api/auth/verify?token='+third)).status,400)
+  assert.equal((await device.fetch('/api/auth/verify',{method:'POST',json:{token:third}})).status,400,'missing metadata cannot turn into ordinary authentication')
+  const fourth=await issue()
+  db.prepare("UPDATE members SET role='admin' WHERE workspace_id=? AND user_id=(SELECT id FROM users WHERE email=?)").run(w,'organizer@welcome.test')
+  assert.equal((await device.fetch('/api/auth/verify?token='+fourth)).status,400)
+  assert.equal((await device.fetch('/api/auth/verify',{method:'POST',json:{token:fourth}})).status,403)
+  assert.equal(db.prepare('SELECT id FROM users WHERE email=?').get(email),undefined)
+ }finally{db.close()}
 })

@@ -39,3 +39,8 @@ After a successful test, confirm **I have successfully tested my personal connec
 Protected access expires seven days after sending. Values are encrypted with the workspace's server key and recipient-bound outside shared documents. The server must be able to decrypt them for targeted mailing or retrieval; this is not an end-to-end vault. Long-term personal connections belong in the passphrase-protected **My secrets** vault.
 
 The personal access modal also extracts recognized URL access tokens into a separate masked field with **Copy link token**. Copying does not verify MCP access. The direct connection action above explicitly transfers and tests it.
+
+
+Previously handed-off or uncertain welcome emails can now be prepared for resend per recipient. Review the recipient and preview, then explicitly send only that person another email. Sending history remains visible. New welcome emails include a personal single-use sign-in link (15 minutes), so no second verification email is needed. Opening the link alone does not consume it; the recipient confirms the displayed address. A mail-server handoff still does not confirm inbox delivery.
+
+If verification email is unavailable, the workspace owner can issue a personal activation link for a **new, prepared account**. It replaces email verification, expires after 24 hours and is consumed once on Sign in, not on a preview GET. The person joins the destination workspace directly with the prepared member/viewer role. Deliver it personally. Existing accounts cannot use this enrollment path; replacing a link invalidates its predecessor. Issuance is audited and ownership is checked again on redemption.

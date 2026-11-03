@@ -7,6 +7,8 @@ export interface WelcomeRecipient {
   /** Presence only, never the URL credential. Absent on older servers. */
   hasAtlasLinkToken?: boolean
   sentAt?: number
+  /** SMTP handoff attempts, never a claim that a recipient's inbox received the mail. */
+  deliveryAttempts?: Array<{startedAt:number;finishedAt?:number;status:'sending'|'sent'|'uncertain';resend:boolean;legacy?:boolean}>
 }
 export interface WelcomeDraft {
   revision: number; title: string; notBefore: number; lang: 'de' | 'en'

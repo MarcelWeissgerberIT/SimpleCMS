@@ -3,7 +3,8 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { z } from 'zod'
 import { admission, mayCreateAccount } from '../auth/signup.ts'
 import type { AppEnv, Services } from '../context.ts'
-import { isSealedText, keyFromSecret, openText, sealText } from '../crypto/aead.ts'
+import {issueLoginLink,LOGIN_LINK_TTL,openLoginRedirect} from '../auth/login-link.ts'
+import {consumeOwnerActivation,validActivation,type OwnerActivation} from '../auth/owner-activation.ts'
 import { rateLimited } from '../errors.ts'
 import { confirmSignInPage, linkInvalidPage } from '../http/pages.ts'
 import { body, clientIp, safeRedirect } from '../http/util.ts'
@@ -12,18 +13,7 @@ import { magicLinkMail } from '../mail/templates.ts'
 import { normalizeEmail, type UserRow } from '../repo.ts'
 import { MINUTE, isTokenShape, randomToken, safeEqual } from '../tokens.ts'
 
-const LINK_TTL = 15 * MINUTE
-/** The redirect is sealed with a key only the link's token gives (it may carry an invite token). */
-const REDIRECT_KEY = 'one/login-redirect/v1'
-const sealRedirect = (token: string, redirect: string) => sealText(keyFromSecret(token, REDIRECT_KEY), redirect, 'login-redirect')
-function openRedirect(token: string, stored: string | null): string | null {
-  if (!stored || !isSealedText(stored)) return stored // a row from before (plain path)
-  try {
-    return openText(keyFromSecret(token, REDIRECT_KEY), stored, 'login-redirect')
-  } catch {
-    return null
-  }
-}
+const LINK_TTL=LOGIN_LINK_TTL
 /** Marks the browser that asked for a link: opening the link there signs in with one click. */
 const LOGIN_COOKIE = 'one_login'
 
@@ -38,6 +28,7 @@ interface LoginTokenRow {
   invite_hash: string | null
   signup_hash: string | null
   lang: string | null
+  owner_activation:number
 }
 
 const requestSchema = z.object({
@@ -78,15 +69,8 @@ export function authRoutes(s: Services) {
       return c.body(null, 204)
     }
 
-    const token = randomToken()
     const lang = pickLang(input.lang, c.req.header('accept-language'))
-    const now = Date.now()
-    s.db.run(
-      `INSERT INTO login_tokens (token_hash, email, created_at, expires_at, redirect, browser_hash, invite_hash, signup_hash, lang)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      s.repo.hash(token), email, now, now + LINK_TTL, sealRedirect(token, safeRedirect(input.redirect)), s.repo.hash(browser), inviteHash, signupHash, lang,
-    )
-    const link = `${s.config.publicUrl}/api/auth/verify?token=${token}`
+    const {link}=issueLoginLink(s,{email,redirect:safeRedirect(input.redirect),lang,browserHash:s.repo.hash(browser),inviteHash,signupHash})
     // not awaited: SMTP latency must not reveal whether an account exists
     s.mailer
       .send({ to: email, link, ...magicLinkMail(lang, { link, email, minutes: LINK_TTL / MINUTE }) })
@@ -102,7 +86,10 @@ export function authRoutes(s: Services) {
     const browser = getCookie(c, LOGIN_COOKIE)
     if (browser && row.browser_hash && safeEqual(s.repo.hash(browser), row.browser_hash)) return complete(c, token, row)
     // another browser/device, or a mail scanner pre-fetching links: confirm with a button (does not burn the token)
-    return htmlPage(c, confirmSignInPage(lang, { email: row.email, token }), 200)
+    const activation=s.db.get<OwnerActivation>('SELECT * FROM owner_activations WHERE token_hash=?',row.token_hash)
+    if(row.owner_activation&&!activation)return htmlPage(c,linkInvalidPage(lang,'invalid'),400)
+    if(activation&&!validActivation(s,activation,row.email))return htmlPage(c,linkInvalidPage(lang,'invalid'),400)
+    return htmlPage(c, confirmSignInPage(lang, { email: row.email, token,...(activation?{activation:s.repo.workspaceById(activation.workspace_id)!.name}:{}) }), 200)
   })
 
   app.post('/verify', async (c) => {
@@ -133,12 +120,14 @@ export function authRoutes(s: Services) {
   function complete(c: Context<AppEnv>, token: string, row: LoginTokenRow) {
     const lang = pickLang(row.lang, c.req.header('accept-language'))
     const now = Date.now()
-    const used = s.db.run('UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?', now, s.repo.hash(token), now)
+    const activation=s.db.get<OwnerActivation>('SELECT * FROM owner_activations WHERE token_hash=?',row.token_hash)
+    if(row.owner_activation&&!activation)return htmlPage(c,linkInvalidPage(lang,'invalid'),400)
+    const used = activation?true:s.db.run('UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?', now, s.repo.hash(token), now)
     if (!used) return htmlPage(c, linkInvalidPage(lang, 'invalid'), 400)
 
-    const user = s.repo.userByEmail(row.email) ?? createAccount(row)
+    const user = activation?consumeOwnerActivation(s,activation,row.email):s.repo.userByEmail(row.email) ?? createAccount(row)
     if (!user) return htmlPage(c, linkInvalidPage(lang, row.signup_hash ? 'signup_link' : 'signup_closed'), 403)
-    ensurePersonalSpace(user, lang)
+    if(!activation)ensurePersonalSpace(user, lang)
 
     const previous = s.sessions.resolve(s.sessions.readCookie(c))
     if (previous) {
@@ -150,7 +139,7 @@ export function authRoutes(s: Services) {
     s.sessions.setCookie(c, session.token)
     deleteCookie(c, LOGIN_COOKIE, { path: '/api/auth', httpOnly: true, sameSite: 'Lax', secure })
     c.header('Cache-Control', 'no-store')
-    return c.redirect(safeRedirect(openRedirect(token, row.redirect)), c.req.method === 'POST' ? 303 : 302)
+    return c.redirect(safeRedirect(openLoginRedirect(token, row.redirect)), c.req.method === 'POST' ? 303 : 302)
   }
 
   /**

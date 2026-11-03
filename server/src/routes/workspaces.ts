@@ -189,6 +189,8 @@ export function workspaceRoutes(s: Services) {
     role: inviteRoleSchema.default('member'),
     guest: z.boolean().default(false),
     email: z.email().max(254).optional(),
+    /** Explicit copy-link preparation; still address-bound, never an authentication token. */
+    send_email:z.boolean().optional(),
     lang: langSchema.optional(),
     max_uses: usesSchema.optional(),
     expires_in_days: daysSchema.optional(),
@@ -227,7 +229,7 @@ export function workspaceRoutes(s: Services) {
     const link = inviteLink(token)
 
     let emailSent: boolean | undefined
-    if (row.email) {
+    if (row.email&&input.send_email!==false) {
       const lang = pickLang(input.lang, c.req.header('accept-language'))
       emailSent = await mailInvite(row.email, { link, workspace: workspace.name, inviter: auth.user.name || auth.user.email, role: row.guest ? 'guest' : row.role, days, lang })
     }
