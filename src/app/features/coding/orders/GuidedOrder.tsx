@@ -17,6 +17,7 @@ import {verifyAtlasHandoff} from './guidedHandoff'
 import {patchOrderRecord} from './records'
 import DeliveryPattern from './DeliveryPattern'
 import './guided.css'
+import {SuggestedInput} from '../../../ui/ValueSuggestions'
 
 const G = 'features.coding.guide'
 const PHASES: GuidePhase[] = ['prepare', 'plan', 'work', 'verify', 'accept']
@@ -143,7 +144,7 @@ export default function GuidedOrder({ rowId, rec, status, planning, viewer, serv
             {packetId&&<a href={`#/p/${packetId}`} data-testid="packet-link">{t(`${G}.packetOpen`)}</a>}
           </div>
           {rec?.handoff?.evidence===snapshot.hash&&<section className="og-handoff" data-testid="handoff-status"><strong>{t(`${G}.handoffState.${rec.handoff.state}`)}</strong>{rec.handoff.url&&<a href={rec.handoff.url} target="_blank" rel="noopener noreferrer">{rec.handoff.project} · #{rec.handoff.ref}</a>}
-            {!viewer&&<><label>{t(`${G}.atlasProject`)}<input className="input" value={project} maxLength={100} onChange={e=>setProject(e.target.value)} data-testid="handoff-project"/></label><label>{t(`${G}.atlasRecord`)}<input className="input" value={atlasRef} maxLength={200} onChange={e=>setAtlasRef(e.target.value)} data-testid="handoff-record"/></label><button type="button" className="btn btn--sm" disabled={busy||!project||!atlasRef||!snapshot.accepted} onClick={()=>void verifyHandoff()} data-testid="handoff-verify">{t(`${G}.handoffVerify`)}</button></>}
+            {!viewer&&<><label>{t(`${G}.atlasProject`)}<SuggestedInput className="input" aria-label={t(`${G}.atlasProject`)} value={project} maxLength={100} onValueChange={setProject} options={[...new Set([...(row?.databaseId?dbs[row.databaseId]?.readiness?.automation?.atlasProjects??[]:[]),...(rec.handoff.project?[rec.handoff.project]:[])])].map(value=>({value}))} data-testid="handoff-project"/></label><label>{t(`${G}.atlasRecord`)}<SuggestedInput className="input" aria-label={t(`${G}.atlasRecord`)} value={atlasRef} maxLength={200} onValueChange={setAtlasRef} options={rec.handoff.ref?[{value:String(rec.handoff.ref)}]:[]} data-testid="handoff-record"/></label><button type="button" className="btn btn--sm" disabled={busy||!project||!atlasRef||!snapshot.accepted} onClick={()=>void verifyHandoff()} data-testid="handoff-verify">{t(`${G}.handoffVerify`)}</button></>}
           </section>}
         </>}
       </div>}

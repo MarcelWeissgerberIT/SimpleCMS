@@ -11,6 +11,7 @@ import { keyMessages } from './keys-messages'
 /** Strings for the database area. Keys MUST be prefixed with "database." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    'database.text.suggestionsHelp': 'Values already used in this column. Save your own entry as usual; it will then be offered here too.',
     ...formMessages.en,
     ...autofillMessages.en,
     ...structureMessages.en,
@@ -523,6 +524,7 @@ export const messages: Messages = {
     'database.formula.fn.dateEnd': 'End of a date range (a single date returns itself).',
   },
   de: {
+    'database.text.suggestionsHelp': 'Bereits verwendete Werte dieser Spalte. Eigene Eingabe wie gewohnt speichern; sie wird danach ebenfalls angeboten.',
     ...formMessages.de,
     ...autofillMessages.de,
     ...structureMessages.de,

@@ -8,6 +8,7 @@ import type { PropertyDef } from '../../store/types'
 import { useLang, useT } from '../../i18n'
 import { parseNumberText } from '../model/format'
 import { useWorkspace } from '../../store/store'
+import {useValueSuggestions,ValueSuggestions,type ValueSuggestion} from '../../ui/ValueSuggestions'
 
 const currentLang = () => useWorkspace.getState().settings.language
 
@@ -21,6 +22,7 @@ export interface TextEditorProps {
   initialText?: string
   onCommit: (value: string | number | null, reason: DoneReason) => void
   minWidth?: number
+  suggestions?:readonly ValueSuggestion[]
 }
 
 /** Parse a typed / pasted number in the UI language (see parseNumberText). */
@@ -40,7 +42,7 @@ function numberDraft(v: number, percent: boolean, lang: string): string {
   return (lang === 'de' ? txt.replace('.', ',') : txt) + (percent ? '%' : '')
 }
 
-export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidth = 240 }: TextEditorProps) {
+export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidth = 240, suggestions=[] }: TextEditorProps) {
   const lang = useLang()
   const t = useT()
   const isNumber = prop.type === 'number'
@@ -53,6 +55,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
   textRef.current = text
   const done = useRef(false)
   const areaRef = useRef<HTMLTextAreaElement>(null)
+  const help=useValueSuggestions({value:text,options:suggestions,onChoose:value=>{textRef.current=value;setText(value);setInvalid(false)},label:prop.name})
   const rect = anchor.getBoundingClientRect()
 
   const commit = (reason: DoneReason) => {
@@ -102,8 +105,11 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
       style={{ width: Math.max(minWidth, rect.width) }}
       autoFocus={false}
     >
+      <div className="value-help" data-help={help.available||undefined}>
       <textarea
-        ref={areaRef}
+        {...help.attributes}
+        aria-label={prop.name}
+        ref={el=>{areaRef.current=el;help.field.current=el}}
         className={`db-textedit__area${isNumber ? ' is-number' : ''}${prop.type === 'title' ? ' is-title' : ''}`}
         value={text}
         rows={1}
@@ -116,6 +122,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
         }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return
+          if (help.key(e)) return
           if (e.key === 'Enter' && !(e.shiftKey && prop.type === 'text')) {
             e.preventDefault()
             commit('enter')
@@ -129,6 +136,8 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
           }
         }}
       />
+      <ValueSuggestions control={help} hint={t('database.text.suggestionsHelp')}/>
+      </div>
       {invalid && (
         <div className="db-textedit__err label" role="alert">
           {t('database.number.invalid')}

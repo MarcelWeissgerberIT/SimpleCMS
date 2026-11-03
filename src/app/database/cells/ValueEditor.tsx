@@ -3,7 +3,8 @@
  *  - ValueEditorBase: value + onChange (templates, bulk edit, filters)
  *  - ValueEditor: bound to one or many rows (writes through writeValue)
  */
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
+import {textValueSuggestions} from '../model/textSuggestions'
 import { useWorkspace } from '../../store/store'
 import type { Database, DateValue, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { Popover } from '../../ui/Popover'
@@ -36,6 +37,8 @@ export interface ValueEditorBaseProps {
 
 export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, initialText, minWidth, rowId }: ValueEditorBaseProps) {
   const esc = useEscapeFlag()
+  const pages=useWorkspace(s=>s.pages)
+  const suggestions=useMemo(()=>textValueSuggestions(pages,db.id,prop,rowId),[pages,db.id,prop,rowId])
   if (!canEdit(prop)) return null
   if (TEXT_EDIT_TYPES.includes(prop.type)) {
     return (
@@ -45,6 +48,7 @@ export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, in
         value={value as string | number | null}
         initialText={initialText}
         minWidth={minWidth}
+        suggestions={suggestions}
         onCommit={(v, reason) => {
           const changed = prop.type === 'number' ? v !== value : (v ?? '') !== (value ?? '')
           if (changed) onChange(prop.type === 'number' ? v : String(v ?? ''))
