@@ -16,6 +16,15 @@ test('two distinct original passages needed for a possible contradiction',()=>as
 test('unsupported derivation creates a question, never automatic approval',()=>assert(poIssues({...review,questions:[]},draft).length))
 test('schema limits the work and binds refs; question-only PO has no empty enum',()=>{assert.equal((baSchema(refs).properties.requirements as any).maxItems,3);assert(!JSON.stringify(poSchema({...draft,requirements:[]},refs)).includes('"enum":[]'))})
 test('host renders actual quotes, source version, scope caveat and open human decision',()=>{const out=renderAnalysis(draft,review,refs,{title:'CNSx S9',url:'https://example.org/#/p/source',hash:'abc123',readAt:'2026-11-01T20:00:00Z',partial:true},true);for(const text of ['abc123',refs[0].quote,'Entscheidung offen','nicht ausgeführt','Atlas wurde in diesem Prüflauf nicht erneut abgefragt','nur ausgewählte Blöcke','keine unabhängige Abnahme','Klärungsbedarf'])assert(out.includes(text),text)})
+test('PO findings form one Markdown table with contiguous header, separator and data rows',()=>{
+ const multi={...review,reviews:[...review.reviews,{...review.reviews[0],requirement:'R2'}]}
+ for(const de of [true,false]){
+  const out=renderAnalysis(draft,multi,refs,{title:'Source',url:'https://example.org',hash:'abc',readAt:'now',partial:false},de)
+  const table=out.split('\n\n').find(block=>block.startsWith('| ID |'))!
+  assert(table);assert.equal(table.split('\n').length,4);assert.match(table,/\| --- \| --- \| --- \| --- \|\n\| R1 /);assert.match(table,/\n\| R2 /)
+  assert(table.includes(de?'Klärungsbedarf':'clarification needed'))
+ }
+})
 
 test('S9 focus binds actual heading span, excluding other tickets',()=>{const refs=[{ref:'T01',quote:'# Overview'},{ref:'T02',quote:'### AICM-2065 S9: Admin takeover'},{ref:'T03',quote:'Only after all rows are archived.'},{ref:'T04',quote:'### AICM-2065 S3: Other issue'},{ref:'T05',quote:'Commit failure'}];assert.deepEqual(focusAnalysisRefs(refs,'S9').refs.map(r=>r.ref),['T02','T03']);assert.throws(()=>focusAnalysisRefs(refs,'S7'));assert.throws(()=>focusAnalysisRefs(refs,'AICM-2065'));assert.equal(focusAnalysisRefs(refs,'timestamp precision').refs.length,5)})
 test('work instructions are not runtime behavioral requirements',()=>{const d=structuredClone(draft);d.requirements[0].statement='Wenn ein Stream beginnt, muss das System die Schnittstelle implementieren.';assert(baIssues(d,refs).some(x=>x.includes('development work')))})

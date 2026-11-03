@@ -65,8 +65,11 @@ export function renderAnalysis(draft:BADraft,review:POReview,refs:AnalysisRef[],
  if(!draft.requirements.length)lines.push(de?'Aus der gelesenen Quelle wurde keine ausreichend bestimmte Anforderung abgeleitet.':'No sufficiently specific requirement was derived from the read source.')
  lines.push(`## ${labels.po}`)
  if(!review.reviews.length)lines.push(de?'Keine Anforderungsentwürfe zur Gegenprüfung; offene Angaben stehen unten.':'No requirement drafts to critique; missing specifications are listed below.')
- else lines.push('| ID | '+(de?'Anforderung · Modelleinschätzung | Prüffälle · Modelleinschätzung | Befund':'Requirement · model assessment | Checks · model assessment | Finding')+' |','| --- | --- | --- | --- |')
- for(const r of review.reviews)lines.push(`| ${r.requirement} | ${de?({supported:'kein Einwand gefunden',partial:'Klärungsbedarf',unsupported:'Einwand'}[r.support]):r.support} | ${de?({supported:'kein Einwand gefunden',partial:'Klärungsbedarf',unsupported:'Einwand'}[r.check_support]):r.check_support} | ${cell(r.finding)} |`)
+ else lines.push([
+  '| ID | '+(de?'Anforderung · Modelleinschätzung | Prüffälle · Modelleinschätzung | Befund':'Requirement · model assessment | Checks · model assessment | Finding')+' |',
+  '| --- | --- | --- | --- |',
+  ...review.reviews.map(r=>`| ${r.requirement} | ${assessment(r.support)} | ${assessment(r.check_support)} | ${cell(r.finding)} |`),
+ ].join('\n'))
  lines.push(`## ${labels.gaps}`,...draft.questions.map(q=>`- ${q.question} — ${q.reason}\n  > ${quote(q.source_refs)}`),...review.questions.map(q=>'- '+q))
  if(!draft.questions.length&&!review.questions.length)lines.push(de?'Das Modell hat keine offenen Angaben benannt; das ist kein Vollständigkeitsnachweis.':'The model listed no gaps; this does not prove completeness.')
  if(review.contradictions.length)lines.push(`## ${labels.conflicts}`,...review.contradictions.map(c=>`- ${c.reason}\n  > ${quote([c.left_ref,c.right_ref])}`))

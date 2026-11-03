@@ -88,6 +88,7 @@ test.describe('Source-grounded existing-page rewrite',()=>{
   await input.fill(provider==='copilot'?'/po measurement':'/ba measurement');await input.press('Enter');await expect(term.locator('.term-answer')).toContainText('PO · second model review',{timeout:25000})
   expect(native?.requests.length??fake.textAsked.length).toBe(2);expect(fetches).toBe(0);expect(fake.mcpAsked).toHaveLength(0)
   await expect(term.locator('.term-answer')).toContainText('Atlas was not queried again');await expect(term.locator('.term-answer')).toContainText('No precision is specified');await expect(term.locator('.term-step[data-tool="read_page"]')).toHaveCount(1)
+  await expect(term.locator('.term-answer table')).toHaveCount(1);await expect(term.locator('.term-answer table tr')).toHaveCount(2);await expect(term.locator('.term-answer table td').first()).toHaveText('R1')
   await expect(term.locator('.term-step[data-tool="edit_page"]')).toHaveCount(0);await expect(term.locator('#term-review-title')).toHaveCount(0)
   expect(await wsEval(page,(s,id)=>s.pages[id].plain,target)).toContain('not merged and not verified')
   await expect(term.getByRole('region',{name:'Compiled task'})).toContainText('Ready for review')
