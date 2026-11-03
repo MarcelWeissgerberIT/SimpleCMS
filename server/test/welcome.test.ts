@@ -279,3 +279,19 @@ test('owner activation expires, is replaced explicitly and fails closed if appro
   assert.equal(db.prepare('SELECT id FROM users WHERE email=?').get(email),undefined)
  }finally{db.close()}
 })
+
+test('workspace owners cannot provision reserved server administrator identities or take over an account created after issuance',async()=>{
+ const srv=await startServer({AUTH_IP_LIMIT:'1000',ADMIN_EMAILS:'reserved-root@welcome.test'})
+ try{
+  const own=await signIn(srv,'activation-security-owner@welcome.test'),w=(await own.post('/api/workspaces',{name:'Owner scope'})).body.id,p=`/api/workspaces/${w}/welcome`
+  const prep=(email:string,revision=0)=>own.json('PUT',p,{...draft(),revision,notBefore:0,recipients:[{...draft().recipients[0],email,workspaceId:w}]})
+  await prep('reserved-root@welcome.test')
+  assert.equal((await own.post(p+'/activate/alice',{revision:1,confirm:true})).status,403)
+  const email='signed-in-before-activation@welcome.test';await prep(email,1)
+  const issued=await own.post(p+'/activate/alice',{revision:2,confirm:true});assert.equal(issued.status,201)
+  const token=new URL(issued.body.link).searchParams.get('token')!
+  const verified=await signIn(srv,email),before=(await verified.get('/api/me')).body
+  assert.equal((await new Client(srv.url).fetch('/api/auth/verify',{method:'POST',json:{token}})).status,403)
+  assert.deepEqual((await verified.get('/api/me')).body,before,'existing user and personal workspace remain untouched')
+ }finally{await srv.stop()}
+})

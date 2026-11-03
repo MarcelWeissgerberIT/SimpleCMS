@@ -85,6 +85,7 @@ export function welcomeRoutes(s:Services) {
     if(!r)throw notFound('welcome_recipient','Recipient not found')
     const w=target(auth.user.id,r.workspaceId)
     if(s.repo.memberRole(w.id,auth.user.id)!=='owner')throw forbidden('activation_owner','Only the destination owner can activate a new account.')
+    if(s.config.adminEmails.includes(r.email))throw forbidden('activation_reserved','Server administrator identities cannot use owner-assisted enrollment.')
     if(s.repo.userByEmail(r.email))throw conflict('activation_existing','This account already exists. Owner activation cannot replace its sign-in or recover its identity.')
     if(Date.now()<d.notBefore||r.status==='sending')throw conflict('activation_state','The prepared access is not ready.')
     const wait=s.limiter.hit(`owner-activation:${auth.user.id}`,5,60*60_000);if(wait)throw rateLimited(wait)

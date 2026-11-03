@@ -8,7 +8,7 @@ export interface OwnerActivation {
  token_hash:string;actor_id:string;source_workspace_id:string;workspace_id:string;name:string;role:'member'|'viewer';guest:number
 }
 export function validActivation(s:Services,a:OwnerActivation,email:string):boolean{
- return !s.repo.userByEmail(email)&&[a.source_workspace_id,a.workspace_id].every(id=>s.repo.memberRole(id,a.actor_id)==='owner'&&!s.repo.workspaceById(id)?.personal_of)
+ return !s.config.adminEmails.includes(email)&&!s.repo.userByEmail(email)&&[a.source_workspace_id,a.workspace_id].every(id=>s.repo.memberRole(id,a.actor_id)==='owner'&&!s.repo.workspaceById(id)?.personal_of)
 }
 export function issueOwnerActivation(s:Services,p:{email:string;name:string;actorId:string;sourceId:string;workspaceId:string;role:'member'|'viewer';guest:boolean;lang:'en'|'de'}){
  return s.db.tx(()=>{
