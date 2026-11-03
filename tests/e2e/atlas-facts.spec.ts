@@ -1,4 +1,4 @@
-import {test,expect,openApp,wsEval,MOD} from './fixtures'
+import {test,expect,openApp,wsEval,MOD,createPage,gotoPage,editorOf,doc,para} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 import {mockClaudeScript,text} from './helpers/providers'
@@ -20,6 +20,44 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
   await page.getByRole('tab',{name:/AI$/}).click();await expect(page.getByTestId('worker-model-settings')).toContainText(LOCAL);await expect(page.getByTestId('worker-model-settings')).toContainText(COPILOT);await page.keyboard.press('Escape')
  })
  test.afterEach(async()=>{await fake?.close()})
+ test('page AI keeps many source receipts and a failed search inside the result scroll area',async({page},info)=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_search',inputSchema:{type:'object',properties:{q:{type:'string'}},required:['q']}}]}:{result:r.arguments.q==='bounded topic 2'?JSON.stringify({isError:true,content:[{type:'text',text:'invalid_query: unsupported operator'}]}):envelope({items:[{ref:100+Number(String(r.arguments.q).split(' ').at(-1)),title:'Observed source'}]})}
+   let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n>=3?Array.from({length:35},(_,i)=>'Paragraph '+i+': Source-backed review with a deliberately long source URL https://example.test/'+('section-'.repeat(18))).join('\n\n')+'\n\nEND OF REVIEW':'',calls:n===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_search'}}]:(n===1||n===2)?Array.from({length:6},(_,i)=>({id:'search-'+((n-1)*6+i),name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_search',arguments:{q:'bounded topic '+((n-1)*6+i)}}})):[],inputTokens:200,outputTokens:40,usd:0}}
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:LOCAL})
+   await page.evaluate(()=>localStorage.setItem('one.popover.size:ai-menu',JSON.stringify({w:1300,h:820})))
+   const id=await createPage(page,{title:'Search review layout fixture',content:doc(para('Observed requirements source.'),para(''))});await gotoPage(page,id)
+   const ask=page.getByPlaceholder('Ask AI to write anything…'),panel=page.getByRole('dialog',{name:'Ask AI'})
+   await expect(async()=>{await editorOf(page,id).locator('p').last().click();await page.keyboard.press('End');await page.keyboard.press('Space');try{await expect(ask).toBeFocused({timeout:2000})}catch(e){if(!(await ask.count()))await page.keyboard.press('Backspace');throw e}}).toPass({timeout:15000})
+   await ask.fill('atlas: review the sources and identify gaps');await ask.press('Enter')
+    await expect(panel.locator('.ai-out')).toHaveAttribute('data-phase','done')
+    await expect(panel.locator('.ai-mcp__issues')).toContainText('1 failed · 12 succeeded')
+    await expect(panel.locator('.worker-connection-help')).toContainText('Atlas rejected this search query')
+    await expect(panel.locator('.ai-mcp__issues')).toContainText('bounded topic 2')
+    await expect(panel.locator('.ai-mcp__issues')).not.toContainText('Start your existing worker')
+    await expect(panel.locator('.ai-mcp__trace')).not.toHaveAttribute('open','')
+    for(const theme of ['light','dark'])for(const width of [1440,390]){
+      await page.setViewportSize({width,height:width===390?844:900});await page.evaluate(t=>{document.documentElement.dataset.theme=t},theme)
+      await expect(async()=>{const b=await panel.evaluate(el=>{const box=el.getBoundingClientRect(),out=el.querySelector('.ai-out')!,keys=el.querySelector('.ai-list[data-keys]')!,foot=el.querySelector('.ai-foot')!;return {right:box.right,bottom:box.bottom,scrollWidth:el.scrollWidth,width:el.clientWidth,outBottom:out.getBoundingClientRect().bottom,keyTop:keys.getBoundingClientRect().top,keyBottom:keys.getBoundingClientRect().bottom,footTop:foot.getBoundingClientRect().top,footBottom:foot.getBoundingClientRect().bottom,scrollable:out.scrollHeight>out.clientHeight}});expect(b.right).toBeLessThanOrEqual(width);expect(b.bottom).toBeLessThanOrEqual(width===390?844:900);expect(b.scrollWidth).toBeLessThanOrEqual(b.width+1);expect(b.outBottom).toBeLessThanOrEqual(b.keyTop+1);expect(b.keyBottom).toBeLessThanOrEqual(b.footTop+1);expect(b.footBottom).toBeLessThanOrEqual(b.bottom+1);expect(b.scrollable).toBe(true)}).toPass()
+      await panel.locator('.ai-out').evaluate(el=>{el.scrollTop=0});await panel.screenshot({path:info.outputPath('page-ai-'+theme+'-'+width+'.png')})
+      await panel.locator('.ai-mcp__trace > summary').click();await expect(panel.locator('.atlas-facts')).toHaveCount(12)
+      await panel.locator('.ai-out').evaluate(el=>{el.scrollTop=el.scrollHeight});await expect(panel.getByText('END OF REVIEW',{exact:true})).toBeInViewport();await expect(panel.getByRole('button',{name:'Show failed calls'})).toBeInViewport();await panel.getByRole('button',{name:'Show failed calls'}).click();await expect(panel.locator('.ai-mcp__issues > summary')).toBeFocused();await expect(panel.locator('.ai-mcp__issues > summary')).toBeInViewport()
+      await panel.locator('.ai-out').evaluate(el=>{el.scrollTop=0});await panel.locator('.ai-mcp__trace > summary').click()
+    }
+    await expect(panel.getByRole('option',{name:/Insert/})).toBeVisible()
+  })
+
+ test('page AI rejects Kristins invalid array comparison before dispatch and can complete a corrected read',async({page})=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_search',inputSchema:{type:'object',properties:{aql:{type:'string'},tenant:{type:'string'}},required:['aql']}}]}:{result:envelope({items:[{ref:42,title:'Observed requirement',tags:['requirement']}]})}
+   let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n>=3?'Observed requirement, Ref: 42. Tag: requirement.':'',calls:n===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_search'}}]:n===1?[{id:'invalid-aql',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_search',arguments:{aql:'project = flux-part-cnsx AND tags = "requirement"',tenant:'analytik-jena'}}}]:n===2?[{id:'corrected-aql',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_search',arguments:{aql:'project = flux-part-cnsx',tenant:'analytik-jena'}}}]:[],inputTokens:200,outputTokens:40,usd:0}}
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:LOCAL})
+   const id=await createPage(page,{title:'Array query fixture',content:doc(para('Requirements review.'),para(''))});await gotoPage(page,id)
+   const ask=page.getByPlaceholder('Ask AI to write anything…'),panel=page.getByRole('dialog',{name:'Ask AI'})
+   await expect(async()=>{await editorOf(page,id).locator('p').last().click();await page.keyboard.press('End');await page.keyboard.press('Space');try{await expect(ask).toBeFocused({timeout:2000})}catch(e){if(!(await ask.count()))await page.keyboard.press('Backspace');throw e}}).toPass({timeout:15000})
+   await ask.fill('atlas: Read requirements in project flux-part-cnsx, tenant analytik-jena. A bounded project read with explicit tag inspection is allowed. Read only.');await ask.press('Enter')
+   await expect(panel.locator('.ai-out')).toHaveAttribute('data-phase','done');await expect(panel.locator('.ai-out__body')).toContainText('Observed requirement')
+   await expect(panel.locator('.ai-mcp__issues')).toContainText('Held before server contact');await expect(panel.locator('.ai-mcp__issues')).toContainText('Tags are a list')
+   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.arguments)).toEqual([{aql:'project = flux-part-cnsx',tenant:'analytik-jena'}])
+ })
  for(const provider of ['local','copilot'] as const){
   test(`${provider}: actual compiler receipt opens glass evidence, exact dimensions and a complete export without another call`,async({page},info)=>{
    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Recorded test source'}})}

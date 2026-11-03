@@ -1,4 +1,5 @@
 import {mcpArgumentsWithinLimit} from '../../../src/shared/mcp/attachment.ts'
+import {atlasQueryProblem} from '../../../src/shared/mcp/aql.ts'
 import {connectionProblem,mcpConnectionMessage} from '../../../src/shared/ai/connection-problem.ts'
 import {atlasScopedArgs,atlasTenantHint} from '../../../src/shared/mcp/scope.ts'
 import {selectMcpSchemas} from '../../../src/shared/mcp/bindings.ts'
@@ -31,6 +32,7 @@ export function checkAtlasMcp(v:unknown):v is WorkerMcpRequest{
 
 export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,createClient=()=>new Client({name:'one-personal-atlas',version:'1.0.0'}),defaultTenant?:string){
  if(!checkAtlasMcp(request))throw badRequest('invalid_mcp','Use the prepared personal AJ-Atlas connection.')
+ if(request.action==='call'){const problem=atlasQueryProblem(request.name??'',request.arguments??{});if(problem)throw badRequest('mcp_query',problem)}
  const selected=request.servers[0]!,client=createClient(),endpoint=new URL(ENDPOINT)
  const safeFetch:typeof fetch=(input,init)=>{
   const url=new URL(input instanceof Request?input.url:String(input))

@@ -2274,7 +2274,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             )}
 
             {showOutput && (
-              <div className="ai-out" data-phase={phase}>
+              <div className="ai-out" data-phase={phase} ref={outRef} onScroll={e=>{const el=e.currentTarget;stickRef.current=el.scrollHeight-el.scrollTop-el.clientHeight<24}}>
                 <div className="ai-out__bar label">
                   <span className="ai-out__code">{run?.req.code}</span>
                   <span className="ai-out__title">{run?.req.label}</span>
@@ -2358,11 +2358,6 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 {!isTodb && !isRedo && !isMemory && !isTransform && !isGen && !imagePanel.structured && !filePanel.structured && !run?.imageIssue && !run?.fileIssue && (output || busy) && (
                   <div
                     className="ai-out__body"
-                    ref={outRef}
-                    onScroll={(e) => {
-                      const el = e.currentTarget
-                      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-                    }}
                   >
                     {output ? (
                       <MarkdownLite
@@ -2478,6 +2473,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 {t('features.ai.menu.leadA')} <Kbd>↵</Kbd> {t('features.ai.menu.leadB')}
               </p>
             )}
+
+            {showOutput&&mcpCalls.some(c=>c.state==='err'&&!c.skipped)&&<div className="ai-mcp-alert" role="status"><span>{t('features.ai.mcp.partial',{failed:mcpCalls.filter(c=>c.state==='err'&&!c.skipped).length,ok:mcpCalls.filter(c=>c.state==='ok'&&!c.contract&&!c.skipped).length})}</span><button type="button" className="btn btn--sm" onClick={()=>{const out=outRef.current,issue=out?.querySelector<HTMLElement>('.ai-mcp__issues');if(out&&issue){stickRef.current=false;out.scrollTop+=issue.getBoundingClientRect().top-out.getBoundingClientRect().top;issue.querySelector<HTMLElement>('summary')?.focus({preventScroll:true})}}}>{t('features.ai.mcp.showErrors')}</button></div>}
 
             {rows.length > 0 && (
               <div className="ai-list" ref={listRef} role="listbox" data-keys={phase === 'done' || phase === 'error' ? '' : undefined} data-quiet={reviewing || undefined}>
@@ -2647,16 +2644,17 @@ function McpChips({ calls }: { calls: McpCall[] }) {
           ),
         )}
       </ul>
-      {calls.filter(c=>c.contract).map(c=><TaskContractCard key={c.id} report={c.contract!}/>)}
       <McpSkippedNote calls={calls} />
-      {calls.filter(c=>c.receipt).map(c=><AtlasFactsView key={c.id} receipt={c.receipt!}/>)}
+      {failed.length>0&&<details className="ai-mcp__issues" open><summary>{t('features.ai.mcp.partial',{failed:failed.length,ok:calls.filter(c=>c.state==='ok'&&!c.contract&&!c.skipped).length})}</summary><p>{t('features.ai.mcp.partialNote')}</p>
       {failed.map((c) => (
         <div key={c.id} className="ai-mcp__err">
-          {c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
-          {t('features.ai.mcp.callErrNote')}
-          <WorkerConnectionHelp error={new Error(c.error ?? '')} server={c.server} />
+          {c.notExecuted?<>{t('features.ai.transfer.notExecuted')} · {c.error?.startsWith('Atlas AQL: tags')?t('features.ai.mcp.aqlArray'):c.error}</>:c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
+          {c.arg&&<code className="ai-mcp__arg">{c.arg}</code>}
+          {!c.notExecuted&&<WorkerConnectionHelp error={new Error(c.error ?? '')} server={c.server} />}
         </div>
-      ))}
+      ))}</details>}
+      {calls.filter(c=>c.contract).map(c=><TaskContractCard key={c.id} report={c.contract!}/>)}
+      {calls.some(c=>c.receipt)&&<details className="ai-mcp__trace"><summary>{t('features.ai.mcp.evidence',{count:calls.filter(c=>c.receipt).length})}</summary>{calls.filter(c=>c.receipt).map(c=><AtlasFactsView key={c.id} receipt={c.receipt!}/>)}</details>}
     </div>
   )
 }

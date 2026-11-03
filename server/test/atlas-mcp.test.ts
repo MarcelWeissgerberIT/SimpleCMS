@@ -4,7 +4,12 @@ import {checkAtlasMcp,runAtlasMcp} from '../src/coding/atlas-mcp.ts'
 import type {WorkerMcpRequest} from '../../src/shared/ai/worker.ts'
 import {startServer,signIn} from './helpers.ts'
 const secret='synthetic-personal-atlas-token',server={name:'aj-atlas',url:'https://aj-atlas.com/api/atlas/mcp',token:secret,allow:null,deny:[]}
-const request={action:'call',servers:[server],server:'aj-atlas',name:'atlas_whoami',arguments:{}} as WorkerMcpRequest
+const request={action:'call',servers:[server],server:'aj-atlas',name:'atlas_whoami',arguments:{}} as Extract<WorkerMcpRequest,{action:'call'}>
+test('the observed invalid tags comparison never reaches the Atlas client',async()=>{
+ let created=false
+ await assert.rejects(runAtlasMcp({...request,name:'atlas_search',arguments:{aql:'project = flux-part-cnsx AND tags = "requirement"'}},new AbortController().signal,()=>{created=true;throw Error('Must not connect')}),(e:any)=>e.code==='mcp_query'&&e.message.includes('No server call was sent'))
+ assert.equal(created,false)
+})
 test('personal Atlas proxy rejects arbitrary destinations, headers and malformed tokens',()=>{
  assert.equal(checkAtlasMcp(request),true)
  for(const patch of [{url:'https://eh-atlas.com/api/atlas/mcp'},{url:'http://127.0.0.1:8080'},{url:'https://aj-atlas.com/api/atlas/mcp?token=x'},{token:secret+'\n'},{headers:{Cookie:'private'}}])assert.equal(checkAtlasMcp({...request,servers:[{...server,...patch}]}),false)

@@ -23,3 +23,6 @@ Bei unklaren Atlas-Übertragungen fragt ONE nach der Ablage: **neue Records**, *
 
 
 Laufnachweise erfassen jetzt auch gewöhnliche Terminalaufträge sowie fehlgeschlagene und gestoppte Versuche. Diese Verlaufsbelege sind keine ausführbaren Kompilate. Sie enthalten Auftrag, Ergebnis oder Teilantwort, Fehler und aufgezeichnete Werkzeugschritte. Der Verlauf aktualisiert sich nach dem Speichern und beim Zurückkehren; Speichern-Fehler bleiben sichtbar und können erneut versucht werden. Ältere, damals nicht protokollierte Antworten werden dadurch nicht nachträglich rekonstruiert.
+
+
+Die Seiten-KI hält Werkzeugprotokoll, Quellennachweise, Fehler und Antwort in einem gemeinsamen Scrollbereich. Einfügen und andere Ergebnisaktionen bleiben getrennt erreichbar. Ein dauerhafter Hinweis zählt fehlgeschlagene und erfolgreiche Werkzeugaufrufe; **Fehler anzeigen** springt zum betroffenen Aufruf mit dessen Suchanfrage. Syntaxfehler, Anfragelimits und Serverfehler bekommen eigene Hinweise. Eine unbekannte Ursache wird nicht als falscher Token oder ausgeschalteter Worker ausgegeben.

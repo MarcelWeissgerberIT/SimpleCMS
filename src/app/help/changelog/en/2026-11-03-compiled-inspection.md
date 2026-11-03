@@ -23,3 +23,6 @@ For ambiguous Atlas transfers, ONE asks where the result belongs: **new records*
 
 
 Run receipts now also cover ordinary terminal tasks, failed runs and stopped attempts. These historical entries are not executable programs. They retain the request, result or partial answer, error and recorded tool steps. History refreshes after saves and when returning; failed receipt saves remain visible and can be retried. Earlier responses that were never recorded are not reconstructed retroactively.
+
+
+Page AI keeps the tool log, source receipts, errors and answer in one scroll area. Insert and other result actions remain separately accessible. A persistent notice counts failed and successful tool calls; **Show failed calls** jumps to the affected call and its request. Query syntax, rate limits and server failures have distinct guidance. An unknown cause is not presented as an invalid token or an offline worker.

@@ -1,5 +1,6 @@
 import type {MockSources} from '@/shared/ai/designMock'
 import {mcpConnectionMessage} from '@/shared/ai/connection-problem'
+import {atlasQueryProblem} from '@/shared/mcp/aql'
 import {TaskBlocked,type TaskSession} from '@/shared/quandprofile/task-session'
 import {atlasTransferChoice,atlasTransferEffectAllowed} from '@/shared/quandprofile/atlas-transfer'
 import {LiveAuditError,type LiveAudit} from './liveAudit'
@@ -82,6 +83,8 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     let dispatched=false
     try{
       const actual={server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}
+      const queryProblem=atlasQueryProblem(actual.name,actual.arguments)
+      if(queryProblem){event({...activity,state:'err',error:queryProblem,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error:queryProblem})}
       const report=task?.report(),mode=report&&atlasTransferChoice(report.compiled.contract.goal)
       const wrongMode=mode&&!atlasTransferEffectAllowed(mode,actual.name,atlasTaskEffect(actual.name,actual.arguments))
       const needsBody=mode&&['atlas_update','atlas_comment'].includes(actual.name)&&!readBodies.has(bodyKey(actual.server,actual.arguments))

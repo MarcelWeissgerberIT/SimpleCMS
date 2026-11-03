@@ -8,6 +8,20 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.mcp.aqlArray': 'Tags are a list. AQL cannot compare this field with =. The model must use the documented membership operator or explicitly filter actual tags from a bounded read; tenant and project scope stay in force.',
+    'features.ai.mcp.showErrors': 'Show failed calls',
+    'features.ai.mcp.partial': '{failed} failed · {ok} succeeded',
+    'features.ai.mcp.partialNote': 'Successful calls do not resolve a different failed query. Check the affected call and the sources used before applying the answer.',
+    'features.ai.mcp.evidence': 'Source receipts · {count}',
+    'features.ai.connection.query.title': 'Atlas rejected this search query',
+    'features.ai.connection.query.next': 'Check the exact search text, supported filters and current tool schema. Correct the read while preserving tenant and project scope. This is not proof of an invalid token.',
+    'features.ai.connection.rate.title': 'Atlas request limit reached',
+    'features.ai.connection.rate.next': 'Wait, then retry the affected read explicitly. Existing results remain visible; writes are not repeated automatically.',
+    'features.ai.connection.server.title': 'Atlas returned a server error',
+    'features.ai.connection.server.next': 'This call has no confirmed result. Other successful calls remain valid. Check already accepted writes before a new attempt.',
+    'features.ai.connection.unknown.title': 'The cause of this tool failure is still unclear',
+    'features.ai.connection.unknown.next': 'Check the affected tool, its request and source receipt. This message establishes neither an invalid token nor an offline worker.',
+
     'features.ai.connection.open': 'Check connection and tools',
     'features.ai.connection.worker.open': 'Open worker settings',
     'features.ai.connection.auth.title': "Atlas rejected authentication",
@@ -87,6 +101,20 @@ export const messages: Messages = {
     'features.ai.mcp.ov.note': '“Off” = not used, not even through its codeword. Claude Code in the coding worker has its own MCP servers (your claude mcp setup, ticked per repo on the worker’s setup page): a server of the same name or codeword counts here, a name One does not know gets a row of its own.',
   },
   de: {
+    'features.ai.mcp.aqlArray': 'Tags sind eine Liste. AQL kann dieses Feld nicht mit = vergleichen. Das Modell muss den dokumentierten Mengenoperator verwenden oder tatsächliche Tags aus einem begrenzten Leseabruf ausdrücklich filtern; Tenant und Projekt bleiben begrenzt.',
+    'features.ai.mcp.showErrors': 'Fehler anzeigen',
+    'features.ai.mcp.partial': '{failed} fehlgeschlagen · {ok} erfolgreich',
+    'features.ai.mcp.partialNote': 'Erfolgreiche Abrufe beheben eine andere fehlgeschlagene Suche nicht. Prüfe den betroffenen Aufruf und die verwendeten Quellen, bevor du die Antwort übernimmst.',
+    'features.ai.mcp.evidence': 'Quellennachweise · {count}',
+    'features.ai.connection.query.title': 'Atlas hat diese Suchanfrage abgelehnt',
+    'features.ai.connection.query.next': 'Prüfe den genauen Suchtext, erlaubte Filter und das aktuelle Werkzeugschema. Korrigiere den Leseabruf mit demselben Tenant- und Projektbezug. Das belegt keinen falschen Token.',
+    'features.ai.connection.rate.title': 'Atlas-Anfragelimit erreicht',
+    'features.ai.connection.rate.next': 'Warte und wiederhole dann den betroffenen Leseabruf ausdrücklich. Vorhandene Ergebnisse bleiben sichtbar; Schreibvorgänge werden nicht automatisch wiederholt.',
+    'features.ai.connection.server.title': 'Atlas meldet einen Serverfehler',
+    'features.ai.connection.server.next': 'Für diesen Aufruf gibt es kein bestätigtes Ergebnis. Andere erfolgreiche Abrufe bleiben gültig. Prüfe vor einem neuen Versuch bereits angenommene Schreibvorgänge.',
+    'features.ai.connection.unknown.title': 'Die Ursache dieses Werkzeugfehlers ist noch unklar',
+    'features.ai.connection.unknown.next': 'Prüfe das betroffene Werkzeug, seine Anfrage und den Quellennachweis. Die Meldung belegt weder einen falschen Token noch einen ausgeschalteten Worker.',
+
     'features.ai.connection.open': 'Verbindung und Werkzeuge prüfen',
     'features.ai.connection.worker.open': 'Worker-Einstellungen öffnen',
     'features.ai.connection.auth.title': "Atlas lehnt die Anmeldung ab",

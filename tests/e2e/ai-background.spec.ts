@@ -176,13 +176,13 @@ test.describe('AI-menu runs in the background', () => {
     await expect.poll(() => claude.waiting()).toBe(1)
     await page.keyboard.press('Escape')
     await expect(panel(page)).toHaveCount(0)
-    // the sentence goes
+    // Delete this source explicitly; platform Home/End shortcuts can span other paragraphs.
     const ed = editorOf(page, id)
-    await ed.locator('p').nth(1).click()
-    await page.keyboard.press('End')
-    await page.keyboard.press('Shift+Home')
+    await selectText(page, ed, 'our launch sentence is kinda loose')
     await page.keyboard.press('Backspace')
-    await expect(ed.locator('p').nth(1)).toHaveText('')
+    await expect(ed).not.toContainText('our launch sentence is kinda loose')
+    await expect(ed).toContainText('Intro line stays.')
+    await expect(ed).toContainText('Closing line.')
     claude.release()
     await plate(page).click()
     const ai = panel(page)
