@@ -58,6 +58,47 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
    await expect(panel.locator('.ai-mcp__issues')).toContainText('Held before server contact');await expect(panel.locator('.ai-mcp__issues')).toContainText('Tags are a list')
    expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.arguments)).toEqual([{aql:'project = flux-part-cnsx',tenant:'analytik-jena'}])
  })
+ test('page AI refuses a title-only document summary before model or Atlas dispatch',async({page},info)=>{
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:LOCAL})
+   const id=await createPage(page,{title:'Ergebnisansicht Kalibrierung',content:doc(para(''))});await gotoPage(page,id)
+   const ask=page.getByPlaceholder('Ask AI to write anything…'),panel=page.getByRole('dialog',{name:'Ask AI'})
+   await editorOf(page,id).locator('p').last().click();await page.keyboard.press('Space');await expect(ask).toBeFocused()
+   await ask.fill('Bitte fasse die Anforderungen aus dem importierten Dokument Kalibrierung.docx zusammen.');await ask.press('Enter')
+   await expect(panel.locator('.ai-out')).toHaveAttribute('data-phase','error')
+   await expect(panel).toContainText('The requested document content was not supplied')
+   await expect(panel).toContainText('Open the imported document')
+   expect(fake.textAsked).toHaveLength(0);expect(fake.mcpAsked).toHaveLength(0)
+   for(const theme of ['light','dark'])for(const width of [1440,390]){
+     await page.setViewportSize({width,height:width===390?844:900});await page.evaluate(t=>{document.documentElement.dataset.theme=t},theme)
+     await expect(async()=>{const box=await panel.evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth,right:el.getBoundingClientRect().right}));expect(box.scrollWidth).toBeLessThanOrEqual(box.width+1);expect(box.right).toBeLessThanOrEqual(width)}).toPass()
+     await panel.screenshot({path:info.outputPath(`document-source-${theme}-${width}.png`),animations:'disabled'})
+   }
+ })
+ test('page AI holds a topic overridden by AQL and completes the corrected topic search',async({page})=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_search',inputSchema:{type:'object',properties:{aql:{type:'string'},q:{type:'string'},project:{type:'string'},tenant:{type:'string'}}}}]}:{result:envelope({items:[{ref:42,title:'Observed version history'}]})}
+   let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n>=3?'Observed version history, Ref: 42.':'',calls:n===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_search'}}]:n===1?[{id:'ambiguous-query',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_search',arguments:{q:'calibration version history',aql:'project = flux-part-cnsx AND title ~ "calibration view"',tenant:'analytik-jena'}}}]:n===2?[{id:'topic-query',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_search',arguments:{q:'calibration version history',project:'flux-part-cnsx',tenant:'analytik-jena'}}}]:[],inputTokens:200,outputTokens:40,usd:0}}
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:LOCAL})
+   const id=await createPage(page,{title:'Version history review',content:doc(para('Existing source.'),para(''))});await gotoPage(page,id)
+   const ask=page.getByPlaceholder('Ask AI to write anything…'),panel=page.getByRole('dialog',{name:'Ask AI'})
+   await editorOf(page,id).locator('p').last().click();await page.keyboard.press('Space');await expect(ask).toBeFocused()
+   await ask.fill('atlas: Read calibration version history in project flux-part-cnsx, tenant analytik-jena. Read only.');await ask.press('Enter')
+   await expect(panel.locator('.ai-out')).toHaveAttribute('data-phase','done')
+   await expect(panel.locator('.ai-out__body')).toContainText('Observed version history')
+   await expect(panel.locator('.ai-mcp__issues')).toContainText('Held before server contact')
+   expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.arguments)).toEqual([{q:'calibration version history',project:'flux-part-cnsx',tenant:'analytik-jena'}])
+ })
+ test('page AI preserves observed tenant counts and structured references without a fact repair',async({page})=>{
+   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_project_list',inputSchema:{type:'object'}},{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:r.name==='atlas_project_list'?envelope({projects:[{slug:'a',tenant:'alpha'},{slug:'b',tenant:'alpha'},{slug:'c',tenant:'beta'}]}):envelope({item:{ref:42,body:'Source body'},activeConstraints:[{ref:668,title:'Test first'}]})}
+   let round=0;fake.onText=r=>{const n=round++;return {model:r.model,text:n>=2?'3 Projekte\n### Tenant `alpha`: 2 Projekte\n### Tenant `beta`: 1 Projekte\nNur verlinkt, Volltext nicht gelesen: https://atlas.example.org/r/668.':'',calls:n===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_project_list atlas_get'}}]:n===1?[{id:'projects',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_project_list',arguments:{}}},{id:'body',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]:[],inputTokens:200,outputTokens:40,usd:0}}
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:LOCAL})
+   const id=await createPage(page,{title:'Source metadata review',content:doc(para('Existing source.'),para(''))});await gotoPage(page,id)
+   const ask=page.getByPlaceholder('Ask AI to write anything…'),panel=page.getByRole('dialog',{name:'Ask AI'})
+   await editorOf(page,id).locator('p').last().click();await page.keyboard.press('Space');await expect(ask).toBeFocused()
+   await ask.fill('atlas: List projects by tenant and read Ref 42. Distinguish structured references from read bodies. Read only.');await ask.press('Enter')
+   await expect(panel.locator('.ai-out')).toHaveAttribute('data-phase','done');await expect(panel.locator('.ai-out__body')).toContainText('2 Projekte')
+   await expect(panel.locator('.ai-out__body')).toContainText('/r/668')
+   expect(fake.textAsked).toHaveLength(3)
+ })
  for(const provider of ['local','copilot'] as const){
   test(`${provider}: actual compiler receipt opens glass evidence, exact dimensions and a complete export without another call`,async({page},info)=>{
    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Recorded test source'}})}

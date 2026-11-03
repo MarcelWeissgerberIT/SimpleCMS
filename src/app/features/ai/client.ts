@@ -1,4 +1,5 @@
 import {centralKeyReady} from './core/centralAI'
+import {missingDocumentSource} from '@/shared/ai/document-source'
 import { workerModelRows } from './core/workerModels'
 /**
  * Claude, bring-your-own-key — the facades every call site uses (runAI, streamCompletion, completeStructured), the
@@ -493,6 +494,7 @@ export function buildPrompt({ action, input, instruction, context, memory, peopl
 
 /** Run an AI action (streams). Resolves with the complete Markdown result. */
 export async function runAI(opts: RunAIOptions): Promise<string> {
+  if(missingDocumentSource(opts))throw new AIError('capability','features.ai.source.documentMissing')
   if (opts.action !== 'autofill' && usesDemo()) {
     // demo answers are canned, never sent — the gate still decides (newer rules, a key typed into the request)
     precheck({ purpose: opts.purpose, sources: [...opts.sources, ...memoryRef(opts.memory)], typed: opts.typed, route: opts.route, carries: carriesOf(opts) })

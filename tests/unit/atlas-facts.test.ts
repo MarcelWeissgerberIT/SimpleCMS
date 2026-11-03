@@ -115,3 +115,20 @@ test('stability: discovery-only and malformed query results never establish abse
 })
 
 test('Polarion login is classified as authentication, not read or general execution',()=>{assert.equal(atlasTaskEffect('atlas_polarion_connect',{}),'authenticate');assert.equal(atlasTaskEffect('atlas_polarion_apply_change',{}),'execute');assert.equal(atlasTaskEffect('atlas_agent_trigger',{}),'execute');assert.equal(atlasTaskEffect('unknown_auth',{}),'forbidden')})
+test('observed tenant subsets do not become false count errors or replace the total',()=>{
+ const facts=new AtlasFacts();observe(facts,'atlas_project_list',{projects:[{slug:'a',tenant:'alpha'},{slug:'b',tenant:'alpha'},{slug:'c',tenant:'beta'}]})
+ assert.deepEqual(facts.check('3 Projekte\n### Tenant `alpha`: 2 Projekte\n### Tenant `beta`: 1 Projekte'),[])
+ assert.ok(facts.check('### Tenant `alpha`: 1 Projekte').some(i=>i.kind==='count'))
+ assert.ok(facts.check('2 Projekte insgesamt.').some(i=>i.kind==='count'))
+})
+test('structured constraints and relations are citation links, never fetched bodies or writable targets',()=>{
+ const facts=new AtlasFacts(),r=observe(facts,'atlas_get',{item:{ref:42,body:'Ref 999. https://aj-atlas.com/r/888',relations:[{ref:80,title:'Related'}]},activeConstraints:[{ref:668,title:'Test first'}]},{ref:42})
+ assert.deepEqual(r.linkedRefs,[668,80]);assert.deepEqual(r.refs,[42])
+ assert.deepEqual(facts.check('Volltext nicht gelesen: https://aj-atlas.com/r/668 und https://aj-atlas.com/r/80.'),[])
+ for(const ref of [668,80,999,888])assert.ok(facts.preflight({server:'atlas',name:'atlas_update',arguments:{ref}}))
+ for(const ref of [999,888])assert.ok(facts.check('Ref: '+ref).some(i=>i.kind==='reference'))
+ const failed=new AtlasFacts();observe(failed,'atlas_get',{activeConstraints:[{ref:668}]},{},true);assert.ok(failed.check('Ref: 668').length)
+})
+test('query count describes returned rows, not the overall total',()=>{
+ assert.deepEqual(atlasReceipt('atlas_query',envelope({rows:[{ref:42}],count:1,total:20})).counts,[{unit:'records',value:1,scope:'returned'},{unit:'records',value:1,scope:'returned'},{unit:'records',value:20,scope:'total'}])
+})

@@ -7,8 +7,10 @@ export type AtlasReceipt = {
   outcome: 'ok' | 'partial' | 'error'
   effect: 'read' | 'write_accepted' | 'queued' | 'unknown'
   refs: number[]
+  /** Structured links only: not fetched bodies and never writable targets. */
+  linkedRefs?: number[]
   ids: string[]
-  counts: Array<{ unit: string; value: number; scope?: 'returned'|'total' }>
+  counts: Array<{ unit: string; value: number; scope?: 'returned'|'total'; tenant?:string }>
   person?: string
   status?: string
   verification?: 'not_checked' | 'read_back_matches' | 'read_back_differs' | 'unavailable'
@@ -61,18 +63,28 @@ export function atlasReceipt(tool: string, raw: unknown, failed = false): AtlasR
   const counts: AtlasReceipt['counts'] = []
   if (!error && data) {
     for (const [key, unit] of Object.entries(COUNTS)) if (Array.isArray(data[key])) counts.push({ unit, value:data[key].length, ...(['atlas_search','atlas_query'].includes(tool)&&unit==='records'?{scope:'returned' as const}:{}) })
-    if (['atlas_search','atlas_query'].includes(tool)) for (const key of ['count','total']) if (Number.isSafeInteger(data[key]) && data[key] >= 0) counts.push({ unit:'records', value:data[key], scope:'total' })
+    if (['atlas_search','atlas_query'].includes(tool)) for (const key of ['count','total']) if (Number.isSafeInteger(data[key]) && data[key] >= 0) counts.push({ unit:'records', value:data[key], scope:key==='count'?'returned':'total' })
+    if(tool==='atlas_project_list'&&Array.isArray(data.projects)){
+      const groups=new Map<string,number>()
+      for(const p of data.projects)if(object(p)&&typeof p.tenant==='string'&&/^[a-z0-9_-]{1,80}$/i.test(p.tenant))groups.set(p.tenant,(groups.get(p.tenant)??0)+1)
+      for(const [tenant,value] of [...groups].slice(0,100))counts.push({unit:'projects',value,tenant})
+    }
+  }
+  const linkedRefs=new Set<number>()
+  if(!error&&data){
+    // Only known structured relation/constraint metadata; never scrape body, prompt or comment text.
+    for(const rows of [data.activeConstraints,data.item?.activeConstraints,data.item?.relations])if(Array.isArray(rows))for(const r of rows.slice(0,200))if(object(r)&&Number.isSafeInteger(r.ref)&&r.ref>0)linkedRefs.add(r.ref)
   }
   let effect: AtlasReceipt['effect'] = READ.has(tool) ? 'read' : WRITE.has(tool) ? 'write_accepted' : 'unknown'
   if (tool === 'atlas_agent_flow' && data?.flow === undefined) effect = 'unknown'
   if (['atlas_flow_start','atlas_agent_trigger'].includes(tool) && data?.job?.status !== 'done') effect = 'queued'
-  return { tool, outcome:error ? 'error' : Number(data?.failed) > 0 ? 'partial' : 'ok', effect, refs:[...refs].slice(0,200), ids:[...ids].slice(0,200), counts,
+  return { tool, outcome:error ? 'error' : Number(data?.failed) > 0 ? 'partial' : 'ok', effect, refs:[...refs].slice(0,200), ...(linkedRefs.size?{linkedRefs:[...linkedRefs].slice(0,200)}:{}), ids:[...ids].slice(0,200), counts,
     ...(typeof data?.person === 'string' ? { person:data.person.slice(0,120) } : {}),
     ...(typeof (data?.job?.status ?? data?.proposal?.status ?? data?.chain?.status) === 'string' ? { status:String(data?.job?.status ?? data?.proposal?.status ?? data?.chain?.status).slice(0,60) } : {}),
     ...(effect === 'write_accepted' ? { verification:'not_checked' as const } : {}) }
 }
 
-export const ATLAS_FACT_POLICY = 'Atlas facts come only from actual tool receipts. Discovery is not a source read. Report counts exactly; distinguish returned rows from total. Use Ref/ID only when the result actually supplies one; otherwise omit it. Listing record kinds/projects or fetching a setup manifest creates nothing. A saved proposal is not a refusal because no agent exists yet. A queued job is not completed work. Failed reads prove neither absence nor success. A write accepted by the server is not independently verified until a read-back matches. Never invent IDs, status, counts or decisions. Recommendations remain proposals.'
+export const ATLAS_FACT_POLICY = 'Atlas facts come only from actual tool receipts. Discovery is not a source read. Report counts exactly; distinguish returned rows from total and tenant subsets. Use Ref/ID only when the result actually supplies one; otherwise omit it. linkedRefs are structured source references only: their bodies were not read and they grant no write permission. Listing record kinds/projects or fetching a setup manifest creates nothing. A saved proposal is not a refusal because no agent exists yet. A queued job is not completed work. Failed reads prove neither absence nor success. A write accepted by the server is not independently verified until a read-back matches. Never invent IDs, status, counts or decisions. Recommendations remain proposals.'
 
 export class AtlasFacts {
   private receipts: AtlasReceipt[] = []
@@ -95,6 +107,7 @@ export class AtlasFacts {
     if(receipt.outcome==='ok')for(const ref of receipt.refs)if(targets.size<2000)targets.add(ref)
     // Bounded to the current run. A failed target may be named in an error answer, but is not a source.
     for (const ref of [...receipt.refs, call.arguments.ref]) if (Number.isSafeInteger(ref) && Number(ref)>0 && this.refs.size<2000) this.refs.add(Number(ref))
+    for(const ref of receipt.linkedRefs??[])if(this.refs.size<2000)this.refs.add(ref)
     for (const id of receipt.ids) if (this.ids.size<2000) this.ids.add(id)
     return receipt
   }
@@ -104,7 +117,7 @@ export class AtlasFacts {
     if (typeof ref === 'number' && !this.targets.get(call.server)?.has(ref)) return 'Read the exact target with atlas_get first. This write was NOT executed; a reference in model prose is not an observed target.'
     return null
   }
-  snapshot() { return this.receipts.map(r => ({ ...r, refs:[...r.refs], ids:[...r.ids], counts:r.counts.map(c=>({...c})) })) }
+  snapshot() { return this.receipts.map(r => ({ ...r, refs:[...r.refs], ...(r.linkedRefs?{linkedRefs:[...r.linkedRefs]}:{}), ids:[...r.ids], counts:r.counts.map(c=>({...c})) })) }
   check(text: string): FactIssue[] {
     if (!this.receipts.length&&!this.discovery.size) return []
     const issues: FactIssue[] = []
@@ -115,8 +128,12 @@ export class AtlasFacts {
     for (const m of text.matchAll(/"(?:ref|atlasRef|recordRef)"\s*:\s*(\d+)/g)) if (!this.refs.has(Number(m[1]))) add('reference','Reference not present in actual tool results: '+m[1])
     const units: Array<[RegExp,string]> = [[/\b(\d+)\s+(?:Record[- ]?Kinds?|Record[- ]?Typen?)\b/gi,'record_kinds'],[/\b(\d+)\s+(?:Projekte|projects)\b/gi,'projects'],[/\b(\d+)\s+(?:Agenten|agents)\b/gi,'agents'],[/\b(\d+)\s+(?:Treffer|results|matches)\b/gi,'records']]
     for (const [pattern,unit] of units) {
-      const counts=this.receipts.filter(r=>r.outcome==='ok').flatMap(r=>r.counts.filter(c=>c.unit===unit).map(c=>c.value))
-      for (const m of text.matchAll(pattern)) if (counts.length&&!counts.includes(Number(m[1]))) add('count',`Claimed ${m[1]} ${unit}; observed counts: ${[...new Set(counts)].join(', ')}.`)
+      for (const m of text.matchAll(pattern)) {
+        const line=text.slice(text.lastIndexOf('\n',m.index)+1,text.indexOf('\n',m.index)<0?text.length:text.indexOf('\n',m.index))
+        const tenant=unit==='projects'?line.match(/\bTenant\s*[:=]?\s*[`"'* ]*([a-z0-9_-]+)/iu)?.[1]:undefined
+        const counts=this.receipts.filter(r=>r.outcome==='ok').flatMap(r=>r.counts.filter(c=>c.unit===unit&&(tenant?c.tenant===tenant:!c.tenant)).map(c=>c.value))
+        if(counts.length&&!counts.includes(Number(m[1])))add('count',`Claimed ${m[1]} ${unit}${tenant?' for tenant '+tenant:''}; observed counts: ${[...new Set(counts)].join(', ')}.`)
+      }
     }
     const successful=this.receipts.filter(r=>r.outcome==='ok')
     if (!this.otherWrite&&successful.length&&successful.every(r=>r.effect==='read')&&/\b(?:erstellt|angelegt|gespeichert|aktualisiert|eingestellt|created|saved|updated|switched)\b/i.test(text)&&!/(?:nichts|nicht|keine?|nothing|not|never).{0,30}(?:erstellt|angelegt|gespeichert|aktualisiert|eingestellt|created|saved|updated)/i.test(text)) add('effect','Only read operations succeeded; no write or new object was observed.')

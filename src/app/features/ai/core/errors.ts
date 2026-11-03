@@ -51,6 +51,7 @@ export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: stri
   if(code==='bad_request'&&v.detail==='features.ai.analysis.held')return t(v.detail)
   if(code==='rate_limit'&&v.detail==='features.ai.local.queueFull')return t(v.detail)
   if(v.detail==='features.ai.mock.held')return t(v.detail)
+  if(v.detail==='features.ai.source.documentMissing')return t(v.detail)
   if(v.detail==='features.ai.quantum.blocked')return t(v.detail)
   if(v.detail==='features.ai.local.unverifiedFacts')return t(v.detail)
   // Local material errors survive stored-run reconstruction; only known keys become UI text.

@@ -10,6 +10,12 @@ test('the observed invalid tags comparison never reaches the Atlas client',async
  await assert.rejects(runAtlasMcp({...request,name:'atlas_search',arguments:{aql:'project = flux-part-cnsx AND tags = "requirement"'}},new AbortController().signal,()=>{created=true;throw Error('Must not connect')}),(e:any)=>e.code==='mcp_query'&&e.message.includes('No server call was sent'))
  assert.equal(created,false)
 })
+test('conflicting topic and AQL are held before any Atlas connection',async()=>{
+ let created=false
+ const args={q:'calibration version history',aql:'project = flux-part-cnsx AND title ~ "calibration view"',tenant:'analytik-jena'}
+ await assert.rejects(runAtlasMcp({...request,name:'atlas_search',arguments:args},new AbortController().signal,()=>{created=true;throw Error('Must not connect')}),(e:any)=>e.code==='mcp_query'&&e.message.includes('aql overrides q'))
+ assert.equal(created,false)
+})
 test('personal Atlas proxy rejects arbitrary destinations, headers and malformed tokens',()=>{
  assert.equal(checkAtlasMcp(request),true)
  for(const patch of [{url:'https://eh-atlas.com/api/atlas/mcp'},{url:'http://127.0.0.1:8080'},{url:'https://aj-atlas.com/api/atlas/mcp?token=x'},{token:secret+'\n'},{headers:{Cookie:'private'}}])assert.equal(checkAtlasMcp({...request,servers:[{...server,...patch}]}),false)

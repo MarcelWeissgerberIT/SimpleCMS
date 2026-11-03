@@ -9,3 +9,12 @@ test('the observed tags equality error is held without rewriting scope or guessi
  for(const args of [{q:'tags = requirement'},{aql:'project = flux-part-cnsx AND title = "tags = requirement"'},{aql:"title = 'tags = requirement'"},{aql:'custom.tags = x'},{aql:'tagship = x'},{aql:'project = flux-part-cnsx'}])assert.equal(atlasQueryProblem('atlas_search',args),null)
  assert.equal(atlasQueryProblem('atlas_update',{aql:'tags = x'}),null)
 })
+test('a supplied topic is never silently replaced by a different AQL query',()=>{
+ const args={q:'calibration version history',aql:'project = flux-part-cnsx AND title ~ "calibration view"',tenant:'analytik-jena',project:'flux-part-cnsx'}
+ const before=structuredClone(args)
+ for(const tool of ['atlas_search','atlas_query'])assert.match(atlasQueryProblem(tool,args)??'',/aql overrides q.*No server call was sent/)
+ assert.deepEqual(args,before)
+ assert.equal(atlasQueryProblem('atlas_search',{...args,aql:''}),null)
+ assert.equal(atlasQueryProblem('atlas_search',{...args,q:' '}),null)
+ assert.equal(atlasQueryProblem('atlas_search',{q:args.q,project:args.project,tenant:args.tenant}),null)
+})

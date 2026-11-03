@@ -26,3 +26,6 @@ Laufnachweise erfassen jetzt auch gewöhnliche Terminalaufträge sowie fehlgesch
 
 
 Die Seiten-KI hält Werkzeugprotokoll, Quellennachweise, Fehler und Antwort in einem gemeinsamen Scrollbereich. Einfügen und andere Ergebnisaktionen bleiben getrennt erreichbar. Ein dauerhafter Hinweis zählt fehlgeschlagene und erfolgreiche Werkzeugaufrufe; **Fehler anzeigen** springt zum betroffenen Aufruf mit dessen Suchanfrage. Syntaxfehler, Anfragelimits und Serverfehler bekommen eigene Hinweise. Eine unbekannte Ursache wird nicht als falscher Token oder ausgeschalteter Worker ausgegeben.
+
+
+Bei Dokument-Aufträgen auf einer leeren Seite meldet ONE jetzt vor der Modellanfrage, wenn nur der Titel und kein Dokumentinhalt mitgegeben wurde. Öffne und markiere die importierte Quelle oder nutze die KI am Dateiblock. Atlas-Suchaufrufe mit gleichzeitigem Suchtext und überschreibender AQL-Abfrage werden vor dem Versand zur Korrektur zurückgegeben. Die Faktenprüfung unterscheidet Gesamtzahlen von belegten Tenant-Teilmengen und strukturierte Quellenverweise von tatsächlich gelesenen oder beschreibbaren Records.

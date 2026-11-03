@@ -26,3 +26,6 @@ Run receipts now also cover ordinary terminal tasks, failed runs and stopped att
 
 
 Page AI keeps the tool log, source receipts, errors and answer in one scroll area. Insert and other result actions remain separately accessible. A persistent notice counts failed and successful tool calls; **Show failed calls** jumps to the affected call and its request. Query syntax, rate limits and server failures have distinct guidance. An unknown cause is not presented as an invalid token or an offline worker.
+
+
+For document-analysis requests on an empty page, ONE now explains before calling the model when only a title was supplied. Open and select the imported source or use AI on its file block. Atlas searches combining a topic with an overriding AQL query are held before dispatch for correction. Fact checks distinguish totals from observed tenant subsets and structured source links from records actually read or available as write targets.
