@@ -17,6 +17,8 @@ export interface McpCall {
   state: 'run' | 'ok' | 'err'
   /** an error result's text (clipped) */
   error?: string
+  /** Host rejected this model request before contacting the server; a corrected call can recover. */
+  notExecuted?: boolean
   /** Host-derived metadata, never a model-authored status or summary. */
   receipt?: AtlasReceipt
   input?: Record<string,unknown>

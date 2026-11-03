@@ -1,6 +1,7 @@
 import type {MockSources} from '@/shared/ai/designMock'
 import {mcpConnectionMessage} from '@/shared/ai/connection-problem'
 import {TaskBlocked,type TaskSession} from '@/shared/quandprofile/task-session'
+import {atlasTransferChoice,atlasTransferEffectAllowed} from '@/shared/quandprofile/atlas-transfer'
 import {LiveAuditError,type LiveAudit} from './liveAudit'
 import {McpBindings,selectMcpSchemas,type DiscoveredMcpTool} from '@/shared/mcp/bindings'
 import {McpEvidence} from '@/shared/mcp/evidence'
@@ -26,6 +27,7 @@ const connectionProblem=(e:unknown)=>mcpConnectionMessage(e)
 export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000,audit?:LiveAudit,task?:TaskSession,mockSources?:MockSources) {
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
   const schemas=new Map<string,DiscoveredMcpTool>(),discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
+  const readBodies=new Set<string>(),bodyKey=(server:string,args:Record<string,unknown>)=>JSON.stringify([server,args.tenant??null,args.ref])
   const request=(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
   const discoveryCache=new Map<string,{schemas:DiscoveredMcpTool[];result:string}>()
   let attempts=0
@@ -80,6 +82,15 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     let dispatched=false
     try{
       const actual={server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}
+      const report=task?.report(),mode=report&&atlasTransferChoice(report.compiled.contract.goal)
+      const wrongMode=mode&&!atlasTransferEffectAllowed(mode,actual.name,atlasTaskEffect(actual.name,actual.arguments))
+      const needsBody=mode&&['atlas_update','atlas_comment'].includes(actual.name)&&!readBodies.has(bodyKey(actual.server,actual.arguments))
+      const needsSource=mode==='create'&&atlasTaskEffect(actual.name,actual.arguments)==='write'&&!report?.evidence.atlas_reads
+      if(wrongMode||needsBody||needsSource){
+        const error=wrongMode?'The human selected Atlas '+mode+' delivery. Use only that write operation; ask before changing modes.':needsSource?'Read the actual Atlas project context and relevant source material before creating records. The write was not executed.':'Read the exact target body with atlas_get first in this task, then inspect relevant comments and check duplicates. The write was not executed.'
+        event({...activity,state:'err',error,notExecuted:true})
+        return JSON.stringify({isError:true,oneNotExecuted:true,error})
+      }
       const blocked=facts.preflight(actual)
       if(blocked){await audit?.blocked(args.server,args.name,args.arguments,blocked);event({...activity,state:'err',error:blocked});return JSON.stringify({isError:true,oneNotExecuted:true,error:blocked})}
       const selected=servers.find(s=>s.name===args.server)
@@ -91,7 +102,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       if(typeof out?.result!=='string')throw new AIError('mcp')
       const failed=JSON.parse(out.result).isError===true
       task?.observe(args.name.startsWith('atlas_')?'atlas':'other',!failed,atlasTaskEffect(actual.name,actual.arguments)==='read'&&(actual.name!=='atlas_whoami'||task.identityOnly()),false,(!['atlas_whoami','atlas_record_kinds','atlas_setup_bootstrap','atlas_setup_changelog'].includes(actual.name)||actual.name==='atlas_whoami'&&task?.identityOnly()===true),actual.name)
-      if(!failed&&actual.name==='atlas_get'&&atlasReceipt(actual.name,out.result).outcome==='ok'){const item=atlasData(out.result)?.item;if(item&&Number.isSafeInteger(item.ref)&&typeof item.body==='string'&&item.body.trim())task?.observeSource('atlas',String(item.ref))}
+      if(!failed&&actual.name==='atlas_get'&&atlasReceipt(actual.name,out.result).outcome==='ok'){const item=atlasData(out.result)?.item;if(item&&Number.isSafeInteger(item.ref)&&typeof item.body==='string'){if(item.body.trim())task?.observeSource('atlas',String(item.ref));readBodies.add(bodyKey(actual.server,{...actual.arguments,ref:item.ref}))}}
       if(!failed){const schema=schemas.get(JSON.stringify([actual.server,actual.name]));const effect=atlasTaskEffect(actual.name,actual.arguments);if(schema&&['read','write','execute'].includes(effect))task?.capture({kind:'tool',server:actual.server,endpoint:selected.url,tool:actual.name,schema:schema.inputSchema,args:actual.arguments,effect:effect as 'read'|'write'|'execute'})}
       const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
       if(receipt)receipt.quantum=proof

@@ -27,7 +27,7 @@ export async function getProgramRun(id:string){
  runCache.set(key,run);if(runCache.size>5)runCache.delete(runCache.keys().next().value!)
  return run
 }
-export async function saveProgramRun(run:ProgramRun,scope:ReturnType<typeof programScope>){guard(scope);if(run.inspection)readProgramInspection(run.inspection);if(looksLikeKey(JSON.stringify(run)))throw Error('Receipt may contain credentials; not saved.');if(scope.cloud)await request('POST',`api/workspaces/${scope.cloud}/programs/runs`,run);else await local<ProgramRun[]>('runs',scope.key,rows=>{guard(scope);return [run,...(rows??[]).filter(r=>r.id!==run.id)].slice(0,100)})}
+export async function saveProgramRun(run:ProgramRun,scope:ReturnType<typeof programScope>){guard(scope);if(run.inspection)readProgramInspection(run.inspection);if(looksLikeKey(JSON.stringify(run)))throw Error('Receipt may contain credentials; not saved.');if(scope.cloud)await request('POST',`api/workspaces/${scope.cloud}/programs/runs`,run);else await local<ProgramRun[]>('runs',scope.key,rows=>{guard(scope);return [run,...(rows??[]).filter(r=>r.id!==run.id)].slice(0,100)});if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('one-program-runs-changed',{detail:scope.key}))}
 const archived=new Map<string,SavedProgram>()
 /** Called only after a completed terminal task; no failed run or sign-in becomes an executable approval. */
 export async function archiveProgram(taskId:string,spec:ProgramSpec,answer:string,route:ProgramRun['route'],scope:ReturnType<typeof programScope>,startedAt=Date.now(),report?:TaskReport){

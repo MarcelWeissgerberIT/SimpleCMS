@@ -83,3 +83,13 @@ test('natural-language connection checks require actual identity evidence withou
  analysis.observe('atlas',true,analysis.identityOnly(),false,true,'atlas_whoami')
  assert.throws(()=>analysis.finish('An unsupported briefing'),TaskBlocked);analysis.close()
 })
+
+test('human Atlas delivery choice is host-enforced and bound in the compiler goal',async()=>{
+ const {atlasTransferTask}=await import('../../src/shared/quandprofile/atlas-transfer.ts')
+ const goal=atlasTransferTask('Bitte die Entscheidung nach Atlas bringen.','comment')
+ const task=new TaskSession({...contract(),goal,external_write:true,allowed_tools:['atlas:atlas_comment','atlas:atlas_update','atlas:atlas_create','stage']},{compile:r=>runtime.task(r),signature:()=>'',check:()=>{}})
+ assert.equal(JSON.parse(task.packet()).goal,goal)
+ task.dispatch('atlas:atlas_comment','write')
+ for(const [tool,effect]of [['atlas:atlas_update','write'],['atlas:atlas_create','write'],['stage','stage']] as const)assert.throws(()=>task.dispatch(tool,effect),/human selected Atlas delivery mode/)
+ task.close()
+})

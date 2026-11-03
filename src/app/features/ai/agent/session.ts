@@ -1,6 +1,8 @@
 import {readProgram,workflowTarget} from '@/shared/quandprofile/program'
 import {taskProgramDraft} from '../core/taskContract'
-import {programScope,archiveProgram} from '../programs/storage'
+import {programScope,archiveProgram,saveProgramRun} from '../programs/storage'
+import {terminalRun} from '../programs/terminalRun'
+import type {ProgramRun} from '@/shared/quandprofile/program'
 import {openPrograms} from '../programs/dialog'
 import type {ProgramInvocation} from '../programs/runner'
 import { repoFileRefs, repoFileContext } from '@/shared/repo-files'
@@ -60,6 +62,8 @@ import { isSettled, onSettled } from '../../recorder/settled'
 import { addToLines, tapSignal } from '../core/meter'
 import type { LedgerEntry, ProviderId, Usage } from '@/shared/ai/types'
 import { stepText } from '../Receipt'
+import {atlasTransferTask,needsAtlasTransferChoice,naturalAtlasTransferMode} from '@/shared/quandprofile/atlas-transfer'
+import {cancelAtlasTransferChoice,requestAtlasTransferChoice} from './AtlasTransferChoice'
 
 const set = useAgent.setState
 const get = useAgent.getState
@@ -94,6 +98,8 @@ let epoch = 0
 let convId = newId()
 /** each task's ledger source in this conversation (its memory proposal request is the task's too) */
 const taskSources = new Map<number, string>()
+const pendingReceipts=new Map<number,{run:ProgramRun;scope:ReturnType<typeof programScope>}>()
+export async function retryTurnReceipt(n:number){const item=pendingReceipts.get(n);if(!item)return;const current=()=>pendingReceipts.get(n)===item&&item.scope.key===programScope().key;try{await saveProgramRun(item.run,item.scope);if(current()){pendingReceipts.delete(n);patchTurn(n,{receipt:'saved'})}}catch{if(current())patchTurn(n,{receipt:'failed'})}}
 /** what a task went with (the conversation before it, its references and mentions) — "Run the task again" */
 const turnSnap = new Map<number, { before: BetaMessageParam[]; provider: ProviderId | null; refs: TermRef[]; mentions: TermMention[] }>()
 /** this conversation's applied writes of pipeline tasks (fingerprint before → after): a task action staged before them still applies */
@@ -394,13 +400,23 @@ export function continueTask(): Promise<void> {
  * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
 export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
-  const task = (raw ?? get().draft).trim()
+  let task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
+  if(!opts.program&&!opts.continues&&needsAtlasTransferChoice(task,get().turns.map(turn=>turn.task))&&(mcpSetup??currentSetup()).servers.some(s=>/atlas/iu.test(s.name+' '+s.url))){
+    const scope=JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()])
+    set({autorun:false})
+    const mode=await requestAtlasTransferChoice(task)
+    if(!mode||get().status==='running'||scope!==JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()]))return
+    task=atlasTransferTask(task,mode)
+  }
+  const naturalMode=!opts.program&&!opts.continues?naturalAtlasTransferMode(task,get().turns.map(turn=>turn.task)):null
+  if(naturalMode&&(mcpSetup??currentSetup()).servers.some(s=>/atlas/iu.test(s.name+' '+s.url)))task=atlasTransferTask(task,naturalMode)
   const n = get().turns.length + 1
   const prevTurn = opts.continues ? get().turns[get().turns.length - 1] : undefined
   let runProvider: ProviderId | null = null
   let runModel = ''
   let providerChangeNoted = false
+  let receiptSaved=false
   const ac = new AbortController()
   controller = ac
   setStopHandler(() => ac.abort())
@@ -540,11 +556,11 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       if(call.contract){if(here())patchTurn(n,{contract:call.contract});return}
       sawMcp = true
       const key=JSON.stringify([call.server,call.tool])
-      if(call.state==='err')failedMcp.add(key)
+      if(call.state==='err'&&!call.notExecuted)failedMcp.add(key)
       if(call.state==='ok')failedMcp.delete(key)
       if (!here()) return
       const step = get().steps.find((x) => x.mcp?.id === call.id)
-      const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error, receipt:call.receipt }
+      const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error, notExecuted:call.notExecuted, receipt:call.receipt }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
       else set((s) => ({ calls: s.calls + (call.skipped ? 0 : 1), steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'mcp', arg: call.arg, state: call.state, startedAt: Date.now(), mcp }] }))
     },
@@ -685,19 +701,25 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
         if(report&&!report.compiled.contract.authenticate&&['ready','accepted'].includes(report.phase)){
           let spec:ReturnType<typeof taskProgramDraft>|undefined
           try{spec=taskProgramDraft(report.id)}catch{ /* Not every conversation contains an executable source-backed task. */ }
-          if(spec)try{await archiveProgram(report.id,spec,answer,{provider:runProvider??'',model:runModel},archiveScope,get().turns.find(x=>x.n===n)?.startedAt,report);if(here())note(t('features.ai.program.autoSaved'))}catch{if(here())note(t('features.ai.program.autoFailed'))}
+          if(spec)try{await archiveProgram(report.id,spec,answer,{provider:runProvider??'',model:runModel},archiveScope,get().turns.find(x=>x.n===n)?.startedAt,report);receiptSaved=true;if(here()){patchTurn(n,{receipt:'saved'});note(t('features.ai.program.autoSaved'))}}catch{/* A private terminal-only receipt is still saved below. */}
         }
       }
     }
   } catch (e) {
     const detail=e instanceof AIError?e.detail:e instanceof Error?e.message:String(e)
-    const err = detail?.startsWith('Typed AI check blocked:')||e instanceof ToolInputError?new AIError('bad_request',detail):e instanceof AIError ? e : new AIError('unknown',detail)
+    const missingSources=detail?.startsWith('Compiled result check blocked:')&&detail.includes('task_sources_observed')
+    const err = missingSources?new AIError('bad_request',t('features.ai.transfer.sourcesMissing')):detail?.startsWith('Typed AI check blocked:')||e instanceof ToolInputError?new AIError('bad_request',detail):e instanceof AIError ? e : new AIError('unknown',detail)
     if (err.code === 'aborted') finish('stopped')
     // a server that rejected its token: named, so the terminal can offer to sign in to it
     else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
     // a key in the task: the text goes back into the prompt to be fixed (never into the history)
     if (err.code === 'key_in_text' && here() && !get().draft.trim()) set({ draft: task })
   } finally {
+    const ended=here()?get().turns.find(turn=>turn.n===n):undefined
+    if(!opts.program&&!receiptSaved&&ended&&ended.status!=='running'&&ended.error?.code!=='key_in_text'){
+      pendingReceipts.set(n,{run:terminalRun(ended,get().steps,{provider:runProvider??'',model:runModel}),scope:archiveScope})
+      await retryTurnReceipt(n)
+    }
     // a card still open (the task ended another way): its wait ends as a stop — the card and the governor's mark go
     if (get().halt?.n === n) {
       const fn = haltAnswer
@@ -981,6 +1003,8 @@ export function pickRedo(input: string) {
 
 /** Forget the session: conversation, steps and every proposal that was not applied. */
 export function newTask() {
+  pendingReceipts.clear()
+  cancelAtlasTransferChoice()
   controller?.abort()
   controller = null
   setStopHandler(null)

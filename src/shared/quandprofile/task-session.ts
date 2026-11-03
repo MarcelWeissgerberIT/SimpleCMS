@@ -1,6 +1,7 @@
 import {resolveTypedAI,verifyTypedSource,sourceKey,type TypedSource} from './typed-ai.ts'
 import {taskMcpDiscoveryQuery} from '../mcp/discovery.ts'
 import {atlasIdentityTask} from './task.ts'
+import {atlasTransferChoice,atlasTransferEffectAllowed} from './atlas-transfer.ts'
 import type {CapturedStep} from './program.ts'
 import type {TaskCompiled,TaskContract,TaskEffect,TaskPhase,TaskQuestion,TaskReport,TaskRequest} from './task.ts'
 import {taskEvidence} from './task.ts'
@@ -51,6 +52,8 @@ export class TaskSession {
   /** Only selected host definitions can extend the exact tool catalogue. */
   expose(names:string[]){const next=[...new Set([...this.contract.allowed_tools,...names])].sort();if(next.length>256)throw new TaskBlocked('Compiled tool catalogue limit.');if(JSON.stringify(next)!==JSON.stringify(this.contract.allowed_tools)){this.contract.allowed_tools=next;this.contract.revision++}}
   dispatch(tool:string,effect:TaskEffect,target:string|null=null){
+    const delivery=atlasTransferChoice(this.contract.goal)
+    if(delivery&&!atlasTransferEffectAllowed(delivery,tool,effect))throw new TaskBlocked('The human selected Atlas delivery mode '+delivery+'. Only that operation and source reads are allowed. Ask the person before changing the delivery mode.')
     const c=this.check('dispatch',tool,effect,target)
     if(c.decision!=='allow'){this.evidence.denied_actions++;this.phase='blocked';this.publish();const typed=c.findings.filter(f=>f.id.startsWith('typed_')&&f.hard&&f.status!=='verified');if(typed.length)throw new TaskBlocked('Typed AI check blocked: '+typed.map(f=>f.id).join(', '));throw new TaskBlocked('Compiled task blocked this action. Read-only bounds, an unresolved decision, unknown effects or a changed workspace/provider prevent dispatch. Do not retry the same effect. Continue independent reads or request a precise prerequisite decision after inspecting sources.')}
     return this.report()

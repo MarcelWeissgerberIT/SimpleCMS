@@ -72,7 +72,7 @@ export interface AgentStep {
   kind: 'tool' | 'note' | 'mcp'
   tool?: ToolName
   /** kind 'mcp': the call (server, tool name, the error text of a failed call) */
-  mcp?: { id: string; server: string; tool: string; error?: string; receipt?: import('@/shared/mcp/facts').AtlasReceipt }
+  mcp?: { id: string; server: string; tool: string; error?: string; notExecuted?:boolean; receipt?: import('@/shared/mcp/facts').AtlasReceipt }
   /** what the tool was asked for (a query, a page title …) */
   arg?: string
   /** readout after the call: "4 results", "staged #2" */
@@ -342,6 +342,7 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  receipt?:'saved'|'failed'
   mocks?:import('@/shared/ai/designMock').DesignMock[]
   program?:{id:string;version:number;hash:string}
   contract?:import('@/shared/quandprofile/task').TaskReport

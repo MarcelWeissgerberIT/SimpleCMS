@@ -17,3 +17,9 @@ BA-/PO-Analysen verlieren lange Absätze und kurze Überschriften nicht mehr sti
 
 
 Beim gemeinsamen Claude-Zugang wartet der Aufgabenstart auf die zentrale Freigabe. Eine vorübergehend nicht geladene Konfiguration wird als Verbindungsproblem erklärt und verlangt keinen persönlichen Teilnehmer-Key.
+
+
+Bei unklaren Atlas-Übertragungen fragt ONE nach der Ablage: **neue Records**, **vorhandenen Inhalt aktualisieren** oder **Kommentare ergänzen**. Die Wahl begrenzt die erlaubten Schreibwerkzeuge dieses Auftrags. Zielinhalte werden vor Kommentaren und Updates gelesen; ein Übertragungsnachweis trennt von Atlas angenommene Schreibvorgänge von durch Rücklesen bestätigten Ergebnissen. Auch bei einem späteren Fehler bleiben angenommene Teilschritte sichtbar. Die Auswahl allein bestätigt keine fachlichen Entscheidungen.
+
+
+Laufnachweise erfassen jetzt auch gewöhnliche Terminalaufträge sowie fehlgeschlagene und gestoppte Versuche. Diese Verlaufsbelege sind keine ausführbaren Kompilate. Sie enthalten Auftrag, Ergebnis oder Teilantwort, Fehler und aufgezeichnete Werkzeugschritte. Der Verlauf aktualisiert sich nach dem Speichern und beim Zurückkehren; Speichern-Fehler bleiben sichtbar und können erneut versucht werden. Ältere, damals nicht protokollierte Antworten werden dadurch nicht nachträglich rekonstruiert.

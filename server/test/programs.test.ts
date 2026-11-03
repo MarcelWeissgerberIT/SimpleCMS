@@ -76,3 +76,22 @@ test('private inspection snapshots validate packet integrity, stay actor scoped 
 
  }finally{await server.stop()}
 })
+
+test('terminal receipts include failed work without creating executable programs and remain actor scoped',async()=>{
+ const server=await startServer({AUTH_IP_LIMIT:'1000'})
+ try{
+  const alice=await signIn(server,'alice@terminal.test'),bob=await signIn(server,'bob@terminal.test')
+  const ws=(await alice.post('/api/workspaces',{name:'Receipts'})).body.id,path=`/api/workspaces/${ws}/programs`
+  const invite=(await alice.post(`/api/workspaces/${ws}/invites`,{email:'bob@terminal.test',role:'member'})).body.link;await bob.post('/api/invites/'+invite.split('#/invite/')[1]+'/accept')
+  const id=randomUUID(),task='Read the Atlas target and record the blocked transfer.',hash=programDigest({task})
+  const run={id,programId:id,version:1,hash,inputHash:hash,route:{provider:'anthropic',model:'claude-opus-5-5'},startedAt:Date.now()-1000,finishedAt:Date.now(),status:'failed',steps:[],answer:'Partial result',error:'The write failed.',terminal:{task,tools:[{id:'s1',name:'atlas_comment',server:'atlas',status:'err',at:Date.now(),error:'Not executed',notExecuted:true}]}}
+  assert.equal((await alice.post(path+'/runs',run)).status,201)
+  assert.equal((await alice.get(path)).body.programs.length,0)
+  assert.equal((await bob.get(path+'/runs')).body.runs.length,0)
+  assert.equal((await bob.get(path+'/runs/'+id)).status,404)
+  assert.equal((await alice.get(path+'/runs/'+id)).body.terminal.tools[0].name,'atlas_comment')
+  const preview=(await alice.get(path+'/runs?summary=1')).body.runs[0];assert.equal(preview.status,'failed');assert.equal(preview.terminal.task,task);assert.deepEqual(preview.terminal.tools,[]);assert(!('answer'in preview))
+  assert.equal((await alice.post(path+'/runs',{...run,id:randomUUID(),hash:'0'.repeat(64)})).status,400)
+  assert.equal((await alice.post(path+'/runs',{...run,user_id:'bob'})).status,400)
+ }finally{await server.stop()}
+})

@@ -17,3 +17,9 @@ BA/PO analysis no longer silently drops long paragraphs or short headings. Ambig
 
 
 For shared Claude access, task startup waits for central availability. A temporarily unavailable configuration is explained as a connection problem, without asking a participant to enter a personal key.
+
+
+For ambiguous Atlas transfers, ONE asks where the result belongs: **new records**, **updates to existing content**, or **comments**. The choice narrows this task’s permitted write tools. Target bodies are read before comments or updates; a transfer receipt distinguishes writes accepted by Atlas from results confirmed by read-back. Accepted partial steps remain visible after a later failure. The delivery choice does not approve domain decisions.
+
+
+Run receipts now also cover ordinary terminal tasks, failed runs and stopped attempts. These historical entries are not executable programs. They retain the request, result or partial answer, error and recorded tool steps. History refreshes after saves and when returning; failed receipt saves remain visible and can be retried. Earlier responses that were never recorded are not reconstructed retroactively.

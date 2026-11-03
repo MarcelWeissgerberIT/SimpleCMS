@@ -1,4 +1,5 @@
 import type {ReviewProfile} from './review-profile.ts'
+import {atlasTransferChoice} from './atlas-transfer.ts'
 import type {EvidenceQuantum,QuantumStatus} from './runtime.ts'
 export type TaskContract={review_profile?:ReviewProfile;id:string;revision:number;goal:string;instruction_context:string;input_hash:string;scope_hash:string;source_pointers:string[];allowed_tools:string[];read_only:boolean;external_write:boolean;execute:boolean;authenticate?:boolean;requires_sources:boolean;search_one:boolean;search_atlas:boolean;output:'text'|'json';required_literals:string[];decisions:Array<{question:string;answer:string}>}
 export type TaskEvidence={one_pages?:string[];atlas_records?:string[];typed_sources?:string[];typed_sources_current?:boolean;other_sources?:string[];source_reads:number;atlas_reads:number;one_checked:boolean;atlas_checked:boolean;staged_changes:number;issues:number;denied_actions:number;pending_decisions:number;scope_current:boolean;provider_checked:boolean;answer:string|null;human_accepted:boolean}
@@ -13,6 +14,7 @@ export const taskEvidence=():TaskEvidence=>({source_reads:0,atlas_reads:0,one_ch
 
 /** Only the trusted user instruction is inspected. Source text and model-proposed plans never grant capabilities. */
 export function taskBoundaries(goal:string){
+  if(atlasTransferChoice(goal))return {readOnly:false,externalWrite:true,execute:false,authenticate:false}
   // Quoted examples and negated actions never grant a remote capability.
   const text=goal.toLowerCase().replace(/["“„`][^"“”„`]*["”`]/g,'')
   const readOnly=/(?:nur (?:lesen|lesend)|rein lesend|read[ -]only|only read|do not (?:write|change)|nichts (?:anlegen|ändern|aendern)|keine (?:änderungen|aenderungen))/u.test(text)

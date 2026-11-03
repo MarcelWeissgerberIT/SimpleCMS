@@ -2,6 +2,8 @@ import {openReviewProfiles} from '../profiles/dialog'
 import {DesignMockCard} from './DesignMockCard'
 import {openPrograms} from '../programs/dialog'
 import {TaskContractCard} from '../mcp-servers/TaskContractCard'
+import {atlasTransferOriginal} from '@/shared/quandprofile/atlas-transfer'
+import {AtlasTransferSummary,AtlasTransferDock} from './AtlasTransferSummary'
 import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
 import {AtlasFactsView} from '../mcp-servers/AtlasFacts'
 /**
@@ -27,7 +29,7 @@ import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
 import { focusIsNowhere } from '../../../ui/focus'
@@ -261,6 +263,7 @@ export default function AgentSheet() {
           </div>
         )}
         <McpChanged />
+        <AtlasTransferDock/>
         <Prompt disabled={!hasKey} onReview={focusReview} />
         <Foot />
       </div>
@@ -585,7 +588,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
         </span>
         <p className="term-turn__task">
           {turn.continues ? <span className="term-turn__cont">{t('features.agent.continue.turn', { n: pad(turn.continues) })} · </span> : null}
-          {turn.task}
+          {atlasTransferOriginal(turn.task)}
         </p>
         <span className="term-turn__meta">
           {pad(turn.n)} · <Elapsed start={turn.startedAt} end={turn.endedAt} />
@@ -621,6 +624,8 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock}/>)}
       <TurnMedia n={turn.n} />
       <TurnHalt n={turn.n} />
+      <AtlasTransferSummary turn={turn} steps={steps}/>
+      {turn.receipt&&<p className="term-note" role="status">{t('features.ai.program.terminal.'+turn.receipt)}{turn.receipt==='failed'&&<button className="btn btn--sm" onClick={()=>void retryTurnReceipt(turn.n)}>{t('features.ai.program.terminal.retry')}</button>}</p>}
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
       {turn.status === 'limit' && <LimitNote last={last} />}
       {turn.status === 'error' && turn.error && !last && <TurnError error={turn.error} n={turn.n} last={false} />}

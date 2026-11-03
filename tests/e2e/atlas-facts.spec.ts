@@ -38,7 +38,7 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
    expect(await dialog.locator('.quantum-cube__evidence').first().getAttribute('data-quantum-id')).toBe(bound)
    await expect(dialog.locator('.quantum-cube__relations li')).toHaveCount(1)
 
-   const before=await dialog.locator('svg[role=img] path').first().getAttribute('d');await dialog.getByRole('button',{name:'Rotate cube right'}).click();expect(await dialog.locator('svg[role=img] path').first().getAttribute('d')).not.toBe(before)
+   const before=await dialog.locator('svg[role=group] path').first().getAttribute('d');await dialog.getByRole('button',{name:'Rotate cube right'}).click();expect(await dialog.locator('svg[role=group] path').first().getAttribute('d')).not.toBe(before)
    await dialog.getByText('Bound values and dependencies',{exact:true}).click();await expect(dialog).toContainText('https://atlas.example.org');await expect(dialog).toContainText('atlas_get')
    for(const theme of ['light','dark'])for(const width of [1440,390]){
     await page.setViewportSize({width,height:900});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)

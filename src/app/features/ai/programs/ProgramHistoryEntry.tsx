@@ -6,7 +6,7 @@ import {useRunDetail} from './useRunDetail'
 import {ProgramRunResult} from './ProgramRunResult'
 export function ProgramHistoryEntry({run,name}:{run:ProgramRunPreview;name:string}){
  const t=useT(),[open,setOpen]=useState(false)
- return <details onToggle={e=>setOpen(e.currentTarget.open)}><summary><strong>{name}</strong><span>V{run.version} · {run.hash.slice(0,12)} · {t('features.ai.program.status.'+run.status)} · {new Date(run.startedAt).toLocaleString()}</span></summary>{open&&<RunBody preview={run}/>}</details>
+ return <details onToggle={e=>setOpen(e.currentTarget.open)}><summary><strong>{name}</strong><span>{run.terminal?t('features.ai.program.terminal.receipt'):'V'+run.version} · {run.hash.slice(0,12)} · {t('features.ai.program.status.'+run.status)} · {new Date(run.startedAt).toLocaleString()}</span></summary>{open&&<RunBody preview={run}/>}</details>
 }
 function RunBody({preview}:{preview:ProgramRunPreview}){
  const t=useT(),{run,loading,error,retry}=useRunDetail(preview)
