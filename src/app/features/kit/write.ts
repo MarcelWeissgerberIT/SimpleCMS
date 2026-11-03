@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import { useWorkspace } from '../../store/store'
 import { toast } from '../../store/ui'
+import { useCloud } from '../../cloud'
 import type { Database, ID, PropertyDef, PropertyValue } from '../../store/types'
 import { t } from '../../i18n'
 import { keyClash, writePropertyValue } from '../../database'
@@ -77,9 +78,11 @@ export async function writeUserValue(db: Database, prop: PropertyDef, rowIds: ID
     return false
   }
   if (!type || !kitChecksWrite(prop)) {
+    const before = snapshotValueEdit(db, prop, rowIds, !!anchor && !type)
     withWriter(YOU, () => {
       for (const id of rowIds) writePropertyValue(db.id, prop, id, value)
     })
+    before?.()
     return true
   }
   const untrusted = untrustedOf(type)
@@ -119,4 +122,26 @@ export async function writeUserValue(db: Database, prop: PropertyDef, rowIds: ID
     }
   }
   return written.length > 0
+}
+
+/** A short-lived Undo for plain scalar edits only. Never replay scripts or overwrite a newer row/schema. */
+function snapshotValueEdit(db: Database, prop: PropertyDef, ids: ID[], enabled: boolean) {
+  if (!enabled || prop.key || prop.custom || !['title','text','number','url','email','phone'].includes(prop.type)) return null
+  const state = useWorkspace.getState(), epoch = state.epoch, actor = useCloud.getState().user?.id, workspace = JSON.stringify(useCloud.getState().active)
+  const definition = JSON.stringify(prop)
+  const get = (id: ID) => { const row = useWorkspace.getState().pages[id]; return prop.type === 'title' ? row?.title ?? '' : row?.properties[prop.id] ?? null }
+  const before = [...new Set(ids)].filter(id => state.pages[id]?.databaseId === db.id).map(id => ({ id, value: get(id) }))
+  return () => {
+    const changed = before.filter(old => JSON.stringify(get(old.id)) !== JSON.stringify(old.value)).map(old => ({...old, after: get(old.id), at: useWorkspace.getState().pages[old.id]?.updatedAt}))
+    if (!changed.length) return
+    toast({ message: t('database.text.saved', {name: prop.name}), timeout: 6000, action: { label: t('common.undo'), undo: true, run: () => {
+      const now = useWorkspace.getState(), current = now.databases[db.id]?.properties.find(p => p.id === prop.id)
+      const valid = now.epoch === epoch && useCloud.getState().user?.id === actor && JSON.stringify(useCloud.getState().active) === workspace && JSON.stringify(current) === definition && changed.every(old => {
+        const row = now.pages[old.id]
+        return row && !row.trashed && row.databaseId === db.id && row.updatedAt === old.at && JSON.stringify(get(old.id)) === JSON.stringify(old.after)
+      })
+      if (!valid) { toast(t('database.text.undoChanged')); return }
+      for (const old of changed) writePropertyValue(db.id, prop, old.id, old.value)
+    } } })
+  }
 }

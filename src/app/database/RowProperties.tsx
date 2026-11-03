@@ -4,6 +4,7 @@ import { localizeDatabase, localizePage } from '../store/localization'
  * Property panel shown under a row page's title: icon + name + value editor per property,
  * "Add a property", hide-empty toggle. Keyboard: ↑↓ between rows, Enter edits.
  */
+import type { JSONContent } from '@tiptap/core'
 import { useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import type { Database, ID, Page, PropertyDef, PropertyValue } from '../store/types'
@@ -27,6 +28,10 @@ import { RowTypeChip } from './rtype/TypeTag'
 import { CodingAgentPick } from '../features/coding/AgentPick'
 import { codingAgentProperty } from '../features/coding/agent'
 import './database.css'
+
+function containsAITask(node:JSONContent|undefined):boolean{
+ return !!node&&((node.type==='button'&&Array.isArray(node.attrs?.actions)&&node.attrs.actions.some((action:{type?:string})=>action.type==='ai_task'))||!!node.content?.some(containsAITask))
+}
 
 export function RowProperties({ pageId }: { pageId: ID }) {
   const row = usePage(pageId)
@@ -64,6 +69,7 @@ function RowPropertiesInner({ row: originalRow, db: originalDb }: { row: Page; d
         noPropMenu={locked}
         autofill
         readOnly={readOnly}
+        modelNote={containsAITask(originalRow.content)}
       />
       <AutofillHost />
       <CreatePropertyHost />
@@ -89,9 +95,10 @@ export interface PropertyRowsProps {
   autofill?: boolean
   /** View only (a viewer in a team workspace): values read, nothing opens an editor or a menu. */
   readOnly?: boolean
+  modelNote?: boolean
 }
 
-export function PropertyRows({ db, row, resolver, props, getValue, onChange, hideEmpty, setHideEmpty, allowAdd, noPropMenu: noMenu, autofill, readOnly }: PropertyRowsProps) {
+export function PropertyRows({ db, row, resolver, props, getValue, onChange, hideEmpty, setHideEmpty, allowAdd, noPropMenu: noMenu, autofill, readOnly,modelNote }: PropertyRowsProps) {
   const noPropMenu = noMenu || readOnly
   const editable = (p: PropertyDef) => canEdit(p) && !readOnly
   const t = useT()
@@ -165,6 +172,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
               ) : (
                 <ValueView db={db} prop={p} row={row} r={resolver} v={v} variant="panel" interactive={p.type === 'rating' && !readOnly} />
               )}
+              {modelNote&&p.type==='text'&&/^(model|modell)$/iu.test(p.name.trim())&&<small className="db-prow__model-note">{t('database.props.modelNote')}</small>}
             </div>
             {ai && <AutofillRowControl dbId={db.id} prop={p} rowId={row.id} />}
           </div>

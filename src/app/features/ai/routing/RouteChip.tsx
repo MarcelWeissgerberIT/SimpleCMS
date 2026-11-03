@@ -24,6 +24,7 @@ import { useWorkerModels, workerProviderReady } from '../core/workerModels'
 import { Popover } from '../../../ui/Popover'
 import { openAISettings, openAISetup } from '../setup/openAISetup'
 import './routing.css'
+import './prepared-model.css'
 
 export { isRouteKey, PLATE }
 
@@ -127,6 +128,7 @@ export function RouteChip({ purpose, chip, onChip, sources, carries, needs, read
           ▾
         </span>
       </button>
+      {chosen&&<span className="route-source" title={t('features.ai.routeSource.recheck')}>{t('features.ai.routeSource.'+r.level)}</span>}
       {chosen && <DataFlowNotice provider={r.route.p} model={r.route.m} sources={sources} text={text} />}
       {chosen && r.route.p === 'local' && r.route.m.startsWith(SHARED_PREFIX) && sharedProgress() && <span role="status" aria-live="polite" className="route-chip__queue">{t(sharedProgress()!.state === 'queued' ? 'features.ai.prov.share.waiting' : 'features.ai.prov.share.running', {n:sharedProgress()!.position})}</span>}
       {open && (

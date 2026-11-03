@@ -11,6 +11,7 @@ import { drawingMessages } from './handdrawn/messages'
 /** Strings for the editor area. Keys MUST be prefixed with "editor." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    'editor.button.aiTask.prepare': 'Prepare AI task',
     'editor.button.aiTask.claudePrepare': 'Prepare with Claude',
     ...tableCellMessages.en,
     ...syncedMessages.en,
@@ -567,6 +568,7 @@ export const messages: Messages = {
     'editor.file.tools': 'File tools',
   },
   de: {
+    'editor.button.aiTask.prepare': 'KI-Aufgabe vorbereiten',
     'editor.button.aiTask.claudePrepare': 'Mit Claude vorbereiten',
     ...tableCellMessages.de,
     ...syncedMessages.de,

@@ -3,7 +3,7 @@
  * the block is selected) runs its actions in order; "Edit" (or ⇧↵) opens the configuration. Read-only renders
  * (share view, history, presentation) get StaticButtonView: a disabled key that never runs.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy,Suspense,useEffect, useMemo, useRef, useState } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Settings2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -17,6 +17,7 @@ import { ButtonConfig, type ButtonDraft } from './ButtonConfig'
 import './button.css'
 
 type RunState = 'idle' | 'busy' | 'ok' | 'error'
+const PreparedTaskModel=lazy(()=>import('../../features/ai/routing/PreparedTaskModel'))
 
 export function ButtonKey({ label, variant, state = 'idle', disabled, onClick, title }: { label: string; variant: ButtonVariant; state?: RunState; disabled?: boolean; onClick?: () => void; title?: string }) {
   return (
@@ -32,8 +33,8 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
   const label = String(node.attrs.label ?? '').trim() || t('editor.button.default')
   const variant = asVariant(node.attrs.variant)
   const actions = useMemo(() => normalizeActions(node.attrs.actions), [node.attrs.actions])
-  const defaultProvider=useWorkspace(s=>s.ai?.routes?.['*']?.[0]?.p)
-  const caption=defaultProvider==='anthropic'&&actions.some(a=>a.type==='ai_task')&&/^(Mit Frankfurt vorbereiten|Prepare with Frankfurt)$/.test(label)?t('editor.button.aiTask.claudePrepare'):label
+  const aiTask=actions.some(a=>a.type==='ai_task')
+  const caption=aiTask&&/^(Mit (Frankfurt|Claude) vorbereiten|Prepare with (Frankfurt|Claude))$/.test(label)?t('editor.button.aiTask.prepare'):label
   const pageId = editor.view.dom.getAttribute('data-page-id')
   const trashed = useWorkspace((s) => !!pageId && !!s.pages[pageId] && isEffectivelyTrashed(s.pages, pageId))
   const locked = useWorkspace((s) => !!pageId && !!s.pages[pageId]?.settings.locked)
@@ -96,6 +97,7 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
           )}
         </span>
       )}
+      {aiTask&&<Suspense fallback={null}><PreparedTaskModel/></Suspense>}
       {config && <ButtonConfig initial={{ label: String(node.attrs.label ?? ''), variant, actions }} pageId={pageId} onDone={save} />}
     </NodeViewWrapper>
   )

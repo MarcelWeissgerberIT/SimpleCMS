@@ -11,3 +11,6 @@
 .value-help__option svg{flex:none;color:var(--signal)}
 .value-help__hint,.value-help__empty{font:var(--text-xs)/1.5 var(--font-sans);color:var(--ink-2);padding:var(--sp-2) var(--sp-3);margin:0}.value-help__hint{border-top:1px solid var(--rule);background:var(--surface-2)}
 @media(pointer:coarse){.value-help .value-help__toggle{min-height:36px;width:36px}.value-help[data-help]>input,.value-help[data-help]>textarea{padding-right:40px}.value-help__option{min-height:44px}}
+
+.value-help__draft{display:block;margin:var(--sp-1) 0;color:var(--ink-2);font:var(--text-xs)/1.4 var(--font-sans);overflow-wrap:anywhere}
+.value-help__option .value-help__similar{color:var(--signal)}

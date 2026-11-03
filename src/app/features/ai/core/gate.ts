@@ -769,12 +769,12 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
  * request (a cost band, a PDF's pages). A refused rule still names its first pin; no rule and no key: Claude with this
  * device's model (what a key would give, as before).
  */
-export function routeFor(purposeId: PurposeId, o: { route?: Route | null } = {}): { route: Route; pool?: string[]; label: string } {
+export function routeFor(purposeId: PurposeId, o: { route?: Route | null } = {}): { route: Route; pool?: string[]; label: string; level: Level; available:boolean } {
   const purpose = purposeOf(purposeId)
   const res = resolveFor(purpose.cls, { chip: o.route, caps: purpose.caps, classes: [...purpose.needs] })
-  if (res.ok) return { route: res.route, ...(res.pool ? { pool: res.pool } : {}), label: labelFor(res.route, res.pool) }
+  if (res.ok) return { route: res.route, ...(res.pool ? { pool: res.pool } : {}), label: labelFor(res.route, res.pool),level:res.level,available:true }
   const route = !res.none ? res.route : legacyRule(useWorkspace.getState().settings.aiModel, true)[0]!
-  return { route, label: labelFor(route) }
+  return { route, label: labelFor(route),level:res.none?'legacy':res.level,available:false }
 }
 
 /**

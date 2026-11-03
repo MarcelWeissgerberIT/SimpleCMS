@@ -1,6 +1,6 @@
 /**
  * Overlay text editor that covers a cell (title, text, number, url, email, phone).
- * Enter commits (Shift+Enter = newline for text), Esc/outside click commit, Tab commits + moves.
+ * Enter commits (Shift+Enter = newline for text), Esc cancels, outside click commits, Tab commits + moves.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Popover } from '../../ui/Popover'
@@ -60,6 +60,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
 
   const commit = (reason: DoneReason) => {
     if (done.current) return
+    if (reason === 'escape') { done.current = true; onCommit(value, reason); return }
     const raw = textRef.current
     if (isNumber && isBadNumber(raw, lang)) {
       // Enter / Tab on garbage: stay open and say so; leaving (Esc / click away) keeps the old value
@@ -83,7 +84,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
     el.style.height = `${Math.min(320, Math.max(rect.height - 2, el.scrollHeight))}px`
   }, [text, rect.height])
 
-  const escRef = useEscapeFlag()
+  const escRef = useEscapeFlag(!help.open)
 
   useEffect(() => {
     const el = areaRef.current
@@ -154,14 +155,16 @@ export function caretToEnd(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaEl
 }
 
 /** Popovers close on Escape before their content sees the key — remember that it was Escape. */
-export function useEscapeFlag() {
+export function useEscapeFlag(enabled = true) {
   const escRef = useRef(false)
   useEffect(() => {
+    escRef.current = false
+    if (!enabled) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') escRef.current = true
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [])
+  }, [enabled])
   return escRef
 }

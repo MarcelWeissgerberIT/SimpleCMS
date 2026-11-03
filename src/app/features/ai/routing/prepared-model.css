@@ -1,0 +1,4 @@
+.prepared-model{flex-basis:100%;display:grid;gap:var(--sp-1);margin:var(--sp-2) 0;max-width:100%;font-size:var(--text-xs);color:var(--ink-2);overflow-wrap:anywhere}.prepared-model strong{color:var(--ink);font-weight:600}.prepared-model small{font-size:var(--text-xs)}
+.route-source{align-self:center;font:var(--text-2xs)/1.4 var(--font-mono);color:var(--ink-2);white-space:normal;max-width:180px}
+.route-controls:has(.route-source){flex-wrap:wrap}
+@media(max-width:600px){.route-source{flex-basis:100%;max-width:100%;order:1}}

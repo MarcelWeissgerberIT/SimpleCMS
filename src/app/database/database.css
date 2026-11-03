@@ -3054,3 +3054,5 @@ body.db-dragging * {
   gap: 4px;
   color: var(--ink-3);
 }
+
+.db-prow__model-note{flex-basis:100%;display:block;color:var(--ink-2);font-size:var(--text-xs);font-weight:400;line-height:1.4;margin-top:var(--sp-1)}
