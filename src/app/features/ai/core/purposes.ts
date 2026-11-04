@@ -60,7 +60,7 @@ export const PURPOSES = {
   'documents.file': p('documents', ['files'], ['page']),
   'generate.media': p('generate', ['mcp'], ['page', 'files'], ['mcp']),
   'mcp-setup.inspect': p('mcp-setup', ['mcp'], [], ['mcp', 'listing']),
-  'terminal.task': p('terminal', ['workspace'], ['memory', 'files', 'selection', 'mcp'], ['tools']),
+  'terminal.task': p('terminal', ['workspace'], ['memory', 'files', 'selection', 'mcp', 'private'], ['tools']),
   'agents.run': p('agents', [], ['workspace', 'rows', 'page', 'structure', 'memory', 'mcp'], ['tools']),
   'write.instructions': p('write', ['public'], []),
   'bulk.autofill': p('bulk', ['rows'], ['page', 'mcp'], ['structured']),

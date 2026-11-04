@@ -1,3 +1,4 @@
+import {openSkills} from '../skills/dialog'
 import {openReviewProfiles} from '../profiles/dialog'
 import {AnswerPageAction} from './AnswerPageAction'
 import {DesignMockCard} from './DesignMockCard'
@@ -30,7 +31,7 @@ import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
 import { focusIsNowhere } from '../../../ui/focus'
@@ -418,6 +419,7 @@ function Head() {
       <span className="term-head__status" aria-live="polite">
         {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
       </span>
+<button type="button" className="term-key term-key--label" onClick={()=>openSkills(skill=>{useAgent.setState(s=>({draft:s.draft.trimEnd()+' $'+skill.spec.name+'@'+skill.version}));focusPrompt()})} aria-label={t('features.ai.skills.title')}>{t('features.ai.skills.short')}</button>
 <button type="button" className="term-key term-key--label" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
 <button type="button" className="term-key term-key--label" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
       <span className="term-spacer" />
@@ -650,7 +652,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       <AtlasTransferSummary turn={turn} steps={steps}/>
       {turn.receipt&&<p className="term-note" role="status">{t('features.ai.program.terminal.'+turn.receipt)}{turn.receipt==='failed'&&<button className="btn btn--sm" onClick={()=>void retryTurnReceipt(turn.n)}>{t('features.ai.program.terminal.retry')}</button>}</p>}
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
-      {turn.status === 'limit' && <LimitNote last={last} />}
+      {turn.status === 'limit' && <p className="term-turn__limit">{t('features.agent.limitEnd',{max:MAX_TOOL_CALLS})}</p>}
       {turn.status === 'error' && turn.error && !last && <TurnError error={turn.error} n={turn.n} last={false} />}
       {turn.status === 'done' && last && turn.signIn?.length ? <SignInOffer turn={turn} /> : null}
     </section>
@@ -1627,6 +1629,7 @@ function PageChip({ pageId, title }: { pageId: string; title: string }) {
 /** Latest failure lives beside the input, outside the scrollable log and proposal list. No automatic retry. */
 function FailureDock(){
  const t=useT(),turn=useAgent(s=>s.turns.at(-1)),route=useRoute()
+ if(turn?.status==='limit')return <section className="term-failure-dock"><LimitNote last/>{!turn.program&&!turn.contract?.program&&<><button type="button" className="btn btn--sm" onClick={()=>void continueWithCompactContext()}>{t('features.ai.skills.compact')}</button><small>{t('features.ai.skills.compactHint')}</small></>}</section>
  if(turn?.status!=='error'||!turn.error)return null
  const missingTarget=/Open the (?:source )?page (?:to rewrite )?first/u.test(turn.error.message)
  const failed=turn.contract?.compiled.findings.filter(f=>f.hard&&f.status!=='verified')??[]
@@ -1635,6 +1638,7 @@ function FailureDock(){
   {missingTarget?<p role="alert">{t('features.ai.terminal.missingTarget')}</p>:<TurnError error={turn.error} n={turn.n} last/>}
   {!!failed.length&&<ul>{failed.slice(0,4).map(f=><li key={f.id}>{t('features.ai.task.finding.'+f.id)}</li>)}</ul>}
   <div className="term-failure-dock__actions">
+   {['context','max_tokens'].includes(turn.error.code)&&!turn.program&&!turn.contract?.program&&<><button type="button" className="btn btn--sm" onClick={()=>void continueWithCompactContext()}>{t('features.ai.skills.compact')}</button><small>{t('features.ai.skills.compactHint')}</small></>}
    {missingTarget&&route.name==='page'&&<button type="button" className="btn btn--sm" onClick={()=>{useAgent.setState({pageOff:null,draft:turn.task});focusPrompt()}}>{t('features.ai.terminal.restoreContext')}</button>}
    <button type="button" className="btn btn--sm" onClick={()=>{useAgent.setState({draft:turn.task});focusPrompt()}}>{t('features.ai.terminal.editFailed')}</button>
    <button type="button" className="btn btn--sm" onClick={()=>{const el=document.querySelector<HTMLElement>('.term-turn[data-turn="'+turn.n+'"]');el?.scrollIntoView({block:'start',behavior:'smooth'});el?.setAttribute('tabindex','-1');el?.focus({preventScroll:true})}}>{t('features.ai.terminal.errorDetails')}</button>

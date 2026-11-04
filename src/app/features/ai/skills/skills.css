@@ -1,0 +1,9 @@
+.skills{min-width:0}.skills p{font-size:var(--text-sm);line-height:1.6;overflow-wrap:anywhere}
+.skills__search{width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--rule);background:var(--surface);color:var(--ink);font:inherit;padding:var(--sp-2);margin:var(--sp-3) 0}
+.skills__row{display:grid;gap:var(--sp-2);width:100%;text-align:left;border:1px solid var(--rule);background:var(--surface);color:var(--ink);padding:var(--sp-3);margin-bottom:var(--sp-2);font:inherit;cursor:pointer;overflow-wrap:anywhere}
+.skills__row[aria-pressed=true]{border-color:var(--signal)}.skills__row span,.skills__row small{font-size:var(--text-xs);color:var(--ink-2)}.skills__instructions{font-family:var(--font-mono)!important;font-size:var(--text-xs)!important}
+.skills-modal .modal__body{min-width:0}.skills .programs__actions{flex-wrap:wrap}.skills .programs__field{min-width:0}.skills .programs__field input,.skills .programs__field textarea{box-sizing:border-box}
+
+.skills .programs__layout{grid-template-columns:240px minmax(0,1fr);gap:var(--sp-4)}
+.skills .programs__layout main{min-width:0}.skills-modal .modal__footer .programs__actions{margin:0}.skills .programs__field small{line-height:1.5}
+@media(max-width:650px){.skills .programs__layout{grid-template-columns:minmax(0,1fr)}.skills-modal .modal__footer{padding:var(--sp-3)}.skills-modal .modal__footer .btn{flex:1;white-space:normal;height:auto;min-height:34px}}

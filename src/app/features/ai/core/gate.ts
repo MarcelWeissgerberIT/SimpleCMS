@@ -1,3 +1,5 @@
+import {requestedSkills} from '../skills/storage'
+import {SkillError,type Skill} from '@/shared/ai/skills'
 import {centralAI,centralKeyReady,centralModelAllowed} from './centralAI'
 import { workspaceDeviceAI } from '../../../store/ai'
 import {checkProviderQuantum} from './quandprofile'
@@ -247,6 +249,8 @@ export interface RoundCtx extends LoopRound {
 export type StartCheck = StartVerdict & { line?: { spent: number; limit: number }; label?: string; checks?: number }
 
 export interface Prepared {
+  /** Host snapshot of explicitly selected instruction skills; no tools or permissions added. */
+  skills?: Skill[]
   quantum?: QuantumProof
   purpose: PurposeId
   cls: FeatureClass
@@ -661,7 +665,10 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   // 3 · what the request carries: needs ∪ carries ∪ the sources' classes (one classOfPage memo per request)
   const purpose = purposeOf(input.purpose)
   const w = sourceWorld()
+  let skills:Skill[]=[]
+  try{skills=requestedSkills(typedTexts(input.typed).join("\n"))}catch(e){if(e instanceof SkillError)throw new AIError('bad_request','features.ai.skills.error.'+e.code);throw e}
   const classes = requestClasses(input, w)
+  if(skills.length)classes.add('private')
   // 4 · the route
   const caps = [...new Set([...purpose.caps, ...(input.needs ?? [])])]
   const res = resolveFor(purpose.cls, { chip: input.route, model: input.model, decider: input.decider, caps, classes: [...classes] })
@@ -684,6 +691,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => hiddenForShare(c) || !allowedFor(route.p, c, s.ai, workspaceDeviceAI(s)))
   const visible = (id: ID): boolean => flowPageVisible(route.p, id) && (!hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c)))
   const allows = (c: DataClass): boolean => !hiddenForShare(c) && allowedFor(route.p, c, s.ai, workspaceDeviceAI(s))
+  if(skills.length&&sees!=='all')throw new AIError('policy','private',undefined,label,[{kind:'step',step:'data',provider:route.p,data:'private'}])
   // 5 · the backstop (D-S2-5): text built without the route's redaction / filter never goes to a route that may not see it
   const concerned = held || backstopToo ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
   if (concerned) throw new AIError('policy', concerned, undefined, label, [{ kind: 'step', step: 'data', provider: route.p, data: concerned }])
@@ -691,7 +699,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   //     priced per request reserves its stated bound (never 0). Money only in prepare (held: it reserves, may cap a text
   //     answer, may refuse 'budget'); precheck only peeks. No line set: the identity (today's bytes).
   const known = res.info.caps
-  const size = input.size
+  const size = input.size?{...input.size,promptChars:input.size.promptChars+(skills.length?JSON.stringify(skills).length+1000:0)}:undefined
   const price = route.p === 'anthropic' ? undefined : priceFor(route, pool)
   const visibleOut = size ? (typeof size.maxTokens === 'function' ? size.maxTokens(known) : size.maxTokens) : 0
   const bandOut = size ? Math.min(visibleOut, size.bandOut ?? visibleOut) : 0
@@ -700,6 +708,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: bandOut }, Date.now(), price, known, hints) : null
   const run = runOf(input)
   const ctx: BrakeCtx = {
+    ...(skills.length?{skills}:{}),
     purpose: input.purpose,
     cls: purpose.cls,
     route,
@@ -736,6 +745,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     }
   } else hint = brake.peek?.(ctx) ?? null
   return {
+    ...(skills.length?{skills}:{}),
     purpose: input.purpose,
     cls: purpose.cls,
     route,

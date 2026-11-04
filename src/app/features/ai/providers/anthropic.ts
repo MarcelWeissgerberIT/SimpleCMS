@@ -185,6 +185,7 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
     if (e instanceof A.APIConnectionError) return new AIError('offline', e.message)
     // no credit left / a spend limit reached (Anthropic says so in a 400 — wording verify with a real key, SP-A1)
     if (e instanceof A.BadRequestError && NO_CREDIT_RE.test(e.message)) return new AIError('no_credit', cleanMessage(e.message))
+    if (e instanceof A.BadRequestError && /prompt (?:is )?too long|maximum context length|context (?:window|length).*(?:exceed|limit)|input.*tokens.*exceed/iu.test(e.message)) return new AIError('context',cleanMessage(e.message))
     if (e instanceof A.BadRequestError) return new AIError('bad_request', cleanMessage(e.message))
     if (e instanceof A.InternalServerError) return new AIError(e.status === 529 ? 'overloaded' : 'unknown', e.message)
     if (e instanceof A.APIError) return new AIError(e.status === 529 ? 'overloaded' : 'unknown', cleanMessage(e.message))

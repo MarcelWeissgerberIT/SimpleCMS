@@ -1,3 +1,4 @@
+import type {SkillReceipt} from '../ai/skills.ts'
 import {resolveTypedAI,verifyTypedSource,sourceKey,type TypedSource} from './typed-ai.ts'
 import {taskMcpDiscoveryQuery} from '../mcp/discovery.ts'
 import {atlasIdentityTask} from './task.ts'
@@ -9,7 +10,7 @@ export class TaskBlocked extends Error {}
 /** A correctable model request; no decision was opened and no effect was dispatched. */
 export class TaskQuestionRejected extends TaskBlocked {}
 /** Run-local host state. No model-facing operation can answer, accept, or change permissions. */
-type TaskHost={compile:(request:TaskRequest)=>TaskCompiled;signature:()=>string;check:()=>void;report?:(report:TaskReport)=>void;signal?:AbortSignal;interactive?:boolean;writeIntent?:'create'|'update'|'comment'|null}
+type TaskHost={compile:(request:TaskRequest)=>TaskCompiled;signature:()=>string;check:()=>void;report?:(report:TaskReport)=>void;signal?:AbortSignal;interactive?:boolean;skills?:SkillReceipt[];writeIntent?:'create'|'update'|'comment'|null}
 export class TaskSession {
   private trace:CapturedStep[]=[]
   private contract:TaskContract
@@ -42,7 +43,7 @@ export class TaskSession {
   writeIntent(){return this.host.writeIntent??null}
   keepsStatus(){return /(?:\b(?:ticketstatus|status)\b.{0,30}(?:unverändert|unveraendert|unchanged|nicht ändern|nicht aendern)|\bkeep\b.{0,30}\bstatus\b)/iu.test([this.contract.goal,...this.contract.decisions.map(d=>d.answer)].join('\n'))}
   identityOnly(){return atlasIdentityTask(this.contract.goal)}
-  report():TaskReport{return structuredClone({id:this.contract.id,at:Date.now(),phase:this.phase,compiled:this.compiled,observations:this.observations,questions:this.questions,evidence:this.evidence})}
+  report():TaskReport{return structuredClone({...(this.host.skills?.length?{skills:this.host.skills}:{}),id:this.contract.id,at:Date.now(),phase:this.phase,compiled:this.compiled,observations:this.observations,questions:this.questions,evidence:this.evidence})}
   private publish(){this.host.report?.(this.report())}
   packet(){
     const c=this.check('compile');if(c.decision!=='allow')throw new TaskBlocked('Compiled task binding is no longer valid.')

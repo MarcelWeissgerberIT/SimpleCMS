@@ -265,6 +265,7 @@ export async function runAgent(opts: {
   purpose: PurposeId
   /** Host-pinned page at task start, never a model-supplied target. */
   targetPage?: string | null
+  privateContext?:boolean
   reviewProfile?:ReviewProfile|null
   mockSources?: MockSources
   delivery?: ReturnType<typeof groundedTask>
@@ -340,7 +341,7 @@ export async function runAgent(opts: {
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
     // the conversation's MCP servers: the first response may loop at the provider (its context read per iteration) —
     // the brake counts their rounds; every further request is braked by beforeRound
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, route: opts.route, size, applied: opts.applied, ...(run ? { run } : {}), ...(!delivery.analysis&&mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources,...(opts.privateContext?{carries:['private' as const]}:{}), typed: opts.typed, model: opts.model, route: opts.route, size, applied: opts.applied, ...(run ? { run } : {}), ...(!delivery.analysis&&mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const observed=await delivery.prepare(prepared)
     if(observed){const last=messages.at(-1)!;last.content=typeof last.content==='string'?last.content+observed:[...(last.content??[]),{type:'text',text:observed}]}

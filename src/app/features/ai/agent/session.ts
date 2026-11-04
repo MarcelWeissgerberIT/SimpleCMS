@@ -1,3 +1,5 @@
+import {contextCheckpoint} from './checkpoint'
+import {pinSkillRequest} from '@/shared/ai/skills'
 import {readProgram,workflowTarget} from '@/shared/quandprofile/program'
 import {taskProgramDraft} from '../core/taskContract'
 import {programScope,archiveProgram,saveProgramRun} from '../programs/storage'
@@ -395,12 +397,21 @@ export function continueTask(): Promise<void> {
   return runTask(prev.task, { history: false, continues: prev.continues ?? prev.n })
 }
 
+/** Fresh, read-only recovery after a context/output limit; existing proposals and receipts remain intact. */
+export function continueWithCompactContext():Promise<void>{
+ const prev=get().turns.at(-1)
+ if(!prev||get().status==='running'||prev.program||prev.contract?.program||!(prev.status==='limit'||prev.status==='error'&&['context','max_tokens'].includes(prev.error?.code??'')))return Promise.resolve()
+ const snap=turnSnap.get(prev.continues??prev.n)
+ const task=pinSkillRequest(prev.task,prev.contract?.skills??[])+'\n\nNur lesen. Keine externen Änderungen und keine Ausführung. Setze die Analyse anhand aktueller Quellen fort und benenne noch notwendige Aktionen.'
+ return runTask(task,{history:false,noMemory:true,compact:scrubSecrets(contextCheckpoint(get().turns,get().steps,get().changes)),...(snap?{again:{refs:snap.refs,mentions:snap.mentions}}:{})})
+}
+
 /**
  * Run the task in the prompt (or `raw`). One task at a time. `noMemory`: without the One memory
  * (/no-memory <task>); `history: false` when the prompt went into the history already; `continues`:
  * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
-export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
+export async function runTask(raw?: string, opts: { compact?: string; noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
   let task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
   // Tool choice and missing targets are resolved by the model from the bound context.
@@ -435,7 +446,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // the One memory goes along only where the route may receive it (D-S2-29; the terminal runs on Claude in S2)
   const mem = opts.program || prevTurn || !mayReceive('terminal.task', 'memory', get().route) ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
-  const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
+  const contextText=context(refs,mentions)+(opts.compact?'\n'+opts.compact:'')
+  const text = mem.block ? `${contextText}\n\n${mem.block}` : contextText
   const prepared = opts.program?{setup:currentSetup(),prompt:task,memTools:false,codingTools:hasPipelines()||useCoding.getState().enabled,upsert:unlocked('upsert'),taskRules:canCreateItems()}:prepareTask(task)
   // ONE-only work must not attach remote schemas, credentials, instructions or old Atlas history.
   const oneOnly = oneOnlyTask(task)
@@ -605,15 +617,16 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     await refreshCentralAI()
     if(ac.signal.aborted||!here())throw new AIError('aborted')
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
-    const pre = precheck({ purpose: 'terminal.task', route: get().route, sources, typed: task })
+    const pre = precheck({ purpose: 'terminal.task', route: get().route, sources, typed: task,...(opts.compact?{carries:['private' as const]}:{}) })
     if (opts.continues && historyProvider && historyProvider !== pre.route?.p) throw new AIError('capability', t('features.agent.err.providerChanged'))
+    if(opts.compact&&pre.sees!=='all')throw new AIError('policy','private')
     runProvider = pre.route?.p ?? null
     runModel = pre.route?.m ?? ''
     if (history.length && historyProvider !== runProvider && !providerChangeNoted) {
       note(t('features.agent.providerFresh'))
       providerChangeNoted = true
     }
-    const activeHistory = !opts.program && !oneOnly && historyProvider === runProvider ? history : []
+    const activeHistory = !opts.compact && !opts.program && !oneOnly && historyProvider === runProvider ? history : []
     const tooling = terminalSetup(withCoding, withMemTools && pre.allows('memory'), withUpsert, prepared.taskRules)
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')
@@ -644,6 +657,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const execute=opts.program?(await import('../programs/runner')).runCompiledProgram:runAgent
     return execute({
       purpose: 'terminal.task',
+      privateContext:!!opts.compact,
       targetPage: pageId,
       route: pre.route,
       sources,

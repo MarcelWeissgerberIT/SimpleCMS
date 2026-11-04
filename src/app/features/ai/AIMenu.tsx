@@ -1,3 +1,7 @@
+import {inlineContextCheckpoint} from './agent/checkpoint'
+import {pinSkillRequest} from '@/shared/ai/skills'
+import {scrubSecrets} from '@/shared/ai/keys'
+import {openSkills,useSkillsOpen} from './skills/dialog'
 import {openPage} from '../../lib/router'
 import {useCloud} from '../../cloud/state'
 import {decisionRecoveryPrompt} from './core/decisionRecovery'
@@ -591,6 +595,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /* ---------------- running ---------------- */
 
   /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
+  const skillsOpen=useSkillsOpen()
+  const recoveryBusy=useAgent(s=>s.status==='running')
   const pageTree=useAgent(s=>s.pageTree===pageId)
   const start = useCallback(
     (req: RunRequest, tg?: RunTarget, pick?: Route | null) => {
@@ -956,7 +962,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     window.addEventListener('pointerdown', mark, true)
     return () => window.removeEventListener('pointerdown', mark, true)
   }, [])
-  const onPopoverClose = () => (performance.now() - pointerAt.current < 120 ? onClose() : dismiss())
+  const onPopoverClose = () => {if(!skillsOpen)performance.now() - pointerAt.current < 120 ? onClose() : dismiss()}
 
   const copy = async () => {
     try {
@@ -1719,6 +1725,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         else out.push(insert)
         out.push({ id: 'copy', label: t('features.ai.res.copy'), icon: Copy, run: () => void copy() })
       }
+      if(error&&['context','max_tokens'].includes(error.code)&&run&&['action','workspace','redo'].includes(run.req.kind))out.push({id:'compact-recovery',label:t('features.ai.skills.compactInline'),icon:Workflow,disabled:recoveryBusy,run:()=>{
+       if(run.scope!==currentScope()||useAgent.getState().status==='running')return
+       const report=run.mcpCalls.find(c=>c.contract)?.contract,req=run.req
+       const goal=report?.compiled.contract.goal??(req.kind==='action'?req.instruction||req.label:req.kind==='workspace'?req.question:req.kind==='redo'?req.instructions:req.label)
+       const task=pinSkillRequest(goal,report?.skills??[])+'\n\nNur lesen. Keine externen Änderungen und keine Ausführung. Setze die Analyse anhand aktueller Quellen fort und benenne noch notwendige Aktionen.'
+       const checkpoint=scrubSecrets(inlineContextCheckpoint(report,run.mcpCalls,run.output)),at=own.t.mode==='selection'?{from:own.t.from,to:own.t.to}:null
+       useAgent.setState({route:run.chip??chip??null});onClose();void import('./agent/refs').then(m=>run.scope===currentScope()?m.runInTerminal(task,editor,at,checkpoint):undefined)
+      }})
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
       if (error && (error.code === 'invalid_key' || error.code === 'permission' || error.code === 'no_key'))
         out.push({
@@ -1951,7 +1965,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, pageTree, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, pageTree, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems, recoveryBusy]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -2104,7 +2118,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   return (
     <>
       {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && !file?.only && run?.req.kind !== 'image' && run?.req.kind !== 'file' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
-      <Popover open={!picking} focusIf={typedCard ? () => typedWhere() === 'card' : undefined} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
+      <Popover open={!picking} closeOnOutside={!skillsOpen} focusIf={typedCard ? () => typedWhere() === 'card' : undefined} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
             purpose={chipPurpose}
@@ -2182,6 +2196,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   autoComplete="off"
                 />
               )}
+              {!busy&&<button type="button" className="btn btn--sm" aria-label={t('features.ai.skills.title')} onClick={()=>openSkills(skill=>{setQuery(q=>q.trimEnd()+' $'+skill.spec.name+'@'+skill.version);requestAnimationFrame(()=>inputRef.current?.focus())})}>{t('features.ai.skills.short')}</button>}
               {/* "kb: …" — the query goes to Claude as an own request / a revision: the addressed server shows */}
               {!busy && !wsMode && !redoHead && view === 'actions' && run?.req.kind !== 'todb' && run?.req.kind !== 'transform' && <CodewordChip text={query} />}
               {demo ? (

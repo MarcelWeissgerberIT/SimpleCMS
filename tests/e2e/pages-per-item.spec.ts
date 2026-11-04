@@ -297,7 +297,7 @@ test.describe('Pages per item', () => {
     const term = terminal(page)
     await expect(term.locator('.term-head__status')).toHaveText('Limit reached', { timeout: 30_000 })
     await expect(term.locator('.term-step--note', { hasText: 'Tool-call limit reached' })).toBeVisible()
-    await expect(term.locator('.term-note')).toContainText('The task stopped at the limit of 120 tool calls')
+    await expect(term.locator('.term-failure-dock .term-note')).toContainText('The task stopped at the limit of 120 tool calls')
     await expect(term.locator('#term-review-title')).toHaveText('120 proposed changes')
     // the refused calls told Claude it can go on later
     expect(toolResult(bodies[1], 'toolu_b120')).toContain('the person can let you continue with a fresh budget')
@@ -348,7 +348,7 @@ test.describe('Pages per item', () => {
     const term = terminal(page, 'KI-Terminal')
     await expect(term.locator('.term-head__status')).toHaveText('Limit erreicht', { timeout: 30_000 })
     await expect(term.getByTestId('term-continue')).toHaveText('Weitermachen')
-    await expect(term.locator('.term-note')).toContainText('Limit von 120 Tool-Aufrufen')
+    await expect(term.locator('.term-failure-dock .term-note')).toContainText('Limit von 120 Tool-Aufrufen')
     // /weiter
     const field = prompt(page, 'Aufgabe für den Agenten')
     await field.fill('/weiter')

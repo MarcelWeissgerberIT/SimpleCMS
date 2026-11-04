@@ -1,3 +1,4 @@
+import type {SkillReceipt} from '../ai/skills.ts'
 import type {ReviewProfile} from './review-profile.ts'
 import {atlasTransferChoice} from './atlas-transfer.ts'
 import {oneOnlyTask} from '../ai/oneTask.ts'
@@ -11,7 +12,7 @@ export type TaskRequest={contract:TaskContract;evidence:TaskEvidence;phase:TaskP
 export type TaskFinding={id:string;dimensions:string[];status:QuantumStatus;hard:boolean;detail:string}
 export type TaskCompiled={protocol:'quandprofile.task.v1';contract_hash:string;request_hash:string;phase:TaskPhase;decision:'allow'|'block';contract:TaskContract;dimension_definitions:Array<{id:string;title:string}>;findings:TaskFinding[];quanta:EvidenceQuantum[];model_context:Record<string,unknown>}
 export type TaskQuestion={id:string;question:string;options:Array<{label:string;effect:string}>;neededFor:string;sourceChecks:{one:boolean;atlas:boolean};state:'open'|'answered';answer?:string}
-export type TaskReport={program?:{id:string;version:number;hash:string;runId:string};id:string;at:number;phase:'working'|'decision'|'ready'|'blocked'|'accepted';compiled:TaskCompiled;observations:Array<{area:string;tool:string;success:boolean;at:number}>;questions:TaskQuestion[];evidence:TaskEvidence}
+export type TaskReport={skills?:SkillReceipt[];program?:{id:string;version:number;hash:string;runId:string};id:string;at:number;phase:'working'|'decision'|'ready'|'blocked'|'accepted';compiled:TaskCompiled;observations:Array<{area:string;tool:string;success:boolean;at:number}>;questions:TaskQuestion[];evidence:TaskEvidence}
 export const taskEvidence=():TaskEvidence=>({source_reads:0,atlas_reads:0,one_checked:false,atlas_checked:false,staged_changes:0,issues:0,denied_actions:0,pending_decisions:0,scope_current:true,provider_checked:false,answer:null,human_accepted:false})
 
 /** Only the trusted user instruction is inspected. Source text and model-proposed plans never grant capabilities. */

@@ -115,11 +115,12 @@ export async function addSelectionRef(editor?: Editor, opts: { open?: boolean } 
  * The AI menu's "This needs the AI terminal — run it there": the passage the menu was opened on goes along as
  * a reference (none in block mode), then the terminal opens with the request and runs it.
  */
-export async function runInTerminal(task: string, editor?: Editor, at?: { from: number; to: number } | null): Promise<void> {
+export async function runInTerminal(task: string, editor?: Editor, at?: { from: number; to: number } | null, compact?:string): Promise<void> {
   const ref = editor && at ? captureRef(editor, at) : null
   if (ref?.image) ref.image.bytes = await imageBytes(ref.image.src)
   if (ref?.file) ref.file.bytes = await fileBytes(ref.file.src)
   if (ref && !addRef(ref)) useUI.getState().toast({ message: t('features.agent.ref.full', { max: REF_MAX }), kind: 'error' })
   if(editor&&!editor.isDestroyed)useAgent.setState({pageOff:null})
-  openAgent({ task, run: true })
+  if(compact){const epoch=useWorkspace.getState().epoch;openAgent({task});const {runTask}=await import('./session');if(epoch===useWorkspace.getState().epoch)await runTask(task,{history:false,noMemory:true,compact})}
+  else openAgent({ task, run: true })
 }

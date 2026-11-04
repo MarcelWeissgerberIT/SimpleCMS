@@ -45,6 +45,7 @@ export function providerOfLabel(label: string): ProviderId {
 /** The friendly sentence for an error code (in the current UI language) — naming the company and host of the route. */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
   if(v.detail?.startsWith('Typed AI check blocked:'))return t('features.ai.typed.held')
+  if(v.detail?.startsWith('features.ai.skills.'))return t(v.detail)
   if(v.detail?.startsWith('features.ai.central.'))return t(v.detail)
   if(v.detail?.startsWith('features.ai.local.host.')&&isSharedFailure(v.detail.slice('features.ai.local.host.'.length)))return t(v.detail)
   if(code==='context'&&v.detail==='features.ai.local.contextFull')return t(v.detail)

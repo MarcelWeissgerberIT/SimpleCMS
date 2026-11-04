@@ -1,3 +1,4 @@
+import {skillRequest,skillReceipt,pinSkillRequest,SKILL_POLICY} from '@/shared/ai/skills'
 import {AIError} from './errors'
 import {typedReceipt} from './typedAI'
 import {resolveTypedAI} from '@/shared/quandprofile/typed-ai'
@@ -19,7 +20,7 @@ import {CONTEXT_TOOL_POLICY,requestedWriteKind} from '@/shared/ai/actionIntent'
 const sessions=new Map<string,TaskSession>()
 export const taskProgramDraft=(id:string)=>{
  const task=sessions.get(id);if(!task||!['ready','accepted'].includes(task.report().phase))throw Error('Run is not ready or is no longer available.')
- const contract=task.report().compiled.contract,goal=contract.goal,trace=task.captured()
+ const contract=task.report().compiled.contract,goal=pinSkillRequest(contract.goal,task.report().skills??[]),trace=task.captured()
  if(contract.authenticate)throw Error('Personal sign-in must be explicitly requested again, not saved as an executable program.')
  const mode=analysisIntent(goal)?.role??(pmBriefPlan(goal)?'pm':mockIntent(goal)||task.report().observations.some(o=>o.tool==='create_design_mock')?'mock':null)
  if(mode){
@@ -37,7 +38,7 @@ export const TASK_QUESTION:WorkerFunction={name:'one_task_question',description:
 export function createTaskContract(o:{reviewProfile?:ReviewProfile|null;prepared:Prepared;goal:string;instructions?:string;input?:unknown;tools:string[];one:boolean;atlas:boolean;signal?:AbortSignal;output?:'text'|'json';onReport?:(report:TaskReport)=>void;interactive?:boolean;sourcesRequired?:boolean;bounds?:{readOnly:boolean;externalWrite:boolean;execute:boolean;authenticate?:boolean}}){
  let currentPrepared=o.prepared
  const signature=()=>{const s=useWorkspace.getState(),c=useCloud.getState();return stateHash([s.epoch,c.active,c.user?.id,s.ai,s.settings.mcpServers,currentPrepared.route])}
- const input=taskInputOf(o.prepared),addressed=o.atlas?codewordsIn(input.typed):null,base=o.bounds??taskBoundaries(addressed?.text??input.typed),id=crypto.randomUUID()
+ const input=taskInputOf(o.prepared),skillInput=skillRequest(input.typed).text,skills=o.prepared.skills??[],addressed=o.atlas?codewordsIn(skillInput):null,base=o.bounds??taskBoundaries(addressed?.text??skillInput),id=crypto.randomUUID()
  const profile=o.reviewProfile?readReviewProfile(o.reviewProfile):undefined,p=profile?.spec
  if(p&&((p.requireOne||p.onePages.length)&&!o.one||(p.requireAtlas||p.atlasRefs.length)&&!o.atlas))throw Error('Review profile "'+p.name+'" requires sources unavailable in this task. Choose a compatible profile in Cube profiles before starting.')
  const typed=p?.typedAI?resolveTypedAI(p.typedAI):null
@@ -45,7 +46,7 @@ export function createTaskContract(o:{reviewProfile?:ReviewProfile|null;prepared
  const bounds={...base,readOnly:base.readOnly||!!p?.readOnly||!!typed?.shadow?.readOnly}
 
  const check=()=>{assertPreparedFlow(currentPrepared);if(p?.typedAI?.sources.length&&!currentPrepared.allows('mcp'))throw new AIError('policy','mcp')}
- const task=new TaskSession({id,revision:1,goal:o.goal||o.prepared.purpose,instruction_context:(o.instructions??'')+(o.atlas?'\n'+CONTEXT_TOOL_POLICY:'')+(receipt?.context??''),input_hash:stateHash(o.input??o.goal),scope_hash:signature(),source_pointers:input.sources.slice(0,100).map(r=>JSON.stringify(r)),allowed_tools:[...o.tools,TASK_QUESTION.name],read_only:bounds.readOnly,external_write:bounds.externalWrite,execute:bounds.execute,authenticate:bounds.authenticate??false,requires_sources:!!o.sourcesRequired||o.atlas&&/\batlas\b/iu.test(o.goal),search_one:o.one,search_atlas:o.atlas,output:p?.output==='json'||typed?.shadow?.format==='json'?'json':o.output??'text',required_literals:p?.requiredTerms??[],decisions:[],...(profile?{review_profile:profile}:{})},{compile:compileTask,signature,check,signal:o.signal,interactive:o.interactive,writeIntent:requestedWriteKind(addressed?.text??input.typed),report:o.onReport})
+ const task=new TaskSession({id,revision:1,goal:o.goal||o.prepared.purpose,instruction_context:(o.instructions??'')+(skills.length?'\n'+SKILL_POLICY+'\nSELECTED_SKILLS_SNAPSHOT\n'+JSON.stringify(skills):'')+(o.atlas?'\n'+CONTEXT_TOOL_POLICY:'')+(receipt?.context??''),input_hash:stateHash({input:o.input??o.goal,skills}),scope_hash:signature(),source_pointers:input.sources.slice(0,100).map(r=>JSON.stringify(r)),allowed_tools:[...o.tools,TASK_QUESTION.name],read_only:bounds.readOnly,external_write:bounds.externalWrite,execute:bounds.execute,authenticate:bounds.authenticate??false,requires_sources:!!o.sourcesRequired||o.atlas&&/\batlas\b/iu.test(o.goal),search_one:o.one,search_atlas:o.atlas,output:p?.output==='json'||typed?.shadow?.format==='json'?'json':o.output??'text',required_literals:p?.requiredTerms??[],decisions:[],...(profile?{review_profile:profile}:{})},{compile:compileTask,signature,check,signal:o.signal,interactive:o.interactive,skills:skills.map(skillReceipt),writeIntent:requestedWriteKind(addressed?.text??skillInput),report:o.onReport})
  if(receipt)task.bindTypedEvidence(receipt.keys,receipt.at)
  sessions.set(id,task)
  return Object.assign(task,{rebindPrepared:(next:Prepared)=>{currentPrepared=next;task.rebindHost()},release:()=>{if(task.report().phase!=='ready'){task.close();sessions.delete(id)}else{setTimeout(()=>sessions.delete(id),3600000)}}})
