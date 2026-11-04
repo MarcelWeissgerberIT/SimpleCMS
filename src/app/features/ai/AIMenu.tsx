@@ -104,7 +104,7 @@ import { turnIntoPage } from '../../editor'
 import { FileStack, ListPlus } from 'lucide-react'
 import { listItemsIn, openTurnIntoList } from '../kit'
 import { itemCount, pagesPerItem } from '../../editor'
-import { requestIntent } from './intent'
+import { requestIntent,atlasExecutionIntent } from './intent'
 import { RouteChip, isRouteKey, type RouteChipHandle } from './routing/RouteChip'
 import type { PurposeId } from './core/purposes'
 import { aiWriterOf } from './core/runMeta'
@@ -590,8 +590,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /* ---------------- running ---------------- */
 
   /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
+  const previousHumanGoal=run?.req.kind==='action'&&run.req.action==='custom'?run.req.instruction:run?.req.kind==='workspace'?run.req.question:undefined
   const start = useCallback(
     (req: RunRequest, tg?: RunTarget, pick?: Route | null) => {
+      // Explicit remote work uses the terminal's destination/operation picker, even via ASK or Retry.
+      if(req.kind==='action'&&req.action==='custom'&&req.instruction&&atlasExecutionIntent(req.instruction,mcpNames?.split(' · ')??[],previousHumanGoal?[previousHumanGoal]:[])){
+        const target=targetRef.current,at=target.mode==='selection'?{from:target.from,to:target.to}:null
+        onClose()
+        void import('./agent/refs').then(m=>m.runInTerminal(req.instruction!,editor,at))
+        return
+      }
       stickRef.current = true
       setConvertIssue(null)
       convertingRef.current = false
@@ -605,7 +613,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       if (view === 'memory' || view === 'memhist' || view === 'transform' || view === 'more') setView('actions')
       makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : req.kind === 'file' && isStructuredAction(req.action) ? FILE_ROOM : true)
     },
-    [editor, pageId, runId, makeRoom, view, chip],
+    [editor, pageId, runId, makeRoom, view, chip, mcpNames, onClose, previousHumanGoal],
   )
 
   /** "Ask Claude": the refused request once more, with Claude as its route (this request only — a codeword's server). */
@@ -1893,7 +1901,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       })
     }
     // an own request that is really a structure action, or work for the AI terminal (intent.ts): that key first, Enter runs it
-    const intent = q && !img?.only && !file?.only && !remembering ? requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [] }) : null
+    const intent = q && !img?.only && !file?.only && !remembering ? requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [],previousUserGoals:previousHumanGoal?[previousHumanGoal]:[] }) : null
     const routed = intent && intent !== 'terminal' ? actions.find((a) => a.id === (intent === 'items' ? 'workItems' : intent)) : null
     // the typed request goes along (who owns what, when): Turn into database, Make tasks (selection: Transform → Tasks;
     // at the cursor: make_tasks)
@@ -1931,7 +1939,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, previousHumanGoal, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))

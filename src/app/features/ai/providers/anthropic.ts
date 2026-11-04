@@ -419,7 +419,8 @@ async function streamWithMcp(
   try{
     if(!mcp.worker)throw new AIError('capability','Selected MCP connections need a personal worker or the prepared Atlas proxy.')
     const remote=workerMcpSession(mcp.worker,signal,event,12000,undefined,task)
-    const used:import('@/shared/ai/types').Usage[]=[];let spent=0,sourceRepairs=0
+    const identity=await remote.prepareIdentity();if(identity)messages.push({role:'user',content:identity})
+    const used:import('@/shared/ai/types').Usage[]=[];let spent=0,sourceRepairs=0,sectionRepairs=0
     for(let round=0;round<Math.min(40,(more.maxResumes??MAX_RESUMES)+12);round++){
       assertPreparedFlow(more.prepared)
       const definitions=[TASK_QUESTION,...WORKER_MCP_FUNCTIONS,...remote.functions()]
@@ -432,6 +433,13 @@ async function streamWithMcp(
       if(final.stop_reason==='max_tokens')throw new AIError('context','Output cut before result verification.')
       if(final.content.some(b=>b.type==='mcp_tool_use'||b.type==='mcp_tool_result'))throw new AIError('policy','Unexpected provider-side MCP result; this task requires host-owned dispatch.')
       const pending=final.content.filter(b=>b.type==='tool_use')
+      const sectionRepair=!pending.length?remote.sourceRepair(answerText(final.content)):null
+      if(sectionRepair){
+        if(sectionRepairs++>=1)throw new AIError('mcp','features.ai.transfer.sectionsMissing')
+        const verdict=used.length?await beforeRound({prepared:more.prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:sectionRepair.length},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>opus,mcpAttached:false}):{go:true}
+        if(!('go' in verdict))throw new AIError('budget')
+        messages.push({role:'assistant',content:final.content},{role:'user',content:sectionRepair});continue
+      }
       if(!pending.length&&sourceReadMissing(task)){
         if(sourceRepairs++>=1||task.report().observations.some(o=>!o.success))throw sourceReadFailure(task)
         const verdict=used.length?await beforeRound({prepared:more.prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:SOURCE_READ_REPAIR.length},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>opus,mcpAttached:false}):{go:true}

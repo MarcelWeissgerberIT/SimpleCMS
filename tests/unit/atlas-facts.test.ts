@@ -132,3 +132,9 @@ test('structured constraints and relations are citation links, never fetched bod
 test('query count describes returned rows, not the overall total',()=>{
  assert.deepEqual(atlasReceipt('atlas_query',envelope({rows:[{ref:42}],count:1,total:20})).counts,[{unit:'records',value:1,scope:'returned'},{unit:'records',value:1,scope:'returned'},{unit:'records',value:20,scope:'total'}])
 })
+
+test('an explicit no-changes statement after a read is not a fabricated write',()=>{
+ const facts=new AtlasFacts();observe(facts,'atlas_get',{item:{ref:42,body:'Original'}})
+ for(const text of ['No changes saved.','No records were created.','No comments have been saved.'])assert.deepEqual(facts.check(text),[],text)
+ assert(facts.check('The changes were saved.').some(i=>i.kind==='effect'))
+})

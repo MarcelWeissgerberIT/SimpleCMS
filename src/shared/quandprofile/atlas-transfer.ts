@@ -3,16 +3,36 @@ import {oneOnlyTask,onePageDestination} from '../ai/oneTask.ts'
 export type AtlasTransferMode = 'create' | 'update' | 'comment'
 const clean=(text:string)=>text.normalize('NFKC').toLowerCase().replace(/["“„`][^"“”„`]*["”`]/gu,'')
 const readOnly=/(?:nur (?:lesen|prüfen|pruefen)|read[ -]only|only (?:read|check)|do not (?:write|change)|keine (?:änderungen|aenderungen)|nichts (?:ändern|aendern|speichern)|(?:nicht|never|don't|do not).{0,40}(?:übertrag|uebertrag|speicher|sync|eintragen|save|transfer|comment))/u
+/** Routing only: an elliptical follow-up never grants a write capability by itself. */
+export const atlasActionFollowup=(goal:string)=>/^(?:bitte\s+|please\s+)?(?:erledige (?:das|dies)(?: bitte)?(?: in meinem namen)?|mach(?:e)? (?:das|es)(?: bitte)?|do (?:it|that)(?: for me)?)[.!?]*$/u.test(clean(goal).trim())
+const closureDirective=(text:string)=>/^(?:bitte\s+|please\s+)?(?:(?:kannst du|can you)\s+)?(?:schließ|schliess|close|resolve|im\b|in\b|das\b|den\b|die\b|the\b|ticket\b|atlas\b)/u.test(text)&&/\b(?:abschließen|abschliessen|schließen|schliessen|schließe|schliesse|close|resolve)\b/u.test(text)
+export function naturalAtlasClosureMode(goal:string):'questions'|'record'|null{
+ const text=clean(goal).trim()
+ if(atlasTransferChoice(goal)||oneOnlyTask(goal)||readOnly.test(text)||! /\batlas\b/u.test(text)||!closureDirective(text))return null
+ if(/\b(?:fragen|questions)\b/u.test(text))return 'questions'
+ return /\bstatus\b/u.test(text)?'record':null
+}
+export function needsAtlasClosureChoice(goal:string):boolean{
+ const text=clean(goal).trim()
+ return !oneOnlyTask(goal)&&!readOnly.test(text)&&!atlasTransferChoice(goal)&&/\batlas\b/u.test(text)&&closureDirective(text)&&!naturalAtlasClosureMode(goal)
+}
+export const atlasQuestionsOnly=(goal:string)=>goal.startsWith('Atlas delivery: update.\nAtlas resolution: questions.\n')
+export function atlasClosureTask(goal:string,mode:'questions'|'record'):string{
+ const task=atlasTransferTask(goal,'update')
+ return task.replace('Atlas delivery: update.\n','Atlas delivery: update.\nAtlas resolution: '+mode+'.\n')+'\n\n'+(mode==='questions'?'The human chose to resolve the open QUESTIONS, not close the record. Record the confirmed answers in the relevant content. Preserve the ticket status, archive state, assignee and unrelated fields. Do not require a ticket-status transition.':'The human chose to close the RECORD status. Verify the current status, permitted transitions and unresolved prerequisites before changing it; do not invent a status value or silently resolve unanswered domain questions.')
+}
 /** Ask only about an ambiguous requested transfer; precise create/update/comment tasks stay direct. */
 export function needsAtlasTransferChoice(goal:string,previousUserGoals:string[]=[]):boolean{
- if(oneOnlyTask(goal)||onePageDestination(goal))return false
+ if(atlasTransferChoice(goal)||oneOnlyTask(goal)||onePageDestination(goal))return false
  const text=clean(goal)
  if(readOnly.test(text)||/^\/(?:ba|po|pm|mock)\b/u.test(text)||/^(?:wie|how|warum|why|welche|which|was|what|wo|where|ist|is|wurde|has|erkläre|erklaere|explain)\b/u.test(text))return false
  const directive=text.replace(/^(?:bitte\s+|please\s+)?(?:(?:kannst du|könntest du|koenntest du|can you|could you)\s+)?(?:bitte\s+|please\s+)?/u,'')
  if(/^(?:erklär|erklaer|explain|zeig|show|beschreib|describe|lies|lese|read|prüf|pruef|check|analys|sag|tell|hilf|help|denk|think|überleg|ueberleg|consider)/u.test(directive))return false
  const atlas=/\batlas\b/u.test(text)||previousUserGoals.slice(-3).some(g=>/\batlas\b/u.test(clean(g)))
  if(!atlas||/(?:prüf|pruef|check).{0,60}(?:\bob\b|whether)/u.test(text))return false
- const requested=/(?:\b(?:speicher\w*|übertrag\w*|uebertrag\w*|synchronisier\w*|sync\w*|ablegen|eintragen|transfer|save|persist)\b|(?:übertrag|uebertrag)\w*|\batlas\b.{0,60}\bbring\w*\b|\btrag(?:e)?\b.{0,160}\bein\b|\b(?:bring\w*|pack\w*|stell\w*)\b.{0,120}(?:atlas|rüber|rueber|dorthin|dahin))/u.test(text)
+ const followup=atlasActionFollowup(goal)
+ if(followup&&!previousUserGoals.slice(-3).some(g=>!oneOnlyTask(g)&&!onePageDestination(g)&&!readOnly.test(clean(g))&&/\batlas\b/u.test(clean(g))&&/(?:trag(?:e)?\b.{0,160}\bein\b|speicher|übertrag|uebertrag|komment|aktualisier|schließ|schliess|close|create|update|save|transfer)/u.test(clean(g))))return false
+ const requested=followup||/(?:\b(?:speicher\w*|übertrag\w*|uebertrag\w*|synchronisier\w*|sync\w*|ablegen|eintragen|transfer|save|persist)\b|(?:übertrag|uebertrag)\w*|\batlas\b.{0,60}\bbring\w*\b|\btrag(?:e)?\b.{0,160}\bein\b|\b(?:bring\w*|pack\w*|stell\w*)\b.{0,120}(?:atlas|rüber|rueber|dorthin|dahin))/u.test(text)
  if(!requested)return false
  const modes=[/\b(?:kommentar\w*|kommentier\w*|comment\w*)\b/u,/\b(?:aktualisier\w*|updat\w*|ersetze\w*|replace)\b/u,/\b(?:neu(?:e[nmrs]?)? (?:atlas[- ])?(?:seite|record|ticket)|new (?:page|record|ticket)|create|erstelle|anlegen)\b/u].filter(pattern=>pattern.test(text))
  return modes.length!==1

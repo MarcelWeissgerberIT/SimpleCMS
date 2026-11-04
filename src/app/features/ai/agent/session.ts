@@ -62,9 +62,9 @@ import { isSettled, onSettled } from '../../recorder/settled'
 import { addToLines, tapSignal } from '../core/meter'
 import type { LedgerEntry, ProviderId, Usage } from '@/shared/ai/types'
 import { stepText } from '../Receipt'
-import {atlasTransferTask,needsAtlasTransferChoice,naturalAtlasTransferMode} from '@/shared/quandprofile/atlas-transfer'
+import {atlasTransferTask,needsAtlasTransferChoice,naturalAtlasTransferMode,needsAtlasClosureChoice,atlasClosureTask,naturalAtlasClosureMode} from '@/shared/quandprofile/atlas-transfer'
 import {oneOnlyTask} from '@/shared/ai/oneTask'
-import {cancelAtlasTransferChoice,requestAtlasTransferChoice} from './AtlasTransferChoice'
+import {cancelAtlasTransferChoice,requestAtlasTransferChoice,requestAtlasClosureChoice} from './AtlasTransferChoice'
 
 const set = useAgent.setState
 const get = useAgent.getState
@@ -403,7 +403,18 @@ export function continueTask(): Promise<void> {
 export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
   let task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
-  if(!opts.program&&!opts.continues&&needsAtlasTransferChoice(task,get().turns.map(turn=>turn.task))&&(mcpSetup??currentSetup()).servers.some(s=>/atlas/iu.test(s.name+' '+s.url))){
+  const connectedAtlas=(mcpSetup??currentSetup()).servers.some(s=>/atlas/iu.test(s.name+' '+s.url))
+  const previousGoals=get().turns.map(turn=>turn.task)
+  const closureMode=!opts.program&&!opts.continues&&connectedAtlas?naturalAtlasClosureMode(task):null
+  if(closureMode)task=atlasClosureTask(task,closureMode)
+  if(!opts.program&&!opts.continues&&connectedAtlas&&needsAtlasClosureChoice(task)){
+    const scope=JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()])
+    set({autorun:false})
+    const mode=await requestAtlasClosureChoice(task)
+    if(!mode||get().status==='running'||scope!==JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()]))return
+    task=atlasClosureTask(task,mode)
+  }
+  if(!opts.program&&!opts.continues&&needsAtlasTransferChoice(task,previousGoals)&&connectedAtlas){
     const scope=JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()])
     set({autorun:false})
     const mode=await requestAtlasTransferChoice(task)

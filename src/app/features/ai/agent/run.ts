@@ -359,6 +359,7 @@ export async function runAgent(opts: {
     const task=compiledTask
     delivery.bind(task)
     const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined):null
+    const identity=await remote?.prepareIdentity();if(identity)messages.push({role:'user',content:identity})
     let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
     sdk = got.sdk
@@ -520,7 +521,7 @@ export async function runAgent(opts: {
     }
     /** how the last response ended: tool_use / pause_turn here means the runner stopped at max_iterations */
     let lastStop: string | null = null
-    let guardedFinal:string|null=null
+    let guardedFinal:string|null=null,sectionRepairs=0
     // media in MCP results: cards for the person (features/ai/media), nothing is fetched
     const media = mcp && hooks.media ? createMediaCollector() : null
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
@@ -579,6 +580,13 @@ export async function runAgent(opts: {
             const entry = call.response(r)
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
+            const sectionRepair=!toolUse?remote?.sourceRepair(draftText):null
+            if(sectionRepair){
+              if(sectionRepairs++>=1)throw new AIError('mcp','features.ai.transfer.sectionsMissing')
+              if((await atLine({low:0,high:sectionRepair.length},0))==='stop'){end='held';break outer}
+              runner.setMessagesParams(p=>({...p,messages:[...p.messages,{role:'assistant',content:msg.content},{role:'user',content:sectionRepair}]}))
+              continue
+            }
             if(msg.stop_reason!=='pause_turn'){
               if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;const codeIssues=codeDeliveryIssues(opts.typed??'',text);if(codeIssues.length){task.fail('C++ minimum review failed; no compiler verification recorded.');throw new AIError('capability',codeIssues.join(' '))}if(mockIntent(opts.typed??'')&&!mockSources.created){task.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','features.ai.mock.held')}delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
               else if(!(remote?.facts??atlasFacts).check(draftText).length)hooks.text(draftText)

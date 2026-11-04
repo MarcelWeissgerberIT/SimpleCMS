@@ -138,3 +138,20 @@ test('only a bare catalogue request resolves from an explicit trusted Atlas reco
  for(const query of ['atlas_whoami','atlas_agent_list','atlas_search','atlas requirement'])assert.equal(taskMcpDiscoveryQuery('Read Atlas Ref 42.',query),query)
  for(const goal of ['Search Atlas for documents.','Analyse Ref 42 in ONE.','Atlas: explain the example "Record Ref 42".'])assert.equal(taskMcpDiscoveryQuery(goal,'atlas'),'atlas')
 })
+
+test('retained section lookup reads actual target windows, preserves gaps and blocks whole-body replacements',()=>{
+ const cache=new McpResults(),body='# Source\n'+('Introduction\n'.repeat(800))+'\n## AC-17 Transport\nThe Type field shall carry the number.\n\n## AC-20 Other\nOther criteria.\n'
+ const id=JSON.parse(cache.pack(envelope({item:{ref:42,body}}))).result_id
+ assert(cache.unreadBody(42));assert.equal(cache.missingSections('Replace AC-17 in /r/42.').length,1)
+ const first=JSON.parse(cache.read({result_id:id,path:'/item/body'}));assert.equal(first.offset,0)
+ assert.equal(cache.missingSections('Replace AC-17 in /r/42.').length,1)
+ const found=JSON.parse(cache.find({result_id:id,path:'/item/body',query:'AC-17'}))
+ assert.equal(found.matchesReturned,1);assert.match(found.matches[0].content,/The Type field shall carry/)
+ assert.deepEqual(cache.missingSections('Replace AC-17 in /r/42.'),[])
+ assert(cache.unreadBody(42),'A target excerpt must not count as a whole-body read')
+ assert.throws(()=>cache.find({result_id:id,path:'/item',query:'AC-17'}),/text field/)
+ assert.throws(()=>cache.find({result_id:id,path:'/__proto__',query:'AC-17'}),/not found/)
+ assert.throws(()=>new McpResults().find({result_id:id,path:'/item/body',query:'AC-17'}),/expired/)
+ let offset=0;do{const p=JSON.parse(cache.read({result_id:id,path:'/item/body',offset}));offset=p.next_offset}while(offset!==null)
+ assert(!cache.unreadBody(42))
+})

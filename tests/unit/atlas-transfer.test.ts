@@ -30,3 +30,23 @@ test('ONE page preparation is not redirected by previous Atlas work or a later o
  assert(needsAtlasTransferChoice('Bitte diese ONE-Seite nach Atlas übertragen.'))
  assert.equal(naturalAtlasTransferMode('Bitte aus dieser ONE-Seite einen neuen Atlas-Record anlegen.'),'create')
 })
+
+test('elliptical actions need an explicit destination; question closure never grants status changes implicitly',async()=>{
+ const {atlasActionFollowup,needsAtlasClosureChoice,atlasClosureTask,atlasQuestionsOnly}=await import('../../src/shared/quandprofile/atlas-transfer.ts')
+ for(const goal of ['Erledige das','Erledige das in meinem Namen','Bitte mach das.']){assert(atlasActionFollowup(goal));assert(needsAtlasTransferChoice(goal,['Bitte die Entscheidungen in Atlas speichern.']))}
+ for(const goal of ['Bitte im Atlas Ticket schließen','Schließe das Atlas-Ticket.','Please close the Atlas ticket.'])assert(needsAtlasClosureChoice(goal),goal)
+ for(const goal of ['Wie kann ich das Atlas-Ticket schließen?','Bitte nur prüfen, ob das Atlas-Ticket geschlossen ist.','Bitte die Fragen in Atlas schließen.','Nur in ONE arbeiten.'])assert(!needsAtlasClosureChoice(goal),goal)
+ const goal=atlasClosureTask('Bitte im Atlas Ticket schließen','questions')
+ assert(atlasQuestionsOnly(goal));assert.equal(atlasTransferChoice(goal),'update');assert(!needsAtlasTransferChoice(goal));assert.match(goal,/Preserve the ticket status/)
+})
+
+test('an explicit questions-only instruction keeps its scope without another closure choice',async()=>{
+ const {naturalAtlasClosureMode}=await import('../../src/shared/quandprofile/atlas-transfer.ts')
+ assert.equal(naturalAtlasClosureMode('Bitte die Fragen im Atlas-Ticket abschließen. Ticketstatus unverändert.'),'questions')
+ assert.equal(naturalAtlasClosureMode('Please close the Atlas ticket status.'),'record')
+ assert.equal(naturalAtlasClosureMode('Wie kann ich die Fragen in Atlas schließen?'),null)
+})
+
+test('a connected Atlas does not turn a ONE-only or read-only follow-up into a transfer',()=>{
+ for(const previous of ['Bitte nur in ONE aufbereiten; Atlas später.','Bitte die Atlas-Quellen nur lesen.','Eine ONE-Seite aus Atlas-Quellen erstellen.'])assert(!needsAtlasTransferChoice('Erledige das',[previous]),previous)
+})

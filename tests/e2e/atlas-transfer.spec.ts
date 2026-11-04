@@ -1,4 +1,4 @@
-import {test,expect,openApp,wsEval,MOD,createPage,gotoPage,doc,para} from './fixtures'
+import {test,expect,openApp,wsEval,MOD,createPage,gotoPage,editorOf,doc,para} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 import {mockClaudeScript,text} from './helpers/providers'
@@ -13,7 +13,7 @@ test.describe('Guided Atlas transfer',()=>{
   fake=await startFakeWorker(PORT,{worker:'1.35.3',name:'atlas-facts-fixture',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true});fake.can=[...WORKER_CAN]
   fake.textModels=[{provider:'local',model:LOCAL,context:32768,chat:true,maxOutput:8192},{provider:'copilot',model:COPILOT,context:65536,chat:true,maxOutput:8192}]
   await openApp(page)
-  await wsEval(page,s=>{const allow=['public','structure','selection','page','rows','workspace'];s.setWorkspaceAI({policy:{providers:{local:{allow},copilot:{allow}},restricted:[]}});s.updateSettings({ai:{allow:{local:['mcp'],copilot:['mcp']}},mcpServers:[{id:'atlas-facts',name:'atlas',url:'https://atlas.example.org/mcp',scope:'all',token:'private-facts-token',enabled:true,prompt:'Use observed sources only.',tools:['atlas_get','atlas_update','atlas_comment','atlas_create'],checkedAt:Date.now()}]})})
+  await wsEval(page,s=>{const allow=['public','structure','selection','page','rows','workspace'];s.setWorkspaceAI({policy:{providers:{local:{allow},copilot:{allow}},restricted:[]}});s.updateSettings({ai:{allow:{local:['mcp'],copilot:['mcp']}},mcpServers:[{id:'atlas-facts',name:'atlas',url:'https://atlas.example.org/mcp',scope:'all',token:'private-facts-token',enabled:true,prompt:'Use observed sources only.',tools:['atlas_get','atlas_update','atlas_comment','atlas_create','atlas_whoami'],checkedAt:Date.now()}]})})
   await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
   await page.getByRole('tab',{name:/Coding worker/}).click();await page.getByLabel('Port',{exact:true}).fill(String(PORT));await page.getByLabel('Port',{exact:true}).press('Enter')
   await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click();await expect(page.getByTestId('coding-conn')).toContainText('atlas-facts-fixture')
@@ -104,6 +104,80 @@ test.describe('Guided Atlas transfer',()=>{
   await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
   expect(created).toBe(true);expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_constraints','atlas_create','atlas_get'])
   await expect(term.getByRole('region',{name:'Atlas transfer receipt'})).toContainText('1 confirmed by read-back')
+ })
+
+ for(const provider of ['local','copilot','anthropic'] as const)test(provider+': personal follow-up receives a fresh verified identity before inference',async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_whoami',inputSchema:{type:'object',properties:{},additionalProperties:false}}]}:{result:envelope({person:'Kai Röther',memberships:[{tenant:'analytik-jena',role:'user'}]})}
+  fake.onText=r=>({model:r.model,text:'Identität: Kai Röther. Nichts gespeichert.',calls:[],inputTokens:200,outputTokens:40,usd:0})
+  const host=provider==='anthropic'?await mockClaudeScript(page,[text('Identität: Kai Röther. Nichts gespeichert.')]):null
+  if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test'}))
+  const result=await page.evaluate(async route=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Erledige das in meinem Namen',mcp:'free',route}),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+  expect(result.ok).toBe(true);expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_whoami'])
+  const requests=host?.requests??fake.textAsked;expect(requests).toHaveLength(1);expect(JSON.stringify(requests[0])).toContain('oneCurrentIdentity');expect(JSON.stringify(requests[0])).toContain('Kai Röther')
+ })
+ for(const provider of ['local','copilot','anthropic'] as const)for(const surface of ['inline','terminal'] as const)test(provider+' '+surface+': missing original section is read through retained literal lookup before the answer',async({page})=>{
+  const body='# Long source\n'+'Introductory text.\n'.repeat(900)+'\n## AC-17 Transport\nThe Type field carries only a number.\n\n## AC-20 Other\nNo change.\n'
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body}})}
+  const call=(name:string,input:Record<string,unknown>)=>({blocks:[{type:'tool_use' as const,id:crypto.randomUUID(),name,input}]})
+  const step=(messages:unknown,n:number)=>{
+   const serialized=JSON.stringify(messages),id=serialized.match(/mcp-result-[a-f0-9]+-\d+/)?.[0]
+   if(n===0)return call('one_mcp_search',{query:'atlas_get'})
+   if(n===1)return call('one_mcp_call',{server:'atlas',name:'atlas_get',arguments:{ref:42}})
+   if(n===2)return call('one_mcp_read_result',{result_id:id,path:'/item/body'})
+   if(n===3)return text('Proposal for AC-17 in https://atlas.example.org/r/42: use a number.')
+   if(n===4){expect(serialized).toContain('Required lookups');return call('one_mcp_find_result',{result_id:id,path:'/item/body',query:'AC-17'})}
+   expect(serialized).toContain('The Type field carries only a number.');return text('AC-17 in https://atlas.example.org/r/42 requires the Type field to carry only a number. No changes saved.')
+  }
+  let n=0;fake.onText=r=>{const s=step(r.messages,n++);return{model:r.model,text:s.blocks.filter((b:any)=>b.type==='text').map((b:any)=>b.text).join(''),calls:s.blocks.filter((b:any)=>b.type==='tool_use').map((b:any)=>({id:b.id,name:b.name,arguments:b.input})),inputTokens:200,outputTokens:40,usd:0}}
+  const host=provider==='anthropic'?await mockClaudeScript(page,Array.from({length:6},(_,i)=>(r:any)=>step(r.body.messages,i))):null
+  if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test'}))
+  const route={p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL}
+  if(surface==='inline'){
+   const result=await page.evaluate(async route=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read Atlas ref 42 and propose the wording for AC-17. Do not change anything.',mcp:'free',route}),route)
+   expect(result).toMatchObject({ok:true})
+  }else{
+   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),route)
+   await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+   await input.fill('Read Atlas ref 42 and propose the wording for AC-17. Do not change anything.');await input.press('Enter')
+   await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000});await expect(term).toContainText('requires the Type field')
+  }
+  expect(host?.requests??fake.textAsked).toHaveLength(6)
+  expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_get'])
+ })
+ test('inline ASK hands an Atlas transfer to the same destination chooser before any request',async({page})=>{
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  const id=await createPage(page,{title:'Kai transfer fixture',content:doc(para('Confirmed answers for Atlas.'),para(''))});await gotoPage(page,id)
+  const ed=editorOf(page,id),ask=page.getByPlaceholder('Ask AI to write anything…')
+  await ed.locator('p').last().click();await page.keyboard.press('End');await page.keyboard.press('Space');await expect(ask).toBeFocused()
+  await ask.fill('Bitte trage die Entscheidungen in die Atlas-Tickets ein.');await page.locator('#ai-row-custom').click()
+  const dialog=page.getByRole('dialog',{name:'How should this go to Atlas?'});await expect(dialog).toBeVisible();expect(fake.textAsked).toHaveLength(0);expect(fake.mcpAsked).toHaveLength(0)
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click()
+  await expect(page.getByRole('region',{name:'AI terminal'}).getByRole('textbox',{name:'Task for the agent'})).toHaveValue('Bitte trage die Entscheidungen in die Atlas-Tickets ein.')
+ })
+ test('question closure preserves status at the host even if the model asks for a transition',async({page},info)=>{
+  let body='Questions 1–3 are open.'
+  const schema=(name:string)=>({server:'atlas',name,inputSchema:{type:'object',properties:{ref:{type:'integer'},replaceBody:{type:'string'},status:{type:'string'}},required:['ref']}})
+  fake.onModelMcp=r=>r.action==='search'?{tools:['atlas_get','atlas_update'].map(schema)}:r.name==='atlas_get'?{result:envelope({item:{ref:42,status:'new',body}})}:(body=r.arguments.replaceBody as string,{result:envelope({ok:true,ref:42})})
+  const calls=[{name:'one_mcp_search',arguments:{query:'atlas_get atlas_update'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_update',arguments:{ref:42,status:'done'}}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_update',arguments:{ref:42,replaceBody:'Questions 1–3 answered.'}}}]
+  let n=0;fake.onText=r=>{const c=calls[n++];return{model:r.model,text:c?'':'Ref: 42 questions answered; ticket status unchanged.',calls:c?[{id:'closure-'+n,...c}]:[],inputTokens:200,outputTokens:40,usd:0}}
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Bitte im Atlas Ticket schließen');await input.press('Enter')
+  const dialog=page.getByRole('dialog',{name:'What should be closed in Atlas?'});await expect(dialog).toBeVisible();expect(fake.mcpAsked).toHaveLength(0)
+  for(const theme of ['light','dark'])for(const width of [1440,390]){await page.setViewportSize({width,height:width===390?844:900});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);expect(await dialog.locator('.modal__body').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);await page.screenshot({path:info.outputPath(`closure-${theme}-${width}.png`),animations:'disabled'})}
+  await dialog.getByRole('button',{name:/Resolve questions/}).click();await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
+  const writes=fake.mcpAsked.filter(r=>r.action==='call'&&r.name==='atlas_update');expect(writes).toHaveLength(1);expect(writes[0].arguments).toEqual({ref:42,replaceBody:'Questions 1–3 answered.'});expect(JSON.stringify(fake.textAsked)).toContain('Preserve the ticket status')
+ })
+
+ test('a partial source cannot authorize replacing an entire Atlas body',async({page})=>{
+  let body='Long original source.\n'.repeat(900)
+  const schema=(name:string)=>({server:'atlas',name,inputSchema:{type:'object',properties:{ref:{type:'integer'},replaceBody:{type:'string'},appendBody:{type:'string'}},required:['ref']}})
+  fake.onModelMcp=r=>r.action==='search'?{tools:['atlas_get','atlas_update'].map(schema)}:r.name==='atlas_get'?{result:envelope({item:{ref:42,body}})}:(body+=String(r.arguments.appendBody??''),{result:envelope({ok:true,ref:42})})
+  let n=0;fake.onText=r=>{const id=JSON.stringify(r.messages).match(/mcp-result-[a-f0-9]+-\d+/)?.[0],calls=[{name:'one_mcp_search',arguments:{query:'atlas_get atlas_update'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}},{name:'one_mcp_read_result',arguments:{result_id:id,path:'/item/body'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_update',arguments:{ref:42,replaceBody:'Destructive incomplete reconstruction'}}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_update',arguments:{ref:42,appendBody:'\nConfirmed answer.'}}}],c=calls[n++];return{model:r.model,text:c?'':'Ref: 42 answer appended; original content preserved.',calls:c?[{id:'unread-'+n,...c}]:[],inputTokens:200,outputTokens:40,usd:0}}
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Bitte den Inhalt in Atlas aktualisieren.');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
+  const writes=fake.mcpAsked.filter(r=>r.action==='call'&&r.name==='atlas_update');expect(writes).toHaveLength(1);expect(writes[0].arguments).toEqual({ref:42,appendBody:'\nConfirmed answer.'});expect(body).toContain('Long original source.');expect(body).not.toContain('Destructive');expect(JSON.stringify(fake.textAsked)).toContain('only partially read')
  })
 
 })
