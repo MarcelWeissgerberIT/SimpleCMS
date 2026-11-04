@@ -5,6 +5,7 @@
 import {noteAtlasRead,type ReadinessScope} from '../../../cloud'
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import {atlasReceipt,type AtlasReceipt,type AtlasFacts} from '@/shared/mcp/facts'
+import {mcpConnectionMessage} from '@/shared/ai/connection-problem'
 
 export interface McpCall {
   contract?:import('@/shared/quandprofile/task').TaskReport
@@ -72,11 +73,12 @@ export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock, readines
   if (block.type === 'mcp_tool_result') {
     const i = calls.findIndex((c) => c.id === block.tool_use_id)
     if (i < 0) return calls
-    if(readiness&&!block.is_error)noteAtlasRead(readiness.scope,readiness.servers.find(s=>s.name===calls[i].server)?.url,calls[i].tool,block.content)
     const next = [...calls]
     const call=calls[i],raw={content:typeof block.content==='string'?[{type:'text',text:block.content}]:block.content,isError:!!block.is_error}
     const receipt=call.tool.startsWith('atlas_')?(facts?.observe({server:call.server,name:call.tool,arguments:call.input??{}},raw,!!block.is_error)??atlasReceipt(call.tool,raw,!!block.is_error)):undefined
-    next[i] = block.is_error ? { ...call, receipt, state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...call, receipt, state: 'ok' }
+    const failed=block.is_error||receipt?.outcome==='error'
+    if(readiness&&!failed)noteAtlasRead(readiness.scope,readiness.servers.find(s=>s.name===call.server)?.url,call.tool,block.content)
+    next[i] = failed ? { ...call, receipt, state: 'err', error: receipt?.outcome==='error' ? mcpConnectionMessage(resultText(block.content),'call') : sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...call, receipt, state: 'ok' }
     return next
   }
   return calls
