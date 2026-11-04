@@ -24,7 +24,7 @@ export function TaskContractCard({report,historical=false,onRecover}:{report:Tas
    <summary><span className="label">{t('features.ai.task.title')} · {c.contract_hash.slice(0,12)} · R{c.contract.revision}</span><strong>{t('features.ai.task.phase.'+report.phase)}</strong></summary>
    <div className="task-contract__body">
     <p>{c.contract.goal}</p>
-    {!!report.skills?.length&&<p className="label">{t('features.ai.skills.short')} · {report.skills.map(s=>s.name+' V'+s.version+' · '+s.hash.slice(0,12)).join(' / ')}</p>}
+    {!!report.skills?.length&&<p className="label">{t('features.ai.skills.short')} · {report.skills.map(s=>s.name+' V'+s.version+' · '+s.hash.slice(0,12)+(s.source?' · '+s.source.origin+' · '+s.source.tenant+'/'+s.source.project+' · Ref '+s.source.ref:'')).join(' / ')}</p>}
     {c.contract.review_profile&&<p className="label">{c.contract.review_profile.spec.name} · V{c.contract.review_profile.version} · {c.contract.review_profile.hash.slice(0,12)}</p>}
     {c.contract.review_profile?.spec.typedAI&&<TypedSelection value={c.contract.review_profile.spec.typedAI}/>}
     {!historical&&<button className="btn btn--sm" onClick={openReviewProfiles}>{t('features.ai.cube.title')}</button>}
