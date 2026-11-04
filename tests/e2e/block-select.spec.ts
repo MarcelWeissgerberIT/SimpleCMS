@@ -1,6 +1,6 @@
 /**
- * Visible block selection: the grip stays pinned at the first selected block (no hover), a strong
- * wash on every selected block (images tinted too), a count chip; Shift+click, Shift+↑ / ↓, a drag in
+ * Visible block selection: the grip stays pinned at the first selected block (no hover), an
+ * unfilled frame on every selected block, a count chip; Shift+click, Shift+↑ / ↓, a drag in
  * the margin, ⌘A twice and (phones) long-press + taps select several; the block menu acts on all of
  * them in one transaction (one ⌘Z); the pinned grip drags the whole range.
  */
@@ -20,7 +20,7 @@ const blocks = (page: Page, id: string) =>
 const selectionJSON = (ed: Locator) => ed.evaluate((el) => (el as HTMLElement & { editor: AnyState }).editor.state.selection.toJSON())
 const grip = (page: Page) => page.getByTestId('selection-grip')
 const menu = (page: Page) => page.locator('[data-popover][role="menu"]').first()
-/** The overlay wash of a selected block (its ::after). */
+/** Selected content must never be covered by a tinted overlay. */
 const washOf = (el: Locator) => el.evaluate((e) => getComputedStyle(e, '::after').backgroundColor)
 
 async function fourLines(page: Page, title: string): Promise<{ id: string; ed: Locator }> {
@@ -34,11 +34,16 @@ async function fourLines(page: Page, title: string): Promise<{ id: string; ed: L
 /** Esc on a caret selects its block. */
 async function selectBlockOf(page: Page, line: Locator) {
   await line.click()
+  // Browser selectionchange is asynchronous after the block menu releases focus.
+  await expect.poll(() => line.evaluate(el => {
+    const editor = (el.closest('.ProseMirror') as HTMLElement & { editor: AnyState }).editor
+    return editor.state.selection.$from.parent.textContent
+  })).toBe(await line.textContent())
   await page.keyboard.press('Escape')
 }
 
 test.describe('block selection', () => {
-  test('click an image: the grip stays without hover, the image is tinted; its menu duplicates it', async ({ page }) => {
+  test('click an image: the grip stays without hover, the image keeps its colours; its menu duplicates it', async ({ page }) => {
     await openApp(page)
     const id = await createPage(page, { title: 'Image select', content: doc(para('Before the picture.'), { type: 'image', attrs: { src: 'assets/covers/dunes.webp', alt: 'Dunes' } }, para('After the picture.')) })
     await gotoPage(page, id)
@@ -55,7 +60,7 @@ test.describe('block selection', () => {
     expect(Math.abs(gripBox.y - imgBox.y)).toBeLessThan(30)
     const node = ed.locator('.is-block-selected')
     await expect(node).toHaveCount(1)
-    expect(await washOf(node)).toMatch(/rgba\(255, 79, 0, 0\.18\)/)
+    expect(await washOf(node)).toBe('rgba(0, 0, 0, 0)')
 
     await grip(page).getByRole('button', { name: 'Block menu' }).click()
     await expect(menu(page)).toBeVisible()
@@ -63,7 +68,7 @@ test.describe('block selection', () => {
     await expect.poll(async () => (await blocks(page, id)).map((b) => b[0])).toEqual(['paragraph', 'image', 'image', 'paragraph'])
   })
 
-  test('Shift+click 3 blocks: count chip, wash on all three; right-click → Delete removes them in one step, ⌘Z brings them back', async ({ page }) => {
+  test('Shift+click 3 blocks: count chip, frames on all three; right-click → Delete removes them in one step, ⌘Z brings them back', async ({ page }) => {
     await openApp(page)
     const { id, ed } = await fourLines(page, 'Range select')
     await selectBlockOf(page, ed.locator('p', { hasText: 'Bravo' }))
@@ -72,7 +77,7 @@ test.describe('block selection', () => {
     await expect(page.getByTestId('selection-count')).toHaveCSS('text-transform', 'uppercase')
     const selected = ed.locator('.is-block-selected')
     await expect(selected).toHaveText(['Bravo line.', 'Charlie line.', 'Delta line.'])
-    for (const i of [0, 1, 2]) expect(await washOf(selected.nth(i))).toMatch(/rgba\(255, 79, 0, 0\.18\)/)
+    for (const i of [0, 1, 2]) expect(await washOf(selected.nth(i))).toBe('rgba(0, 0, 0, 0)')
     // the gutter rule runs from the first to the last
     const rule = (await page.locator('.sel-rule').boundingBox())!
     const first = (await selected.first().boundingBox())!
@@ -230,6 +235,56 @@ test.describe('block selection', () => {
     await expect
       .poll(() => wsEval(page, (s, id) => (s.pages[id].content.content[0].content as AnyState[]).map((c) => (c.content as AnyState[]).map((n) => n.type + ':' + ((n.content ?? []).map((x: AnyState) => x.text).join('')))), id))
       .toEqual([['paragraph:'], ['paragraph:Right one.']])
+  })
+
+  test('selected form: fields stay clear and editable in both themes and at phone width', async ({ page }, info) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Form selection', content: doc(para('')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('p').first().click()
+    await page.keyboard.type('/form')
+    await page.keyboard.press('Enter')
+    const db = ed.locator('section.db')
+    await expect(db).toHaveAttribute('data-view', 'form')
+    await db.getByRole('radio', { name: 'Build', exact: true }).click()
+    const help = db.locator('.fb-q__help').first()
+    await expect(help).toBeVisible()
+
+    for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await ed.evaluate((el) => {
+        const editor = (el as HTMLElement & { editor: AnyState }).editor
+        editor.state.doc.forEach((node: AnyState, pos: number) => {
+          if (node.type.name === 'databaseBlock') editor.commands.setNodeSelection(pos)
+        })
+        editor.commands.focus()
+      })
+      const selected = ed.locator('.node-databaseBlock.is-block-selected')
+      await expect(selected).toHaveCount(1)
+      expect(await washOf(selected)).toBe('rgba(0, 0, 0, 0)')
+      await expect(grip(page)).toBeVisible()
+      const activeBorder = await selected.evaluate(e => getComputedStyle(e, '::after').borderColor)
+      await help.fill('Your full name')
+      await expect(help).toBeFocused()
+      await expect(help).toHaveValue('Your full name')
+      // The frame remains visible, but the input now owns the orange focus indicator.
+      const frame = await selected.evaluate(e => ({ border: getComputedStyle(e, '::after').borderColor, width: getComputedStyle(e, '::after').borderWidth, pointer: getComputedStyle(e, '::after').pointerEvents }))
+      expect(frame.border).not.toBe(activeBorder)
+      expect(frame.width).toBe('1px')
+      expect(frame.pointer).toBe('none')
+      const nativeSelection = await help.evaluate(e => getComputedStyle(e, '::selection').backgroundColor)
+      expect(nativeSelection).not.toBe('rgba(0, 0, 0, 0)')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+      await page.screenshot({ path: info.outputPath(`selection-${theme}-${width}.png`), animations: 'disabled' })
+    }
+    await help.blur()
+    await expect.poll(() => wsEval(page, (s, id) => {
+      const block = s.pages[id].content.content.find((n: AnyState) => n.type === 'databaseBlock')
+      return JSON.stringify(s.databases[block.attrs.databaseId].views)
+    }, id)).toContain('Your full name')
   })
 
   test('German: chip, menu heading and actions', async ({ page }) => {

@@ -291,7 +291,7 @@
 
 /* a nested to-do's box reaches over its parent's checkbox column (layout unchanged): the hover handle
    (editor/menus/BlockHandle) finds the block under the pointer, so the gap left of a nested to-do is its
-   own, not the parent's; the selection wash still starts at the checkbox */
+   own, not the parent's; the selection frame still starts at the checkbox */
 .doc-content li ul[data-type='taskList'] > li {
   --todo-reach: 25px;
   margin-left: calc(-1 * var(--todo-reach));
@@ -712,9 +712,8 @@
 }
 
 /* ---------- Selection, flash, cursors ---------- */
-/* a selected block (editor/select): the wash is laid OVER it, so images, embeds, databases and charts are
-   tinted like text; it bleeds 1px up and down, so a range reads as one band (the gutter rule, the grip
-   and the count chip are the SelectionGrip overlay's) */
+/* Block selection frames the content without painting over it. The gutter rule, pinned grip and
+   count chip identify a range; photos, charts and interactive fields keep their original colours. */
 .doc-content .is-block-selected {
   position: relative;
   border-radius: var(--radius-1);
@@ -726,13 +725,26 @@
   z-index: 1;
   inset: -1px -4px;
   border-radius: var(--radius-1);
-  background: var(--signal-wash-strong);
+  border: 1px solid var(--signal);
+  background: transparent;
   pointer-events: none;
+}
+
+/* Inside a selected widget, the field owns the strong focus cue; the block keeps a quiet frame.
+   Selecting its grip again restores the orange frame without changing the selection itself. */
+.doc-content .is-block-selected:focus-within::after {
+  border-color: var(--rule-strong);
 }
 
 /* the blurred editor keeps its selection painted (TipTap Selection, `.selection`) — not inside selected blocks */
 .doc-content .is-block-selected .selection {
   background: transparent;
+}
+
+/* Native controls and nested editors must still show character selection while their block is selected. */
+.doc-content .is-block-selected :is(input, textarea, [contenteditable='true'])::selection,
+.doc-content .is-block-selected [contenteditable='true'] *::selection {
+  background: var(--selection);
 }
 
 .doc-content .is-block-selected::selection,
