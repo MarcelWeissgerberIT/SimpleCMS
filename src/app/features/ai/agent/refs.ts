@@ -10,7 +10,7 @@ import { useUI } from '../../../store/ui'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { toAIMarkdown } from '../../share/markdown'
-import { addRef, openAgent, REF_MAX } from './state'
+import { addRef, openAgent, REF_MAX, useAgent } from './state'
 import { imageOnlyIn, imageRef } from '../image/terminal'
 import { imageBytes } from '../image/load'
 import { fileOnlyIn, fileRef } from '../file/terminal'
@@ -120,5 +120,6 @@ export async function runInTerminal(task: string, editor?: Editor, at?: { from: 
   if (ref?.image) ref.image.bytes = await imageBytes(ref.image.src)
   if (ref?.file) ref.file.bytes = await fileBytes(ref.file.src)
   if (ref && !addRef(ref)) useUI.getState().toast({ message: t('features.agent.ref.full', { max: REF_MAX }), kind: 'error' })
+  if(editor&&!editor.isDestroyed)useAgent.setState({pageOff:null})
   openAgent({ task, run: true })
 }

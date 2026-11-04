@@ -9,7 +9,7 @@ export class TaskBlocked extends Error {}
 /** A correctable model request; no decision was opened and no effect was dispatched. */
 export class TaskQuestionRejected extends TaskBlocked {}
 /** Run-local host state. No model-facing operation can answer, accept, or change permissions. */
-type TaskHost={compile:(request:TaskRequest)=>TaskCompiled;signature:()=>string;check:()=>void;report?:(report:TaskReport)=>void;signal?:AbortSignal;interactive?:boolean}
+type TaskHost={compile:(request:TaskRequest)=>TaskCompiled;signature:()=>string;check:()=>void;report?:(report:TaskReport)=>void;signal?:AbortSignal;interactive?:boolean;writeIntent?:'create'|'update'|'comment'|null}
 export class TaskSession {
   private trace:CapturedStep[]=[]
   private contract:TaskContract
@@ -39,6 +39,8 @@ export class TaskSession {
   capture(step:CapturedStep){if(this.trace.length<40)this.trace.push(structuredClone(step))}
   captured(){return structuredClone(this.trace)}
   discoveryQuery(query:string){return taskMcpDiscoveryQuery(this.contract.goal,query)}
+  writeIntent(){return this.host.writeIntent??null}
+  keepsStatus(){return /(?:\b(?:ticketstatus|status)\b.{0,30}(?:unverändert|unveraendert|unchanged|nicht ändern|nicht aendern)|\bkeep\b.{0,30}\bstatus\b)/iu.test([this.contract.goal,...this.contract.decisions.map(d=>d.answer)].join('\n'))}
   identityOnly(){return atlasIdentityTask(this.contract.goal)}
   report():TaskReport{return structuredClone({id:this.contract.id,at:Date.now(),phase:this.phase,compiled:this.compiled,observations:this.observations,questions:this.questions,evidence:this.evidence})}
   private publish(){this.host.report?.(this.report())}

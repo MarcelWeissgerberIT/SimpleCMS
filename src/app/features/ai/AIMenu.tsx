@@ -104,7 +104,8 @@ import { turnIntoPage } from '../../editor'
 import { FileStack, ListPlus } from 'lucide-react'
 import { listItemsIn, openTurnIntoList } from '../kit'
 import { itemCount, pagesPerItem } from '../../editor'
-import { requestIntent,atlasExecutionIntent } from './intent'
+import { requestIntent } from './intent'
+import {writeActionRequested} from '@/shared/ai/actionIntent'
 import { RouteChip, isRouteKey, type RouteChipHandle } from './routing/RouteChip'
 import type { PurposeId } from './core/purposes'
 import { aiWriterOf } from './core/runMeta'
@@ -590,12 +591,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /* ---------------- running ---------------- */
 
   /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
-  const previousHumanGoal=run?.req.kind==='action'&&run.req.action==='custom'?run.req.instruction:run?.req.kind==='workspace'?run.req.question:undefined
+  const pageTree=useAgent(s=>s.pageTree===pageId)
   const start = useCallback(
     (req: RunRequest, tg?: RunTarget, pick?: Route | null) => {
-      // Explicit remote work uses the terminal's destination/operation picker, even via ASK or Retry.
-      if(req.kind==='action'&&req.action==='custom'&&req.instruction&&atlasExecutionIntent(req.instruction,mcpNames?.split(' · ')??[],previousHumanGoal?[previousHumanGoal]:[])){
+      // Contextual tool work shares the terminal's discovery and live clarification loop.
+      const addressed=req.kind==='action'&&req.action==='custom'&&req.instruction?codewordsIn(req.instruction):null
+      const toolWrite=!!addressed?.forced.length&&writeActionRequested(addressed.text)
+      const remoteWrite=req.kind==='action'&&req.action==='custom'&&!!req.instruction&&writeActionRequested(req.instruction)&&requestIntent(req.instruction,{selection:targetRef.current.mode==='selection',servers:mcpNames?.split(' · ')})==='terminal'
+      if(req.kind==='action'&&req.action==='custom'&&req.instruction&&(pageTree||toolWrite||remoteWrite)){
         const target=targetRef.current,at=target.mode==='selection'?{from:target.from,to:target.to}:null
+        useAgent.setState({route:(pick===undefined?chip:pick)??null})
         onClose()
         void import('./agent/refs').then(m=>m.runInTerminal(req.instruction!,editor,at))
         return
@@ -613,7 +618,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       if (view === 'memory' || view === 'memhist' || view === 'transform' || view === 'more') setView('actions')
       makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : req.kind === 'file' && isStructuredAction(req.action) ? FILE_ROOM : true)
     },
-    [editor, pageId, runId, makeRoom, view, chip, mcpNames, onClose, previousHumanGoal],
+    [editor, pageId, runId, makeRoom, view, chip, mcpNames, onClose, pageTree],
   )
 
   /** "Ask Claude": the refused request once more, with Claude as its route (this request only — a codeword's server). */
@@ -658,6 +663,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const chooseMode = useCallback(
     (mode: ContextMode) => {
       if (mode === 'marked' && !pageContextMarks(pageId).marked) return pickBlocks()
+      useAgent.setState({pageTree:null})
       setContextMode(editor, mode)
       setView('actions')
       setActive(0)
@@ -974,10 +980,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const handToTerminal = useCallback(
     (task: string) => {
       const at = own.t.mode === 'selection' ? { from: own.t.from, to: own.t.to } : null
+      useAgent.setState({route:chip??null})
       onClose()
       void import('./agent/refs').then((m) => m.runInTerminal(task, editor, at))
     },
-    [onClose, own, editor],
+    [onClose, own, editor, chip],
   )
 
   /* ---------------- Claude for images ---------------- */
@@ -1569,7 +1576,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       const blocks = marks?.marked ?? 0
       const n = (x: number) => x.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
       return [
-        { id: 'reads-page', label: t('features.ai.reads.opt.page'), icon: FileText, group, current: m === 'page', run: () => chooseMode('page'), code: 'ALL' },
+        { id: 'reads-page', label: t('features.ai.reads.opt.page'), icon: FileText, group, current: m === 'page'&&!pageTree, run: () => chooseMode('page'), code: 'ALL' },
+        {id:'reads-tree',label:t('features.ai.reads.opt.tree'),icon:FileStack,group,current:m==='page'&&pageTree,code:'TREE',run:()=>{chooseMode('page');useAgent.setState({pageTree:pageId})}},
         {
           id: 'reads-marked',
           label: blocks ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'),
@@ -1901,7 +1909,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       })
     }
     // an own request that is really a structure action, or work for the AI terminal (intent.ts): that key first, Enter runs it
-    const intent = q && !img?.only && !file?.only && !remembering ? requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [],previousUserGoals:previousHumanGoal?[previousHumanGoal]:[] }) : null
+    const addressed=codewordsIn(query)
+    const toolWrite=!!addressed?.forced.length&&writeActionRequested(addressed.text)
+    const intent = q && !img?.only && !file?.only && !remembering
+      ? pageTree||toolWrite?'terminal':requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [] })
+      : null
     const routed = intent && intent !== 'terminal' ? actions.find((a) => a.id === (intent === 'items' ? 'workItems' : intent)) : null
     // the typed request goes along (who owns what, when): Turn into database, Make tasks (selection: Transform → Tasks;
     // at the cursor: make_tasks)
@@ -1939,7 +1951,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, previousHumanGoal, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, pageTree, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -2227,7 +2239,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 </span>
                 {(img || run?.req.kind === 'image') && <span className="ai-reads__img">{t('features.ai.image.readsImage')}</span>}
                 {(run ? run.req.kind === 'file' && !isLocalAction(run.req.action) : !!file) && <span className="ai-reads__file">{t('features.ai.file.readsFile')}</span>}
-                <span className="ai-reads__v">{readsText(t, lang, readsNow, marks ?? undefined)}</span>
+                <span className="ai-reads__v">{pageTree?t('features.agent.ctx.mode.tree'):readsText(t, lang, readsNow, marks ?? undefined)}</span>
                 <ChevronDown className="ai-reads__chev" size={12} strokeWidth={1.8} aria-hidden />
               </button>
             )}

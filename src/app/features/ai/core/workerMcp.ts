@@ -87,6 +87,8 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const queryProblem=atlasQueryProblem(actual.name,actual.arguments)
       if(queryProblem){event({...activity,state:'err',error:queryProblem,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error:queryProblem})}
       const report=task?.report(),mode=report&&atlasTransferChoice(report.compiled.contract.goal)
+      const intent=task?.writeIntent(),actualKind=({atlas_create:'create',atlas_update:'update',atlas_comment:'comment'} as Record<string,string>)[actual.name]
+      if(intent&&atlasTaskEffect(actual.name,actual.arguments)==='write'&&actualKind!==intent){const error='The current human request authorizes '+intent+' only. Choose a discovered function with that effect or ask about the missing prerequisite. No alternate operation was executed.';event({...activity,state:'err',error,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error})}
       const wrongMode=mode&&!atlasTransferEffectAllowed(mode,actual.name,atlasTaskEffect(actual.name,actual.arguments))
       const needsBody=mode&&['atlas_update','atlas_comment'].includes(actual.name)&&!readBodies.has(bodyKey(actual.server,actual.arguments))
       const needsSource=mode==='create'&&atlasTaskEffect(actual.name,actual.arguments)==='write'&&!report?.evidence.atlas_reads
@@ -95,6 +97,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
         event({...activity,state:'err',error,notExecuted:true})
         return JSON.stringify({isError:true,oneNotExecuted:true,error})
       }
+      if(task?.keepsStatus()&&atlasTaskEffect(actual.name,actual.arguments)==='write'&&Object.hasOwn(actual.arguments,'status')){const error='The human requested an unchanged ticket status. No status transition was executed. Preserve that field and carry out only the requested content change.';event({...activity,state:'err',error,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error})}
       const questionsOnly=report&&atlasQuestionsOnly(report.compiled.contract.goal)
       const changesOtherFields=questionsOnly&&atlasTaskEffect(actual.name,actual.arguments)==='write'&&Object.keys(actual.arguments).some(k=>!['ref','project','tenant','appendBody','replaceBody'].includes(k))
       const overwritesUnread=actual.name==='atlas_update'&&typeof actual.arguments.replaceBody==='string'&&results.unreadBody(Number(actual.arguments.ref))

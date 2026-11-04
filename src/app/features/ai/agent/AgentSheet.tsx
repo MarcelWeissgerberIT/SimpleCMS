@@ -119,6 +119,9 @@ export default function AgentSheet() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const stickRef = useRef(true)
+  const waitingTurn=[...turns].reverse().find(turn=>turn.status==='running'&&turn.contract?.phase==='decision')
+  const waitingQuestion=waitingTurn?.contract?.questions.find(question=>question.state==='open')?.id
+  const lastQuestion=useRef<string|undefined>(undefined)
 
   // focus the prompt on open (and when asked again: ⌘⇧J); give focus back on hide
   useEffect(() => {
@@ -167,6 +170,24 @@ export default function AgentSheet() {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
   }, [steps, live, turns.length, status, changes.length, echo.length])
 
+  // A live question takes the reader to its answer controls, rather than the bottom of the tool log.
+  useLayoutEffect(()=>{
+    const previous=lastQuestion.current
+    lastQuestion.current=waitingQuestion
+    if(!waitingQuestion){
+      if(previous){stickRef.current=true;const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight}
+      return
+    }
+    stickRef.current=false
+    const frame=requestAnimationFrame(()=>{
+      const form=rootRef.current?.querySelector<HTMLElement>('.term-turn[data-turn="'+waitingTurn!.n+'"] .task-contract__decision')
+      const scroll=scrollRef.current
+      if(form&&scroll)scroll.scrollTop+=form.getBoundingClientRect().top-scroll.getBoundingClientRect().top
+      form?.focus({preventScroll:true})
+    })
+    return()=>cancelAnimationFrame(frame)
+  },[waitingQuestion,waitingTurn?.n])
+
   const focusReview = useCallback(() => {
     // open memory proposals first ("REMEMBER? · 2"), then the review list
     const mem = rootRef.current?.querySelector<HTMLElement>('.term-mem .term-change[data-status="pending"]')
@@ -206,7 +227,7 @@ export default function AgentSheet() {
     }
   }
 
-  const style = { '--term-h': max ? 1 : height } as React.CSSProperties
+  const style = { '--term-h': max ? 1 : waitingQuestion?Math.max(height,.86):height } as React.CSSProperties
   const body = (
     <section
       ref={rootRef}
@@ -1558,18 +1579,21 @@ function Chips() {
 function PageChip({ pageId, title }: { pageId: string; title: string }) {
   const t = useT()
   const marks = useContextMarks(pageId)
+  const tree=useAgent(s=>s.pageTree===pageId)
   const isDb = useWorkspace((s) => s.pages[pageId]?.kind === 'database')
   const menu = useMenu()
   const m = marks ? effectiveMode(marks) : 'page'
-  const suffix = m === 'marked' ? tn('features.agent.ctx.mode.marked', marks?.blocks ?? 0) : m === 'none' ? t('features.agent.ctx.mode.none') : ''
+  const suffix = tree&&m==='page'?t('features.agent.ctx.mode.tree'):m === 'marked' ? tn('features.agent.ctx.mode.marked', marks?.blocks ?? 0) : m === 'none' ? t('features.agent.ctx.mode.none') : ''
   const choose = (mode: ContextMode) => {
     if (mode === 'marked' && !marks?.marked) return pickContext(null)
+    useAgent.setState({pageTree:null})
     setContextMode(pageId, mode)
     focusPrompt()
   }
   const entries: MenuEntry[] = [
     { kind: 'section', label: t('features.agent.ctx.menu', { title }) },
-    { label: t('features.ai.reads.opt.page'), checked: m === 'page', onSelect: () => choose('page') },
+    { label: t('features.ai.reads.opt.page'), checked: m === 'page'&&!tree, onSelect: () => choose('page') },
+    { label:t('features.ai.reads.opt.tree'),checked:m==='page'&&tree,onSelect:()=>{choose('page');useAgent.setState({pageTree:pageId})} },
     { label: marks?.marked ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'), checked: m === 'marked', hint: marks?.marked ? tn('features.ai.reads.blocks', marks.marked) : undefined, onSelect: () => choose('marked') },
     { label: t('features.ai.reads.opt.mark'), hint: '/context', onSelect: () => pickContext(null) },
     { label: t('features.ai.reads.opt.none'), checked: m === 'none', onSelect: () => choose('none') },
@@ -1592,7 +1616,7 @@ function PageChip({ pageId, title }: { pageId: string; title: string }) {
         <span className="term-chip__text">{title}</span>
         {suffix && <span className="term-chip__meta term-chip__mode">· {suffix}</span>}
       </button>
-      <button type="button" className="term-chip__x" onClick={() => useAgent.setState({ pageOff: pageId })} aria-label={t('features.agent.ctx.remove', { title })}>
+      <button type="button" className="term-chip__x" onClick={() => useAgent.setState({ pageOff: pageId,pageTree:null })} aria-label={t('features.agent.ctx.remove', { title })}>
         <X size={11} strokeWidth={2} aria-hidden />
       </button>
       {!isDb && <Menu {...menu.props} entries={entries} width={280} placement="top-start" />}

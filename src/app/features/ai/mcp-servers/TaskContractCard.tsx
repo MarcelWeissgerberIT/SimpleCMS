@@ -32,7 +32,7 @@ export function TaskContractCard({report,historical=false,onRecover}:{report:Tas
     {report.program&&<p className="label">IR · V{report.program.version} · {report.program.hash.slice(0,12)} · {report.program.runId.slice(0,8)}</p>}
     {report.program&&<button className="btn btn--sm" onClick={()=>openPrograms()}>{t('features.ai.program.history')}</button>}
     {question&&historical&&<p><strong>{question.question}</strong><br/>{question.neededFor}</p>}
-    {question&&!historical&&<form className="task-contract__decision" onKeyDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();submit(answer)}}>
+    {question&&!historical&&<form className="task-contract__decision" tabIndex={-1} onKeyDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();submit(answer)}}>
       <h4>{t('features.ai.task.decision')}</h4><p role="status">{t(live?'features.ai.task.waiting':'features.ai.task.closed')}</p><p><strong>{question.question}</strong></p><p>{t('features.ai.task.depends')} {question.neededFor}</p>
       <p>{t('features.ai.task.sources')} ONE: {question.sourceChecks.one?'✓':'—'} · Atlas: {question.sourceChecks.atlas?'✓':'—'}</p>
       {question.options.map((o,i)=><button type="button" className="btn task-contract__option" key={i} onClick={()=>live?submit(o.label+' — '+o.effect):setAnswer(o.label+' — '+o.effect)}><strong>{o.label}</strong><span>{o.effect}</span></button>)}

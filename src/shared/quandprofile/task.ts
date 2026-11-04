@@ -1,6 +1,7 @@
 import type {ReviewProfile} from './review-profile.ts'
 import {atlasTransferChoice} from './atlas-transfer.ts'
 import {oneOnlyTask} from '../ai/oneTask.ts'
+import {writeActionRequested} from '../ai/actionIntent.ts'
 import type {EvidenceQuantum,QuantumStatus} from './runtime.ts'
 export type TaskContract={review_profile?:ReviewProfile;id:string;revision:number;goal:string;instruction_context:string;input_hash:string;scope_hash:string;source_pointers:string[];allowed_tools:string[];read_only:boolean;external_write:boolean;execute:boolean;authenticate?:boolean;requires_sources:boolean;search_one:boolean;search_atlas:boolean;output:'text'|'json';required_literals:string[];decisions:Array<{question:string;answer:string}>}
 export type TaskEvidence={one_pages?:string[];atlas_records?:string[];typed_sources?:string[];typed_sources_current?:boolean;other_sources?:string[];source_reads:number;atlas_reads:number;one_checked:boolean;atlas_checked:boolean;staged_changes:number;issues:number;denied_actions:number;pending_decisions:number;scope_current:boolean;provider_checked:boolean;answer:string|null;human_accepted:boolean}
@@ -20,8 +21,9 @@ export function taskBoundaries(goal:string){
   const text=goal.toLowerCase().replace(/["“„`][^"“”„`]*["”`]/g,'')
   const readOnly=/(?:nur (?:lesen|lesend)|rein lesend|read[ -]only|only read|do not (?:write|change)|nichts (?:anlegen|ändern|aendern)|keine (?:änderungen|aenderungen))/u.test(text)
   const negative=/(?<![\p{L}\p{N}_])(?:erstelle|erzeuge|lege|aktualisiere|ändere|aendere|speichere|kommentiere|verlinke|übertrage|uebertrage|create|update|save|replace)\s+(?:bitte\s+)?(?:nicht|keine?|not|nothing)\b/u.test(text)||/(?:\b(?:nicht|kein|keine|keinen|ohne)\b.{0,50}(?:anlegen|ändern|aendern|speichern|kommentier|verlink|übertrag|uebertrag|start|ausführen|ausfuehren)|\b(?:do not|don't|never)\b.{0,50}(?:write|change|create|update|save|start|execute|run))/u.test(text)
+  const negatedAction=/\b(?:nicht|kein|keine|not|never)\b.{0,40}(?:updaten|aktualisieren|einfügen|einfuegen|hinzufügen|hinzufuegen|insert|append|add)/u.test(text)
   const transfer=/^(?:bitte\s+)?mach(?:e)?\s+aus\s+(?:dieser|der)\s+seite\s+(?:in|nach)\s+atlas\b/u.test(text.trim())
-  const externalWrite=!readOnly&&!negative&&(transfer||/(?:^|[.!?;]\s*|\b(?:und|and)\s+)(?:bitte\s+)?(?:erstelle|erzeuge|lege|aktualisiere|ändere|aendere|speichere|create|update|save|replace|kommentiere|verlinke|übertrage|uebertrage)\b/u.test(text.trim()))
+  const externalWrite=!readOnly&&!negative&&!negatedAction&&(transfer||writeActionRequested(text)||/(?:^|[.!?;]\s*|\b(?:und|and)\s+)(?:bitte\s+)?(?:erstelle|erzeuge|lege|aktualisiere|ändere|aendere|speichere|create|update|save|replace|kommentiere|verlinke|übertrage|uebertrage)\b/u.test(text.trim()))
   const execute=!readOnly&&!negative&&/(?:^|[.!?;]\s*|\b(?:und|and)\s+)(?:bitte\s+)?(?:starte|führe|fuehre|start|execute|run)\b/u.test(text.trim())
   const oneOnly=oneOnlyTask(goal)
   return {readOnly,externalWrite:!oneOnly&&externalWrite,execute:!oneOnly&&execute,authenticate:!oneOnly&&polarionAuthenticationRequested(goal)}

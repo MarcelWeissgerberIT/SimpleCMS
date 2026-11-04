@@ -62,9 +62,8 @@ import { isSettled, onSettled } from '../../recorder/settled'
 import { addToLines, tapSignal } from '../core/meter'
 import type { LedgerEntry, ProviderId, Usage } from '@/shared/ai/types'
 import { stepText } from '../Receipt'
-import {atlasTransferTask,needsAtlasTransferChoice,naturalAtlasTransferMode,needsAtlasClosureChoice,atlasClosureTask,naturalAtlasClosureMode} from '@/shared/quandprofile/atlas-transfer'
 import {oneOnlyTask} from '@/shared/ai/oneTask'
-import {cancelAtlasTransferChoice,requestAtlasTransferChoice,requestAtlasClosureChoice} from './AtlasTransferChoice'
+import {cancelAtlasTransferChoice} from './AtlasTransferChoice'
 
 const set = useAgent.setState
 const get = useAgent.getState
@@ -270,7 +269,7 @@ export function terminalReadLimit(id: ID): ReadLimit | null {
 /** "· 3 blocks" / "· nothing" after a page title (chip, log line) — '' for the whole page. */
 export function contextSuffix(pageId: ID): string {
   const m = pageContextMarks(pageId)
-  if (m.mode === 'page') return ''
+  if (m.mode === 'page') return get().pageTree===pageId?t('features.agent.ctx.mode.tree'):''
   if (m.mode === 'marked' && m.blocks) return tn('features.agent.ctx.mode.marked', m.blocks)
   return t('features.agent.ctx.mode.none')
 }
@@ -293,6 +292,7 @@ function context(refs: TermRef[], mentions: TermMention[]): string {
   const open = openId ? s.pages[openId] : undefined
   if (open) {
     lines.push(`Open page: ${q(open.title.trim() || 'Untitled')} (id: ${open.id})`)
+    if(get().pageTree===open.id)lines.push('Selected ONE source scope: this page and its subpages. Read the root with read_page, follow the actual returned child IDs and read relevant descendants before preparing the requested result. Respect every page’s context restrictions and normal access checks. This is source context, not a request to send every page to an external tool or change every record. Resolve target links and the requested content from these sources; ask if several targets or interpretations remain.')
     const lim = terminalReadLimit(open.id)
     if (lim?.mode === 'marked') lines.push(`The person limited what you may read on the open page: only the ${lim.blocks} block${lim.blocks === 1 ? '' : 's'} they marked (read_page returns just those). Writing to it works as usual.`)
     else if (lim) lines.push(`The person excluded the open page's content: you may not read it (read_page withholds it). Writing to it works as usual.`)
@@ -403,26 +403,8 @@ export function continueTask(): Promise<void> {
 export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
   let task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
-  const connectedAtlas=(mcpSetup??currentSetup()).servers.some(s=>/atlas/iu.test(s.name+' '+s.url))
-  const previousGoals=get().turns.map(turn=>turn.task)
-  const closureMode=!opts.program&&!opts.continues&&connectedAtlas?naturalAtlasClosureMode(task):null
-  if(closureMode)task=atlasClosureTask(task,closureMode)
-  if(!opts.program&&!opts.continues&&connectedAtlas&&needsAtlasClosureChoice(task)){
-    const scope=JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()])
-    set({autorun:false})
-    const mode=await requestAtlasClosureChoice(task)
-    if(!mode||get().status==='running'||scope!==JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()]))return
-    task=atlasClosureTask(task,mode)
-  }
-  if(!opts.program&&!opts.continues&&needsAtlasTransferChoice(task,previousGoals)&&connectedAtlas){
-    const scope=JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()])
-    set({autorun:false})
-    const mode=await requestAtlasTransferChoice(task)
-    if(!mode||get().status==='running'||scope!==JSON.stringify([epoch,useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id,contextPageId()]))return
-    task=atlasTransferTask(task,mode)
-  }
-  const naturalMode=!opts.program&&!opts.continues?naturalAtlasTransferMode(task,get().turns.map(turn=>turn.task)):null
-  if(naturalMode&&(mcpSetup??currentSetup()).servers.some(s=>/atlas/iu.test(s.name+' '+s.url)))task=atlasTransferTask(task,naturalMode)
+  // Tool choice and missing targets are resolved by the model from the bound context.
+  // A codeword selects a connection, never a fixed Atlas workflow or function.
   const n = get().turns.length + 1
   const prevTurn = opts.continues ? get().turns[get().turns.length - 1] : undefined
   let runProvider: ProviderId | null = null

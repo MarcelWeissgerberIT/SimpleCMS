@@ -14,10 +14,8 @@
  *    connected MCP server ("for every ticket in the tracker …"), or a page action mixed with writing → the AI terminal.
  *  - null: a writing request (rewrite, summarise, translate, ask …) — it goes to Claude as before.
  *
- * Pure routing (no store reads): the AI menu passes selected MCP names and prior human requests.
+ * Pure routing (no store reads): the AI menu passes selected MCP names.
  */
-import {atlasActionFollowup,needsAtlasClosureChoice,needsAtlasTransferChoice,naturalAtlasTransferMode,naturalAtlasClosureMode} from '@/shared/quandprofile/atlas-transfer'
-export const atlasExecutionIntent=(raw:string,servers:string[],previousUserGoals:string[]=[])=>servers.some(s=>s.toLowerCase().includes('atlas'))&&(atlasActionFollowup(raw)&&needsAtlasTransferChoice(raw,previousUserGoals)||!!naturalAtlasClosureMode(raw)||needsAtlasClosureChoice(raw)||needsAtlasTransferChoice(raw)||!!naturalAtlasTransferMode(raw))
 export type RequestIntent = 'topage' | 'pagesPerItem' | 'todb' | 'items' | 'terminal'
 
 /** A pattern with Unicode word boundaries: `\b` also works next to ä, ö, ü, ß. */
@@ -131,12 +129,11 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * The intent of an own request. `selection`: the menu is on a selection (Turn into page / Sub-page per item /
  * Turn into database work on it); `servers`: names of the enabled MCP servers.
  */
-export function requestIntent(raw: string, opts: { selection: boolean; servers?: string[];previousUserGoals?:string[] }): RequestIntent | null {
+export function requestIntent(raw: string, opts: { selection: boolean; servers?: string[] }): RequestIntent | null {
   const text = raw.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, ' ').trim()
   if (!text) return null
   const any = (list: RegExp[]) => list.some((re) => re.test(text))
   const servers = (opts.servers ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean)
-  if(atlasExecutionIntent(raw,servers,opts.previousUserGoals))return 'terminal'
   const outside = OUTSIDE.test(text) || servers.some((s) => W(String.raw`\b${esc(s)}\b`).test(text))
   const perItem = any(PER_ITEM)
   const toPage = any(TO_PAGE)

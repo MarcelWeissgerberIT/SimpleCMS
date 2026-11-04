@@ -124,6 +124,8 @@ export interface AgentState {
   mentions: TermMention[]
   /** the open page's chip was removed (for this page id) */
   pageOff: string | null
+  /** Explicit source scope: this page and its descendants, read through normal ONE tools. */
+  pageTree: string | null
   /** a task ended while the terminal was hidden (the status bar shows it until it is opened) */
   unseen: 'done' | 'error' | null
   /** dock height as a share of the content area (per device) · maximised */
@@ -143,7 +145,8 @@ export interface AgentState {
   halt: HaltState | null
 }
 
-export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt'> => ({
+export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'pageTree'> => ({
+  pageTree: null,
   route: null,
   status: 'idle',
   turns: [],
