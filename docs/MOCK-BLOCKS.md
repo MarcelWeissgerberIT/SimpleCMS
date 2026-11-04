@@ -6,7 +6,7 @@ Stored preview HTML is bounded, sanitised, prefixed with an independent restrict
 
 ## Compatibility and rollout
 
-This is document generation 2 (`NODE_GENERATIONS.designMock = 2`). Local persistence uses the existing generation shadow/restore machinery; drop and unwrap regression checks retain the mock and older tabs’ edits. **Ship the generation-2 reader frontend first.** Cloud creation/editing stays disabled while `schema_min < 2` or unknown. In a subsequent release, raise `server/src/collab/schema-gate.ts`'s `MIN_CLIENT_SCHEMA` to 2, using the existing server deployment procedure. Older tabs then become read-only and must reload before editing; the generation-2 frontend can create mock blocks. Do not enable creation on an old server or deploy both phases in the opposite order. This change deliberately leaves the server minimum at 1.
+This is document generation 2 (`NODE_GENERATIONS.designMock = 2`). Local persistence uses the existing generation shadow/restore machinery; drop and unwrap regression checks retain the mock and older tabs’ edits. **Ship the generation-2 reader frontend first.** Cloud creation/editing stays disabled while `schema_min < 2` or unknown. In a subsequent release, raise `server/src/collab/schema-gate.ts`'s `MIN_CLIENT_SCHEMA` to 2, using the existing server deployment procedure. Older tabs then become read-only and must reload before editing; the generation-2 frontend can create mock blocks. Do not enable creation on an old server or deploy both phases in the opposite order. The reader was published as `mock-reader-760122f` and verified at the public URL with `schema_min=1` before the follow-up server release raised the minimum to 2.
 
 ## Verification
 

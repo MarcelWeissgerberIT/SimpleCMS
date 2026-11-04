@@ -51,13 +51,13 @@ export function parseSkillFile(raw:string):{spec:SkillSpec;snapshot?:Skill}{
  const text=raw.replace(/^\uFEFF/u,'').replace(/\r\n/gu,'\n')
  if(text.length>20000)throw new SkillError('limit')
  const match=/^---\n([\s\S]*?)\n---\n([\s\S]*)$/u.exec(text);if(!match)throw new SkillError('invalid')
- const lines=match[1].split('\n'),fields:Record<string,string>={}
+ const lines=match[1]!.split('\n'),fields:Record<string,string>={}
  for(let i=0;i<lines.length;i++){
-  const field=/^([a-z][a-z0-9-]*):\s*(.*)$/u.exec(lines[i]);if(!field)continue
-  const key=field[1];if(!['name','description','tags','one-skill-id','one-skill-version','one-skill-hash','one-skill-source'].includes(key))continue
+  const field=/^([a-z][a-z0-9-]*):\s*(.*)$/u.exec(lines[i]!);if(!field)continue
+  const key=field[1]!;if(!['name','description','tags','one-skill-id','one-skill-version','one-skill-hash','one-skill-source'].includes(key))continue
   if(Object.hasOwn(fields,key))throw new SkillError('invalid')
-  let value=field[2]
-  if(/^[>|][-+]?$/u.test(value)){const folded=value.startsWith('>'),parts:string[]=[];while(i+1<lines.length&&(/^[ \t]+/u.test(lines[i+1])||!lines[i+1].trim()))parts.push(lines[++i].trim());value=parts.join(folded?' ':'\n').trim()}
+  let value=field[2]!
+  if(/^[>|][-+]?$/u.test(value)){const folded=value.startsWith('>'),parts:string[]=[];while(i+1<lines.length&&(/^[ \t]+/u.test(lines[i+1]!)||!lines[i+1]!.trim()))parts.push(lines[++i]!.trim());value=parts.join(folded?' ':'\n').trim()}
   if(value.startsWith('"')){try{value=JSON.parse(value)}catch{throw new SkillError('invalid')}}else if(value.startsWith("'")&&value.endsWith("'"))value=value.slice(1,-1).replace(/''/gu,"'")
   fields[key]=value
  }
