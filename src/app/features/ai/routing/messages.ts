@@ -8,6 +8,10 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.task.waiting': 'This request is waiting for your answer. Bind it to continue the same run.',
+    'features.ai.task.closed': 'The previous run has ended. Your answer can be prepared as a new request; current sources and existing changes must be checked again. Nothing starts automatically.',
+    'features.ai.task.recover': 'Prepare answer as a new request',
+
     'features.ai.answerPage.action': "Prepare as a ONE page",
     'features.ai.answerPage.title': "Save this answer in ONE",
     'features.ai.answerPage.intro': "Create an editable page from this completed answer. No new model request or Atlas record is needed. Review the proposed page and press Apply to save it.",
@@ -690,6 +694,10 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
+    'features.ai.task.waiting': 'Dieser Auftrag wartet auf deine Antwort. Binde sie, um denselben Lauf fortzusetzen.',
+    'features.ai.task.closed': 'Der vorige Lauf ist beendet. Du kannst deine Antwort als neuen Auftrag vorbereiten; aktuelle Quellen und vorhandene Änderungen werden erneut geprüft. Es startet nichts automatisch.',
+    'features.ai.task.recover': 'Antwort als neuen Auftrag vorbereiten',
+
     'features.ai.answerPage.action': "Als ONE-Seite vorbereiten",
     'features.ai.answerPage.title': "Antwort in ONE ablegen",
     'features.ai.answerPage.intro': "Erstelle aus dieser fertigen Antwort eine bearbeitbare Seite. Dafür sind weder eine weitere Modellanfrage noch ein Atlas-Record nötig. Prüfe die vorgeschlagene Seite und drücke Übernehmen, um sie zu speichern.",

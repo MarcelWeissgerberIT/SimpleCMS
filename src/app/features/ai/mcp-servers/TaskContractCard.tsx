@@ -5,19 +5,20 @@ import '../profiles/profiles.css'
 import {taskProgramDraft} from '../core/taskContract'
 import {openPrograms} from '../programs/dialog'
 import {useState} from 'react'
-import type {TaskReport} from '@/shared/quandprofile/task'
-import {answerTaskDecision,acceptTaskResult} from '../core/taskContract'
+import type {TaskReport,TaskQuestion} from '@/shared/quandprofile/task'
+import {answerTaskDecision,acceptTaskResult,taskDecisionActive} from '../core/taskContract'
 import {QuantumCube} from './QuantumCube'
 import {useT} from '../../../i18n'
 import './quantum-inspector.css'
 import './task-contract.css'
 /** Only the person's UI calls the decision resolver; no answer/approval function is offered to models. */
-export function TaskContractCard({report,historical=false}:{report:TaskReport;historical?:boolean}){
+export function TaskContractCard({report,historical=false,onRecover}:{report:TaskReport;historical?:boolean;onRecover?:(question:TaskQuestion,answer:string)=>boolean}){
  const t=useT(),[selected,setDimension]=useState('interpretation'),[answer,setAnswer]=useState(''),[error,setError]=useState(false),[saveError,setSaveError]=useState('')
  const question=report.questions.find(q=>q.state==='open'),c=report.compiled
  const dimensions=[...new Set(c.findings.flatMap(f=>f.dimensions))],dimension=dimensions.includes(selected)?selected:dimensions[0]??''
  const references=c.findings.map(f=>({key:f.id,id:c.quanta.find(q=>q.obligation_id===f.id)?.id,label:t('features.ai.task.finding.'+f.id),dimensions:f.dimensions,status:f.status,detail:f.detail,verifier:c.quanta.find(q=>q.obligation_id===f.id)?.verifier,dependencies:c.quanta.find(q=>q.obligation_id===f.id)?.dependencies}))
- const submit=(value:string)=>{const ok=!!question&&answerTaskDecision(report.id,question.id,value);setError(!ok);if(ok)setAnswer('')}
+ const live=!!question&&taskDecisionActive(report.id,question.id)
+ const submit=(value:string)=>{const ok=!!question&&(live?answerTaskDecision(report.id,question.id,value):onRecover?.(question,value.trim())??false);setError(!ok);if(ok)setAnswer('')}
  return <section className="task-contract" data-phase={report.phase} aria-label={t('features.ai.task.title')}>
   <details open={report.questions.length>0?true:undefined}>
    <summary><span className="label">{t('features.ai.task.title')} · {c.contract_hash.slice(0,12)} · R{c.contract.revision}</span><strong>{t('features.ai.task.phase.'+report.phase)}</strong></summary>
@@ -32,10 +33,10 @@ export function TaskContractCard({report,historical=false}:{report:TaskReport;hi
     {report.program&&<button className="btn btn--sm" onClick={()=>openPrograms()}>{t('features.ai.program.history')}</button>}
     {question&&historical&&<p><strong>{question.question}</strong><br/>{question.neededFor}</p>}
     {question&&!historical&&<form className="task-contract__decision" onKeyDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();submit(answer)}}>
-      <h4>{t('features.ai.task.decision')}</h4><p><strong>{question.question}</strong></p><p>{t('features.ai.task.depends')} {question.neededFor}</p>
+      <h4>{t('features.ai.task.decision')}</h4><p role="status">{t(live?'features.ai.task.waiting':'features.ai.task.closed')}</p><p><strong>{question.question}</strong></p><p>{t('features.ai.task.depends')} {question.neededFor}</p>
       <p>{t('features.ai.task.sources')} ONE: {question.sourceChecks.one?'✓':'—'} · Atlas: {question.sourceChecks.atlas?'✓':'—'}</p>
-      {question.options.map((o,i)=><button type="button" className="btn task-contract__option" key={i} onClick={()=>submit(o.label+' — '+o.effect)}><strong>{o.label}</strong><span>{o.effect}</span></button>)}
-      <label>{t('features.ai.task.answer')}<textarea value={answer} maxLength={4000} onChange={e=>setAnswer(e.target.value)} rows={3}/></label><button className="btn btn--primary" disabled={!answer.trim()}>{t('features.ai.task.resume')}</button>
+      {question.options.map((o,i)=><button type="button" className="btn task-contract__option" key={i} onClick={()=>live?submit(o.label+' — '+o.effect):setAnswer(o.label+' — '+o.effect)}><strong>{o.label}</strong><span>{o.effect}</span></button>)}
+      <label>{t('features.ai.task.answer')}<textarea value={answer} maxLength={4000} onChange={e=>setAnswer(e.target.value)} rows={3}/></label><button className="btn btn--primary" disabled={!answer.trim()||(!live&&!onRecover)}>{t(live?'features.ai.task.resume':'features.ai.task.recover')}</button>
       {error&&<p role="alert">{t('features.ai.task.stale')}</p>}
     </form>}
     {report.questions.filter(q=>q.state==='answered').map(q=><p key={q.id}><strong>{q.question}</strong><br/>{q.answer}</p>)}

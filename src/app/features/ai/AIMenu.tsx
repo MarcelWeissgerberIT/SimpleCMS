@@ -1,3 +1,7 @@
+import {openPage} from '../../lib/router'
+import {useCloud} from '../../cloud/state'
+import {decisionRecoveryPrompt} from './core/decisionRecovery'
+import type {TaskQuestion,TaskReport} from '@/shared/quandprofile/task'
 import {TaskContractCard} from './mcp-servers/TaskContractCard'
 import { RepoFilesControl } from '../repo-files/RepoFilesControl'
 import {AtlasFactsView} from './mcp-servers/AtlasFacts'
@@ -129,7 +133,7 @@ import { itemsFitAt } from './transform/range'
 import { ITEM_KEYWORDS } from './transform/forms'
 import { openAgent, useAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, selectionMarkdown, type RunTarget } from './runsTarget'
-import { markSeen, receiptOf, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
+import { markSeen, receiptOf, currentScope, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
 import { countWords, effectiveMode, readsFor, readsShort, readsText, type RunReads } from './reads'
 import { RedoSetup, type RedoDraft } from './redo/RedoSetup'
 import { RedoReview } from './redo/RedoReview'
@@ -421,6 +425,15 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     onClose()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once, as the menu mounts
   const [query, setQuery] = useState('')
+  const recoveryScope=useRef(JSON.stringify([currentScope(),useWorkspace.getState().epoch,useCloud.getState().user?.id]))
+  const recoverDecision=(report:TaskReport,question:TaskQuestion,answer:string)=>{
+    const latest=runId?useAIRuns.getState().runs[runId]:null
+    if(!latest||latest.pageId!==pageId||editor.isDestroyed||!useWorkspace.getState().pages[latest.pageId]||useWorkspace.getState().pages[latest.pageId]?.trashed||latest.status==='running'||latest.scope!==currentScope()||recoveryScope.current!==JSON.stringify([currentScope(),useWorkspace.getState().epoch,useCloud.getState().user?.id])||!latest.mcpCalls.some(c=>c.contract?.id===report.id))return false
+    const latestReport=latest.mcpCalls.find(c=>c.contract?.id===report.id)?.contract
+    if(!latestReport?.questions.some(q=>q.id===question.id&&q.state==='open'))return false
+    const task=decisionRecoveryPrompt(latestReport,question,answer)
+    onClose();openPage(latest.pageId);useAgent.setState({route:latest.chip??null,refs:[],mentions:[],pageOff:null});openAgent({task,run:false});return true
+  }
   const lang = useLang()
   const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist' | 'transform' | 'more'>('actions')
   /** One memory: switched off for the next own request (the list's toggle) · the entry whose history shows */
@@ -2301,7 +2314,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     </button>
                   )}
                 </div>
-                {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
+                {mcpCalls.length > 0 && <McpChips calls={mcpCalls} onRecover={recoverDecision} />}
                 {generatePanel.body}
                 {imagePanel.body}
                 {filePanel.body}
@@ -2623,7 +2636,7 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
 }
 
 /** Tool calls of external MCP servers: "KB · search_records" chips with an LED; failures said politely. */
-function McpChips({ calls }: { calls: McpCall[] }) {
+function McpChips({ calls,onRecover }: { calls: McpCall[];onRecover:(report:TaskReport,question:TaskQuestion,answer:string)=>boolean }) {
   const t = useT()
   const failed = calls.filter((c) => c.state === 'err' && !c.skipped)
   return (
@@ -2653,7 +2666,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
           {!c.notExecuted&&<WorkerConnectionHelp error={new Error(c.error ?? '')} server={c.server} />}
         </div>
       ))}</details>}
-      {calls.filter(c=>c.contract).map(c=><TaskContractCard key={c.id} report={c.contract!}/>)}
+      {calls.filter(c=>c.contract).map(c=><TaskContractCard key={c.id} report={c.contract!} onRecover={(q,a)=>onRecover(c.contract!,q,a)}/>)}
       {calls.some(c=>c.receipt)&&<details className="ai-mcp__trace"><summary>{t('features.ai.mcp.evidence',{count:calls.filter(c=>c.receipt).length})}</summary>{calls.filter(c=>c.receipt).map(c=><AtlasFactsView key={c.id} receipt={c.receipt!}/>)}</details>}
     </div>
   )

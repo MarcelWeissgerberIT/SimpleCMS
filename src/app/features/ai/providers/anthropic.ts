@@ -415,7 +415,7 @@ async function streamWithMcp(
 ): Promise<BetaMessage> {
   const messages:BetaMessageParam[]=[{role:'user',content:prompt}],calls:McpCall[]=[]
   const event=(c:McpCall)=>{const i=calls.findIndex(v=>v.id===c.id);if(i<0)calls.push(c);else calls[i]=c;onMcp?.([...calls])}
-  const task=createTaskContract({prepared:more.prepared,goal:taskInputOf(more.prepared).typed||more.prepared.purpose,instructions:system+'\n'+WORKER_MCP_GUIDE+'\n'+ATLAS_FACT_POLICY,input:messages,tools:[],one:false,atlas:true,signal,output:more.schema?'json':'text',onReport:r=>event({id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r})})
+  const task=createTaskContract({prepared:more.prepared,goal:taskInputOf(more.prepared).typed||more.prepared.purpose,instructions:system+'\n'+WORKER_MCP_GUIDE+'\n'+ATLAS_FACT_POLICY,input:messages,tools:[],one:false,atlas:true,interactive:!!onMcp,signal,output:more.schema?'json':'text',onReport:r=>event({id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r})})
   try{
     if(!mcp.worker)throw new AIError('capability','Selected MCP connections need a personal worker or the prepared Atlas proxy.')
     const remote=workerMcpSession(mcp.worker,signal,event,12000,undefined,task)

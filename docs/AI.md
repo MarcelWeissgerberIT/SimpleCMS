@@ -178,3 +178,9 @@ Completed terminal answers can be staged through `AnswerPageAction` using the ex
 A subsequent Atlas create transfer reads the ONE source and checks the accessible Atlas project, constraints and duplicates. Existing target bodies are required for update/comment, not for create. Accepted writes are still read back and are never automatically repeated.
 
 Inline MCP completion loops allow one metered, budget-checked correction when a task requires source evidence but no successful source read was observed. A known failed source read does not retry. A second ungrounded completion reports `features.ai.transfer.sourcesMissing`; the compiler's source requirement remains intact. Discovery and user-supplied URLs do not count as source bodies.
+
+## Inline clarification lifecycle (2026-11-04)
+
+MCP one-shot adapters are interactive only when they receive a UI `onMcp` handler. Their `one_task_question` call then awaits the human answer, exactly as the terminal does. A headless caller still cannot wait on a nonexistent UI. `taskDecisionActive` distinguishes an actual scoped waiter from a persisted or released report; displaying a report alone grants no continuation capability.
+
+The inline run store checkpoints decision reports. Reloaded runs are interrupted, never resumed automatically. A closed card prepares the original goal and current clarification as a fresh terminal draft, with actor/workspace/epoch and run/page checks. No tool transcript, approvals, read evidence or write is replayed. Existing targets must be read again before any external effect. Stopping an empty run with an open question retains its report for this recovery path.

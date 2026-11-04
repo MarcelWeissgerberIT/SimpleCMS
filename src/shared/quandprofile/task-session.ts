@@ -111,6 +111,8 @@ export class TaskSession {
       return JSON.stringify({isError:true,oneNotExecuted:true,error:e.message,next:'If the requested output is only an analysis, question list or recommendation, include unresolved questions in the final answer without pausing. Use the decision tool only when the requested next action cannot proceed without a human answer now. Otherwise inspect the available sources before asking again. No answer, decision or approval was recorded.'})
     }
   }
+  /** UI reads this to distinguish a live waiter from a persisted/closed question card. */
+  canAnswer(questionId:string){return !!this.waiting&&this.waiting.id===questionId&&!this.closed&&!this.host.signal?.aborted&&this.host.signature()===this.pinned&&this.questions.some(q=>q.id===questionId&&q.state==='open')}
   /** UI-only capability, never registered as an inference tool. No permission escalation. */
   answer(questionId:string,answer:string){
     const q=this.questions.find(q=>q.id===questionId&&q.state==='open'),waiting=this.waiting

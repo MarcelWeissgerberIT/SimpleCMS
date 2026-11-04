@@ -28,6 +28,7 @@ export const taskProgramDraft=(id:string)=>{
  }
  return {...draftProgram(goal,trace),...(contract.review_profile?{profile:contract.review_profile}:{})}
 }
+export const taskDecisionActive=(id:string,question:string)=>{try{return sessions.get(id)?.canAnswer(question)??false}catch{return false}}
 export const answerTaskDecision=(id:string,question:string,answer:string)=>{try{return sessions.get(id)?.answer(question,answer)??false}catch{return false}}
 export const acceptTaskResult=(id:string)=>{try{return sessions.get(id)?.accept()??false}catch{return false}}
 export const TASK_QUESTION:WorkerFunction={name:'one_task_question',description:'After inspecting available ONE and Atlas sources, ask a precise unresolved prerequisite question in the decision cube. The human answers. Dependent effects pause; do not invent decisions or approval. Only when the requested next action cannot proceed without a human answer now. When asked to formulate questions, list open questions in the final answer without pausing. Not for routine reads or an analysis that can already be delivered.',parameters:{type:'object',properties:{question:{type:'string',maxLength:2000},needed_for:{type:'string',maxLength:1000},options:{type:'array',maxItems:3,items:{type:'object',properties:{label:{type:'string'},effect:{type:'string'}},required:['label','effect'],additionalProperties:false}}},required:['question','needed_for'],additionalProperties:false}}

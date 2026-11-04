@@ -1,4 +1,4 @@
-import {test,expect,openApp,wsEval,MOD,reloadApp} from './fixtures'
+import {test,expect,openApp,wsEval,MOD,reloadApp,createPage,gotoPage,editorOf,doc,para} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 import {mockClaudeScript,text,type ClaudeTurn} from './helpers/providers'
@@ -19,6 +19,49 @@ test.describe('Compiled tasks and human decision cube',()=>{
   await page.getByRole('tab',{name:/AI$/}).click();await expect(page.getByTestId('worker-model-settings')).toContainText(LOCAL);await expect(page.getByTestId('worker-model-settings')).toContainText(COPILOT);await page.keyboard.press('Escape')
  })
  test.afterEach(async()=>{await fake?.close()})
+
+ for(const [provider,restore] of [['local',false],['copilot',false],['anthropic',false],['anthropic',true]] as const)test(provider+': inline question '+(restore?'recovers after reload':'waits for a real human answer before continuing'),async({page},info)=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Some questions remain open. Ticket status is new.'}})}
+  const calls=[{name:'one_mcp_search',arguments:{query:'atlas_get'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}},{name:'one_task_question',arguments:{question:'Should only the questions be closed, or also the ticket?',needed_for:'Prepare the requested reply with the correct meaning',options:[]}}]
+  const final='Reply draft: close the questions only; keep the ticket status.'
+  let n=0;fake.onText=r=>{const c=calls[n++];return{model:r.model,text:c?'':final,calls:c?[{id:'inline-'+n,...c}]:[],inputTokens:200,outputTokens:40,usd:0}}
+  const host=provider==='anthropic'?await mockClaudeScript(page,[...calls.map((c,i):ClaudeTurn=>({blocks:[{type:'tool_use',id:'inline-'+i,name:c.name,input:c.arguments}]})),text(final)]):null
+  if(provider==='anthropic')await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test'}))
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+  const id=await createPage(page,{title:'Kai clarification fixture',content:doc(para('Questions 1–3 are still open.'),para(''))});await gotoPage(page,id)
+  const ed=editorOf(page,id),ask=page.getByPlaceholder('Ask AI to write anything…')
+  await expect(async()=>{await ed.locator('p').last().click();await page.keyboard.press('End');await page.keyboard.press('Space');try{await expect(ask).toBeFocused({timeout:1500})}catch(e){if(!(await ask.count()))await page.keyboard.press('Backspace');throw e}}).toPass({timeout:15000})
+  await ask.fill('Prepare a proposed reply for Atlas ref 42. Read its body and ask me whether closing means the questions or the ticket before preparing the reply. Do not change records.');await page.locator('#ai-row-custom').click()
+  const panel=page.getByRole('dialog',{name:'Ask AI'}),card=panel.getByRole('region',{name:'Compiled task'})
+  await expect(card.getByRole('button',{name:'Bind answer and continue',exact:true})).toBeVisible({timeout:20000})
+  await expect(card).toContainText('This request is waiting for your answer')
+  expect(host?.requests??fake.textAsked).toHaveLength(3)
+  if(restore){
+   // Persist a genuinely waiting run, then reload: no old waiter is resurrected and no request repeats.
+   await reloadApp(page);await gotoPage(page,id);await page.getByTestId('ai-runs').getByRole('button').click()
+   const restored=page.getByRole('dialog',{name:'Ask AI'}),closed=restored.getByRole('region',{name:'Compiled task'})
+   await expect(closed).toContainText('The previous run has ended')
+   await closed.getByLabel('Your specification').fill('Only the questions. The ticket status stays unchanged.')
+   for(const width of [1440,390])for(const theme of ['light','dark']){
+    await page.setViewportSize({width,height:width===390?844:900});await wsEval(page,(s,x)=>s.updateSettings(x),{theme,language:'de'})
+    expect(await page.locator('.task-contract').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
+    await page.locator('.task-contract').screenshot({path:info.outputPath(`closed-question-${theme}-${width}.png`),animations:'disabled'})
+   }
+   await wsEval(page,s=>s.updateSettings({language:'en'}))
+   await closed.getByRole('button',{name:'Prepare answer as a new request',exact:true}).click()
+   const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+   await expect(input).toHaveValue(/Only the questions. The ticket status stays unchanged./)
+   await expect(input).toHaveValue(/do not blindly repeat previous writes/)
+   await expect(term).toContainText('Kai clarification fixture');expect(host!.requests).toHaveLength(3);expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
+   await term.screenshot({path:info.outputPath('recovered-answer.png'),animations:'disabled'});return
+  }
+  await card.getByLabel('Your specification').fill('Only the questions. The ticket status stays unchanged.')
+  await card.getByRole('button',{name:'Bind answer and continue',exact:true}).click()
+  await expect(panel.locator('.ai-out__body')).toContainText(final,{timeout:20000})
+  expect(host?.requests??fake.textAsked).toHaveLength(4);expect(JSON.stringify((host?.requests??fake.textAsked)[3])).toContain('Only the questions. The ticket status stays unchanged.')
+  await expect(card).not.toContainText('no longer active')
+  expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_get'])
+ })
 
  for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: reads sources before one decision, rebinds the answer and stages only afterwards`,async({page},info)=>{
   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Project choice remains open; ask the person after checking ONE.'}})}

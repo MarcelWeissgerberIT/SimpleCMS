@@ -495,7 +495,7 @@ async function execute(id: string, editor: Editor) {
         ...(pre ? { ...routed(pre), carries: pr?.context ? ['page'] : [] } : {}),
         onToken,
         signal: ac.signal,
-        onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
+        onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, calls.some(c=>!!c.contract?.questions.length)),
         onMedia: (media) => !ac.signal.aborted && patch(id, { media }, false),
       })
       if (ac.signal.aborted) return
@@ -563,7 +563,7 @@ async function execute(id: string, editor: Editor) {
           context: read.context,
           onToken,
           signal: ac.signal,
-          onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
+          onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, calls.some(c=>!!c.contract?.questions.length)),
           onMedia: (media) => !ac.signal.aborted && patch(id, { media }, false),
           memory: mem?.block,
           // "Make tasks": the names owners may come from — only with this action (never an email)
@@ -670,6 +670,7 @@ export function stopRun(id: string): boolean {
     return true
   }
   if (!partial.trim()) {
+    if(run.mcpCalls.some(c=>c.contract?.questions.some(q=>q.state==='open'))){patch(id,{status:'interrupted',output:'',finishedAt:Date.now(),seen:true});return true}
     removeRun(id)
     return false
   }

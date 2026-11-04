@@ -30,7 +30,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   let auditState='failed',auditAnswer:unknown,auditError:unknown
   const done=(turn:Turn)=>{auditState='done';auditAnswer=turn.parts;return turn}
   try {
-  task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:messages[0].content,input:req.messages,tools:[],one:false,atlas:!!o.mcp,signal:o.signal,output:req.output.kind==='json'?'json':'text',onReport:r=>{const c:McpCall={id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r};const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity])}})
+  task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:messages[0].content,input:req.messages,tools:[],one:false,atlas:!!o.mcp,interactive:!!o.onMcp,signal:o.signal,output:req.output.kind==='json'?'json':'text',onReport:r=>{const c:McpCall={id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r};const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity])}})
   if (o.mcp) {
     if (!prepared.allows('mcp') || !o.mcp.worker) throw new AIError('policy', 'mcp')
     remote = workerMcpSession(o.mcp.worker, o.signal, c => { const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity]) }, prepared.provider==='local'?6000:12000,audit,task)
