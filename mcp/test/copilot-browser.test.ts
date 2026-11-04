@@ -109,3 +109,31 @@ test('one refused MCP endpoint does not hide a working Atlas connection; diagnos
   await assert.rejects(modelMcp({servers:[servers[0]],action:'list'},new AbortController().signal),e=>e instanceof Error&&/Authentication rejected/.test(e.message)&&!e.message.includes(secret))
  }finally{globalThis.fetch=original}
 })
+
+
+test('generic MCP discovery carries read effects and current schemas; invalid and removed functions do not execute',async()=>{
+ const original=globalThis.fetch,called:string[]=[]
+ const servers=[{name:'calendar',url:'https://calendar.example.org/mcp',token:'calendar-fixture-private',allow:null,deny:['delete']}]
+ let removed=false
+ globalThis.fetch=(async(input:any,init:any={})=>{
+  assert.equal(String(input instanceof Request?input.url:input),'https://calendar.example.org/mcp')
+  const r=JSON.parse(init.body);let result:any
+  if(r.method==='initialize')result={protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}}
+  else if(r.method==='tools/list')result={tools:removed?[]:[{name:'find',description:'Find events',annotations:{readOnlyHint:true},inputSchema:{type:'object',properties:{day:{type:'string'}},required:['day'],additionalProperties:false}},{name:'delete',inputSchema:{type:'object'}}]}
+  else if(r.method==='tools/call'){called.push(r.params.name);result={content:[{type:'text',text:'Design review at 10:00'}]}}
+  else return new Response(null,{status:202})
+  return Response.json({jsonrpc:'2.0',id:r.id,result})
+ }) as typeof fetch
+ try{
+  const found=await modelMcp({servers,action:'search',query:'calendar'},new AbortController().signal)
+  assert.deepEqual(found.tools?.map((t:any)=>[t.server,t.name,t.readOnly]),[['calendar','find',true]])
+  assert.ok(!JSON.stringify(found).includes('calendar-fixture-private'))
+  const request={servers,action:'call',server:'calendar',name:'find',arguments:{day:'2026-11-04'}}
+  await assert.rejects(modelMcp({...request,arguments:{day:4}},new AbortController().signal),/schema/)
+  assert.equal(called.length,0)
+  assert.match((await modelMcp(request,new AbortController().signal)).result!,/Design review/)
+  removed=true
+  await assert.rejects(modelMcp(request,new AbortController().signal),/unavailable/)
+  assert.deepEqual(called,['find'])
+ }finally{globalThis.fetch=original}
+})

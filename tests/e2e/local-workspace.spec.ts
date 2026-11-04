@@ -272,7 +272,7 @@ test.describe('Atlas Flow across workspace features',()=>{
     expect(fake.textAsked).toHaveLength(0)
   })
 
-  test('MCP setup exposes model choice and a separate personal consent beside the connection test',async({page})=>{
+  test('MCP connection tests need no model consent and leave the separate personal AI consent unchanged',async({page})=>{
     await wsEval(page,s=>s.updateSettings({ai:{allow:{local:['memory']}},mcpServers:[{id:'inline-atlas',name:'atlas',url:'https://atlas.example.org/mcp',token:'private-inline-test',enabled:true,prompt:'Read approved records.'}]}))
     fake.onModelMcp=()=>({tools:[{name:'remote_mcp_0',server:'atlas',tool:'atlas_get',description:'Read approved record',parameters:{type:'object',properties:{}}}]})
     const policy=await wsEval(page,s=>JSON.stringify(s.ai))
@@ -283,14 +283,18 @@ test.describe('Atlas Flow across workspace features',()=>{
     const setup=servers.getByTestId('mcp-check-setup')
     await setup.getByTestId('mcp-check-model').selectOption('local:'+MODEL)
     const check=servers.getByRole('button',{name:'Test connection',exact:true})
-    await expect(check).toBeDisabled()
+    await expect(check).toBeEnabled()
     expect(fake.mcpAsked).toHaveLength(0)
+    await check.click()
+    await expect.poll(()=>fake.mcpAsked.length).toBe(1)
+    await expect(servers.locator('.mcps-card[data-id="inline-atlas"]')).toHaveAttribute('data-state','ok')
+    expect(await wsEval(page,s=>s.settings.ai?.allow?.local)).toEqual(['memory'])
     await setup.getByRole('switch',{name:/Allow MCP connections/}).click()
     await expect(check).toBeEnabled()
     expect(await wsEval(page,s=>s.settings.ai?.allow?.local)).toEqual(['memory','mcp'])
     expect(await wsEval(page,s=>JSON.stringify(s.ai))).toBe(policy)
-    // Enabling a provider starts the existing first check for an unchecked server.
-    await expect.poll(()=>fake.mcpAsked.length).toBe(1)
+    // The direct check already completed; enabling model access does not call Atlas again.
+    expect(fake.mcpAsked).toHaveLength(1)
     await expect(check).toBeEnabled()
     await check.click()
     await expect.poll(()=>fake.mcpAsked.length).toBe(2)

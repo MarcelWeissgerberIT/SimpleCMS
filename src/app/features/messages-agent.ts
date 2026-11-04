@@ -3,6 +3,12 @@ import type { Messages } from '@/shared/i18n'
 /** Strings for the AI terminal / workspace agent (features/ai/agent). Keys prefixed "features.agent." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    'features.agent.mock.completed': 'Static design mock prepared for review. HTML and source receipts are available in the mock card; PNG is rendered on export. Nothing was saved to Atlas or ONE. Business and visual review remain open.',
+    'features.agent.mock.rendering': 'Preparing preview …',
+    'features.agent.mock.checking': 'Checking Atlas destination and sources …',
+    'features.agent.mock.uploading': 'Uploading to Atlas …',
+    'features.agent.mock.progress': '{count} of {total} files confirmed at Atlas record #{ref}.',
+    'features.agent.mock.partial': 'Upload incomplete. Check the confirmed files below before trying again. Nothing is repeated automatically.',
     'features.agent.title': 'AI terminal',
     'features.agent.cmd': 'AI terminal',
     'features.agent.menu': 'Hand to the agent…',
@@ -282,6 +288,12 @@ export const messages: Messages = {
     'features.agent.coltype.checkbox': 'Checkbox',
   },
   de: {
+    'features.agent.mock.completed': 'Statischer Design-Mock zur Prüfung vorbereitet. HTML und Quellenbelege stehen in der Mock-Karte; PNG wird erst beim Export gerendert. Nichts wurde in Atlas oder ONE gespeichert. Fachliche und visuelle Prüfung bleiben offen.',
+    'features.agent.mock.rendering': 'Vorschau wird vorbereitet …',
+    'features.agent.mock.checking': 'Atlas-Ziel und Quellen werden geprüft …',
+    'features.agent.mock.uploading': 'Wird nach Atlas übertragen …',
+    'features.agent.mock.progress': '{count} von {total} Dateien am Atlas-Record #{ref} bestätigt.',
+    'features.agent.mock.partial': 'Übertragung unvollständig. Prüfe vor einem neuen Versuch die bestätigten Dateien unten. Es wird nichts automatisch wiederholt.',
     'features.agent.title': 'KI-Terminal',
     'features.agent.cmd': 'KI-Terminal',
     'features.agent.menu': 'An den Agenten übergeben…',

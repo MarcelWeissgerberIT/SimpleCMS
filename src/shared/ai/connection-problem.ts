@@ -8,7 +8,7 @@ export function connectionProblem(error: unknown): ConnectionProblem {
   if (e?.status === 403) return 'permission'
   if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text)) return 'tls'
   if (/\b401\b|\bmcp_auth\b/.test(text)) return 'auth'
-  if (/\b403\b|mcp_permission|permission denied|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text)) return 'permission'
+  if (/\b403\b|mcp_permission|permission (?:denied|refused)|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text)) return 'permission'
   if (/\b429\b|rate[ _-]?limit|too many requests/.test(text)) return 'rate'
   if (/authenticat.{0,20}(?:fail|reject|required)|unauthoriz|invalid.token|(?:expired|revoked)[ _-]?token|token.{0,30}(?:refused|rejected|abgelehnt|expired|revoked|invalid)/.test(text) || text === 'token') return 'auth'
   if (/timeout|timed.out|zeitüberschreitung/.test(text)) return 'timeout'
@@ -30,18 +30,18 @@ export function mcpConnectionMessage(error:unknown, phase:'discovery'|'call'='di
   const problem=connectionProblem(error)
   const details:Record<ConnectionProblem,string>={
     tls:'TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification.',
-    auth:'Authentication rejected by this endpoint. Check the Atlas instance and personal token.',
+    auth:'Authentication rejected by this endpoint. Check the connection address and your personal sign-in or token.',
     permission:'Permission denied. Check project membership and tool permissions; this does not prove an invalid token.',
     timeout:'Connection timed out. Check VPN, proxy and network access from this worker.',
     network:'Network connection failed. Check VPN, proxy, DNS and network access.',
-    worker:'Personal worker unavailable. Start the existing worker or check the prepared Atlas proxy.',
+    worker:'Personal worker unavailable. Start the existing worker or check the configured connection route.',
     identity:'Atlas identity does not match the personal access.',
     policy:'A data policy blocks the selected MCP destination or tool.',
     tools:'The selected tool is unavailable or not permitted. Check the actual tool catalogue and permissions.',
     schema:'MCP arguments do not match the current tool schema. Refresh discovery and review the arguments; nothing should be repeated blindly.',
     response:'Invalid MCP tool response. No successful source result was verified.',
     limit:'MCP result or arguments exceed the bounded limit. Select a smaller source excerpt or narrower query.',
-    query:'Atlas rejected the search query. Check the query syntax, supported filters and actual tool schema; preserve the requested tenant and project scope.',
+    query:'The connected service rejected the search query. Check the query syntax, supported filters and actual tool schema; preserve the requested tenant and project scope.',
     rate:'MCP rate limit reached. Wait before explicitly retrying a read; do not automatically repeat writes.',
     server:'MCP server returned a server error (5xx). The failed call has no verified result; check already accepted writes before retrying.',
     unknown:`MCP ${phase} failed without a classified cause. This call has no verified source result. Inspect its request and receipt before retrying.`,

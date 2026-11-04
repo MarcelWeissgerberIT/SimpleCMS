@@ -2,6 +2,7 @@ import {test,expect,openApp,wsEval,createPage,gotoPage,doc,para} from './fixture
 const TOKEN='test-only-personal-AJ-token-no-real-credential',URL='https://aj-atlas.com/api/atlas/mcp'
 test('personal Atlas access is encrypted, explicitly checked in the next workspace and isolated by account and endpoint',async({page})=>{
  await page.route('**/api/config',r=>r.fulfill({json:{version:'fixture',signup:{mode:'open',domains:[]},max_upload_mb:20,dev_mode:false,source_url:'',schema_min:1,supports:['ai','providers']}}));await page.route('**/api/session',r=>r.fulfill({json:{user:null,workspaces:[]}}))
+ await page.route('**/api/workspaces/*/central-ai',r=>r.fulfill({json:{assigned:false,ready:false}}))
  await page.route('**/api/workspaces/*/model-shares',r=>r.fulfill({json:[]}))
  const calls:Array<{url:string;body:any}>=[]
  await page.route('**/api/workspaces/*/atlas-mcp',r=>{calls.push({url:r.request().url(),body:r.request().postDataJSON()});return r.fulfill({json:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({person:'Synthetic Nadine',effectiveTenantScope:['analytik-jena']})}]})}})})
@@ -10,7 +11,7 @@ test('personal Atlas access is encrypted, explicitly checked in the next workspa
  await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-test-only-not-real'}))
  await gotoPage(page,start)
  const cloud=(ws:string,user='nadine-fixture')=>page.evaluate(({ws,user})=>(window as any).__oneCloud.set({active:{kind:'cloud',id:ws},user:{id:user,email:user+'@example.test',name:'Synthetic Nadine'},role:'owner',readOnly:false,supports:['atlas-mcp:1']}),{ws,user})
- await cloud('felix-fixture')
+ await cloud('felix-fixture');await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-test-only-not-real'}))
  const box=page.getByTestId('atlas-team-start')
  await box.getByLabel('Your personal Atlas token',{exact:true}).fill(TOKEN);await box.getByRole('button',{name:'Connect and check Atlas',exact:true}).click()
  await expect(box).toContainText('Your personal Atlas access is verified')

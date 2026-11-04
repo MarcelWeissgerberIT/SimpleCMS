@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-skills-context
 date: 2026-11-04
-order: 100
+order: 101
 title: Skills auswählen und nach Kontextgrenzen weiterarbeiten
 summary: Persönliche Skill-Anleitungen, SKILL.md und ein kompakter Wiedereinstieg mit erhaltenem Arbeitsnachweis.
 ---

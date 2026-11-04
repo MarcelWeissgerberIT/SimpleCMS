@@ -53,14 +53,14 @@ function returnPath(): string {
   }
 }
 
-export async function requestSignInImpl(email: string, opts?: { invite?: string; signup?: string; lang?: string }): Promise<void> {
+export async function requestSignInImpl(email: string, opts?: { invite?: string; signup?: string; lang?: string; signal?: AbortSignal }): Promise<void> {
   await postSignIn({
     email: email.trim(),
     redirect: returnPath(),
     lang: opts?.lang ?? lang(),
     ...(opts?.invite ? { invite: opts.invite } : {}),
     ...(opts?.signup ? { signup: opts.signup } : {}),
-  })
+  }, opts?.signal)
 }
 
 export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promise<void> {

@@ -140,7 +140,7 @@ export function refreshAccount(): Promise<unknown> {
  * person holds — lets a new address through an invite-only server. Errors: CloudError 'rate_limited'
  * (retryAfter seconds) · 'network' · …
  */
-export async function requestSignIn(email: string, opts?: { invite?: string; signup?: string; lang?: string }): Promise<void> {
+export async function requestSignIn(email: string, opts?: { invite?: string; signup?: string; lang?: string; signal?: AbortSignal }): Promise<void> {
   return requestSignInImpl(email, opts)
 }
 

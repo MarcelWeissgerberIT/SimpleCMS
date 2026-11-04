@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {connectionProblem,mcpConnectionMessage} from '../../src/shared/ai/connection-problem.ts'
 test('authentication, permissions, TLS, schema and size failures remain distinct without exposing input',()=>{
- for(const [error,expected] of [[new Error('HTTP 401 token secret'),'auth'],[{status:403,message:'Forbidden secret'},'permission'],['AJ-Atlas hat diesen persönlichen Token abgelehnt.','auth'],[{code:'mcp_arguments_invalid',message:'secret'},'schema'],[new Error('Program: unsupported schema propertyNames'),'schema'],[new Error('MCP result exceeds the bounded source cache'),'limit'],[new Error('self signed certificate'),'tls'],[{message:'fetch failed',cause:{code:'ENOTFOUND'}},'network'],[new Error('Connection timed out.'),'timeout']] as const){
+ for(const [error,expected] of [[new Error('HTTP 401 token secret'),'auth'],[{status:403,message:'Forbidden secret'},'permission'],['Attachment permission refused by Atlas. secret','permission'],['AJ-Atlas hat diesen persönlichen Token abgelehnt.','auth'],[{code:'mcp_arguments_invalid',message:'secret'},'schema'],[new Error('Program: unsupported schema propertyNames'),'schema'],[new Error('MCP result exceeds the bounded source cache'),'limit'],[new Error('self signed certificate'),'tls'],[{message:'fetch failed',cause:{code:'ENOTFOUND'}},'network'],[new Error('Connection timed out.'),'timeout']] as const){
   assert.equal(connectionProblem(error),expected)
   assert.ok(!mcpConnectionMessage(error).includes('secret'))
  }

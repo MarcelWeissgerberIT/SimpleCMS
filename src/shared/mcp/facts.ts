@@ -31,6 +31,12 @@ export function atlasTaskEffect(name:string,args:Record<string,unknown>):'read'|
   if(WRITE.has(name))return 'write'
   return 'forbidden'
 }
+/** Only the actual selected catalogue may identify a generic operation as read-only.
+ * Tool names, descriptions and model-supplied arguments cannot establish that fact. */
+export function mcpTaskEffect(name:string,args:Record<string,unknown>,catalogue?:{readOnly?:boolean}){
+  if(name.startsWith('atlas_'))return atlasTaskEffect(name,args)
+  return catalogue?.readOnly===true?'read':'forbidden'
+}
 const COUNTS: Record<string, string> = { kinds:'record_kinds', projects:'projects', agents:'agents', flows:'flows', jobs:'jobs', tenants:'tenants', items:'records', rows:'records', records:'records', constraints:'constraints' }
 const META = new Set(['item','agent','proposal','job','chain','sprint','subject','next','result','run'])
 const REF_KEYS = new Set(['ref','eventRef','runRef','subjectRef','doneRunRef','triggerRunRef'])

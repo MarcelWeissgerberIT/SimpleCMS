@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.7 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.8 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -10942,7 +10942,7 @@ var require_cross_spawn = __commonJS({
     var cp = __require("child_process");
     var parse4 = require_parse();
     var enoent = require_enoent();
-    function spawn4(command2, args, options) {
+    function spawn3(command2, args, options) {
       const parsed = parse4(command2, args, options);
       const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
@@ -10954,8 +10954,8 @@ var require_cross_spawn = __commonJS({
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
-    module.exports = spawn4;
-    module.exports.spawn = spawn4;
+    module.exports = spawn3;
+    module.exports.spawn = spawn3;
     module.exports.sync = spawnSync2;
     module.exports._parse = parse4;
     module.exports._enoent = enoent;
@@ -18901,12 +18901,23 @@ function fitLocalToolContext(messages, fits, history) {
       }
     }
   }
-  for (const [index, result] of results.entries()) {
+  const candidates = results.map((result, index) => ({ result, index })).sort((a, b) => Number(b.result.text.length > 4096) - Number(a.result.text.length > 4096) || a.index - b.index);
+  for (const { index, result } of candidates) {
     const minimum = index === results.length - 1 ? 512 : 128;
+    let pointers;
+    try {
+      const value2 = JSON.parse(result.text);
+      if (value2 && typeof value2 === "object" && !Array.isArray(value2)) {
+        const kept = Object.fromEntries(["oneMockSource", "result_id", "isError", "oneSourceLinks"].filter((k) => Object.hasOwn(value2, k)).map((k) => [k, value2[k]]));
+        if (Object.keys(kept).length) pointers = kept;
+      }
+    } catch {
+    }
     if (result.text.length <= minimum + OMITTED.length) continue;
     const excerpt = (end) => {
       if (end > 0 && /[\uD800-\uDBFF]/.test(result.text.charAt(end - 1))) end--;
-      return result.text.slice(0, end) + OMITTED;
+      const excerpt2 = result.text.slice(0, end);
+      return pointers ? JSON.stringify({ ...pointers, oneContextExcerpt: true, excerpt: excerpt2, note: OMITTED.trim() }) : excerpt2 + OMITTED;
     };
     result.set(excerpt(minimum));
     if (!fits(next)) continue;
@@ -21311,7 +21322,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.7" : "dev";
+var VERSION = true ? "1.35.8" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -21831,7 +21842,7 @@ function connectionProblem(error2) {
   if (e?.status === 403) return "permission";
   if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text2)) return "tls";
   if (/\b401\b|\bmcp_auth\b/.test(text2)) return "auth";
-  if (/\b403\b|mcp_permission|permission denied|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text2)) return "permission";
+  if (/\b403\b|mcp_permission|permission (?:denied|refused)|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text2)) return "permission";
   if (/\b429\b|rate[ _-]?limit|too many requests/.test(text2)) return "rate";
   if (/authenticat.{0,20}(?:fail|reject|required)|unauthoriz|invalid.token|(?:expired|revoked)[ _-]?token|token.{0,30}(?:refused|rejected|abgelehnt|expired|revoked|invalid)/.test(text2) || text2 === "token") return "auth";
   if (/timeout|timed.out|zeitüberschreitung/.test(text2)) return "timeout";
@@ -21851,18 +21862,18 @@ function mcpConnectionMessage(error2, phase = "discovery") {
   const problem = connectionProblem(error2);
   const details = {
     tls: "TLS certificate verification failed. Check the company certificate setup for Node; do not disable verification.",
-    auth: "Authentication rejected by this endpoint. Check the Atlas instance and personal token.",
+    auth: "Authentication rejected by this endpoint. Check the connection address and your personal sign-in or token.",
     permission: "Permission denied. Check project membership and tool permissions; this does not prove an invalid token.",
     timeout: "Connection timed out. Check VPN, proxy and network access from this worker.",
     network: "Network connection failed. Check VPN, proxy, DNS and network access.",
-    worker: "Personal worker unavailable. Start the existing worker or check the prepared Atlas proxy.",
+    worker: "Personal worker unavailable. Start the existing worker or check the configured connection route.",
     identity: "Atlas identity does not match the personal access.",
     policy: "A data policy blocks the selected MCP destination or tool.",
     tools: "The selected tool is unavailable or not permitted. Check the actual tool catalogue and permissions.",
     schema: "MCP arguments do not match the current tool schema. Refresh discovery and review the arguments; nothing should be repeated blindly.",
     response: "Invalid MCP tool response. No successful source result was verified.",
     limit: "MCP result or arguments exceed the bounded limit. Select a smaller source excerpt or narrower query.",
-    query: "Atlas rejected the search query. Check the query syntax, supported filters and actual tool schema; preserve the requested tenant and project scope.",
+    query: "The connected service rejected the search query. Check the query syntax, supported filters and actual tool schema; preserve the requested tenant and project scope.",
     rate: "MCP rate limit reached. Wait before explicitly retrying a read; do not automatically repeat writes.",
     server: "MCP server returned a server error (5xx). The failed call has no verified result; check already accepted writes before retrying.",
     unknown: `MCP ${phase} failed without a classified cause. This call has no verified source result. Inspect its request and receipt before retrying.`
@@ -21873,7 +21884,14 @@ function mcpConnectionMessage(error2, phase = "discovery") {
 // ../src/shared/mcp/discovery.ts
 function discoverMcpTools(tools, query) {
   const norm2 = (s) => s.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-  const q = norm2(query), direct = tools.filter((t) => norm2(t.name) === q);
+  const q = norm2(query);
+  const connection = (s) => s.toLowerCase().replace(/-/g, " ").replace(/\s+/g, " ").trim();
+  const servers = [...new Set(tools.map((t) => connection(t.server ?? "")).filter(Boolean))];
+  const named = servers.filter((s) => s.length > 1 && ` ${connection(query)} `.includes(` ${s} `));
+  const longest = Math.max(0, ...named.map((s) => s.length));
+  const scoped = named.filter((s) => s.length === longest);
+  if (scoped.length) tools = tools.filter((t) => scoped.includes(connection(t.server ?? "")));
+  const direct = tools.filter((t) => norm2(t.name) === q);
   if (direct.length) return direct.slice(0, 6);
   if (/^atlas_[a-z0-9_]+$/i.test(query.trim())) return [];
   const exact = tools.filter((t) => query.toLowerCase().split(/[^a-z0-9_]+/).includes(t.name.toLowerCase()));
@@ -21885,13 +21903,13 @@ function discoverMcpTools(tools, query) {
   const defaults = hasRef ? ["atlas_get", "atlas_search", "atlas_query", "atlas_project_list"] : reads ? ["atlas_query", "atlas_search", "atlas_project_list", "atlas_get"] : ["atlas_search", "atlas_query", "atlas_project_list", "atlas_get"];
   return tools.map((t, i2) => {
     const name = norm2(t.name), desc = norm2(t.description ?? "");
-    let score = (atlas && t.name.startsWith("atlas_") ? 1 : 0) + terms.reduce((s, w) => s + (name.split(" ").includes(w) ? 48 : desc.includes(w) ? 1 : 0), 0);
+    let score = (scoped.length || !terms.length ? 1 : 0) + (atlas && t.name.startsWith("atlas_") ? 1 : 0) + terms.reduce((s, w) => s + (name.split(" ").includes(w) ? 48 : desc.includes(w) ? 1 : 0), 0);
     const fallback = atlas && t.name.startsWith("atlas_") ? defaults.indexOf(t.name) : -1;
     if (fallback >= 0) score += 40 - fallback * 4;
     return { t, i: i2, score };
   }).filter((v) => v.score > 0).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 6).map((v) => v.t);
 }
-var MCP_DISCOVERY_NOTE = "Tool discovery only, not a content read. Use the returned exact function for the requested operation. For a known numeric Atlas Ref, call atlas_get(ref); do not full-text search its digits. Request parts [body] for a bounded body analysis. Only topic searches use atlas_search q; date/status searches may use atlas_query. Empty discovery is not evidence of missing records. ONE coding tasks/pipelines are not Atlas records. Discover exact tool names for specialised operations.";
+var MCP_DISCOVERY_NOTE = "Tool discovery only, not a content read or a permission check for every operation. Use the returned exact server, function and input schema; do not invent functions or arguments. Search by connection name to inspect its available tools. Empty discovery is not evidence of missing records. A failed call is not an empty result. Discovery grants no new permission to write. Report a write as confirmed only from its actual response; do not repeat a write after an ambiguous timeout. Atlas only: for a known numeric Ref, call atlas_get(ref); do not full-text search its digits. Request parts [body] for a bounded body analysis. Topic searches use atlas_search q; date/status searches may use atlas_query. ONE coding tasks/pipelines are not Atlas records. Discover exact tool names for specialised operations.";
 
 // src/worker/local-mcp.ts
 import { readFile as readFile3 } from "node:fs/promises";
@@ -39779,7 +39797,6 @@ import { X509Certificate, randomBytes as randomBytes12 } from "node:crypto";
 import { existsSync as existsSync8, lstatSync as lstatSync4, mkdirSync as mkdirSync7, readFileSync as readFileSync10, renameSync as renameSync6, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
 import { dirname as dirname11, join as join17 } from "node:path";
 import * as tls from "node:tls";
-import { spawn as spawn3 } from "node:child_process";
 var api = tls;
 var MAX = 128 * 1024;
 var failures = /* @__PURE__ */ new Set();
@@ -39875,7 +39892,12 @@ async function configureCertificates(config2, self2, args) {
   }
   if ((!system || systemActive) && process.env.NODE_EXTRA_CA_CERTS === originalExtra) return false;
   const code = await new Promise((resolve13, reject) => {
-    const child = spawn3(process.execPath, [...process.execArgv, self2, ...args], { stdio: process.send ? ["inherit", "inherit", "inherit", "ipc"] : "inherit", env: process.env });
+    const started = spawnSafe(process.execPath, [...process.execArgv, self2, ...args], { stdio: process.send ? ["inherit", "inherit", "inherit", "ipc"] : "inherit", env: process.env });
+    if (!started.ok) {
+      reject(Error(started.error));
+      return;
+    }
+    const child = started.child;
     const forward = (message) => {
       if (child.connected) child.send(message, () => {
       });
@@ -50366,7 +50388,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.7" : "dev";
+var VERSION2 = true ? "1.35.8" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

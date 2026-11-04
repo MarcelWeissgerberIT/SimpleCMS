@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-skills-command
 date: 2026-11-04
-order: 120
+order: 121
 title: /skills öffnet die Skill-Vorschau
 summary: Skill-Bibliothek per Befehl im Terminal, im KI-Dialog und direkt auf der Seite öffnen.
 ---

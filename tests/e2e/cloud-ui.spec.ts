@@ -106,7 +106,7 @@ test.describe('team cloud UI states (mocked cloud)', () => {
     await expect(page.getByRole('button', { name: /Send again in/ })).toBeDisabled()
     await page.getByRole('button', { name: /local workspace instead/ }).click()
     expect(await calls(page)).toEqual([
-      ['requestSignIn', 'ada@acme.studio', { invite: undefined, lang: 'en' }],
+      ['requestSignIn', 'ada@acme.studio', { invite: undefined, lang: 'en', signal: {} }],
       ['switchWorkspace', { kind: 'local', id: 'local' }],
     ])
   })

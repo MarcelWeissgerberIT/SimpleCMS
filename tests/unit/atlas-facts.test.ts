@@ -138,3 +138,14 @@ test('an explicit no-changes statement after a read is not a fabricated write',(
  for(const text of ['No changes saved.','No records were created.','No comments have been saved.'])assert.deepEqual(facts.check(text),[],text)
  assert(facts.check('The changes were saved.').some(i=>i.kind==='effect'))
 })
+
+
+test('generic MCP effects come from catalogue read annotations, never names or requested arguments',async()=>{
+ const {mcpTaskEffect}=await import('../../src/shared/mcp/facts.ts')
+ assert.equal(mcpTaskEffect('find',{}, {readOnly:true}),'read')
+ assert.equal(mcpTaskEffect('get_document',{readOnly:true}),'forbidden')
+ assert.equal(mcpTaskEffect('search',{}, {readOnly:false}),'forbidden')
+ assert.equal(mcpTaskEffect('atlas_create',{}, {readOnly:true}),'write')
+ assert.equal(mcpTaskEffect('atlas_get',{ref:42}),'read')
+ assert.equal(mcpTaskEffect('atlas_unknown',{}, {readOnly:true}),'forbidden')
+})

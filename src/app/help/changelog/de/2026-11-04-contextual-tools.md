@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-contextual-tools
 date: 2026-11-04
-order: 3
+order: 4
 title: Werkzeuge mit dem gewählten Kontext nutzen
 summary: Codewort, markierter Text oder Seite mit Unterseiten – konkrete Aktionen und gezielte Rückfragen.
 ---

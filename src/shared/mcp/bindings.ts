@@ -1,7 +1,7 @@
 import {canonicalJson} from './duplicates.ts'
 /** Native inference schemas for tools discovered on the person's selected MCP connections.
  * This registry grants no access: execution still uses the authenticated MCP path and schema checks. */
-export interface DiscoveredMcpTool {server:string;name:string;description?:string;inputSchema:Record<string,any>}
+export interface DiscoveredMcpTool {server:string;name:string;description?:string;inputSchema:Record<string,any>;readOnly?:boolean}
 
 export function selectMcpSchemas<T>(tools:T[],budget:number):T[] {
   let size=0

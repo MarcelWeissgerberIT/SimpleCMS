@@ -32,6 +32,7 @@ import {
   urlProblem,
   writeServers,
 } from './config'
+import { canInspectDirect } from './generate'
 import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
 import { codewordProblem, normalizeCodeword, suggestCodeword } from './codeword'
 import { linkBaseOf } from '../../../lib/foreignLinks'
@@ -102,7 +103,7 @@ export function McpServers({ openId, add }: { openId?: string; add?: boolean } =
   // was opened quietly (the Patchbay's lamp: a press there never sends a request; a check then runs on its own key)
   useEffect(() => {
     if (!hasKey || quietSettings()) return
-    for (const s of readServers()) if (s.enabled && !s.checkedAt && !s.checkError && !useMcpChecks.getState().running[s.id]) void checkServer(s.id, s.prompt.trim() ? 'test' : 'guide')
+    for (const s of readServers()) if (s.enabled && !s.checkedAt && !s.checkError && !useMcpChecks.getState().running[s.id]) void checkServer(s.id, canInspectDirect(s) || s.prompt.trim() ? 'test' : 'guide')
   }, [hasKey])
 
   return (
@@ -214,8 +215,8 @@ function NewServer({ onDone }: { onDone: () => void }) {
     }
     setToken('')
     onDone()
-    // test + usage prompt, in the background
-    void checkServer(res.server.id, 'guide')
+    // Check direct access without requiring a model. Guide generation remains an explicit action.
+    void checkServer(res.server.id, canInspectDirect(res.server) ? 'test' : 'guide')
   }
 
   return (
@@ -302,7 +303,7 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
       ? server.checkError
       : state === 'missing'
         ? t('features.ai.mcp.tokenMissingShort')
-        : state === 'unchecked' && !hasKey
+        : state === 'unchecked' && !hasKey && !canInspectDirect(server)
           ? t('features.ai.mcp.needsKey')
           : state === 'ok' && server.tools?.length === 0
             ? t('features.ai.mcp.noTools')
@@ -393,7 +394,7 @@ function Connection({ server, others, words }: { server: McpServerConfig; others
         // a new address: what One knew of the old one (its test, a refused token — also this tab's note) goes with it
         patchServer(server.id, { name: cleanName, url: url.trim(), codeword: cw || undefined, linkBase: base || undefined, ...(moved ? { checkedAt: undefined, checkError: undefined, checkAuth: undefined, tools: undefined } : {}) })
         if (moved) clearRefused(cleanName)
-        if (moved) void checkServer(server.id, server.prompt.trim() ? 'test' : 'guide')
+        if (moved) void checkServer(server.id, canInspectDirect(server) || server.prompt.trim() ? 'test' : 'guide')
       }}
     >
       <Field id={`${uid}-name`} label={t('features.ai.mcp.name')} hint={t('features.ai.mcp.nameHint')} error={nameError}>
@@ -630,11 +631,14 @@ function Token({ server, state }: { server: McpServerConfig; state: 'none' | 'ok
         onChange={setDraft}
         onSubmit={(v) => {
           // a plaintext token: the store seals it and keeps the marker; then it is tested
+          // A manually supplied token replaces the OAuth login; its old refresh token must not
+          // silently replace this credential on the next request.
+          signOut(server.id)
           patchServer(server.id, { token: v, checkError: undefined })
           setDraft('')
-          void checkServer(server.id, server.prompt.trim() ? 'test' : 'guide')
+          void checkServer(server.id, canInspectDirect(server) || server.prompt.trim() ? 'test' : 'guide')
         }}
-        onRemove={() => patchServer(server.id, { token: '' })}
+        onRemove={() => signOut(server.id)}
         placeholder={t('features.ai.mcp.tokenOptional')}
         describedBy={`${id}-hint`}
         showLabel={t('features.ai.mcp.tokenShow')}
@@ -673,7 +677,8 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
     void checkServer(server.id, mode, { replaceEdited: mode === 'guide' })
   }
 
-  const disabled = !hasKey || blocked || !!running
+  const direct = canInspectDirect(server)
+  const disabled = blocked || !!running
   return (
     <div className="mcps-prompt">
       <McpCheckSetup disabled={!!running} />
@@ -685,10 +690,10 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
           {t(`features.ai.mcp.src.${src}`)}
         </span>
         <span className="mcps-spacer" />
-        <button type="button" className="btn btn--sm" disabled={disabled} onClick={() => run('test')}>
+        <button type="button" className="btn btn--sm" disabled={disabled || (!hasKey && !direct)} onClick={() => run('test')}>
           {running === 'test' ? t('features.ai.mcp.testing') : t('features.ai.mcp.test')}
         </button>
-        <button type="button" className="btn btn--sm btn--ink" disabled={disabled} onClick={() => run('guide')}>
+        <button type="button" className="btn btn--sm btn--ink" disabled={disabled || !hasKey} onClick={() => run('guide')}>
           {running === 'guide' ? t('features.ai.mcp.generating') : server.prompt.trim() ? t('features.ai.mcp.regenerate') : t('features.ai.mcp.generate')}
         </button>
       </div>
@@ -723,9 +728,9 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
         describedBy={`${id}-hint`}
         inputProps={{ onBlur: () => commit(server, latest.current.draft) }}
       />
-      {!hasKey && <AINeedsSetup purpose="mcp-setup.inspect" variant="line" testId="mcp-needs" />}
+      {!hasKey && !direct && <AINeedsSetup purpose="mcp-setup.inspect" variant="line" testId="mcp-needs" />}
       <p className="mcps-hint" id={`${id}-hint`}>
-        {!hasKey ? t('features.ai.mcp.needsKey') : t('features.ai.mcp.promptHint')}
+        {direct ? t('features.ai.mcp.directHint') : !hasKey ? t('features.ai.mcp.needsKey') : t('features.ai.mcp.promptHint')}
       </p>
       {server.tools && server.tools.length > 0 && (
         <div className="mcps-tools">

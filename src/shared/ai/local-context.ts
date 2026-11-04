@@ -5,7 +5,7 @@ const OMITTED = '\n[Harness context excerpt: tool result shortened. Do not infer
 /** Fit a local inference round without changing its task, system, tool arguments or saved history.
  * Linked results may be excerpted. With an explicit completed-task boundary, earlier assistant
  * drafts and closed traces may be folded after excerpting is insufficient; all human messages remain.
- * Older results go first;
+ * Large results yield space before compact source receipts; older results break ties;
  * the latest result retains a larger prefix. Every call/result pair stays closed. No model summary
  * is invented and the original messages stay available to the browser's run history. */
 export function fitLocalToolContext<T extends Message>(messages: T[], fits: (messages: T[]) => boolean, history?: {completedBefore:number;onCompact?:()=>void}): T[] {
@@ -28,13 +28,25 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
       }
     }
   }
-  for (const [index, result] of results.entries()) {
+  const candidates = results.map((result, index) => ({result, index})).sort((a,b) => Number(b.result.text.length > 4096) - Number(a.result.text.length > 4096) || a.index-b.index)
+  for (const {index, result} of candidates) {
     const minimum = index === results.length - 1 ? 512 : 128
+    // Source handles must survive excerpting: otherwise the model cannot ask the
+    // run-local reader for the omitted passage. These are copied, never inferred.
+    let pointers: Record<string, unknown> | undefined
+    try {
+      const value = JSON.parse(result.text)
+      if(value && typeof value === 'object' && !Array.isArray(value)){
+        const kept = Object.fromEntries(['oneMockSource','result_id','isError','oneSourceLinks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]))
+        if(Object.keys(kept).length) pointers=kept
+      }
+    } catch { /* Plain text results keep their existing explicit excerpt marker. */ }
     if (result.text.length <= minimum + OMITTED.length) continue
     const excerpt = (end: number) => {
       // Never split a UTF-16 surrogate pair when selecting the prefix.
       if (end > 0 && /[\uD800-\uDBFF]/.test(result.text.charAt(end - 1))) end--
-      return result.text.slice(0, end) + OMITTED
+      const excerpt = result.text.slice(0, end)
+      return pointers ? JSON.stringify({...pointers, oneContextExcerpt:true, excerpt, note:OMITTED.trim()}) : excerpt + OMITTED
     }
     result.set(excerpt(minimum))
     if (!fits(next)) continue

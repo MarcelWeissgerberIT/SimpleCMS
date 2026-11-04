@@ -851,6 +851,7 @@ describe('exec — source guard', () => {
       for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/\b(spawnSafe|execFileSafe|execFileSyncSafe)\(\s*([^,]+?)\s*,/g)) calls.push(`${f}: ${m[2]}`)
     }
     assert.deepEqual(calls.sort(), [
+      'certificates.ts: process.execPath', // restart this Node and the host-selected worker entry point to apply approved local CA settings
       'claude.ts: bin', // findClaude(): CLAUDE_BIN (resolved once, at the start — never in a worktree) or `claude` / the native install
       'claude.ts: r.bin', // the same (StageContext.bin = WorkerOptions.bin)
       "clone.ts: 'git'",

@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-block-selection-frame
 date: 2026-11-04
-order: 121
+order: 122
 title: Blöcke auswählen, ohne Inhalte einzufärben
 summary: Ein feiner Rahmen ersetzt die orange Fläche über ausgewählten Blöcken.
 ---

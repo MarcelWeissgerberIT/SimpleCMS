@@ -186,8 +186,8 @@ export async function patchMe(name: string): Promise<CloudUser> {
   return toUser(await request<RawUser>('PATCH', 'api/me', { name }))
 }
 
-export function postSignIn(input: { email: string; redirect?: string; lang?: string; invite?: string; signup?: string }): Promise<void> {
-  return request<void>('POST', 'api/auth/request', input)
+export function postSignIn(input: { email: string; redirect?: string; lang?: string; invite?: string; signup?: string }, signal?: AbortSignal): Promise<void> {
+  return request<void>('POST', 'api/auth/request', input, { signal })
 }
 
 export function postLogout(): Promise<void> {

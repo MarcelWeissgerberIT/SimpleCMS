@@ -1,6 +1,7 @@
 import {test,expect,openApp,wsEval,reloadApp} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
+import {mockOAuth,MCP_URL,ACCESS2} from './helpers/oauth'
 const PORT=47461
 const envelope=(data:unknown)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(data)}]})
 const createSchema={type:'object',properties:{kind:{type:'string'},project:{type:'string'},title:{type:'string'},body:{type:'string'},fields:{type:'object',propertyNames:{type:'string'},additionalProperties:{}}},required:['kind','project','title']}
@@ -30,6 +31,29 @@ test.describe('Human-reviewed Atlas source handoff',()=>{
  test.afterEach(async()=>{await fake?.close()})
  const access=async(page:any)=>{const dialog=page.getByTestId('source-atlas-handoff');await dialog.getByLabel('Your personal Atlas connection').selectOption('atlas');await dialog.getByRole('button',{name:'Check access and projects',exact:true}).click();await expect(dialog).toContainText('Test Source Member');return dialog}
  const review=async(page:any)=>{const dialog=await access(page);await dialog.getByLabel('Target project (read from Atlas)').selectOption('demo-source');await dialog.getByRole('button',{name:'Check constraints and handoff',exact:true}).click();await expect(dialog).toContainText('Exact outgoing data');return dialog}
+ test('a normal sign-in renewal keeps the source handoff usable with the renewed access',async({page,context,errors})=>{
+  errors.allow(/401|Failed to load resource/)
+  const log=await mockOAuth(context),original=fake.onModelMcp!
+  fake.onModelMcp=r=>r.action==='list'?{tools:[{server:'atlas',tool:'atlas_get',name:'remote_mcp_0',description:'Read records',parameters:schemas.atlas_get}]}:original(r)
+  await page.getByTestId('source-atlas-handoff').getByRole('button',{name:'Close',exact:true}).click()
+  await wsEval(page,(s,url)=>s.updateSettings({mcpServers:s.settings.mcpServers.map((v:any)=>({...v,url,token:'',checkedAt:undefined}))}),MCP_URL)
+  await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings',tab:'ai'}))
+  const card=page.locator('.mcps-card[data-id="source-atlas"]')
+  if(await card.getByTestId('mcp-oauth-signin').count()===0)await card.locator('.mcps-card__toggle').click()
+  await card.getByTestId('mcp-oauth-signin').click()
+  await expect(card).toHaveAttribute('data-state','ok')
+  await expect(card.getByTestId('mcp-signout')).toBeVisible()
+  await wsEval(page,s=>s.updateSettings({mcpServers:s.settings.mcpServers.map((v:any)=>({...v,oauth:{...v.oauth,expiresAt:Date.now()+1000}}))}))
+  await page.keyboard.press('Escape')
+  await page.evaluate(id=>(window as any).__one.ui.getState().openModal({type:'sourceAtlas',pageId:id}),pageId)
+  const dialog=await review(page)
+  expect(log.token.filter(p=>p.get('grant_type')==='refresh_token')).toHaveLength(1)
+  const identityRead=fake.mcpAsked.find(r=>r.name==='atlas_whoami')
+  expect(identityRead?.servers[0].token).toBe(ACCESS2)
+  await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'Create in Atlas now',exact:true}).click()
+  await expect(dialog).toContainText('Title and content read back and verified.')
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(1)
+ })
  test('uses actual projects and constraints, writes the exact reviewed payload once and verifies the returned ref without inference',async({page})=>{
   const dialog=await review(page)
   const write=dialog.getByRole('button',{name:'Create in Atlas now',exact:true})
@@ -126,6 +150,20 @@ test.describe('Human-reviewed Atlas source handoff',()=>{
   fake.onModelMcp=r=>r.action==='search'&&r.query==='atlas_create'&&++discoveries===2?{tools:[{server:'atlas',name:'atlas_create',inputSchema:{...createSchema,description:'Changed contract after the review'}}]}:original(r)
   await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'Create in Atlas now',exact:true}).click()
   await expect(dialog.getByRole('alert').first()).toContainText('Atlas tool schema changed')
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(0)
+  await expect(dialog).not.toContainText('The write attempt will not be retried automatically')
+  fake.onModelMcp=original
+  await dialog.getByRole('button',{name:'Close',exact:true}).click();await reloadApp(page)
+  await page.evaluate(id=>(window as any).__one.ui.getState().openModal({type:'sourceAtlas',pageId:id}),pageId)
+  const reopened=await review(page)
+  await expect(reopened.getByTestId('source-handoff-previous')).toHaveCount(0)
+ })
+
+ test('a tool removed after review cannot reuse a stale permitted schema',async({page})=>{
+  const dialog=await review(page),original=fake.onModelMcp!
+  fake.onModelMcp=r=>r.action==='search'&&r.query==='atlas_create'?{tools:[]}:original(r)
+  await dialog.getByRole('checkbox').check();await dialog.getByRole('button',{name:'Create in Atlas now',exact:true}).click()
+  await expect(dialog.getByRole('alert').first()).toContainText('Atlas tool is not available')
   expect(fake.mcpAsked.filter(r=>r.name==='atlas_create')).toHaveLength(0)
  })
 

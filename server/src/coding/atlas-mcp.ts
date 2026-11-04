@@ -67,7 +67,7 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
    return {result:scrub(raw)}
   }
   if(request.action==='search'){
-   const rows=selectMcpSchemas(discoverMcpTools(tools,request.query).map(t=>({server:selected.name,name:t.name,description:t.description??'',inputSchema:t.inputSchema})),12000)
+   const rows=selectMcpSchemas(discoverMcpTools(tools.map(t=>({...t,server:selected.name})),request.query).map(t=>({server:selected.name,name:t.name,description:t.description??'',inputSchema:t.inputSchema})),12000)
    const instructions=[defaultTenant?atlasTenantHint(defaultTenant):'',client.getInstructions?.()??''].filter(Boolean).join('\n\n')
    let projectGuide='',projectDirectory:{server:string;tenant:string;projects:Array<{slug:string;parentSlug:string|null}>}|undefined
    // Project labels are not project slugs. Bootstrap only this already permitted

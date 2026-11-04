@@ -75,3 +75,34 @@ test('worker TLS trusts the approved CA, preserves verification and propagates i
   removeCertificates(config)
   assert.equal(certificateStatus(config).invalid, false)
 })
+
+
+test('the CA startup restart preserves arguments, supervisor messages and the child exit code', async () => {
+  const entry = join(dir, 'restart.mjs'), module = new URL('../src/worker/certificates.ts', import.meta.url).href
+  writeFileSync(entry, `
+    import tls from 'node:tls'; import {syncBuiltinESMExports} from 'node:module';
+    import {configureCertificates} from ${JSON.stringify(module)};
+    if (!process.env.ONE_CA_RESTART_TEST) {
+      tls.setDefaultCACertificates = undefined; syncBuiltinESMExports();
+      process.env.ONE_CA_RESTART_TEST = 'child';
+      if (!await configureCertificates(${JSON.stringify(config)}, ${JSON.stringify(entry)}, process.argv.slice(2))) throw Error('restart missing');
+    } else {
+      if (process.argv[2] !== 'argument with spaces') throw Error('arguments changed');
+      process.on('message', message => { if (message === 'ping') process.send('pong'); if (message === 'stop') process.exit(7) });
+      process.send('ready');
+    }
+  `)
+  const env = {...process.env}; delete env.NODE_OPTIONS; delete env.NODE_EXTRA_CA_CERTS; delete env.ONE_CA_RESTART_TEST
+  const child = spawn(process.execPath, [entry, 'argument with spaces'], {env, stdio:['ignore','pipe','pipe','ipc']})
+  let output = ''; child.stderr!.on('data', b => { output += b })
+  const messages: unknown[] = []
+  const timer = setTimeout(() => child.kill('SIGKILL'), 10_000)
+  try {
+    const code = await new Promise<number|null>((resolve, reject) => {
+      child.on('message', message => { messages.push(message); if(message === 'ready') child.send('ping'); if(message === 'pong') child.send('stop') })
+      child.on('error', reject); child.on('exit', resolve)
+    })
+    assert.equal(code, 7, output)
+    assert.deepEqual(messages, ['ready','pong'])
+  } finally { clearTimeout(timer); if(child.exitCode === null) child.kill() }
+})

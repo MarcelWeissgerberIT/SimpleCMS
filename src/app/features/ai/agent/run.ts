@@ -1,4 +1,5 @@
 import {prepareTypedAI} from '../core/typedAI'
+import {t} from '../../../i18n'
 import {activeReviewProfile} from '../profiles/storage'
 import type {ReviewProfile} from '@/shared/quandprofile/review-profile'
 import {MockSources,MOCK_GUIDE,mockIntent,type DesignMock} from '@/shared/ai/designMock'
@@ -616,6 +617,17 @@ export async function runAgent(opts: {
               if ((await atLine({ low: 0, high: results }, mcpIterationsOf(msg))) === 'stop') {
                 end = 'held'
                 break outer
+              }
+              if(mockEnabled&&mockIntent(opts.typed??'')&&msg.content.some(b=>b.type==='tool_use'&&b.name==='create_design_mock')){
+                const receipt=await runner.generateToolResponse()
+                if(mockSources.created||mockSources.repairAttempted){
+                  runner.setMessagesParams(p=>({...p,messages:[...p.messages,{role:'assistant',content:msg.content},...(receipt?[receipt]:[])]}))
+                  if(!mockSources.created){task.fail('Mock correction failed; inspect the create_design_mock result.');throw new AIError('capability','features.ai.mock.held')}
+                  const answer=t('features.agent.mock.completed')
+                  task.finish(answer);guardedFinal=answer;hooks.text(answer);hooks.textDone('answer')
+                  runner.setMessagesParams(p=>({...p,messages:[...p.messages,{role:'assistant',content:answer}]}))
+                  end='done';break outer
+                }
               }
             }
           }

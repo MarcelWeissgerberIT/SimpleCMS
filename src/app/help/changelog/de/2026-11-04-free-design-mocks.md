@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-free-design-mocks
 date: 2026-11-04
-order: 123
+order: 124
 title: Freie Mocks aus großen Design-MDs
 summary: Design-Link und Auftrag reichen; Anforderungen und Atlas-Ablage bleiben optional.
 image: assets/shots/changelog/free-design-mocks.webp

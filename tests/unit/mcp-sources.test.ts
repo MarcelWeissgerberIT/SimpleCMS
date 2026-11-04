@@ -14,6 +14,19 @@ test('Atlas topic/date discovery finds general read tools without requiring topi
  assert.equal(discoverMcpTools([{name:'calendar_list',description:'list calendars'}],'atlas document notebook').length,0)
 })
 const envelope=(v:unknown)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(v)}]})
+test('generic discovery finds a named connection and keeps identical functions on their requested server',()=>{
+ const catalog=[{server:'crm',name:'find',description:'Find contacts'},{server:'calendar',name:'find',description:'Find events'},{server:'calendar',name:'create',description:'Create event'},{server:'work-calendar',name:'find',description:'Find work events'}]
+ assert.deepEqual(discoverMcpTools(catalog,'calendar').map(t=>t.server),['calendar','calendar'])
+ assert.deepEqual(discoverMcpTools(catalog,'calendar find'),[catalog[1]])
+ assert.deepEqual(discoverMcpTools(catalog,'work-calendar find'),[catalog[3]])
+ assert.deepEqual(discoverMcpTools(catalog,'crm contacts'),[catalog[0]])
+ assert.deepEqual(discoverMcpTools(catalog,'mcp tools'),catalog)
+ assert.deepEqual(discoverMcpTools([], 'calendar'),[])
+ assert.deepEqual(discoverMcpTools(catalog,'unavailable_service'),[])
+ assert.deepEqual(discoverMcpTools(catalog,'atlas_get'),[])
+ const bounded=Array.from({length:10},(_,i)=>({server:'crm',name:'tool_'+i}))
+ assert.equal(discoverMcpTools(bounded,'crm').length,6)
+})
 test('large Atlas context keeps exact source fields available instead of truncating JSON',()=>{
  const cache=new McpResults(),body='a 🦆 " \\ \n'.repeat(5000)
  const root=JSON.parse(cache.pack(envelope({items:[{ref:23166,body}],nextCursor:'cursor',count:1})))

@@ -1092,7 +1092,7 @@ export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortS
 
 export function cloudAtlasMcpReady(servers: readonly {name:string;url:string}[]): boolean {
   const cloud=useCloud.getState(),setup=useWorkspace.getState().ai?.onboarding
-  return cloud.active.kind==='cloud' && !!cloud.supports?.includes('atlas-mcp:1') && !!setup && servers.length===1 && servers.every(s=>s.url===setup.mcpUrl&&s.name===setup.mcpName)
+  return cloud.active.kind==='cloud' && !!cloud.supports?.includes('atlas-mcp:1') && !!setup && setup.mcpUrl==='https://aj-atlas.com/api/atlas/mcp' && servers.length===1 && servers.every(s=>s.url===setup.mcpUrl&&s.name===setup.mcpName)
 }
 
 export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSignal): Promise<unknown> {

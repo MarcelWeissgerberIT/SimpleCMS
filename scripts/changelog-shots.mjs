@@ -942,6 +942,30 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'atlas-connection-stability'(browser) {
+    const {ctx,page}=await freshPage(browser,{setup:async ctx=>{
+      await ctx.route(`${LOCAL}/api/config`,r=>r.fulfill({json:{version:'shot',signup:{mode:'open',domains:[]},max_upload_mb:20,dev_mode:false,source_url:'',schema_min:2,supports:['ai','providers']}}))
+      await ctx.route(`${LOCAL}/api/session`,r=>r.fulfill({json:{user:null,workspaces:[]}}))
+      await ctx.route(`${LOCAL}/api/workspaces/*/model-shares`,r=>r.fulfill({json:[]}))
+      await ctx.route(`${LOCAL}/api/workspaces/*/ai/central`,r=>r.fulfill({json:{assigned:false,ready:false}}))
+      await ctx.route(`${LOCAL}/api/workspaces/*/atlas-mcp`,r=>r.fulfill({json:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({person:'Alex Example',effectiveTenantScope:['analytik-jena']})}]})}}))
+    }})
+    const id=await createPage(page,'Your personal Atlas start',doc(para('Connect once, check access, then choose your first task.')))
+    await page.evaluate(id=>{
+      const s=window.__one.workspace.getState()
+      s.updateSettings({aiApiKey:''})
+      s.setWorkspaceAI({routes:{'*':[{p:'anthropic',m:'claude-opus-5-5'}]},onboarding:{startPageId:id,mcpName:'aj-atlas',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',project:'FeliX',tenant:'analytik-jena',skipIntro:true}})
+    },id)
+    await openPage(page,id)
+    await page.evaluate(()=>window.__oneCloud.set({active:{kind:'cloud',id:'shot-atlas'},user:{id:'shot-person',email:'alex@example.test',name:'Alex Example'},role:'owner',readOnly:false,supports:['atlas-mcp:1']}))
+    const box=page.getByTestId('atlas-team-start')
+    await box.getByLabel('Your personal Atlas token',{exact:true}).fill('synthetic-shot-token')
+    await box.getByRole('button',{name:'Connect and check Atlas',exact:true}).click()
+    await box.getByText('Connected as Alex Example.',{exact:true}).waitFor()
+    await box.scrollIntoViewIfNeeded();await rest(page)
+    await save(page,'atlas-connection-stability',await boxOf(box,16))
+    await ctx.close()
+  },
   async 'compiled-inspection'(browser) {
     const {ctx,page}=await freshPage(browser)
     const source=await createPage(page,'Measurement · Source review',doc(h(2,'Measurement start'),para('When a measurement starts, the logger records its original start time.')))

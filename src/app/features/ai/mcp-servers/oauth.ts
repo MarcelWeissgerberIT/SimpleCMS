@@ -25,8 +25,10 @@
  *     token endpoint at the interval the server gives.
  */
 import { create } from 'zustand'
+import { useWorkspace } from '../../../store/store'
+import { useCloud } from '../../../cloud/state'
 import type { McpOAuthConfig, McpServerConfig } from '../../../store/types'
-import { getMcpOAuthSecret, getMcpToken, setMcpOAuthSecret } from '../../../store/secrets'
+import { flushSecretWrites, getMcpOAuthSecret, getMcpToken, setMcpOAuthSecret } from '../../../store/secrets'
 import { patchServer, readServers } from './config'
 import { endpointOk } from './oauthConfig'
 import { PENDING_PREFIX, hasPending, listenForMcpOAuth, redirectUri, type OAuthReturn } from './oauthReturn'
@@ -322,7 +324,7 @@ interface Registration {
  * Register One at the authorization server — or reuse the registration this server already has for this
  * redirect URI (and, for `flow` 'device', the device grant).
  */
-async function registration(server: McpServerConfig, disc: Discovery, redirect: string, flow: 'code' | 'device', wayBackRefused = false): Promise<Registration> {
+async function registration(server: McpServerConfig, disc: Discovery, redirect: string, flow: 'code' | 'device', wayBackRefused = false, assertCurrent: () => void = () => {}): Promise<Registration> {
   const had = server.oauth
   if (had && had.issuer === disc.issuer && had.redirectUri === redirect && had.clientId && (flow === 'code' ? !had.deviceOnly : had.device))
     return { clientId: had.clientId, secret: !!had.secret, device: !!had.device, deviceOnly: !!had.deviceOnly }
@@ -353,6 +355,7 @@ async function registration(server: McpServerConfig, disc: Discovery, redirect: 
         ...(disc.scope ? { scope: disc.scope } : {}),
       }),
     })
+    assertCurrent()
     const clientId = got.json?.client_id
     if (got.status >= 200 && got.status < 300 && typeof clientId === 'string' && clientId) {
       const secret = typeof got.json?.client_secret === 'string' && got.json.client_secret ? got.json.client_secret : null
@@ -408,6 +411,7 @@ interface Pending {
   verifier: string
   cfg: McpOAuthConfig
   at: number
+  loginKey: string
 }
 
 /** Attempts older than this are not finished any more. */
@@ -455,12 +459,24 @@ const waiting = new Map<string, (msg: OAuthReturn) => void>()
 const cancels = new Map<string, () => void>()
 /** the latest sign-in attempt per server (an older one that ends late leaves the state and the window alone) */
 const attempts = new Map<string, number>()
+const windows = new Map<string, { attempt: number; popup: Window | null }>()
 /** A sign-in window is waited for at most this long. */
 const WAIT_MAX = 10 * 60 * 1000
 
 /** Stop waiting for a sign-in (the person closed the window, or wants to start over). */
 export function cancelSignIn(serverId: string): void {
+  attempts.set(serverId, (attempts.get(serverId) ?? 0) + 1)
   cancels.get(serverId)?.()
+  closeWindow(windows.get(serverId)?.popup ?? null)
+  windows.delete(serverId)
+  setPhase(serverId, null)
+  // A late popup callback must not revive an explicitly cancelled sign-in, even after a reload.
+  try {
+    for (const key of Object.keys(sessionStorage)) {
+      if (!key.startsWith(PENDING_PREFIX)) continue
+      try { if (JSON.parse(sessionStorage.getItem(key) ?? 'null')?.serverId === serverId) sessionStorage.removeItem(key) } catch { /* an unrelated malformed pending entry */ }
+    }
+  } catch { /* storage unavailable: the in-memory attempt is still revoked */ }
 }
 
 /** A wait of `serverId` that Cancel (or a newer attempt) ends; it unregisters itself. */
@@ -495,6 +511,16 @@ function nextAttempt(serverId: string): number {
   return attempt
 }
 
+/** The registration may change during this attempt; its account, workspace and access may not. */
+function attemptGuard(server: McpServerConfig, attempt: number): () => void {
+  const keyOf = (s: McpServerConfig) => JSON.stringify([connectionScope(), s.id, s.url, s.enabled, s.token, s.oauth?.at])
+  const key = keyOf(server)
+  return () => {
+    const now = readServers().find(s => s.id === server.id)
+    if (attempts.get(server.id) !== attempt || !now || keyOf(now) !== key) throw new OAuthError('cancelled')
+  }
+}
+
 /** Synchronously, inside the click: a blank window the sign-in page goes into (null: the browser blocked it). */
 function blankWindow(): Window | null {
   try {
@@ -517,7 +543,8 @@ function failed(serverId: string, attempt: number, e: unknown, popup: Window | n
   const err = e instanceof OAuthError ? e : new OAuthError('token', e instanceof Error ? e.message : String(e))
   if (attempts.get(serverId) === attempt) {
     closeWindow(popup)
-    setPhase(serverId, err.issue === 'cancelled' ? null : { phase: 'error', issue: err.issue, detail: err.detail })
+    if (err.issue === 'cancelled') cancelSignIn(serverId)
+    else setPhase(serverId, { phase: 'error', issue: err.issue, detail: err.detail })
   }
   throw err
 }
@@ -533,29 +560,40 @@ export async function signIn(serverId: string, opts: { sameTab?: boolean } = {})
   const server = readServers().find((s) => s.id === serverId)
   if (!server) return
   const attempt = nextAttempt(serverId)
+  const assertCurrent = attemptGuard(server, attempt)
   const popup = blankWindow()
+  windows.set(serverId, { attempt, popup })
   if (!popup && opts.sameTab === false) failed(serverId, attempt, new OAuthError('blocked'), null)
   setPhase(serverId, { phase: 'working' })
   try {
     const disc = await discover(server.url)
+    assertCurrent()
     const redirect = redirectUri()
     let reg: Registration
     try {
-      reg = await registration(server, disc, redirect, 'code')
+      reg = await registration(server, disc, redirect, 'code', false, assertCurrent)
     } catch (e) {
       // the server's sign-in won't take this page as the way back: a code instead, in the same window
-      if (e instanceof OAuthError && e.issue === 'register' && disc.deviceEndpoint && disc.registrationEndpoint) return await deviceFlow(serverId, attempt, popup, disc, true)
+      if (e instanceof OAuthError && e.issue === 'register' && disc.deviceEndpoint && disc.registrationEndpoint) return await deviceFlow(serverId, attempt, popup, disc, true, assertCurrent)
       throw e
     }
+    assertCurrent()
     const cfg = configOf(disc, reg, redirect)
     keepConfig(serverId, cfg)
     const state = randomToken(24)
     const verifier = randomToken(48)
-    putPending(state, { serverId, verifier, cfg, at: Date.now() })
+    const configured = readServers().find(s => s.id === serverId)!
+    putPending(state, { serverId, verifier, cfg, at: Date.now(), loginKey: loginKey(configured) })
     const url = authorizeUrl(cfg, state, await challengeOf(verifier))
-    if (!popup || popup.closed) {
-      // the window was there and the person closed it meanwhile: nothing to go on with
-      if (opts.sameTab === false) throw new OAuthError(popup ? 'cancelled' : 'blocked')
+    assertCurrent()
+    // Closing the window during discovery is a cancellation, even when same-tab fallback is allowed.
+    if (popup?.closed) throw new OAuthError('cancelled')
+    if (!popup) {
+      if (opts.sameTab === false) throw new OAuthError('blocked')
+      const { flushSave } = await import('../../../store/persistence')
+      await flushSecretWrites()
+      await flushSave()
+      assertCurrent()
       // the browser blocked the window: this tab goes to the sign-in and comes back to `?oauth=mcp` → #/oauth/mcp
       window.location.assign(url)
       return
@@ -576,6 +614,8 @@ export async function signIn(serverId: string, opts: { sameTab?: boolean } = {})
     await finishSignIn(msg)
   } catch (e) {
     failed(serverId, attempt, e, popup)
+  } finally {
+    if (windows.get(serverId)?.attempt === attempt) windows.delete(serverId)
   }
 }
 
@@ -587,12 +627,16 @@ export async function signInWithCode(serverId: string): Promise<void> {
   const server = readServers().find((s) => s.id === serverId)
   if (!server) return
   const attempt = nextAttempt(serverId)
+  const assertCurrent = attemptGuard(server, attempt)
   const popup = blankWindow()
+  windows.set(serverId, { attempt, popup })
   setPhase(serverId, { phase: 'working' })
   try {
-    await deviceFlow(serverId, attempt, popup)
+    await deviceFlow(serverId, attempt, popup, undefined, false, assertCurrent)
   } catch (e) {
     failed(serverId, attempt, e, popup)
+  } finally {
+    if (windows.get(serverId)?.attempt === attempt) windows.delete(serverId)
   }
 }
 
@@ -601,16 +645,20 @@ const MIN_INTERVAL = 1000
 const MAX_CODE_LIFE = 30 * 60 * 1000
 
 /** RFC 8628: a code from the device endpoint, shown in Settings (and opened in the window), then the token endpoint polled. */
-async function deviceFlow(serverId: string, attempt: number, popup: Window | null, known?: Discovery, wayBackRefused = false): Promise<void> {
+async function deviceFlow(serverId: string, attempt: number, popup: Window | null, known?: Discovery, wayBackRefused = false, guard?: () => void): Promise<void> {
   const server = readServers().find((s) => s.id === serverId)
   if (!server) throw new OAuthError('cancelled')
+  const assertCurrent = guard ?? attemptGuard(server, attempt)
   const disc = known ?? (await discover(server.url))
+  assertCurrent()
   if (!disc.deviceEndpoint) throw new OAuthError('nocode', 'no device authorization endpoint')
   const redirect = redirectUri()
-  const reg = await registration(readServers().find((s) => s.id === serverId) ?? server, disc, redirect, 'device', wayBackRefused)
+  const reg = await registration(readServers().find((s) => s.id === serverId) ?? server, disc, redirect, 'device', wayBackRefused, assertCurrent)
+  assertCurrent()
   const cfg = configOf(disc, reg, redirect)
   keepConfig(serverId, cfg)
   const got = await formPost(disc.deviceEndpoint, new URLSearchParams({ client_id: cfg.clientId, ...(cfg.scope ? { scope: cfg.scope } : {}), resource: cfg.resource }))
+  assertCurrent()
   const j = got.json
   const deviceCode = typeof j?.device_code === 'string' ? j.device_code : ''
   const userCode = typeof j?.user_code === 'string' ? j.user_code.slice(0, 64) : ''
@@ -631,6 +679,7 @@ async function deviceFlow(serverId: string, attempt: number, popup: Window | nul
     }
   }
   if (attempts.get(serverId) === attempt) setPhase(serverId, { phase: 'code', userCode, verifyUrl, ...(verifyComplete ? { verifyComplete } : {}), expiresAt })
+  const expectedKey = loginKey(readServers().find(s => s.id === serverId)!)
   const tokens = await cancellable<Tokens>(serverId, (resolve, reject) => {
     let timer = 0
     let over = false
@@ -663,7 +712,7 @@ async function deviceFlow(serverId: string, attempt: number, popup: Window | nul
     }
   })
   closeWindow(popup)
-  await keepTokens(serverId, cfg, tokens)
+  await keepTokens(serverId, cfg, tokens, expectedKey, attempt)
 }
 
 /** The token endpoint's answer, checked. */
@@ -693,21 +742,28 @@ async function tokenRequest(cfg: McpOAuthConfig, serverId: string, params: Recor
 }
 
 /** Signed in: the access token becomes the server's token (sealed by the store), the refresh token goes to the vault. */
-async function keepTokens(serverId: string, cfg: McpOAuthConfig, tokens: Tokens): Promise<McpServerConfig> {
+async function keepTokens(serverId: string, cfg: McpOAuthConfig, tokens: Tokens, expectedKey: string, attempt: number): Promise<McpServerConfig> {
   const server = readServers().find((s) => s.id === serverId)
-  if (!server) throw new OAuthError('cancelled')
+  if (!server || loginKey(server) !== expectedKey || attempts.get(serverId) !== attempt) throw new OAuthError('cancelled')
   const signed: McpOAuthConfig = { ...cfg, ...(tokens.expiresAt ? { expiresAt: tokens.expiresAt } : {}), at: Date.now() }
   delete signed.refresh
   patchServer(serverId, { token: tokens.access, oauth: { ...signed, ...(tokens.refresh ? { refresh: true } : {}) }, checkError: undefined, checkAuth: undefined })
+  const saved = readServers().find(s => s.id === serverId)!
+  let savedKey = loginKey(saved)
   try {
     await setMcpOAuthSecret('refresh', serverId, tokens.refresh)
   } catch {
-    patchServer(serverId, { oauth: signed })
+    if (currentLogin(saved, savedKey) && attempts.get(serverId) === attempt) {
+      patchServer(serverId, { oauth: signed })
+      savedKey = loginKey(readServers().find(s => s.id === serverId)!)
+    }
   }
+  if (attempts.get(serverId) !== attempt || !currentLogin(saved, savedKey)) throw new OAuthError('cancelled')
   setPhase(serverId, { phase: 'done' })
   // test the connection with the new token (and write the usage prompt when there is none)
-  const { checkServer } = await import('./checks')
-  void checkServer(serverId, server.prompt.trim() ? 'test' : 'guide')
+  const [{ checkServer }, { canInspectDirect }] = await Promise.all([import('./checks'), import('./generate')])
+  if (attempts.get(serverId) !== attempt || !currentLogin(saved, savedKey)) throw new OAuthError('cancelled')
+  void checkServer(serverId, canInspectDirect(server) || server.prompt.trim() ? 'test' : 'guide')
   return readServers().find((s) => s.id === serverId) ?? server
 }
 
@@ -716,15 +772,19 @@ export async function finishSignIn(msg: Pick<OAuthReturn, 'state' | 'code' | 'er
   const pending = takePending(msg.state)
   if (!pending) throw new OAuthError('state')
   const { serverId, cfg } = pending
+  const server = readServers().find(s => s.id === serverId)
+  if (!server || !pending.loginKey || loginKey(server) !== pending.loginKey) throw new OAuthError('cancelled')
+  const attempt = attempts.get(serverId) ?? 1
+  attempts.set(serverId, attempt)
   setPhase(serverId, { phase: 'working' })
   try {
     if (msg.error) throw new OAuthError(msg.error === 'access_denied' ? 'denied' : 'token', msg.errorDescription || msg.error)
     if (!msg.code) throw new OAuthError('token', 'no code')
     const tokens = await tokenRequest(cfg, serverId, { grant_type: 'authorization_code', code: msg.code, redirect_uri: cfg.redirectUri, code_verifier: pending.verifier })
-    return await keepTokens(serverId, cfg, tokens)
+    return await keepTokens(serverId, cfg, tokens, pending.loginKey, attempt)
   } catch (e) {
     const err = e instanceof OAuthError ? e : new OAuthError('token', e instanceof Error ? e.message : String(e))
-    setPhase(serverId, { phase: 'error', issue: err.issue, detail: err.detail })
+    if (attempts.get(serverId) === attempt && currentLogin(server, pending.loginKey)) setPhase(serverId, { phase: 'error', issue: err.issue, detail: err.detail })
     throw err
   }
 }
@@ -741,7 +801,7 @@ export function signOut(serverId: string): void {
     delete kept.expiresAt
     delete kept.refresh
   }
-  patchServer(serverId, { token: '', ...(kept ? { oauth: kept } : {}) })
+  patchServer(serverId, { token: '', checkedAt: undefined, checkError: undefined, checkAuth: undefined, ...(kept ? { oauth: kept } : {}) })
   void setMcpOAuthSecret('refresh', serverId, null).catch(() => {})
   setPhase(serverId, null)
 }
@@ -754,11 +814,27 @@ export function signOut(serverId: string): void {
 const EARLY = 5 * 60_000
 const refreshing = new Map<string, Promise<string | null>>()
 
-async function refresh(server: McpServerConfig): Promise<string | null> {
+/** Bind a pending renewal to this workspace, connection and login, never just a reusable server id. */
+function loginKey(server: McpServerConfig): string {
+  return JSON.stringify([connectionScope(), server.id, server.url, server.enabled, server.token, server.oauth])
+}
+
+/** Stable across a same-tab OAuth return, distinct for another person or workspace. */
+function connectionScope(): string {
+  const state=useWorkspace.getState(),cloud=useCloud.getState()
+  return JSON.stringify([state.epoch,!!state.ai?.onboarding,cloud.active.kind,cloud.active.id,cloud.user?.id??null])
+}
+
+function currentLogin(server: McpServerConfig, key: string): McpServerConfig | null {
+  const now = readServers().find(s => s.id === server.id)
+  return now && loginKey(now) === key ? now : null
+}
+
+async function refresh(server: McpServerConfig, key: string): Promise<string | null> {
   const o = server.oauth
   if (!o) return null
   const rt = await getMcpOAuthSecret('refresh', server.id)
-  if (!rt) return null
+  if (!rt || !currentLogin(server, key)) return null
   let tokens: Tokens
   try {
     tokens = await tokenRequest(o, server.id, { grant_type: 'refresh_token', refresh_token: rt })
@@ -766,11 +842,13 @@ async function refresh(server: McpServerConfig): Promise<string | null> {
     // refused (revoked, expired): the request goes with what there is; a 401 then asks for a sign-in
     return null
   }
-  const now = readServers().find((s) => s.id === server.id)
+  const now = currentLogin(server, key)
   if (!now?.oauth) return null
   patchServer(server.id, { token: tokens.access, oauth: { ...now.oauth, ...(tokens.expiresAt ? { expiresAt: tokens.expiresAt } : { expiresAt: undefined }), refresh: true } })
+  const renewed = readServers().find(s => s.id === server.id)!
+  const renewedKey = loginKey(renewed)
   if (tokens.refresh && tokens.refresh !== rt) await setMcpOAuthSecret('refresh', server.id, tokens.refresh).catch(() => {})
-  return tokens.access
+  return currentLogin(renewed, renewedKey) ? tokens.access : null
 }
 
 /**
@@ -778,17 +856,21 @@ async function refresh(server: McpServerConfig): Promise<string | null> {
  * that expires within a few minutes is refreshed first (one refresh at a time per server).
  */
 export async function tokenFor(server: McpServerConfig): Promise<string | null> {
+  const key = loginKey(server)
+  if (!currentLogin(server, key)) return null
   const o = server.oauth
   if (o?.refresh && o.expiresAt && server.token && o.expiresAt - Date.now() < EARLY) {
-    let job = refreshing.get(server.id)
+    let job = refreshing.get(key)
     if (!job) {
-      job = refresh(server).finally(() => refreshing.delete(server.id))
-      refreshing.set(server.id, job)
+      job = refresh(server, key).finally(() => refreshing.delete(key))
+      refreshing.set(key, job)
     }
     const fresh = await job
     if (fresh) return fresh
   }
-  return getMcpToken(server)
+  if (!currentLogin(server, key)) return null
+  const token = await getMcpToken(server)
+  return currentLogin(server, key) ? token : null
 }
 
 /** Signed in with OAuth right now (an access token from a sign-in is set). */

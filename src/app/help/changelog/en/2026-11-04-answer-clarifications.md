@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-answer-clarifications
 date: 2026-11-04
-order: 1
+order: 2
 title: Answer clarification questions directly
 summary: Page AI waits for human answers; closed questions can be prepared again.
 ---

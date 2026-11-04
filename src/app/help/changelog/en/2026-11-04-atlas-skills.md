@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-atlas-skills
 date: 2026-11-04
-order: 110
+order: 111
 title: Import skill instructions from Atlas
 summary: Find personal Atlas sources, preview their instructions and bind an immutable skill version.
 ---

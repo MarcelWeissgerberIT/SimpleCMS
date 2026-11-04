@@ -3,6 +3,12 @@ import type { Messages } from '@/shared/i18n'
 /** Team-cloud UI strings (merged into the shell messages). Keys are prefixed "shell.cloud." — always add en and de. */
 export const cloudMessages: Messages = {
   en: {
+    'shell.cloud.atlas.wrongEndpoint': 'This start page is configured for another Atlas address. Ask your workspace owner to check the Atlas connection.',
+    'shell.cloud.atlas.checkTimeout': 'Atlas has not answered in time. Your access has not been confirmed. Try the connection check again; no records were changed.',
+    'shell.cloud.atlas.privacy': 'Connecting checks your personal identity through ONE. Your token is encrypted on this device. Requested Atlas content reaches the selected model only when you start an AI task; project permissions remain unchanged.',
+    'shell.cloud.atlas.rememberFailed': 'This workspace is connected. Saving the access for your other workspaces failed; you can retry that separately.',
+    'shell.cloud.atlas.verified': 'Your personal Atlas access is verified. Each task still checks access to the requested project and records.',
+    'shell.cloud.atlas.modelPending': 'Atlas is connected. Before starting a briefing, complete the model setup below.',
     // roles
     'shell.cloud.role.owner': 'Owner',
     'shell.cloud.role.admin': 'Admin',
@@ -37,6 +43,8 @@ export const cloudMessages: Messages = {
     'shell.cloud.signin.emailPh': 'you@company.com',
     'shell.cloud.signin.send': 'Send sign-in link',
     'shell.cloud.signin.sending': 'Sending…',
+    'shell.cloud.signin.slow': 'The server is taking a little longer. Please keep this window open; your request is still running.',
+    'shell.cloud.signin.timeout': 'The server has not confirmed your request yet. A sign-in email may still arrive. Check your inbox before trying again.',
     'shell.cloud.signin.invalid': 'That does not look like an email address.',
     'shell.cloud.signin.wrongDomain': 'This link is only for addresses at {domains}.',
     'shell.cloud.signin.local': 'Use this browser’s local workspace instead',
@@ -485,6 +493,12 @@ export const cloudMessages: Messages = {
     'shell.cloud.server.admins': 'Server admins are the addresses in ADMIN_EMAILS of the server’s configuration.',
   },
   de: {
+    'shell.cloud.atlas.wrongEndpoint': 'Diese Einstiegsseite verwendet eine andere Atlas-Adresse. Bitte den Workspace-Inhaber die Atlas-Verbindung prüfen lassen.',
+    'shell.cloud.atlas.checkTimeout': 'Atlas hat nicht rechtzeitig geantwortet. Dein Zugang ist noch nicht bestätigt. Du kannst die Verbindung erneut prüfen; es wurden keine Records geändert.',
+    'shell.cloud.atlas.privacy': 'Beim Verbinden prüft ONE deine persönliche Identität. Dein Token liegt verschlüsselt auf diesem Gerät. Angeforderte Atlas-Inhalte erreichen das gewählte Modell erst beim Start einer KI-Aufgabe; Projektrechte bleiben unverändert.',
+    'shell.cloud.atlas.rememberFailed': 'Dieser Workspace ist verbunden. Der Zugang konnte nicht für weitere Workspaces gemerkt werden; das kannst du getrennt erneut versuchen.',
+    'shell.cloud.atlas.verified': 'Dein persönlicher Atlas-Zugang ist geprüft. Der Zugriff auf das angeforderte Projekt und seine Records wird weiterhin je Aufgabe geprüft.',
+    'shell.cloud.atlas.modelPending': 'Atlas ist verbunden. Bevor du ein Briefing startest, vervollständige unten die Modelleinstellung.',
     'shell.cloud.role.owner': 'Inhaber',
     'shell.cloud.role.admin': 'Admin',
     'shell.cloud.role.member': 'Mitglied',
@@ -516,6 +530,8 @@ export const cloudMessages: Messages = {
     'shell.cloud.signin.emailPh': 'du@firma.de',
     'shell.cloud.signin.send': 'Anmeldelink senden',
     'shell.cloud.signin.sending': 'Wird gesendet…',
+    'shell.cloud.signin.slow': 'Der Server braucht etwas länger. Lass dieses Fenster bitte offen; deine Anfrage läuft noch.',
+    'shell.cloud.signin.timeout': 'Der Server hat deine Anfrage noch nicht bestätigt. Eine Anmelde-E-Mail kann trotzdem ankommen. Prüfe dein Postfach, bevor du es erneut versuchst.',
     'shell.cloud.signin.invalid': 'Das sieht nicht nach einer E-Mail-Adresse aus.',
     'shell.cloud.signin.wrongDomain': 'Dieser Link gilt nur für Adressen bei {domains}.',
     'shell.cloud.signin.local': 'Stattdessen den lokalen Workspace dieses Browsers nutzen',

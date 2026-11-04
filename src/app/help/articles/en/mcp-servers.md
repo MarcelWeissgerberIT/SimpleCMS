@@ -12,14 +12,14 @@ summary: Use external tools with Claude, Copilot or tool-capable Atlas Flow — 
 ## Add a server (a knowledge base as example)
 1. In your knowledge base, copy its MCP server address (`https://…/mcp`) and create a token for One — read-only, limited to the projects you need, if it lets you choose.
 2. In One: **Add server**, paste the **Server URL** and the **Token**, **Save**.
-3. One names the server after its address, switches it on and checks it in the background: it tests the connection, lists the tools Claude sees and writes a **Usage prompt** that tells Claude which tool is for what. The LED turns to **Connected**.
+3. One names the server after its address and enables it. **Test connection** checks access and the available tools. An online worker or the prepared AJ-Atlas cloud connection performs this directly, without an AI model. **Generate usage prompt** is a separate AI action.
 
 ## Overview: where each server may be used
 The section opens with a table, one row per server: its **codeword**, **One's Claude** (which requests take it, or *Off*), the **custom agents** that attach it (with the number of tools a tool list allows; a switched-off agent struck through), the **integrations** it makes active, and **Claude Code (worker)** — the repos (and *tasks without a repo*) where Claude Code in the coding worker has a server of the same name or codeword. Claude Code's servers are its own (your `claude mcp` setup, ticked per repo on the worker's setup page): a name only Claude Code has gets a row of its own. Click a server's name to open its details.
 
 ## All connections at a glance
 ⌘K **MCP · Connections** (`#/mcp`) shows every MCP connection One knows of on one page — **All connections →** here and in **Settings → Agents · MCP** opens it too:
-- **§ 01 One's Claude** — these servers, each with a lamp and a word: **OK** (when it was tested, how many tools), **Not tested**, **Test failed** (amber), **Token refused** or **Sign-in ran out** (red), **Off**. The lamps follow the [Preflight](help:preflight) Token lamp: the same servers are red or amber there. Each row offers **Test** (one short Claude request — only when you press it), **Sign in** on a red row, and **Settings ↗** to its card here.
+- **§ 01 One's Claude** — these servers, each with a lamp and a word: **OK** (when it was tested, how many tools), **Not tested**, **Test failed** (amber), **Token refused** or **Sign-in ran out** (red), **Off**. The lamps follow the [Preflight](help:preflight) Token lamp: the same servers are red or amber there. Each row offers **Test** (directly through a worker or AJ-Atlas cloud access; otherwise through the selected model — only when you press it), **Sign in** on a red row, and **Settings ↗** to its card here.
 - **§ 02 Claude Desktop · Code** — this tab's bridge ([Claude Desktop & local MCP](help:mcp-bridge)): connected or not, which client, what agents may change.
 - **§ 03 Coding worker** — this browser's link to the worker and the MCP servers Claude Code has there, per repo.
 - **§ 04 Team server** — in a team workspace: the workspace's `/mcp` address and the server agents' MCP servers.
@@ -83,8 +83,10 @@ Requests go to `api.anthropic.com`; Anthropic connects to the server while Claud
 [My secrets](help:personal-secrets) stores Atlas and agent tokens per person with a separate passphrase. In a coding task, explicitly grant the connections needed to the current worker. This grant is separate from regular MCP connections for browser agents; existing connections are not automatically migrated.
 
 
-## Model and permission beside the connection test
-Open a server’s **Details**. Choose an available MCP-capable model in the connection-check and guide section; ONE remembers this choice for this purpose on your device. Copilot and local models have a separate personal MCP permission beside it. Choosing a model grants no data access. Workspace restrictions still apply. For general MCP connections, your own worker executes calls. The prepared personal AJ-Atlas connection in the Analytik Jena workspaces can instead use the ONE cloud proxy, so it does not require a local worker. Both routes still require your own Atlas access; the model host receives no access tokens.
+## Check access before starting an AI task
+With an online worker or the prepared AJ-Atlas cloud connection, **Test connection** checks your access and available tools directly. It needs no model and reads or changes no record. A green connection confirms this check; individual projects and operations still have their own permissions.
+
+**Generate usage prompt** remains a separate AI action. Open a server’s **Details** and choose an available MCP-capable model for it; ONE remembers this choice for this purpose on your device. Copilot and local models have a separate personal MCP permission beside it. Choosing a model grants no data access. Workspace restrictions still apply. For general MCP connections, your own worker executes calls. The prepared personal AJ-Atlas connection in the Analytik Jena workspaces can instead use the ONE cloud proxy, so it does not require a local worker. Both routes still require your own Atlas access; the model host receives no access tokens.
 
 
 ## Atlas Flow in Frankfurt

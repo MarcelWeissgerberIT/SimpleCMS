@@ -6,10 +6,13 @@
  */
 import { create } from 'zustand'
 import type { McpServerConfig } from '../../../store/types'
+import { useWorkspace } from '../../../store/store'
+import { useCloud } from '../../../cloud/state'
+import { connectionProblem } from '@/shared/ai/connection-problem'
 import { t } from '../../../i18n'
 import { AIError, isAIConfigured } from '../client'
 import { PROMPT_MAX, outToolsFor, patchServer, readServers } from './config'
-import { inspectServer, sentNothing } from './generate'
+import { canInspectDirect, inspectServer, sentNothing } from './generate'
 import { LISTING_SHOWS_DISABLED, mergeTestedTools } from './lock'
 
 export type CheckMode = 'test' | 'guide'
@@ -30,11 +33,24 @@ function setRunning(id: string, mode: CheckMode | null) {
 
 /**
  * Check a server: 'test' lists its tools, 'guide' also writes the usage prompt (an edited prompt is
- * kept unless `replaceEdited`). Without a Claude key nothing is sent.
+ * kept unless `replaceEdited`). A direct connection test needs no model; generating a guide does.
  */
 export async function checkServer(id: string, mode: CheckMode = 'guide', opts: { replaceEdited?: boolean } = {}): Promise<void> {
   const server = readServers().find((s) => s.id === id)
-  if (!server || !isAIConfigured()) return
+  if (!server || (!isAIConfigured() && !(mode === 'test' && canInspectDirect(server)))) return
+  const epoch = useWorkspace.getState().epoch
+  const scoped = !!useWorkspace.getState().ai?.onboarding
+  const cloudScope=()=>JSON.stringify([useCloud.getState().active,useCloud.getState().user?.id??null])
+  const account=cloudScope()
+  // A slow answer belongs to the connection that was checked. A sign-out, changed address or
+  // workspace switch must not turn a different connection green (or attach an old failure to it).
+  const current = () => {
+    if (useWorkspace.getState().epoch !== epoch || !!useWorkspace.getState().ai?.onboarding !== scoped || cloudScope()!==account) return null
+    const now = readServers().find(s => s.id === id)
+    if (!now || now.url !== server.url || now.enabled !== server.enabled || now.oauth?.at !== server.oauth?.at) return null
+    const renewed = !!server.oauth?.at && !!server.oauth?.refresh && !!now.oauth?.refresh && !!now.token && now.oauth?.expiresAt !== server.oauth.expiresAt
+    return now.token === server.token || renewed ? now : null
+  }
   controllers.get(id)?.abort()
   const ctrl = new AbortController()
   controllers.set(id, ctrl)
@@ -42,7 +58,7 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
   try {
     const res = await inspectServer(server, mode, ctrl.signal)
     if (ctrl.signal.aborted) return
-    const now = readServers().find((s) => s.id === id)
+    const now = current()
     if (!now) return
     // the test ran under the OUT lock: the OUT tools the server had stay on its list (a profile matched by tools never flips)
     const tools = mergeTestedTools(now.tools, res.tools, outToolsFor(now), !!res.listed && LISTING_SHOWS_DISABLED)
@@ -51,13 +67,17 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
     if (mode === 'guide' && res.guide && !keep) Object.assign(patch, { prompt: res.guide.slice(0, PROMPT_MAX), promptSource: 'auto' })
     patchServer(id, patch)
   } catch (e) {
-    if (ctrl.signal.aborted || !readServers().some((s) => s.id === id)) return
+    if (ctrl.signal.aborted || !current()) return
     // a short, friendly reason for the row (client.ts maps the error and keeps tokens out of it)
+    const problem = connectionProblem(e instanceof AIError ? e.detail ?? e : e)
+    const directDetail = mode === 'test' && problem === 'timeout' ? t('features.ai.mcp.test.timeout') : canInspectDirect(server) && !['tls', 'identity'].includes(problem)
+      ? `${t('features.ai.connection.' + problem + '.title')} ${t('features.ai.connection.' + problem + '.next')}`
+      : null
     const msg =
       e instanceof AIError && e.code === 'mcp_auth'
         ? t('features.ai.mcp.err.auth')
         : e instanceof AIError && e.code === 'mcp' && e.detail
-          ? t('features.ai.mcp.err.conn', { detail: e.detail })
+          ? directDetail ?? t('features.ai.mcp.err.conn', { detail: e.detail })
           : e instanceof Error
             ? e.message
             : String(e)

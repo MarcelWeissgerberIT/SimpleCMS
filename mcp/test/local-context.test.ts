@@ -94,3 +94,28 @@ test('K2 discovery overflow fits the newest native schema by evicting only older
  assert.throws(()=>fitLocalToolPacket(messages,tools,(m,t)=>size({messages:m,tools:t})<100),/fresh task/)
  assert.equal(fitLocalToolPacket(messages,tools,()=>true).tools,tools)
 })
+
+test('large discovery yields before small Atlas bodies and source handles survive a tighter context',()=>{
+ const source={id:'design-source-test-1',ref:12,title:'Kit',hash:'a'.repeat(64),readAt:'2026-11-04T19:00:00Z'}
+ const body='Button uses --primary: #A50034.'
+ const messages=[
+  {role:'system' as const,content:'Keep permissions and user task intact.'},
+  {role:'user' as const,content:'Build a free mock with this design.'},
+  {role:'assistant' as const,content:JSON.stringify([{type:'tool_use',id:'read',name:'one_mcp_call',input:{ref:12}}])},
+  {role:'user' as const,content:JSON.stringify([{type:'tool_result',tool_use_id:'read',content:JSON.stringify({content:[{type:'text',text:body}],oneMockSource:source})}])},
+  {role:'assistant' as const,content:JSON.stringify([{type:'tool_use',id:'find',name:'one_workspace_search',input:{query:'mock'}}])},
+  {role:'user' as const,content:JSON.stringify([{type:'tool_result',tool_use_id:'find',content:'Tool descriptions: '.repeat(1000)}])},
+ ]
+ const before=structuredClone(messages)
+ const result=fitLocalToolContext(messages,next=>size(next)<2500)
+ assert.deepEqual(result[3],messages[3],'compact read stays complete instead of being discarded first')
+ assert.match(result[5]!.content,/Harness context excerpt/)
+ const huge=[...messages.slice(0,3),{role:'user' as const,content:JSON.stringify([{type:'tool_result',tool_use_id:'read',content:JSON.stringify({content:[{type:'text',text:body.repeat(2000)}],oneMockSource:source})}])}]
+ const compact=fitLocalToolContext(huge,next=>size(next)<1800)
+ const receipt=JSON.parse(JSON.parse(compact[3]!.content)[0].content)
+ assert.deepEqual(receipt.oneMockSource,source)
+ assert.equal(receipt.oneContextExcerpt,true)
+ assert.match(receipt.note,/Do not infer omitted facts/)
+ assert.ok(size(compact)<1800)
+ assert.deepEqual(messages,before)
+})

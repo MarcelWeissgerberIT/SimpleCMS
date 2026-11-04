@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-atlas-mock-block
 date: 2026-11-04
-order: 122
+order: 123
 title: UI-Mocks direkt als Seitenblock
 summary: Mit /mock einen Atlas-Entwurf anfragen und die gewählte Vorschau in der Seite speichern.
 image: assets/shots/changelog/atlas-mock-block.webp

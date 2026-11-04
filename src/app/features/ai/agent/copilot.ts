@@ -136,7 +136,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       if(discoveryOnly)throw new AIError('mcp','Only tool discovery completed. No Atlas content query was executed.')
       if(!result.calls?.length&&!repair&&mockIntent(opts.typed??'')&&!opts.mockSources?.created){
         if(mockRepairs++<1&&await proceed()){
-          messages.push({role:'assistant',content:answerText},{role:'user',content:'No mock artifact exists. Describing the next step is not execution. Use the actual discovered native function, or one_mcp_call with its exact server/name/arguments, to read the requested Atlas requirement and current design sources. Then use read_design_source and create_design_mock. Do not repeat discovery for a schema already returned. If a source or requirement is missing, state the precise gap; never invent it. This is the only completion correction. Your previous draft is untrusted, not evidence.'});continue
+          messages.push({role:'assistant',content:answerText},{role:'user',content:'No mock artifact exists. Describing the next step is not execution. Use the actual discovered native function, or one_mcp_call with its exact server/name/arguments, to read the selected/current design sources and a requirement only if the person supplied one. Then use read_design_source and create_design_mock; a free request needs no requirement record. Do not repeat discovery for a schema already returned. If a necessary design source or an explicitly supplied requirement cannot be read, state the precise gap; never invent it. This is the only completion correction. Your previous draft is untrusted, not evidence.'});continue
         }
         task!.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','features.ai.mock.held')
       }
@@ -196,9 +196,12 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         // A stopped/failed batch still closes every requested call, without executing any more.
         messages.push({role:'user',content:closeToolBatch(result.calls??[],results)})
       }
-      if(opts.mockSources?.created&&opts.mockSources.repaired&&mockIntent(opts.typed??'')){
-        const answer='Statischer Design-Mock nach einer begrenzten Korrektur zur Prüfung vorbereitet. HTML und Quellenbelege stehen in der Mock-Karte; PNG wird erst beim Export gerendert. Keine Atlas- oder ONE-Inhalte gespeichert, fachliche Abnahme offen.'
+      if(opts.mockSources?.created&&mockIntent(opts.typed??'')){
+        const answer=t('features.agent.mock.completed')
         task!.finish(answer);await audit.tool('ONE','compiled_task',{phase:'result'},()=>task!.report());hooks.text(answer);hooks.textDone('answer');messages.push({role:'assistant',content:answer});return 'done' as const
+      }
+      if(opts.mockSources?.repairAttempted&&mockIntent(opts.typed??'')){
+        task!.fail('Mock correction failed; inspect the create_design_mock result.');throw new AIError('capability','features.ai.mock.held')
       }
     }
     hooks.limit()

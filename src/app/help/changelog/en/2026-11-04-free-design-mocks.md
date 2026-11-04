@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-free-design-mocks
 date: 2026-11-04
-order: 123
+order: 124
 title: Free-form mocks from large design MDs
 summary: A design link and request are enough; requirements and Atlas attachment stay optional.
 image: assets/shots/changelog/free-design-mocks.webp

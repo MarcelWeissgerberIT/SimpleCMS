@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-skills-context
 date: 2026-11-04
-order: 100
+order: 101
 title: Select skills and continue after context limits
 summary: Personal instruction skills, SKILL.md and a compact restart that retains the work record.
 ---

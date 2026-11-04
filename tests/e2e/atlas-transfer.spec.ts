@@ -20,6 +20,49 @@ test.describe('Source and effect validation',()=>{
  })
  test.afterEach(async()=>{await fake?.close()})
 
+ test('changing the prepared workspace Atlas access stops a running task before its next call',async({page})=>{
+  await wsEval(page,s=>{const id=s.createPage({title:'Prepared Atlas access',parentId:null});s.setWorkspaceAI({...s.ai,onboarding:{startPageId:id,mcpName:'atlas',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',project:'Fixture'}});s.updateSettings({workspaceMcpServers:[{...s.settings.mcpServers[0],url:'https://aj-atlas.com/api/atlas/mcp'}]})})
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Original source'}})}
+  let release!:()=>void,waiting=false,n=0;const pending=new Promise<void>(resolve=>{release=resolve})
+  fake.onText=async r=>{const step=n++;if(step===1){waiting=true;await pending}return{model:r.model,text:'',calls:step===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_get'}}]:[{id:'read',name:'one_remote_1',arguments:{ref:42}}],inputTokens:200,outputTokens:40,usd:0}}
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Read Atlas Ref 42. Read only.');await input.press('Enter')
+  await expect.poll(()=>waiting).toBe(true)
+  await wsEval(page,s=>s.updateSettings({workspaceMcpServers:s.settings.workspaceMcpServers.map((v:any)=>({...v,token:'replacement-workspace-token'}))}))
+  release()
+  await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:25000})
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(0)
+ })
+
+ test('an Atlas application refusal is a failed source read even when the transport returns success',async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({ok:false,error:'permission denied'})}
+  let n=0;fake.onText=r=>{const step=n++;return{model:r.model,text:step>1?'The source could not be read.':'',calls:step===0?[{id:'discover',name:'one_mcp_search',arguments:{query:'atlas_get'}}]:step===1?[{id:'read',name:'one_remote_1',arguments:{ref:42}}]:[],inputTokens:200,outputTokens:40,usd:0}}
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Read Atlas Ref 42. Read only.');await input.press('Enter')
+  await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:25000})
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
+  const results=(fake.textAsked.at(-1)?.messages??[]).flatMap((m:any)=>{try{return JSON.parse(m.content)}catch{return []}}).filter((b:any)=>b.type==='tool_result'&&b.tool_use_id==='read')
+  expect(results).toHaveLength(1);expect(JSON.parse(results[0].content).isError).toBe(true)
+  await expect(term).toContainText('permission')
+ })
+
+ for(const provider of ['local','copilot','anthropic'] as const)test(provider+': a generic catalogue-declared read works in the compiled task without Atlas naming',async({page})=>{
+  await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'calendar-fixture',name:'calendar',url:'https://calendar.example.org/mcp',scope:'all',token:'private-calendar-fixture',enabled:true,prompt:'Find events using the actual catalogue.',tools:['find'],checkedAt:Date.now()}]}))
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'calendar',name:'find',readOnly:true,inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query'],additionalProperties:false}}]}:{result:envelope({events:[{id:'event-42',title:'Design review',time:'10:00'}]})}
+  const steps=[{blocks:[{type:'tool_use' as const,id:'discover-calendar',name:'one_mcp_search',input:{query:'calendar'}}]},{blocks:[{type:'tool_use' as const,id:'read-calendar',name:'one_remote_1',input:{query:'Design review'}}]},text('Design review is at 10:00.')]
+  const host=provider==='anthropic'?await mockClaudeScript(page,steps):null
+  if(host)await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test'}))
+  let n=0;fake.onText=r=>{const step=steps[n++];return{model:r.model,text:step&&'blocks' in step?step.blocks.filter((b:any)=>b.type==='text').map((b:any)=>b.text).join(''):'',calls:step&&'blocks' in step?step.blocks.filter((b:any)=>b.type==='tool_use').map((b:any)=>({id:b.id,name:b.name,arguments:b.input})):[],inputTokens:200,outputTokens:40,usd:0}}
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Read the Design review event from my calendar connection and tell me its time. Read only.');await input.press('Enter')
+  await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
+  await expect(term).toContainText('Design review is at 10:00.')
+  expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>[r.server,r.name,r.arguments])).toEqual([['calendar','find',{query:'Design review'}]])
+ })
+
  for(const provider of ['local','copilot','anthropic'] as const)for(const succeeds of [true,false])test(provider+': inline missing source '+(succeeds?'is read before returning':'stops with a useful error after one repair'),async({page})=>{
   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'History lists all versions.'}})}
   const steps=succeeds?[text('Premature answer without reading.'),{blocks:[{type:'tool_use' as const,id:'discover',name:'one_mcp_search',input:{query:'atlas_get'}}]},{blocks:[{type:'tool_use' as const,id:'read',name:'one_mcp_call',input:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]},text('The source requires a history of all versions.')]:[text('Premature answer without reading.'),text('Still no read.')]

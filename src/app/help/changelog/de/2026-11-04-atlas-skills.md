@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-atlas-skills
 date: 2026-11-04
-order: 110
+order: 111
 title: Skill-Anleitungen aus Atlas übernehmen
 summary: Persönliche Atlas-Quellen suchen, vor dem Import lesen und unverändert als Skill-Version binden.
 ---

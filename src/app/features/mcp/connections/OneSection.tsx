@@ -13,6 +13,7 @@ import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
 import { useCoding } from '../../coding'
 import { readServers, refusedHere } from '../../ai/mcp-servers/config'
+import { canInspectDirect } from '../../ai/mcp-servers/generate'
 import { checkServer, useMcpChecks } from '../../ai/mcp-servers/checks'
 import { signedIn, useMcpSignIn } from '../../ai/mcp-servers/oauth'
 import { overviewRows, workerNames, type CodeUse, type OverviewRow } from '../../ai/mcp-servers/overview'
@@ -60,7 +61,7 @@ export function OneSection() {
       {servers.length > 0 ? (
         <ul className="mcpc-rows">
           {servers.map((s) => (
-            <ServerRow key={s.id} server={s} row={byId.get(s.id)} now={now} canTest={canTest} withProfiles={withProfiles} />
+            <ServerRow key={s.id} server={s} row={byId.get(s.id)} now={now} canTest={canTest || canInspectDirect(s)} withProfiles={withProfiles} />
           ))}
         </ul>
       ) : (
@@ -111,7 +112,7 @@ function ServerRow({ server: s, row, now, canTest, withProfiles }: { server: Mcp
       // another check took over (a sign-in's own test): that one ends the story
       if (useMcpChecks.getState().running[s.id]) return
       const now = readServers().find((x) => x.id === s.id)
-      if (!now) return
+      if (!now || now.url !== s.url || (!now.checkError && now.checkedAt === s.checkedAt)) return
       announce(t(now.checkAuth ? 'features.mcp.page.live.refused' : now.checkError ? 'features.mcp.page.live.failed' : 'features.mcp.page.live.ok', { name }))
     })
   }

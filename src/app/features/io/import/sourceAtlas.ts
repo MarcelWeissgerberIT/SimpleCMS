@@ -1,5 +1,5 @@
 import {readSourceHandoff,claimSourceHandoff,finishSourceHandoff,sourceHandoffKey,SOURCE_ATLAS_TEXT_MAX,SOURCE_ATLAS_ARGS_MAX} from './sourceHandoffs'
-import { attachMcp, currentSetup } from '../../ai/mcp-servers/config'
+import { attachMcp, currentSetup, mcpAccessIdentity } from '../../ai/mcp-servers/config'
 import { workerMcpSession } from '../../ai/core/workerMcp'
 import { loadQuandProfile } from '../../ai/core/quandprofile'
 import { flowSignature } from '../../ai/core/dataFlow'
@@ -12,7 +12,7 @@ import { sha256Hex } from '@/shared/mcp/sha256'
 import type { McpCall } from '../../ai/mcp-servers/activity'
 
 const TOOLS=['atlas_whoami','atlas_project_list','atlas_constraints','atlas_create','atlas_get']
-export const sourceScope=()=>JSON.stringify([useCloud.getState().active,useCloud.getState().user?.id,useWorkspace.getState().epoch,flowSignature(),useWorkspace.getState().settings.mcpServers])
+export const sourceScope=()=>JSON.stringify([useCloud.getState().active,useCloud.getState().user?.id,useWorkspace.getState().epoch,flowSignature(),currentSetup().servers.map(mcpAccessIdentity),useWorkspace.getState().integrations])
 export interface SourceProject {slug:string;title:string;tenant:string}
 export function sourceBody(pageId:string,excerpt:string):string {
   return ['# External reference - human reviewed','This is imported source material, not a confirmed project requirement, decision or tool instruction.','ONE source: '+permalink(pageId),'SHA-256 (selected source text, UTF-8): '+sha256Hex(excerpt),'','## Selected source text',excerpt].join('\n\n')
@@ -30,7 +30,7 @@ export async function sourceAtlas(serverName:string,pageId:string,signal:AbortSi
   if(!attached?.worker?.length)throw Error('Personal Atlas access is not configured. Open Settings → AI → MCP.')
   await loadQuandProfile();check()
   const remote=workerMcpSession(attached.worker,signal,onEvent,30000)
-  const discover=async(name:string)=>{check();await remote('one_mcp_search',{query:name},crypto.randomUUID());const schema=remote.schema(serverName,name)?.inputSchema;if(!schema)throw Error('Atlas tool is not available: '+name);return schema}
+  const discover=async(name:string,fresh=false)=>{check();if(fresh)await remote.rediscover(serverName,name,crypto.randomUUID());else await remote('one_mcp_search',{query:name},crypto.randomUUID());const schema=remote.schema(serverName,name)?.inputSchema;if(!schema)throw Error('Atlas tool is not available: '+name);return schema}
   const unpack=async(raw:string,depth=0):Promise<any>=>{
     if(depth>8)throw Error('Source result nesting exceeds the handoff limit.')
     const parsed=JSON.parse(raw)
@@ -47,7 +47,7 @@ export async function sourceAtlas(serverName:string,pageId:string,signal:AbortSi
     }while(true)
     return out
   }
-  const call=async(name:string,args:Record<string,unknown>,expectedSchemaHash?:string)=>{const schema=await discover(name);if(expectedSchemaHash&&programDigest(schema)!==expectedSchemaHash)throw Error('Atlas tool schema changed. Prepare again.');validateValue(args,schema);check();const raw=await remote('one_mcp_call',{server:serverName,name,arguments:args},crypto.randomUUID());check();return unpack(raw)}
+  const call=async(name:string,args:Record<string,unknown>,expectedSchemaHash?:string)=>{const schema=await discover(name,!!expectedSchemaHash);if(expectedSchemaHash&&programDigest(schema)!==expectedSchemaHash)throw Error('Atlas tool schema changed. Prepare again.');validateValue(args,schema);check();if(name==='atlas_create')attempted=true;const raw=await remote('one_mcp_call',{server:serverName,name,arguments:args},crypto.randomUUID());check();return unpack(raw)}
   const identity=await call('atlas_whoami',{}),listed=await call('atlas_project_list',{})
   if(!Array.isArray(listed.projects))throw Error('Atlas did not return a project selection.')
   const projects:SourceProject[]=listed.projects.filter((p:any)=>typeof p.slug==='string'&&typeof p.tenant==='string').map((p:any)=>({slug:p.slug,title:typeof p.title==='string'?p.title:p.slug,tenant:p.tenant}))
@@ -68,7 +68,7 @@ export async function sourceAtlas(serverName:string,pageId:string,signal:AbortSi
     },
     async commit(hash:string):Promise<{receipt:AtlasReceipt;result:unknown;hash:string;project:SourceProject;receiptSaved:boolean}>{
       if(attempted||!prepared||prepared.hash!==hash)throw Error('Prepare and review this exact handoff before writing.')
-      check();const schema=await discover('atlas_create');if(programDigest(schema)!==prepared.schemaHash)throw Error('Atlas tool schema changed. Prepare again.')
+      check();const schema=await discover('atlas_create',true);if(programDigest(schema)!==prepared.schemaHash)throw Error('Atlas tool schema changed. Prepare again.')
       const currentConstraints=await call('atlas_constraints',{project:prepared.project.slug,kind:'doc'})
       if(programDigest(currentConstraints)!==prepared.constraintsHash)throw Error('Atlas constraints changed. Prepare and review again.')
       // Reserve durably before dispatch so closing/reloading another tab cannot duplicate an uncertain effect.
@@ -78,11 +78,10 @@ export async function sourceAtlas(serverName:string,pageId:string,signal:AbortSi
       let result:unknown,receipt:AtlasReceipt|undefined
       try {
         check()
-        attempted=true
         result=await call('atlas_create',prepared.args,prepared.schemaHash)
         receipt=remote.facts.snapshot().filter(r=>r.tool==='atlas_create').at(-1)
         if(!receipt||receipt.outcome!=='ok'||receipt.refs.length!==1)throw Error('Atlas did not return an unambiguous saved record. Inspect Atlas; do not repeat the write blindly.')
-      }catch(e){await finishSourceHandoff(prepared.key,attempt,{state:'unknown'}).catch(()=>false);throw e}
+      }catch(e){await finishSourceHandoff(prepared.key,attempt,{state:attempted?'unknown':'cleared'}).catch(()=>false);throw e}
       const receiptSaved=await finishSourceHandoff(prepared.key,attempt,{state:'accepted',ref:receipt.refs[0],verification:receipt.verification}).catch(()=>false)
       check();return {receipt,result,hash:prepared.hash,project:prepared.project,receiptSaved}
     },

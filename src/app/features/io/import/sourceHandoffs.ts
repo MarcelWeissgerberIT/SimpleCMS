@@ -34,7 +34,7 @@ export async function claimSourceHandoff(key:string,hash:string):Promise<SourceH
   await update(key,prior=>{if(valid(prior)&&prior.state!=='cleared')return prior;claimed=true;return next},store)
   return claimed?next:null
 }
-export async function finishSourceHandoff(key:string,attempt:SourceHandoffAttempt,patch:{state:'accepted'|'unknown';ref?:number;verification?:string}):Promise<boolean>{
+export async function finishSourceHandoff(key:string,attempt:SourceHandoffAttempt,patch:{state:'accepted'|'unknown'|'cleared';ref?:number;verification?:string}):Promise<boolean>{
   let saved=false
   await update(key,prior=>{if(!valid(prior)||prior.id!==attempt.id||prior.state!=='pending')return prior;saved=true;return {...prior,...patch,finishedAt:Date.now()}},store)
   return saved

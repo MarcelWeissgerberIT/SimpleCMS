@@ -92,6 +92,9 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
       await assert.rejects(readOnly.call('atlas', name, {}, new AbortController().signal))
     }
     assert.ok(readOnly.search('docs atlas_get').some(t => t.server === 'docs' && t.readOnly))
+    assert.ok(readOnly.search('docs').length>0)
+    assert.ok(readOnly.search('docs').every(t=>t.server==='docs'&&t.readOnly))
+    assert.deepEqual(readOnly.search('docs atlas_get').map(t=>t.server),['docs'])
     await assert.rejects(readOnly.call('atlas', 'atlas_create', { title: 'no' }, new AbortController().signal))
     assert.ok(!(await readOnly.call('atlas', 'atlas_get', { ref: 42 }, new AbortController().signal)).includes(secret))
     const designFull=await readOnly.call('atlas','atlas_get',{ref:900},new AbortController().signal,false,true)

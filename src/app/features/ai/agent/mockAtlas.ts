@@ -9,9 +9,14 @@ import {validateValue} from '@/shared/quandprofile/program'
 import {cloudAtlasMcpReady} from '../../coding'
 import {mockSourceState,type DesignMock} from '@/shared/ai/designMock'
 import {beginLiveAudit} from '../core/liveAudit'
+import {connectionProblem} from '@/shared/ai/connection-problem'
+import {t} from '../../../i18n'
 export interface MockFile {filename:string;mime:'text/html'|'image/png'|'application/json';bytes:Uint8Array}
 export interface MockAttachment {filename:string;sha256:string;bytes:number;url:string}
-export async function attachMockToAtlas(a:DesignMock,files:MockFile[],signal:AbortSignal,progress:(files:MockAttachment[])=>void,targetRef?:number){
+export async function attachMockToAtlas(a:DesignMock,files:MockFile[],signal:AbortSignal,progress:(files:MockAttachment[])=>void,targetRef?:number,phase?:(phase:'checking'|'uploading')=>void){
+ phase?.('checking')
+ // Validate the whole package before the first external write.
+ if(files.some(file=>file.bytes.byteLength>600000))throw Error('Mock attachment exceeds the 600 KB transfer bound. Download it and attach it directly in Atlas.')
  const scope=sourceScope(),check=()=>{signal.throwIfAborted();if(scope!==sourceScope())throw Error('Account, workspace or Atlas configuration changed. Open the mock in its original workspace.')}
  const origin=a.target??a.sources.find(s=>s.id===a.draft.design.source)
  if(!origin)throw Error('Original design source is unavailable.')
@@ -34,13 +39,17 @@ export async function attachMockToAtlas(a:DesignMock,files:MockFile[],signal:Abo
  const audit=a.route?await beginLiveAudit(a.route,'Attach design mock '+a.id+' to '+target.url,'terminal.task'):null
  const uploaded:MockAttachment[]=[]
  try{
-  for(const file of files){check();if(file.bytes.byteLength>600000)throw Error('Mock attachment exceeds the 600 KB transfer bound. Download it and attach it directly in Atlas.')
+  phase?.('uploading')
+  for(const file of files){check();
    const hash=sha256Hex(file.bytes),args:Record<string,unknown>={ref:target.ref,filename:file.filename,mime:file.mime}
    if(file.mime==='image/png'){let binary='';for(const byte of file.bytes)binary+=String.fromCharCode(byte);args.contentBase64=btoa(binary)}else args.text=new TextDecoder().decode(file.bytes)
    validateValue(args,remote.schema(server.name,'atlas_attach')!.inputSchema,'atlas_attach')
    const send=()=>remote('one_mcp_call',{server:server.name,name:'atlas_attach',arguments:args},crypto.randomUUID())
    const raw=audit?await audit.tool(server.name,'atlas_attach',{ref:target.ref,filename:file.filename,mime:file.mime,bytes:file.bytes.length,sha256:hash},send):await send()
-   const data=atlasData(remote.materializeResult(raw)),receipt=data?.attachment
+   const materialized=remote.materializeResult(raw),data=atlasData(materialized),receipt=data?.attachment
+   let rejected=data?.ok===false
+   try{rejected||=JSON.parse(materialized).isError===true}catch{/* A malformed receipt is handled below. */}
+   if(rejected){const problem=connectionProblem(materialized);throw Error(t('features.ai.connection.'+problem+'.title')+' '+t('features.ai.connection.'+problem+'.next'))}
    if(data?.ok!==true||receipt?.sha256!==hash||receipt?.bytes!==file.bytes.length||typeof receipt.url!=='string')throw Error('Atlas did not confirm the exact attachment bytes: '+file.filename+'. The upload may be partial; retry uses the same file name.')
    uploaded.push({filename:file.filename,sha256:hash,bytes:file.bytes.length,url:new URL(receipt.url,target.url).href});progress([...uploaded])
   }

@@ -3,7 +3,7 @@ import { X509Certificate, randomBytes } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import * as tls from 'node:tls'
-import { spawn } from 'node:child_process'
+import { spawnSafe } from './exec.ts'
 
 type TlsApi = { getCACertificates?: (kind?: string) => string[]; setDefaultCACertificates?: (certs: string[]) => void }
 const api = tls as unknown as TlsApi
@@ -90,7 +90,9 @@ export async function configureCertificates(config: string, self: string, args: 
   // Earlier Node 24/22: the flags and extra CA environment are read at process startup only.
   if ((!system || systemActive) && process.env.NODE_EXTRA_CA_CERTS === originalExtra) return false
   const code = await new Promise<number>((resolve, reject) => {
-    const child = spawn(process.execPath, [...process.execArgv, self, ...args], { stdio: process.send ? ['inherit', 'inherit', 'inherit', 'ipc'] : 'inherit', env: process.env })
+    const started = spawnSafe(process.execPath, [...process.execArgv, self, ...args], { stdio: process.send ? ['inherit', 'inherit', 'inherit', 'ipc'] : 'inherit', env: process.env })
+    if (!started.ok) { reject(Error(started.error)); return }
+    const child = started.child
     // Preserve the managed supervisor's ready/update/shutdown channel on earlier Node versions too.
     const forward = (message: unknown) => { if (child.connected) child.send(message as object, () => {}) }
     if (process.send) {

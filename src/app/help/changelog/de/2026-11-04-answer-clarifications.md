@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-answer-clarifications
 date: 2026-11-04
-order: 1
+order: 2
 title: Rückfragen direkt beantworten
 summary: Die Seiten-KI wartet auf Antworten; beendete Rückfragen lassen sich neu vorbereiten.
 ---

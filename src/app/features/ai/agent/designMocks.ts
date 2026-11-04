@@ -33,10 +33,10 @@ export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
 }
 export function mockTool(sources:MockSources,emit:(artifact:DesignMock)=>void,recover?:((input:unknown,error:unknown)=>Promise<MockDraft>)):AgentTool{
  let made=0,repaired=false
- return {name:'create_design_mock',description:'Create a static HTML design mock artifact with a PNG export card. Requires freshly read Atlas design catalogue, current applicability rule, requirement quotes, cited tokens and components; actual reads return oneMockSource ids. Nothing is written to ONE or Atlas. Missing/obsolete design sources must be resolved first.',input_schema:MOCK_SCHEMA,write:false,async run(input){
+ return {name:'create_design_mock',description:'Create a static HTML design mock artifact with a PNG export card. Requires a freshly read Atlas design catalogue with cited tokens and components; actual reads return oneMockSource ids. Requirements and attachment target are optional. An applicability quote is needed only when the model selected the catalogue. Nothing is written to ONE or Atlas. Missing/obsolete design sources must be resolved first.',input_schema:MOCK_SCHEMA,write:false,async run(input){
   if(made>=3)throw new ToolInputError('At most three mock variants per task; narrow the screen before continuing.')
   let artifact:DesignMock
-  try{artifact=compileMock(input as unknown as MockDraft,sources)}catch(error){if(!recover||repaired||!sources.snapshot().length)throw error;repaired=true;const draft=await recover(input,error);artifact=compileMock(draft,sources);sources.repaired=true}
+  try{artifact=compileMock(input as unknown as MockDraft,sources)}catch(error){if(!recover||repaired||!sources.snapshot().length)throw error;repaired=true;sources.repairAttempted=true;const draft=await recover(input,error);artifact=compileMock(draft,sources);sources.repaired=true}
   made++;sources.created++;emit(artifact)
   return {state:'ok',summary:artifact.title+' · HTML · PNG export ready · review open',content:JSON.stringify({artifact_id:artifact.id,title:artifact.title,html_sha256:artifact.htmlHash,sources:artifact.sources,review:'open',html:'available in mock card',png:'render on explicit PNG export or Attach to Atlas; not rendered yet',checks:'quote origin, component references, some CSS token mechanics, static sandbox; NOT semantic completeness or pixel-perfect compliance',notes:artifact.draft.notes})}
  }}

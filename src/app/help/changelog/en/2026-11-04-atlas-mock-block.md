@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-atlas-mock-block
 date: 2026-11-04
-order: 122
+order: 123
 title: UI mocks directly in page blocks
 summary: Use /mock to request an Atlas design proposal and save a selected preview on the page.
 image: assets/shots/changelog/atlas-mock-block.webp

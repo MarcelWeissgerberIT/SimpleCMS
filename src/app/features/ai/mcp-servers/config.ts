@@ -325,6 +325,14 @@ export function currentSetup(settings: Pick<Settings, 'mcpServers' | 'mcpInstruc
   return { servers: readServers(settings).filter((s) => s.enabled), instructions: instructionsText(settings) }
 }
 
+/** A token renewal keeps the same signed-in person. Manual token replacement first signs out. */
+export function mcpAccessIdentity(s: McpServerConfig) {
+  const renewable=!!s.token&&!!s.oauth?.at&&!!s.oauth.refresh
+  return {id:s.id,name:s.name,url:s.url,enabled:s.enabled,scope:s.scope,
+    token:renewable?undefined:s.token,
+    oauth:s.oauth?{...s.oauth,expiresAt:undefined}:undefined}
+}
+
 /**
  * One server for one structured request, read tools only (the work-order planner's pick, features/coding/orders):
  * exactly that enabled server — no "All AI calls" server beside it — forced in whatever its scope, offering only

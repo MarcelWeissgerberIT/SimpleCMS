@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-block-selection-frame
 date: 2026-11-04
-order: 121
+order: 122
 title: Select blocks without tinting their contents
 summary: A fine frame replaces the orange overlay on selected blocks.
 ---

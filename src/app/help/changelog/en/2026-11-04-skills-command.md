@@ -1,7 +1,7 @@
 ---
 id: 2026-11-04-skills-command
 date: 2026-11-04
-order: 120
+order: 121
 title: /skills opens the skill preview
 summary: Open the library from the terminal, page AI or a page slash command.
 ---

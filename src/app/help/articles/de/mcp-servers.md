@@ -12,14 +12,14 @@ summary: Nutze externe Werkzeuge mit Claude, Copilot oder werkzeugfähigem Atlas
 ## Server hinzufügen (Beispiel Wissensdatenbank)
 1. In deiner Wissensdatenbank die MCP-Server-Adresse kopieren (`https://…/mcp`) und ein Token für One erstellen — nur lesend und auf die nötigen Projekte beschränkt, wenn sie das anbietet.
 2. In One: **Server hinzufügen**, **Server-URL** und **Token** einfügen, **Speichern**.
-3. One benennt den Server nach seiner Adresse, schaltet ihn ein und prüft ihn im Hintergrund: Verbindungstest, Liste der Werkzeuge, die Claude sieht, und ein **Nutzungs-Prompt**, der Claude sagt, welches Werkzeug wofür da ist. Die LED springt auf **Verbunden**.
+3. One benennt den Server nach seiner Adresse und schaltet ihn ein. **Verbindung testen** prüft den Zugang und die verfügbaren Werkzeuge. Mit einem verbundenen Worker oder dem vorbereiteten AJ-Atlas-Cloudzugang geschieht das direkt, ohne KI-Modell. Eine **Nutzungsanweisung generieren** ist eine separate KI-Aktion.
 
 ## Übersicht: wo welcher Server genutzt werden darf
 Der Abschnitt beginnt mit einer Tabelle, eine Zeile pro Server: sein **Codewort**, **Claude in One** (welche Anfragen ihn nutzen, oder *Aus*), die **eigenen Agenten**, die ihn nutzen (mit der Zahl der Werkzeuge, die eine Werkzeugliste erlaubt; ein ausgeschalteter Agent durchgestrichen), die **Integrationen**, die er aktiv macht, und **Claude Code (Worker)** – die Repositories (und *Aufgaben ohne Repository*), in denen Claude Code im Coding-Worker einen Server gleichen Namens oder Codeworts hat. Die Server von Claude Code sind seine eigenen (dein `claude mcp`-Setup, pro Repository auf der Einrichtungsseite des Workers angehakt): Ein Name, den nur Claude Code hat, bekommt eine eigene Zeile. Ein Klick auf den Namen öffnet die Details des Servers.
 
 ## Alle Verbindungen auf einen Blick
 ⌘K **MCP · Verbindungen** (`#/mcp`) zeigt jede MCP-Verbindung, die One kennt, auf einer Seite — **Alle Verbindungen →** hier und unter **Einstellungen → Agenten · MCP** öffnet sie auch:
-- **§ 01 Claude in One** — diese Server, jeder mit Lampe und Wort: **OK** (wann getestet, wie viele Werkzeuge), **Nicht getestet**, **Test fehlgeschlagen** (gelb), **Token abgelehnt** oder **Anmeldung abgelaufen** (rot), **Aus**. Die Lampen folgen der Token-Lampe im [Vorflug-Check](help:preflight): Dort sind dieselben Server rot oder gelb. Jede Zeile bietet **Testen** (eine kurze Claude-Anfrage — nur auf deinen Druck), **Anmelden** in einer roten Zeile und **Einstellungen ↗** zu seiner Karte hier.
+- **§ 01 Claude in One** — diese Server, jeder mit Lampe und Wort: **OK** (wann getestet, wie viele Werkzeuge), **Nicht getestet**, **Test fehlgeschlagen** (gelb), **Token abgelehnt** oder **Anmeldung abgelaufen** (rot), **Aus**. Die Lampen folgen der Token-Lampe im [Vorflug-Check](help:preflight): Dort sind dieselben Server rot oder gelb. Jede Zeile bietet **Testen** (direkt über Worker oder AJ-Atlas-Cloudzugang; sonst über das gewählte Modell — nur auf deinen Druck), **Anmelden** in einer roten Zeile und **Einstellungen ↗** zu seiner Karte hier.
 - **§ 02 Claude Desktop · Code** — die Brücke dieses Tabs ([Claude Desktop & lokales MCP](help:mcp-bridge)): verbunden oder nicht, welcher Client, was Agenten ändern dürfen.
 - **§ 03 Coding-Worker** — die Verbindung dieses Browsers zum Worker und die MCP-Server, die Claude Code dort hat, pro Repository.
 - **§ 04 Team-Server** — in einem Team-Workspace: die `/mcp`-Adresse des Workspace und die MCP-Server der Server-Agenten.
@@ -83,8 +83,8 @@ Anfragen gehen an `api.anthropic.com`; Anthropic verbindet sich mit dem Server, 
 Unter [Meine Secrets](help:personal-secrets) speicherst du Atlas- und Agenten-Tokens pro Person mit eigener Passphrase. In einer Coding-Aufgabe gibst du die benötigten Verbindungen ausdrücklich für den aktuellen Worker frei. Diese Freigabe ist getrennt von den normalen MCP-Verbindungen für Browser-Agenten; bestehende Verbindungen werden nicht automatisch migriert.
 
 
-## Modell und Freigabe direkt beim Verbindungstest
-Öffne beim Server **Erweitert**. Im Bereich für Verbindungstests und Anleitungen lässt sich ein verfügbares MCP-fähiges Modell wählen; diese Wahl wird für diesen Zweck auf deinem Gerät gespeichert. Für Copilot und lokale Modelle steht daneben eine getrennte persönliche MCP-Erlaubnis. Die Modellwahl allein erteilt keine Datenfreigabe. Eine Workspace-Sperre bleibt wirksam. Für allgemeine MCP-Verbindungen führt dein eigener Worker die Aufrufe aus. Die vorbereitete persönliche AJ-Atlas-Verbindung in den Analytik-Jena-Workspaces kann stattdessen den ONE-Cloud-Proxy verwenden; dafür brauchst du keinen lokalen Worker. Dein eigener Atlas-Zugang bleibt in beiden Fällen nötig; der Modellhost bekommt keine Zugangstokens.
+## Modell und Freigabe für Nutzungsanweisungen
+Öffne beim Server **Erweitert**. Für KI-generierte Nutzungsanweisungen und Verbindungstests ohne direkten Datenweg lässt sich ein verfügbares MCP-fähiges Modell wählen; diese Wahl wird auf deinem Gerät gespeichert. Für Copilot und lokale Modelle steht daneben eine getrennte persönliche MCP-Erlaubnis. Die Modellwahl allein erteilt keine Datenfreigabe. Eine Workspace-Sperre bleibt wirksam. Für allgemeine MCP-Verbindungen führt dein eigener Worker die Aufrufe aus. Die vorbereitete persönliche AJ-Atlas-Verbindung in den Analytik-Jena-Workspaces kann stattdessen den ONE-Cloud-Proxy verwenden; dafür brauchst du keinen lokalen Worker. Dein eigener Atlas-Zugang bleibt in beiden Fällen nötig; der Modellhost bekommt keine Zugangstokens.
 
 
 ## Atlas Flow in Frankfurt
@@ -117,7 +117,7 @@ Im KI-Terminal und bei der direkten Quellenübergabe zeigt ONE zu einem gescheit
 - **TLS / Zertifikat:** Firmenzertifikat im Worker prüfen; die Zertifikatsprüfung bleibt eingeschaltet.
 - **Zeitüberschreitung / Netzwerk:** Erreichbarkeit vom ausführenden Worker oder Proxy, VPN und DNS prüfen.
 - **Werkzeug oder Schema:** Aktuellen Werkzeugkatalog und genaue Argumente prüfen. Keine wirkende Aktion blind wiederholen.
-- **Ergebnis oder Kontext zu groß:** Weniger Records oder gezielte Abschnitte lesen; die Originalquelle erhalten.
+- **Ergebnis oder Kontext zu groß:** Bei Design-Mocks kann ONE die vollständige große MD als Quelle halten und passende Abschnitte für das Modell lesen. Ein Design-Mock braucht keinen Anforderungsrecord, wenn du keinen vorgibst. Für allgemeine Abfragen helfen weniger Records oder gezielte Abschnitte; die Originalquelle bleibt erhalten.
 
 Werkzeugsuche und Identitätsprüfung belegen keine Projektinhalte. Eine fehlgeschlagene Suche bedeutet „nicht geprüft“, nicht „keine Daten vorhanden“. ONE prüft erkennbare falsche Referenzen, Zahlen und Erfolgsaussagen und lässt höchstens eine Antwortkorrektur ohne weitere Werkzeuge zu. Das ersetzt keine fachliche Prüfung.
 
@@ -125,3 +125,9 @@ Werkzeugsuche und Identitätsprüfung belegen keine Projektinhalte. Eine fehlges
 ## Polarion persönlich verbinden
 
 Die FluX-Startseite bereitet über **Polarion verbinden** den Auftrag „Verbinde meinen Polarion-Zugang.“ vor. Mit **STARTEN** erlaubst du gezielt die persönliche Anmeldung über `atlas_polarion_connect`. Dies erlaubt keine Inhaltsänderung, Freigabe oder beliebige Agentenausführung. ONE prüft weiter Identität, Workspace und Datenweg; offene Entscheidungen blockieren auch den Anmeldeschritt. Ein rein lesender Statusauftrag startet keinen Login. Geschützte Anmeldelinks sofort öffnen; Kennwort und MFA nur dort eingeben. Bei `worker_offline` zuerst den bereits zugeordneten Polarion-Worker starten. Die erfolgreiche Atlas-Verbindung allein ist kein Polarion-Login.
+
+
+## Zugang vor der KI-Aufgabe prüfen
+Mit einem verbundenen Worker oder dem vorbereiteten AJ-Atlas-Cloudzugang prüft **Verbindung testen** deinen Zugang und die verfügbaren Werkzeuge direkt. Dafür brauchst du kein Modell; Records werden dabei weder gelesen noch geändert. Ein grüner Verbindungsstatus bestätigt diese Prüfung. Einzelne Projekte und Aktionen haben weiterhin eigene Berechtigungen.
+
+Eine **Nutzungsanweisung generieren** ist eine separate KI-Aktion und benötigt ein eingerichtetes Modell. Auf der Atlas-Startseite werden der geprüfte persönliche Zugang und eine noch fehlende Modelleinrichtung getrennt angezeigt.
