@@ -34,7 +34,7 @@ test('BA task button prepares a visible prompt and never starts inference itself
 test('BA task button sends an unconfigured Atlas member to token setup without modifying credentials',async({page})=>{
  await openApp(page)
  const start=await createPage(page,{title:'Atlas token start',content:doc(para('Enter your own token'))})
- const id=await createPage(page,{title:'BA starter',content:doc(button('Read one source'))})
+ const id=await createPage(page,{title:'BA starter',content:doc(button('Read the current Atlas source'))})
  await wsEval(page,(s,start)=>s.setWorkspaceAI({...s.ai,onboarding:{startPageId:start,mcpName:'aj-atlas',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',project:'CNSx',tenant:'analytik-jena',skipIntro:true}}),start)
  await gotoPage(page,id)
  await page.getByRole('button',{name:'Prepare AI task',exact:true}).click()
@@ -79,4 +79,16 @@ test('the button editor persists the chosen source; its form fits both themes an
  await page.getByRole('button',{name:'Prepare AI task',exact:true}).click()
  await expect(page.getByRole('textbox',{name:'Page title',exact:true})).toHaveValue('The actual calibration source')
  await expect(page.getByRole('region',{name:'AI terminal',exact:true})).toContainText('The actual calibration source')
+})
+
+for(const prompt of ['/ba Version history','Prepare a new ONE page from this source.','Nur in ONE: Einen Entwurf vorbereiten. Atlas erst später.'])test('ONE preparation needs no Atlas token: '+prompt,async({page})=>{
+ await openApp(page)
+ const source=await createPage(page,{title:'ONE-only source',content:doc(para('The history shall list all versions.'))})
+ const start=await createPage(page,{title:'Atlas setup is not required here'})
+ const guide=await createPage(page,{title:'ONE work',content:doc({type:'button',attrs:{label:'Prepare ONE work',variant:'signal',actions:[{id:'one-work',type:'ai_task',sourcePageId:source,prompt}]}})})
+ await wsEval(page,(s,start)=>s.setWorkspaceAI({onboarding:{startPageId:start,mcpName:'aj-atlas',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',project:'CNSx',tenant:'analytik-jena',skipIntro:true}}),start)
+ await gotoPage(page,guide);await page.getByRole('button',{name:'Prepare ONE work',exact:true}).click()
+ await expect(page.getByRole('textbox',{name:'Page title',exact:true})).toHaveValue('ONE-only source')
+ await expect(page.getByRole('textbox',{name:'Task for the agent',exact:true})).toHaveValue(prompt)
+ expect(await wsEval(page,s=>s.settings.workspaceMcpServers??[])).toEqual([])
 })

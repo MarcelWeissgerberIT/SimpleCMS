@@ -1,7 +1,7 @@
 import {anthropicOutputSchema} from '@/shared/ai/anthropic-schema'
 import {centralTransport,centralAI} from '../core/centralAI'
 import {taskInputOf} from '../core/gate'
-import {createTaskContract,TASK_QUESTION} from '../core/taskContract'
+import {createTaskContract,TASK_QUESTION,sourceReadMissing,sourceReadFailure,SOURCE_READ_REPAIR} from '../core/taskContract'
 import {connectionProblem,mcpConnectionMessage} from '@/shared/ai/connection-problem'
 import {workerMcpSession,WORKER_MCP_FUNCTIONS} from '../core/workerMcp'
 import {WORKER_MCP_GUIDE} from '../core/toolFormat'
@@ -419,7 +419,7 @@ async function streamWithMcp(
   try{
     if(!mcp.worker)throw new AIError('capability','Selected MCP connections need a personal worker or the prepared Atlas proxy.')
     const remote=workerMcpSession(mcp.worker,signal,event,12000,undefined,task)
-    const used:import('@/shared/ai/types').Usage[]=[];let spent=0
+    const used:import('@/shared/ai/types').Usage[]=[];let spent=0,sourceRepairs=0
     for(let round=0;round<Math.min(40,(more.maxResumes??MAX_RESUMES)+12);round++){
       assertPreparedFlow(more.prepared)
       const definitions=[TASK_QUESTION,...WORKER_MCP_FUNCTIONS,...remote.functions()]
@@ -432,6 +432,12 @@ async function streamWithMcp(
       if(final.stop_reason==='max_tokens')throw new AIError('context','Output cut before result verification.')
       if(final.content.some(b=>b.type==='mcp_tool_use'||b.type==='mcp_tool_result'))throw new AIError('policy','Unexpected provider-side MCP result; this task requires host-owned dispatch.')
       const pending=final.content.filter(b=>b.type==='tool_use')
+      if(!pending.length&&sourceReadMissing(task)){
+        if(sourceRepairs++>=1||task.report().observations.some(o=>!o.success))throw sourceReadFailure(task)
+        const verdict=used.length?await beforeRound({prepared:more.prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:SOURCE_READ_REPAIR.length},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>opus,mcpAttached:false}):{go:true}
+        if(!('go' in verdict))throw new AIError('budget')
+        messages.push({role:'assistant',content:final.content},{role:'user',content:SOURCE_READ_REPAIR});continue
+      }
       if(!pending.length){const draft=answerText(final.content),text=await guardAtlasAnswer(draft,remote.facts,{client,model,prepared:more.prepared,call:more.call,sdk:more.sdk,signal,structured:!!more.schema});task.finish(text);onText(text);return {...final,content:[{type:'text',text,citations:null}]}}
       if(used.length){const v=await beforeRound({prepared:more.prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>opus,mcpAttached:false});if(!('go' in v))throw new AIError('budget')}
       messages.push({role:'assistant',content:final.content});const receipts:ToolReceipt[]=[]

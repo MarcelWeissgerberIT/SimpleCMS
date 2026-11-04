@@ -1,4 +1,4 @@
-import {createTaskContract,TASK_QUESTION} from './taskContract'
+import {createTaskContract,TASK_QUESTION,sourceReadMissing,sourceReadFailure,SOURCE_READ_REPAIR} from './taskContract'
 import {beginLiveAudit} from './liveAudit'
 import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
 import {unverifiedMcpDenial,MCP_ATTEMPT_REPAIR} from '@/shared/mcp/execution'
@@ -23,7 +23,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   if (req.tools?.length) throw new AIError('capability')
   const material = new CopilotContent(o.signal)
   const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY + '\n' + COMPILED_WORK_POLICY : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
-  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0
+  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0, citationRepairs = 0, queryRepairs = 0, topicRepairs=0, parentRepairs=0, absenceRepairs=0, attemptRepairs=0, factRepairs=0, sourceRepairs=0
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
   const audit=o.audit??await beginLiveAudit(req.route,messages.filter(m=>m.role==='user').at(-1)?.content??prepared.purpose,prepared.purpose)
   let task:ReturnType<typeof createTaskContract>|undefined
@@ -52,6 +52,12 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
     if(factRepairs>0&&result.calls?.length){if(req.output.kind==='json')throw new AIError('mcp','features.ai.local.unverifiedFacts');const text=atlasFactsFallback(remote!.facts);task!.finish(text);o.onToken?.(text);return done({...turn,parts:[{type:'text',text}],stop:'end',streamedChars:text.length})}
     const repair = prepared.provider==='local' && tools.length>0 && !result.calls?.length && hasTextToolCall(result.text)
     if (repair && formatRepairs++ >= 1) throw new AIError('capability','features.ai.local.toolFormat')
+    if(!result.calls?.length&&!repair&&sourceReadMissing(task!)){
+      if(sourceRepairs++>=1||task!.report().observations.some(o=>!o.success))throw sourceReadFailure(task!)
+      const verdict=used.length?await beforeRound({prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:SOURCE_READ_REPAIR.length},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true}
+      if(!('go' in verdict))throw new AIError('budget')
+      messages.push({role:'assistant',content:result.text},{role:'user',content:SOURCE_READ_REPAIR});continue
+    }
     const factIssues=!result.calls?.length&&!repair?remote?.facts.check(result.text)??[]:[]
     if(factIssues.length&&remote){
       const check=used.length?await beforeRound({prepared,spent,last:used[used.length-1]!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true}

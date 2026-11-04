@@ -168,3 +168,13 @@ This targets ordinary **page tables**; database property edits and native spread
 Personal program/run rows remain actor/workspace scoped and sealed with their existing AEAD bindings. `GET /api/workspaces/:id/programs/runs?summary=1` omits answers, inspection and step bodies. `GET /api/workspaces/:id/programs/runs/:runId` returns one owned full receipt; other actors receive 404. The original list endpoint without `summary=1` remains compatible with older clients. The UI loads full bodies only on selection, guards workspace/account changes and keeps a bounded five-receipt cache keyed by scope.
 
 Source pagination uses host-only `PageReadWindow` coordinates rather than directives parsed from document prose. BA/PO source passages retain short headings and split long lines into exact bounded excerpts. Focus selection happens before the catalogue bound (120 references / 36,000 characters). Ambiguous heading matches stop with the actual choices before inference. Too-wide sources are explicitly held rather than silently truncated.
+
+## ONE-first authoring (2026-11-04)
+
+Current human instructions containing `Only in ONE` / `Nur in ONE`, and the bounded `/ba` / `/po` ONE analysis commands, do not attach MCP configuration or prior external conversation history to a new terminal run. Inline custom ONE-only actions also disable MCP. Native ONE tools remain review-based. This does not grant model access or bypass data/provider rules.
+
+Completed terminal answers can be staged through `AnswerPageAction` using the existing `create_page` review path. The action pins actor/workspace epoch and answer, defaults cloud roots to private, preserves the original page, sanitizes Markdown through the existing tool and records its staged change ID to prevent accidental duplicate preparation. Only Apply changes the store. No extra inference or external write is performed.
+
+A subsequent Atlas create transfer reads the ONE source and checks the accessible Atlas project, constraints and duplicates. Existing target bodies are required for update/comment, not for create. Accepted writes are still read back and are never automatically repeated.
+
+Inline MCP completion loops allow one metered, budget-checked correction when a task requires source evidence but no successful source read was observed. A known failed source read does not retry. A second ungrounded completion reports `features.ai.transfer.sourcesMissing`; the compiler's source requirement remains intact. Discovery and user-supplied URLs do not count as source bodies.

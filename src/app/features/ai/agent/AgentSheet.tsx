@@ -1,4 +1,5 @@
 import {openReviewProfiles} from '../profiles/dialog'
+import {AnswerPageAction} from './AnswerPageAction'
 import {DesignMockCard} from './DesignMockCard'
 import {openPrograms} from '../programs/dialog'
 import {TaskContractCard} from '../mcp-servers/TaskContractCard'
@@ -619,6 +620,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       {turn.answer && (
         <div className="term-answer">
           <MarkdownLite source={turn.answer} />
+          <AnswerPageAction turn={turn}/>
         </div>
       )}
       {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock}/>)}

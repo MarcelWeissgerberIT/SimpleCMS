@@ -1,4 +1,4 @@
-import {test,expect,openApp,wsEval,MOD} from './fixtures'
+import {test,expect,openApp,wsEval,MOD,createPage,gotoPage,doc,para} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 import {mockClaudeScript,text} from './helpers/providers'
@@ -20,6 +20,19 @@ test.describe('Guided Atlas transfer',()=>{
   await page.getByRole('tab',{name:/AI$/}).click();await expect(page.getByTestId('worker-model-settings')).toContainText(LOCAL);await expect(page.getByTestId('worker-model-settings')).toContainText(COPILOT);await page.keyboard.press('Escape')
  })
  test.afterEach(async()=>{await fake?.close()})
+
+ for(const provider of ['local','copilot','anthropic'] as const)for(const succeeds of [true,false])test(provider+': inline missing source '+(succeeds?'is read before returning':'stops with a useful error after one repair'),async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'History lists all versions.'}})}
+  const steps=succeeds?[text('Premature answer without reading.'),{blocks:[{type:'tool_use' as const,id:'discover',name:'one_mcp_search',input:{query:'atlas_get'}}]},{blocks:[{type:'tool_use' as const,id:'read',name:'one_mcp_call',input:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]},text('The source requires a history of all versions.')]:[text('Premature answer without reading.'),text('Still no read.')]
+  const host=provider==='anthropic'?await mockClaudeScript(page,steps):null
+  let n=0;fake.onText=r=>{const step=steps[n++],calls=step&&'blocks' in step?step.blocks.filter((b:any)=>b.type==='tool_use').map((b:any)=>({id:b.id,name:b.name,arguments:b.input})):[];return{model:r.model,text:step&&'blocks' in step?step.blocks.filter((b:any)=>b.type==='text').map((b:any)=>b.text).join(''):'',calls,inputTokens:200,outputTokens:40,usd:0}}
+  if(provider==='anthropic')await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test'}))
+  const result=await page.evaluate(async route=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read the current Atlas record 42 and summarize its body. Do not change anything.',mcp:'free',route}),provider==='anthropic'?{p:'anthropic',m:DEFAULT_CLAUDE_MODEL}:{p:provider,m:provider==='local'?LOCAL:COPILOT})
+  const requests=host?.requests??fake.textAsked
+  expect(requests).toHaveLength(succeeds?4:2)
+  if(succeeds){expect(result).toMatchObject({ok:true,text:'The source requires a history of all versions.'});expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_get'])}
+  else{expect(result).toMatchObject({ok:false,code:'bad_request',detail:'features.ai.transfer.sourcesMissing'});expect(fake.mcpAsked).toHaveLength(0)}
+ })
 
  for(const provider of ['local','copilot','anthropic'] as const)for(const mode of ['comment','update'] as const)test(provider+': natural transfer chooses '+mode+' and keeps source/readback receipts',async({page},info)=>{
   let stored=false
@@ -76,4 +89,21 @@ test.describe('Guided Atlas transfer',()=>{
   await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
   await input.fill('Kannst du das nach Atlas bringen?');await input.press('Enter');const dialog=page.getByRole('dialog',{name:'How should this go to Atlas?'});await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'Cancel',exact:true}).click();await expect(dialog).toHaveCount(0);await expect(input).toHaveValue('Kannst du das nach Atlas bringen?');expect(fake.textAsked).toHaveLength(0);expect(fake.mcpAsked).toHaveLength(0)
  })
+ test('reviewed ONE page can become a new Atlas record without a pre-existing target',async({page})=>{
+  const source=await createPage(page,{title:'ONE calibration draft',content:doc(para('The history shall list all calibration versions.'))})
+  await gotoPage(page,source)
+  let created=false
+  const schemas=[{server:'atlas',name:'atlas_constraints',inputSchema:{type:'object',properties:{project:{type:'string'},kind:{type:'string'}},required:['project','kind']}},{server:'atlas',name:'atlas_create',inputSchema:{type:'object',properties:{title:{type:'string'},body:{type:'string'}},required:['title','body']}}]
+  fake.onModelMcp=r=>r.action==='search'?{tools:schemas}:r.name==='atlas_constraints'?{result:envelope({project:'new-project',kind:'doc',allowed:true,requiredFields:['title','body'],existingRecords:0})}:r.name==='atlas_create'?(created=true,{result:envelope({ok:true,ref:44})}):{result:envelope({item:{ref:44,title:'Calibration draft',body:'The history shall list all calibration versions.'}})}
+  const calls=[{name:'read_page',input:{id:source}},{name:'one_mcp_search',input:{query:'atlas_constraints atlas_create'}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_constraints',arguments:{project:'new-project',kind:'doc'}}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_create',arguments:{title:'Calibration draft',body:'The history shall list all calibration versions.'}}}]
+  let n=0;fake.onText=r=>{const c=calls[n++];return{model:r.model,text:c?'':'Ref: 44 created and read back.',calls:c?[{id:'from-one-'+n,name:c.name,arguments:c.input}]:[],inputTokens:200,outputTokens:40,usd:0}}
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Bitte diese ONE-Seite nach Atlas übertragen.');await input.press('Enter')
+  await page.getByRole('dialog',{name:'How should this go to Atlas?'}).getByRole('button',{name:/Create new records/}).click()
+  await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
+  expect(created).toBe(true);expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_constraints','atlas_create','atlas_get'])
+  await expect(term.getByRole('region',{name:'Atlas transfer receipt'})).toContainText('1 confirmed by read-back')
+ })
+
 })

@@ -63,6 +63,7 @@ import { addToLines, tapSignal } from '../core/meter'
 import type { LedgerEntry, ProviderId, Usage } from '@/shared/ai/types'
 import { stepText } from '../Receipt'
 import {atlasTransferTask,needsAtlasTransferChoice,naturalAtlasTransferMode} from '@/shared/quandprofile/atlas-transfer'
+import {oneOnlyTask} from '@/shared/ai/oneTask'
 import {cancelAtlasTransferChoice,requestAtlasTransferChoice} from './AtlasTransferChoice'
 
 const set = useAgent.setState
@@ -443,6 +444,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
   const prepared = opts.program?{setup:currentSetup(),prompt:task,memTools:false,codingTools:hasPipelines()||useCoding.getState().enabled,upsert:unlocked('upsert'),taskRules:canCreateItems()}:prepareTask(task)
+  // ONE-only work must not attach remote schemas, credentials, instructions or old Atlas history.
+  const oneOnly = oneOnlyTask(task)
+  if(oneOnly){prepared.setup={servers:[],instructions:''};prepared.codingTools=false}
   if(opts.program){const names=new Set(programSpec!.steps.flatMap(s=>s.kind==='tool'&&s.server?[s.server]:s.kind==='workflow'?s.connections.map(c=>c.name):[]));prepared.setup={...prepared.setup,servers:prepared.setup.servers.filter(s=>names.has(s.name))}}
   const { setup, memTools: withMemTools, codingTools: withCoding, upsert: withUpsert } = prepared
   const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
@@ -616,7 +620,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       note(t('features.agent.providerFresh'))
       providerChangeNoted = true
     }
-    const activeHistory = !opts.program && historyProvider === runProvider ? history : []
+    const activeHistory = !opts.program && !oneOnly && historyProvider === runProvider ? history : []
     const tooling = terminalSetup(withCoding, withMemTools && pre.allows('memory'), withUpsert, prepared.taskRules)
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')

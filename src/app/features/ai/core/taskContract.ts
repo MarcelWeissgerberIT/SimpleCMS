@@ -49,3 +49,12 @@ export function createTaskContract(o:{reviewProfile?:ReviewProfile|null;prepared
 }
 /** Known ONE tools only. Suggestions are staged; no model can opt into direct store mutation. */
 export const oneTaskEffect=(name:string,write:boolean)=>write?'stage' as const:['agent_state_set','notify_me'].includes(name)?'local_state' as const:['search_pages','read_requested_source','read_page','list_databases','query_database','get_current_page','read_tables','read_page_files','recall','run_query','list_pipelines','list_tasks','read_task','agent_state_get','list_work_items','check_finding','create_design_mock','read_design_source'].includes(name)?'read' as const:'forbidden' as const
+
+/** A supplied link or discovery result cannot satisfy a current-source read. */
+export const sourceReadMissing=(task:{report():TaskReport})=>{
+ const r=task.report();return r.compiled.contract.requires_sources&&r.evidence.source_reads===0
+}
+export const SOURCE_READ_REPAIR='No current source body has been successfully read in this run. Use the selected host tools: discover the actual read schema, then read the specific requested source body and relevant comments before answering. URLs, search snippets, earlier chat answers and discovery are not source reads. Do not write, invent evidence or repeat a failed call. If the source is inaccessible, report the actual limitation.'
+export const sourceReadFailure=(task:{fail(reason:string):void})=>{
+ task.fail('No successful current source read');return new AIError('bad_request','features.ai.transfer.sourcesMissing')
+}

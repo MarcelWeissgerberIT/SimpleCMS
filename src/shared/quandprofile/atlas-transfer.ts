@@ -1,9 +1,11 @@
 /** Human-authored transfer intent. Document/model text must never be passed here as authority. */
+import {oneOnlyTask,onePageDestination} from '../ai/oneTask.ts'
 export type AtlasTransferMode = 'create' | 'update' | 'comment'
 const clean=(text:string)=>text.normalize('NFKC').toLowerCase().replace(/["“„`][^"“”„`]*["”`]/gu,'')
 const readOnly=/(?:nur (?:lesen|prüfen|pruefen)|read[ -]only|only (?:read|check)|do not (?:write|change)|keine (?:änderungen|aenderungen)|nichts (?:ändern|aendern|speichern)|(?:nicht|never|don't|do not).{0,40}(?:übertrag|uebertrag|speicher|sync|eintragen|save|transfer|comment))/u
 /** Ask only about an ambiguous requested transfer; precise create/update/comment tasks stay direct. */
 export function needsAtlasTransferChoice(goal:string,previousUserGoals:string[]=[]):boolean{
+ if(oneOnlyTask(goal)||onePageDestination(goal))return false
  const text=clean(goal)
  if(readOnly.test(text)||/^\/(?:ba|po|pm|mock)\b/u.test(text)||/^(?:wie|how|warum|why|welche|which|was|what|wo|where|ist|is|wurde|has|erkläre|erklaere|explain)\b/u.test(text))return false
  const directive=text.replace(/^(?:bitte\s+|please\s+)?(?:(?:kannst du|könntest du|koenntest du|can you|could you)\s+)?(?:bitte\s+|please\s+)?/u,'')
@@ -18,8 +20,9 @@ export function needsAtlasTransferChoice(goal:string,previousUserGoals:string[]=
 const choice=/^Atlas delivery: (create|update|comment)\.\n/u
 export const atlasTransferChoice=(goal:string):AtlasTransferMode|null=>(choice.exec(goal)?.[1] as AtlasTransferMode|undefined)??null
 export function atlasTransferTask(goal:string,mode:AtlasTransferMode):string{
+ const sourceRule=mode==='create'?'Read the selected current ONE source pages in this run and inspect the accessible Atlas project, applicable record constraints and potential duplicates. A new Atlas record does not require an existing target record. If there is no matching record, create the new target from the reviewed ONE content.':'Read the exact current target records and relevant comments before effects.'
  const action={create:'Create new Atlas records.',update:'Update the existing Atlas record content.',comment:'Comment on the existing Atlas records.'}[mode]
- return `Atlas delivery: ${mode}.\n${action}\n\nOriginal human request:\n${goal}\n\nRead the exact current target records and relevant comments before effects. Resolve project, record kind and target from actual sources. Distinguish explicit human decisions from model suggestions. If a target, the confirmed content or a required decision is unclear, ask one_task_question with precise options before writing. Check existing content for duplicates; do not repeat already confirmed writes. Only use the selected delivery mode. Preserve unrelated content. Read back the result using available tools, then report each actual target link and whether the write was accepted and independently read back. If verification fails, report partial progress and the uncertainty; do not retry the write automatically.`
+ return `Atlas delivery: ${mode}.\n${action}\n\nOriginal human request:\n${goal}\n\n${sourceRule} Resolve project, record kind and target from actual sources. Distinguish explicit human decisions from model suggestions. If a target, the confirmed content or a required decision is unclear, ask one_task_question with precise options before writing. Check existing content for duplicates; do not repeat already confirmed writes. Only use the selected delivery mode. Preserve unrelated content. Read back the result using available tools, then report each actual target link and whether the write was accepted and independently read back. If verification fails, report partial progress and the uncertainty; do not retry the write automatically.`
 }
 /** Host backstop: a selected mode is a narrow effect boundary, not a grant to other Atlas operations. */
 export function atlasTransferEffectAllowed(mode:AtlasTransferMode,tool:string,effect:string):boolean{
@@ -30,12 +33,13 @@ export function atlasTransferEffectAllowed(mode:AtlasTransferMode,tool:string,ef
 
 export function atlasTransferOriginal(goal:string):string {
  if(!atlasTransferChoice(goal))return goal
- const start=goal.indexOf('Original human request:\n'),end=goal.lastIndexOf('\n\nRead the exact current target records')
+ const start=goal.indexOf('Original human request:\n'),end=goal.lastIndexOf('\n\nRead the ')
  return start>=0&&end>start?goal.slice(start+24,end):goal
 }
 
 /** A clear polite request can already name its delivery mode; do not ask the same choice again. */
 export function naturalAtlasTransferMode(goal:string,previousUserGoals:string[]=[]):AtlasTransferMode|null{
+ if(oneOnlyTask(goal)||onePageDestination(goal))return null
  const text=clean(goal)
  if(readOnly.test(text)||/(?:prüf|pruef|check).{0,60}(?:\bob\b|whether)/u.test(text)||! /^(?:bitte|kannst du|könntest du|koenntest du|please|can you|could you)\b/u.test(text))return null
  const directive=text.replace(/^(?:bitte\s+|please\s+)?(?:(?:kannst du|könntest du|koenntest du|can you|could you)\s+)?(?:bitte\s+|please\s+)?/u,'')

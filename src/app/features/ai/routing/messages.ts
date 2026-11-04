@@ -8,6 +8,21 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.answerPage.action': "Prepare as a ONE page",
+    'features.ai.answerPage.title': "Save this answer in ONE",
+    'features.ai.answerPage.intro': "Create an editable page from this completed answer. No new model request or Atlas record is needed. Review the proposed page and press Apply to save it.",
+    'features.ai.answerPage.name': "Page title",
+    'features.ai.answerPage.destination': "Location in ONE",
+    'features.ai.answerPage.private': "Private · only you",
+    'features.ai.answerPage.workspace': "Workspace · top level",
+    'features.ai.answerPage.visibility': "The location determines who can see the page. Atlas synchronization is a separate action you can request later.",
+    'features.ai.answerPage.prepare': "Prepare page for review",
+    'features.ai.answerPage.draft': "AI draft · requires human review. Saved in ONE; not synchronized to Atlas.",
+    'features.ai.answerPage.staged': "ONE page prepared below. Review it and press Apply; it has not been saved yet.",
+    'features.ai.answerPage.saved': "Saved as a ONE page. No Atlas synchronization was performed.",
+    'features.ai.answerPage.open': "Open ONE page",
+    'features.ai.answerPage.failed': "The ONE page could not be prepared.",
+
     'features.ai.program.terminal.saved': 'Personal run receipt saved.',
     'features.ai.program.terminal.failed': 'This run receipt could not be saved. Keep this tab open and try saving it again.',
     'features.ai.program.terminal.retry': 'Save receipt again',
@@ -675,6 +690,21 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
+    'features.ai.answerPage.action': "Als ONE-Seite vorbereiten",
+    'features.ai.answerPage.title': "Antwort in ONE ablegen",
+    'features.ai.answerPage.intro': "Erstelle aus dieser fertigen Antwort eine bearbeitbare Seite. Dafür sind weder eine weitere Modellanfrage noch ein Atlas-Record nötig. Prüfe die vorgeschlagene Seite und drücke Übernehmen, um sie zu speichern.",
+    'features.ai.answerPage.name': "Seitentitel",
+    'features.ai.answerPage.destination': "Ablage in ONE",
+    'features.ai.answerPage.private': "Privat · nur du",
+    'features.ai.answerPage.workspace': "Workspace · oberste Ebene",
+    'features.ai.answerPage.visibility': "Die Ablage bestimmt, wer die Seite sehen kann. Der Atlas-Abgleich ist ein eigener Schritt, den du später beauftragen kannst.",
+    'features.ai.answerPage.prepare': "Seite zur Prüfung vorbereiten",
+    'features.ai.answerPage.draft': "KI-Entwurf · fachlich zu prüfen. In ONE abgelegt; nicht nach Atlas synchronisiert.",
+    'features.ai.answerPage.staged': "ONE-Seite unten vorbereitet. Prüfe sie und drücke Übernehmen; sie ist noch nicht gespeichert.",
+    'features.ai.answerPage.saved': "Als ONE-Seite gespeichert. Es wurde kein Atlas-Abgleich ausgeführt.",
+    'features.ai.answerPage.open': "ONE-Seite öffnen",
+    'features.ai.answerPage.failed': "Die ONE-Seite konnte nicht vorbereitet werden.",
+
     'features.ai.program.terminal.saved': 'Persönlicher Laufnachweis gespeichert.',
     'features.ai.program.terminal.failed': 'Dieser Laufnachweis konnte nicht gespeichert werden. Lass diesen Tab offen und versuche das Speichern erneut.',
     'features.ai.program.terminal.retry': 'Nachweis erneut speichern',

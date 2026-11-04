@@ -2489,3 +2489,9 @@
 .term-failure-dock .term-error p{max-height:6em;overflow:auto}
 
 .term-head{flex-wrap:wrap}.term-head .term-key--label{width:auto;flex:0 0 auto;padding:0 var(--sp-2);border:1px solid var(--rule);font:inherit;letter-spacing:inherit;white-space:nowrap}
+
+/* Explicit answer → ONE page, followed by the existing proposal review. */
+.term-answer-page { margin-top: 12px; }
+.term-answer-page .btn { white-space: normal; max-width: 100%; }
+.answer-page__field { display: grid; gap: 6px; margin: 16px 0; min-width: 0; }
+.answer-page__field input, .answer-page__field select { width: 100%; min-width: 0; }

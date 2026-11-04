@@ -342,6 +342,8 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  /** Explicit human copy of this answer into the ONE review; not an Atlas synchronization. */
+  answerPageChange?: string
   receipt?:'saved'|'failed'
   mocks?:import('@/shared/ai/designMock').DesignMock[]
   program?:{id:string;version:number;hash:string}

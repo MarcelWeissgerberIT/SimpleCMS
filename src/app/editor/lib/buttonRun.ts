@@ -11,6 +11,7 @@ import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { useWorkspace } from '../../store/store'
 import { toast, useUI } from '../../store/ui'
 import { isEffectivelyTrashed } from '../../store/selectors'
+import { oneOnlyTask } from '@/shared/ai/oneTask'
 import type { Database, DateValue, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { navigate, openPage } from '../../lib/router'
 import { t } from '../../i18n'
@@ -326,7 +327,7 @@ async function runAction(ctx: RunContext, a: ButtonAction, now: Date): Promise<S
       const s = useWorkspace.getState(), setup = s.ai?.onboarding
       const source=a.sourcePageId?s.pages[a.sourcePageId]:undefined
       if(a.sourcePageId&&(!source||isEffectivelyTrashed(s.pages,a.sourcePageId)))return fail(t('editor.button.aiTask.sourceMissing'))
-      if (setup && !s.settings.workspaceMcpServers?.some(server => server.name === setup.mcpName && server.url === setup.mcpUrl && server.enabled && server.token && server.checkedAt)) {
+      if (!oneOnlyTask(prompt) && /\b(?:atlas|polarion)\b/iu.test(prompt) && setup && !s.settings.workspaceMcpServers?.some(server => server.name === setup.mcpName && server.url === setup.mcpUrl && server.enabled && server.token && server.checkedAt)) {
         openPage(setup.startPageId)
         return fail(t('editor.button.aiTask.token'))
       }

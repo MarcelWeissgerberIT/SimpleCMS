@@ -1,3 +1,4 @@
+import {oneOnlyTask} from '@/shared/ai/oneTask'
 import {centralKeyReady} from './core/centralAI'
 import {missingDocumentSource} from '@/shared/ai/document-source'
 import { workerModelRows } from './core/workerModels'
@@ -503,8 +504,9 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
   }
   // a free-form request gets every enabled MCP server; the one-click actions only "All AI calls" ones
   const free = opts.action === 'custom'
+  const oneOnly = free && oneOnlyTask(opts.typed ?? opts.instruction ?? '')
   // "kb: …": the servers addressed by codeword join, the prefix is not part of the request
-  const codewords = free && opts.mcp !== false ? codewordsIn(opts.instruction ?? '') : null
+  const codewords = free && !oneOnly && opts.mcp !== false ? codewordsIn(opts.instruction ?? '') : null
   const text = await streamCompletion({
     purpose: opts.purpose,
     // the One memory database too, when its block goes along
@@ -515,7 +517,7 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     prompt: buildPrompt(codewords ? { ...opts, instruction: codewords.text } : opts),
     onToken: opts.onToken,
     signal: opts.signal,
-    mcp: opts.mcp === false ? false : free ? 'free' : 'fixed',
+    mcp: opts.mcp === false || oneOnly ? false : free ? 'free' : 'fixed',
     codewords,
     onMcp: opts.onMcp,
     onMedia: opts.onMedia,

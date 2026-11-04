@@ -21,3 +21,12 @@ test('clear polite write requests keep the stated mode without a redundant quest
  assert.equal(naturalAtlasTransferMode('Bitte einen neuen Atlas-Record anlegen.'),'create')
  for(const text of ['Kannst du prüfen, ob der Atlas-Kommentar erstellt wurde?','Wie kann ich in Atlas kommentieren?','Bitte nur prüfen: den Atlas-Kommentar lesen.','Bitte lies die Atlas-Kommentare.','Bitte erkläre, wie ich neue Atlas-Records anlegen kann.','Kannst du erklären, wie ich in Atlas kommentieren kann?','Bitte den Kommentar in Atlas lesen.','Ich möchte wissen, wie man in Atlas kommentiert.','Can you tell me how to comment in Atlas?','Bitte überlege, ob wir neue Atlas-Records anlegen sollten.'])assert.equal(naturalAtlasTransferMode(text),null,text)
 })
+
+test('ONE page preparation is not redirected by previous Atlas work or a later optional sync',()=>{
+ for(const goal of ['Bitte erstelle eine Seite in ONE.','Bitte nur in ONE aufbereiten; Atlas später.','Bitte eine Seite in ONE aus den gelesenen Atlas-Quellen anlegen.','Create a page in ONE.','/ba Versionshistorie']){
+  assert.equal(needsAtlasTransferChoice(goal,['Bitte nach Atlas übertragen.']),false,goal)
+  assert.equal(naturalAtlasTransferMode(goal,['Bitte nach Atlas übertragen.']),null,goal)
+ }
+ assert(needsAtlasTransferChoice('Bitte diese ONE-Seite nach Atlas übertragen.'))
+ assert.equal(naturalAtlasTransferMode('Bitte aus dieser ONE-Seite einen neuen Atlas-Record anlegen.'),'create')
+})
