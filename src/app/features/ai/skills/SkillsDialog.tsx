@@ -11,13 +11,13 @@ import {closeSkills} from './dialog'
 import '../programs/programs.css'
 import './skills.css'
 
-export default function SkillsDialog({onUse}:{onUse:(skill:Skill)=>void}){
+export default function SkillsDialog({onUse,initialQuery=''}:{onUse:(skill:Skill)=>void;initialQuery?:string}){
  const t=useT(),epoch=useWorkspace(s=>s.epoch),actor=useCloud(s=>s.user?.id),workspace=useCloud(s=>s.active.kind==='cloud'?s.active.id:'local')
- const [scope]=useState(skillScope),[rows,setRows]=useState<Skill[]>([]),[selected,setSelected]=useState<Skill|null>(null),[imported,setImported]=useState<Skill|null>(null),[spec,setSpec]=useState<SkillSpec>(blankSkill),[query,setQuery]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[view,setView]=useState<'local'|'atlas'>('local')
+ const [scope]=useState(skillScope),[rows,setRows]=useState<Skill[]>([]),[selected,setSelected]=useState<Skill|null>(null),[imported,setImported]=useState<Skill|null>(null),[spec,setSpec]=useState<SkillSpec>(blankSkill),[query,setQuery]=useState(initialQuery),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[view,setView]=useState<'local'|'atlas'>('local')
  const file=useRef<HTMLInputElement>(null)
  const fail=(e:unknown)=>setError(t('features.ai.skills.error.'+(e instanceof SkillError?e.code:'storage')))
  useEffect(()=>{if(skillScope()!==scope)closeSkills()},[epoch,actor,workspace,scope])
- useEffect(()=>{try{setRows(listSkills(scope))}catch(e){fail(e)}},[scope]) // eslint-disable-line react-hooks/exhaustive-deps
+ useEffect(()=>{try{const saved=listSkills(scope);setRows(saved);const first=saved.find(s=>(s.spec.name+' '+s.spec.description+' '+s.spec.tags.join(' ')).toLowerCase().includes(initialQuery.toLowerCase()));if(first){setSelected(first);setSpec(first.spec)}}catch(e){fail(e)}},[scope]) // eslint-disable-line react-hooks/exhaustive-deps
  const pick=(skill:Skill|null)=>{setImported(null);setSelected(skill);setSpec(skill?.spec??blankSkill());setError('');setNotice('')}
  const latest=rows.filter((s,i)=>rows.findIndex(p=>p.id===s.id)===i).filter(s=>(s.spec.name+' '+s.spec.description+' '+s.spec.tags.join(' ')).toLowerCase().includes(query.toLowerCase()))
  const save=async()=>{setBusy(true);setError('');try{const clean={...spec,tags:spec.tags.filter(t=>t.trim())};const next=imported&&bindSkill(imported.id,imported.version,clean,imported.source).hash===imported.hash?await importSkillVersion(imported,scope):await saveSkill(clean,selected,scope);setRows(listSkills(scope));pick(next);setNotice(t('features.ai.skills.saved'))}catch(e){fail(e)}finally{setBusy(false)}}
@@ -34,7 +34,7 @@ export default function SkillsDialog({onUse}:{onUse:(skill:Skill)=>void}){
    <div className="programs__actions"><button className="btn" onClick={()=>pick(null)}>{t('features.ai.skills.new')}</button><button className="btn" onClick={()=>{pick(null);setSpec(ATLAS_ALIGNMENT_SKILL)}}>{t('features.ai.skills.atlas.template')}</button><button className="btn" onClick={()=>file.current?.click()}>{t('features.ai.skills.import')}</button></div>
    <input hidden ref={file} type="file" accept=".md,text/markdown,text/plain" aria-label={t('features.ai.skills.import')} onChange={e=>void importFile(e.currentTarget)}/>
    <input type="search" className="skills__search" aria-label={t('features.ai.skills.search')} placeholder={t('features.ai.skills.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
-   {!rows.length&&<p>{t('features.ai.skills.empty')}</p>}
+   {!rows.length&&<p>{t('features.ai.skills.empty')}</p>}{!!rows.length&&!latest.length&&<p role="status">{t('features.ai.skills.noMatch')}</p>}
    {latest.map(s=><button className="skills__row" key={s.id} aria-pressed={selected?.id===s.id} onClick={()=>pick(s)}><strong>{s.spec.name}</strong><span>{s.spec.description}</span><small>V{s.version} · {s.spec.tags.join(' · ')}</small></button>)}
   </aside><main>
    {selected?.source&&<p className="skills__source">{t('features.ai.skills.atlas.source')} · {selected.source.origin} · {selected.source.tenant}/{selected.source.project} · Ref {selected.source.ref}<br/>{dirty?t('features.ai.skills.atlas.edited'):selected.source.hash}<br/><button className="btn btn--sm" disabled={dirty} onClick={()=>setView('atlas')}>{t('features.ai.skills.atlas.check')}</button></p>}

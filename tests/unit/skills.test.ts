@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {bindSkill,readSkill,parseSkillFile,parseSkillMarkdown,skillMarkdown,skillRequest,resolveSkills,pinSkillRequest,skillReceipt} from '../../src/shared/ai/skills.ts'
+import {bindSkill,readSkill,parseSkillFile,parseSkillMarkdown,skillMarkdown,skillRequest,resolveSkills,pinSkillRequest,skillReceipt,skillLibraryQuery} from '../../src/shared/ai/skills.ts'
 import {parseCodewords} from '../../src/app/features/ai/mcp-servers/codeword.ts'
 import {taskBoundaries} from '../../src/shared/quandprofile/task.ts'
 const spec={name:'requirements',description:'Review requirements',tags:['BA'],instructions:'Separate sources, assumptions and open questions.'}
@@ -36,4 +36,10 @@ test('portable ONE exports preserve immutable versions and recipe hashes reject 
  assert.equal(resolveSkills(pinned,[a])[0].hash,a.hash)
  assert.throws(()=>resolveSkills(pinned,[other]))
  assert.throws(()=>parseSkillFile(skillMarkdown(spec,a).replace(a.hash,'0'.repeat(64))))
+})
+
+test('skill library commands remain local UI actions and never match ordinary task prose',()=>{
+ for(const raw of ['/skills',' /skill  ','/fähigkeiten','/faehigkeiten'])assert.equal(skillLibraryQuery(raw),'')
+ assert.equal(skillLibraryQuery('/skills Review rules'),'Review rules')
+ for(const raw of ['Explain /skills','https://example.org/skills','/skills-extra','/skills/'])assert.equal(skillLibraryQuery(raw),null)
 })

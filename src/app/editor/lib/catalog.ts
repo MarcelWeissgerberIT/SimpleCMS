@@ -496,6 +496,14 @@ export const BLOCKS: BlockItem[] = [
   },
   // ---------------- AI
   {
+    id: 'skills', group: 'ai', icon: 'AI', md: '/skills',
+    keywords: 'skills skill library preview instructions fähigkeiten faehigkeiten bibliothek anleitung vorschau',
+    run: (ctx) => {
+      del(ctx)
+      ctx.bridge.setState({ ai: { mode: 'block', open: 'skills' } })
+    },
+  },
+  {
     id: 'ai',
     group: 'ai',
     icon: 'AI',

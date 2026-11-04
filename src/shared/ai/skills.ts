@@ -71,3 +71,6 @@ export function parseSkillFile(raw:string):{spec:SkillSpec;snapshot?:Skill}{
 }
 export const parseSkillMarkdown=(raw:string)=>parseSkillFile(raw).spec
 export function skillMarkdown(skill:SkillSpec,snapshot?:Skill){const s=skillSpec(skill);if(snapshot&&readSkill(snapshot).hash!==bindSkill(snapshot.id,snapshot.version,s,snapshot.source).hash)throw new SkillError('changed');return '---\nname: '+s.name+'\ndescription: '+JSON.stringify(s.description)+'\ntags: '+JSON.stringify(s.tags)+(snapshot?'\none-skill-id: '+JSON.stringify(readSkill(snapshot).id)+'\none-skill-version: '+snapshot.version+'\none-skill-hash: '+snapshot.hash+(snapshot.source?'\none-skill-source: '+JSON.stringify(snapshot.source):''):'')+'\n---\n\n'+s.instructions+'\n'}
+
+/** Local UI command only; never an inference request. */
+export function skillLibraryQuery(raw:string):string|null{const m=/^\/(?:skills?|fähigkeiten|faehigkeiten)(?:\s+([\s\S]*))?$/iu.exec(raw.trim());return m?(m[1]??'').trim():null}

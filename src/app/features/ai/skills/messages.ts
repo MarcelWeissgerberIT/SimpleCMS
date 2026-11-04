@@ -1,5 +1,6 @@
 import type {Messages} from '@/shared/i18n'
 export const messages:Messages={en:{
+ 'features.ai.skills.noMatch':'No saved skill matches this search. Change the search phrase or create/import a skill.',
  'features.ai.skills.atlas.sdd':'Download SDD skills','features.ai.skills.atlas.sddHelp':'Unzip the package and import the desired SKILL.md instruction file.',
  'features.ai.skills.error.source':'Atlas did not return a complete, active record in the selected tenant/project. Check the source Ref and scope.',
  'features.ai.skills.error.connection':'The selected personal Atlas connection is unavailable. Check that it is enabled and signed in, and that your worker or Atlas proxy is available.',
@@ -35,6 +36,7 @@ export const messages:Messages={en:{
  'features.ai.skills.error.storage':'The skill library could not be read or saved on this device. No model request was sent.',
  'features.ai.skills.error.scope':'Workspace or account changed. Open the skill library again.',
 },de:{
+ 'features.ai.skills.noMatch':'Kein gespeicherter Skill passt zu dieser Suche. Ändere den Suchbegriff oder erstelle/importiere einen Skill.',
  'features.ai.skills.atlas.sdd':'SDD-Skills herunterladen','features.ai.skills.atlas.sddHelp':'Paket entpacken und die gewünschte SKILL.md-Anleitung importieren.',
  'features.ai.skills.error.source':'Atlas hat keinen vollständigen, aktiven Record im gewählten Tenant/Projekt geliefert. Prüfe Ref und Quellumfang.',
  'features.ai.skills.error.connection':'Die persönliche Atlas-Verbindung ist nicht verfügbar. Prüfe Aktivierung und Anmeldung sowie deinen Worker oder Atlas-Proxy.',

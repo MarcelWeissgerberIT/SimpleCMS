@@ -1,5 +1,6 @@
+import {openSkills} from '../skills/dialog'
 import {contextCheckpoint} from './checkpoint'
-import {pinSkillRequest} from '@/shared/ai/skills'
+import {skillLibraryQuery,pinSkillRequest} from '@/shared/ai/skills'
 import {readProgram,workflowTarget} from '@/shared/quandprofile/program'
 import {taskProgramDraft} from '../core/taskContract'
 import {programScope,archiveProgram,saveProgramRun} from '../programs/storage'
@@ -838,6 +839,8 @@ export function answerAsk(id: string, yes: boolean) {
 export async function submitPrompt(raw?: string): Promise<void> {
   const input = (raw ?? get().draft).trim()
   if (!input) return
+  const skillQuery=skillLibraryQuery(input)
+  if(skillQuery!==null){pushHistory(input);set({draft:''});openSkills(skill=>set(s=>({draft:s.draft.trimEnd()+' $'+skill.spec.name+'@'+skill.version,focusTick:s.focusTick+1})),skillQuery);return}
   // a question waits for y / n: the answer goes there (never into the prompt history); anything else drops it
   const asking = openAsk()
   if (asking) {

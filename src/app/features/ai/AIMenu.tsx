@@ -1,5 +1,5 @@
 import {inlineContextCheckpoint} from './agent/checkpoint'
-import {pinSkillRequest} from '@/shared/ai/skills'
+import {skillLibraryQuery,pinSkillRequest} from '@/shared/ai/skills'
 import {scrubSecrets} from '@/shared/ai/keys'
 import {openSkills,useSkillsOpen} from './skills/dialog'
 import {openPage} from '../../lib/router'
@@ -193,7 +193,7 @@ export interface AIMenuProps {
    * Open on a submenu: 'todb' — "More …" with "Turn into database" highlighted (the grip menu's "Turn into
    * database…") · 'transform' — the forms of "Transform into …" (the tour, "What can One do?").
    */
-  open?: 'todb' | 'transform'
+  open?: 'todb' | 'transform' | 'skills'
   /** Open on the generate card (`/generate image` · `/generate video` · an empty image block's "Generate…"). */
   generate?: GenerateKind
   /**
@@ -398,7 +398,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   }, [editor, own, openRun])
 
   const narrow = useNarrow()
-  const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
+  const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun && openOn!=='skills')
   // Worker discovery is asynchronous. A usable request route can arrive after the menu opened.
   useEffect(() => { if (hasKey) setSetup(false) }, [hasKey])
   /** the key card is what a typed Space opened (and it has not been left since): typing there goes back into the page */
@@ -1574,6 +1574,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase()
+    const skillQuery=skillLibraryQuery(query)
+    if(skillQuery!==null&&phase!=='streaming')return [{id:'skills',label:t('features.ai.skills.title'),icon:Workflow,code:'/skills',run:()=>{setQuery('');openSkills(skill=>{setQuery('$'+skill.spec.name+'@'+skill.version);requestAnimationFrame(()=>inputRef.current?.focus())},skillQuery)}}]
     if (setup) return []
     if (phase === 'streaming') return []
     if (view === 'reads') {
@@ -1974,8 +1976,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   // opened on a submenu (the grip menu's "Turn into database…", the tour): there, the asked row highlighted
   const openedOn = useRef(false)
   useEffect(() => {
-    if (!openOn || openRun || setup || openedOn.current) return
+    if (!openOn || openRun || (setup&&openOn!=='skills') || openedOn.current) return
     openedOn.current = true
+    if(openOn==='skills')return openSkills(skill=>{setQuery('$'+skill.spec.name+'@'+skill.version);requestAnimationFrame(()=>inputRef.current?.focus())})
     if (openOn === 'transform' && transformPicks.length) return setView('transform')
     if (openOn === 'todb' && moreActions.some((a) => a.id === 'todb')) {
       setView('more')

@@ -77,7 +77,7 @@ export function startRedo(target: Editor | ID, opts: { ids?: string[]; onEnd?: (
  * `open` shows a submenu ('transform': the forms · 'todb': "More …" with "Turn into database" highlighted);
  * `generate` opens the generate card (an image / a video from a connected MCP server, features/ai/media).
  */
-export function openAIPanel(editor: Editor, ai: { mode: 'selection' | 'block'; transform?: TransformPick; open?: 'todb' | 'transform'; generate?: 'image' | 'video' }): boolean {
+export function openAIPanel(editor: Editor, ai: { mode: 'selection' | 'block'; transform?: TransformPick; open?: 'todb' | 'transform' | 'skills'; generate?: 'image' | 'video' }): boolean {
   const bridge = bridges.get(editor)
   if (!bridge || editor.isDestroyed || !editor.isEditable) return false
   bridge.setState({ ai: { mode: ai.mode, ...(ai.transform ? { transform: ai.transform } : {}), ...(ai.open ? { open: ai.open } : {}), ...(ai.generate ? { generate: ai.generate } : {}) } })

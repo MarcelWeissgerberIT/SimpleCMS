@@ -1693,7 +1693,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     })
   }
 
-  const accept = (c: Completion, i: number) => {
+  const accept = (c: Completion, i: number, execute = false) => {
     const item = c.items[i]
     // an OUT tool is shown, never taken (only the Outbox sends with it)
     if (!item || item.tool?.out) return
@@ -1704,6 +1704,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       useAgent.setState((s) => ({ mentions: [...s.mentions.filter((x) => x.id !== m.id), m] }))
     }
     setDraft(next, c.from + item.insert.length)
+    if(execute&&item.command==='skills')void submitPrompt(next)
   }
 
   const submit = () => {
@@ -1859,7 +1860,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
               data-out={item.tool?.out || undefined}
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setActive(i)}
-              onClick={() => accept(comp, i)}
+              onClick={() => accept(comp, i, true)}
             >
               <span className="term-complete__label">{item.mention ? `${item.mention.kind === 'database' ? '▦' : '▣'} ${item.label}` : item.label}</span>
               <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.tool?.out ? t('features.agent.complete.toolOut') : item.tool ? t('features.agent.complete.toolOf', { server: item.tool.server }) : item.server ? `${item.server.codeword ? `${item.server.codeword}: · ` : ''}${item.server.host}` : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
