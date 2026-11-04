@@ -25,11 +25,12 @@ import { diff, type Hunk } from './merge'
  * node type or attribute an older client would lose (and add the type below) — and raise the server's
  * MIN_CLIENT_SCHEMA one release later.
  *  1 = the task block (`workItem`)
+ *  2 = the Atlas design mock block (`designMock`; cloud creation waits for schema_min 2)
  */
-export const DOC_SCHEMA_VERSION = 1
+export const DOC_SCHEMA_VERSION = 2
 
 /** Node types an older generation does not know: type → the generation that brought it. */
-export const NODE_GENERATIONS: Readonly<Record<string, number>> = { workItem: 1 }
+export const NODE_GENERATIONS: Readonly<Record<string, number>> = { workItem: 1, designMock: 2 }
 
 export type LossMode = 'drop' | 'unwrap'
 

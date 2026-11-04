@@ -1,11 +1,11 @@
 import {readFile} from 'node:fs/promises'
 import {createHash} from 'node:crypto'
-import {test,expect,openApp,wsEval,createPage,gotoPage,doc,para,MOD} from './fixtures'
+import {test,expect,openApp,wsEval,createPage,gotoPage,doc,para,MOD,editorOf,reloadApp} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 import {mockClaudeScript,text,type ClaudeTurn} from './helpers/providers'
 import {DEFAULT_CLAUDE_MODEL} from '../../src/shared/ai/models'
-const PORT=47496
+const PORT=Number(process.env.MOCK_TEST_WORKER_PORT)||47496
 const catalogue='Current Example Kit v5. Button uses --primary: #A50034. Card uses --surface: #FFFFFF. Body text uses --ink: #111111. Spacing step is 16px. Font is system-ui.'
 const authority='Current design system: /r/12 Example Kit v5 is the only valid version.'
 const requirement='When the user selects a record, the screen shall display its original title.'
@@ -48,7 +48,7 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   let inference=0;fake.onText=r=>{inference++;return {model:r.model,text:'must not happen',inputTokens:1,outputTokens:1,usd:0}};const normal=fake.onModelMcp!;fake.onModelMcp=r=>r.action==='call'&&r.arguments.ref===14?{result:JSON.stringify({isError:true,content:[{type:'text',text:'No access to requested record'}]})}:normal(r)
   await page.evaluate(async()=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:'atlas-flow:latest'}]));await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'});await input.fill('/mock Create a screen for Atlas-Record 14, read ref 12 and ref 13.');await input.press('Enter');await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:30000});expect(inference).toBe(0);expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.arguments.ref)).toEqual([14]);await expect(term.getByRole('region',{name:'Design mock',exact:true})).toHaveCount(0)
  })
- test.afterEach(async()=>fake.close())
+ test.afterEach(async()=>fake?.close())
  const start=async(page:any,provider:'local'|'copilot'|'anthropic')=>{if(provider==='anthropic')await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-mock'}));await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?'atlas-flow:latest':provider==='copilot'?'auto':DEFAULT_CLAUDE_MODEL});await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'});await input.fill('/mock Create a record detail screen using the current Atlas design system and actual requirement https://aj-atlas.com/r/14.');await input.press('Enter');return term}
  for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: actual Atlas reads produce a safe HTML card, real PNG and exact Atlas-only attachments`,async({page},info)=>{
   let round=0
@@ -64,6 +64,19 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   const uploads=await cloudUpload(page,fake)
   await card.getByRole('button',{name:'Attach to Atlas record',exact:true}).click();await expect(card).toContainText('Saved in Atlas',{timeout:15000});expect(uploads).toHaveLength(3);expect(uploads.map(f=>f.ref)).toEqual([14,14,14]);expect(uploads.map(f=>f.mime)).toEqual(['text/html','image/png','application/json']);expect(createHash('sha256').update(uploads[0].text).digest('hex')).toBe(createHash('sha256').update(html).digest('hex'));await expect(term.locator('#term-review-title')).toHaveCount(0);expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),target)).not.toContain('onefile:')
   await card.screenshot({path:info.outputPath('design-mock-card-'+provider+'.png')})
+ })
+ test('a generated mock can be explicitly adopted into a persistent page block',async({page})=>{
+  let round=0
+  const call=(n:number,request:any)=>n===0?{id:'s',name:'one_mcp_search',arguments:{query:'atlas_get'}}:n<=3?{id:'r'+n,name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:11+n}}}:n===4?{id:'find',name:'one_workspace_search',arguments:{query:'create_design_mock'}}:{id:'mock',name:'one_workspace_call',arguments:{name:'create_design_mock',arguments:draft(request)}}
+  fake.onText=r=>{const n=round++;return {model:r.model,text:n>=6?'Mock ready.':'',...(n<6?{calls:[call(n,r)]}:{}),inputTokens:200,outputTokens:100,usd:0}}
+  const term=await start(page,'local');await expect(term.getByRole('region',{name:'Design mock',exact:true})).toBeVisible({timeout:30000});await expect(term.locator('.term-head__status')).toHaveText('Done')
+  const count=round;await page.keyboard.press(`${MOD}+j`);await expect(term).toBeHidden()
+  const ed=editorOf(page);await ed.evaluate((el:any)=>el.editor.commands.insertContentAt(el.editor.state.doc.content.size,{type:'paragraph'}));await ed.locator(':scope > p').last().click();await expect(ed).toBeFocused();await page.keyboard.type('/mock');await expect(page.locator('.slash .slash__item[aria-selected=true] .slash__name')).toHaveText('UI mock from Atlas');await page.keyboard.press('Enter')
+  const block=page.locator('.mock-block');await expect(block).toBeVisible();await block.getByLabel('Result from the AI terminal',{exact:true}).selectOption({label:'Record detail · catalogue mock · #14'});await block.getByRole('button',{name:'Use preview in block',exact:true}).click()
+  await expect(page.frameLocator('.mock-block iframe').getByRole('heading',{name:'Original record title'})).toBeVisible();expect(round).toBe(count)
+  await reloadApp(page);await gotoPage(page,target);await expect(page.frameLocator('.mock-block iframe').getByRole('heading',{name:'Original record title'})).toBeVisible()
+  expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),target)).not.toContain('onefile:')
+  await block.screenshot({path:'test-results/mock-block-generated.png'})
  })
  test('local: an incomplete mock call gets one bounded structured correction and needs no final model round',async({page})=>{
   let n=0,repairs=0,last:any

@@ -201,3 +201,8 @@ Select a compiled task, then switch between **Task and start**, **Flow and block
 New receipts retain actual host checks, observed source/tool operations and the compiled model packet. Packets above 120,000 characters retain their hash with an explicit omission notice. This is not the full provider transport log or proof of semantic correctness. Older runs without these receipts show only intended checks, all open. Historical evidence grants no current authority.
 
 The overview loads metadata first; full private answers and cubes load when a run is opened. An error remains visible alongside a partial answer. Failed prechecks for saved tasks also create a run receipt; they do not create a new executable program.
+## A UI mock as a page block
+
+Type `/mock` in the page editor and select **UI mock from Atlas**. Enter the design MD URL, the Atlas requirement record and your request. **Prepare in AI terminal** opens the normal `/mock` request for review; send it there.
+
+When the proposal is ready, choose it under **Result from the AI terminal** and press **Use preview in block**. Its static preview stays on the page and opens full screen. Reading or reloading never starts an AI request. This is a saved snapshot; source changes require a new request. HTML/PNG export and attaching to the Atlas record remain available in the terminal's mock card.

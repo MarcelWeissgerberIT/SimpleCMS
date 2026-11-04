@@ -345,6 +345,8 @@ export interface AgentTurn {
   /** Explicit human copy of this answer into the ONE review; not an Atlas synchronization. */
   answerPageChange?: string
   receipt?:'saved'|'failed'
+  /** Prevent a block from adopting a result produced in another workspace. */
+  mockWorkspaceEpoch?: string
   mocks?:import('@/shared/ai/designMock').DesignMock[]
   program?:{id:string;version:number;hash:string}
   contract?:import('@/shared/quandprofile/task').TaskReport

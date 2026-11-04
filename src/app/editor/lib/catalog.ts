@@ -76,6 +76,7 @@ import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
 import { insertSynced } from '../synced/actions'
 import { insertMeetingNotes } from '../schema/meetingNotes'
 import { insertSpreadsheet } from '../schema/spreadsheet'
+import { canInsertDesignMock, insertDesignMock } from '../schema/designMock'
 import { insertChart } from '../schema/chart'
 import { Columns5, ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
@@ -495,6 +496,7 @@ export const BLOCKS: BlockItem[] = [
     },
   },
   // ---------------- AI
+  { id: 'designMock', group: 'ai', icon: PanelTop, md: '/mock', keywords: 'mock ui atlas design prototype dialog liste vorschau entwurf', disabled: () => canInsertDesignMock() ? null : t('editor.mock.serverUpdate'), run: ctx => insertDesignMock(ctx.editor, ctx.range) },
   {
     id: 'skills', group: 'ai', icon: 'AI', md: '/skills',
     keywords: 'skills skill library preview instructions fähigkeiten faehigkeiten bibliothek anleitung vorschau',

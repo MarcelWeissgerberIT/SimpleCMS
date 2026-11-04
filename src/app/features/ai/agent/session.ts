@@ -428,6 +428,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
   setStopHandler(() => ac.abort())
   // /new while this task runs: what it still reports (usage, steps, notes, its end) belongs to the old conversation
   const myEpoch = epoch
+  const mockWorkspaceEpoch = useWorkspace.getState().epoch ?? 'local'
   const here = () => epoch === myEpoch
   if (opts.history !== false) pushHistory(task)
   // the chips go along with this task: references, the mentions still in the text, the open page (a continuation: none again)
@@ -550,7 +551,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
     limit() {
       note(t('features.agent.limitNote'))
     },
-    mock(artifact){if(here()){const turn=get().turns.find(t=>t.n===n);patchTurn(n,{mocks:[...(turn?.mocks??[]),artifact]})}},
+    mock(artifact){if(here()&&mockWorkspaceEpoch===(useWorkspace.getState().epoch??'local')){const turn=get().turns.find(t=>t.n===n);patchTurn(n,{mocks:[...(turn?.mocks??[]),artifact],mockWorkspaceEpoch})}},
     media(items) {
       if (!here()) return
       // the cards under this task: saving stages "insert media" on the page it worked on

@@ -20,6 +20,7 @@ import { ButtonNode } from './button'
 import { Tab, Tabs } from './tabs'
 import { CommentMark } from './comment'
 import { SyncedBlock } from './synced'
+import { DesignMockNode } from './designMock'
 import { MeetingNotes } from './meetingNotes'
 import { WorkItem } from './workItem'
 import { Spreadsheet } from './spreadsheet'
@@ -129,6 +130,7 @@ export const BLOCK_ID_TYPES = [
   'tab',
   'syncedBlock',
   'meetingNotes',
+  'designMock',
   'workItem',
   'spreadsheet',
   'chart',
@@ -211,6 +213,7 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     Tab,
     w('syncedBlock', SyncedBlock),
     w('meetingNotes', MeetingNotes),
+    w('designMock', DesignMockNode),
     // the task block (never the first block type: `block+` content fills with a paragraph, not a task)
     w('workItem', WorkItem),
     w('spreadsheet', Spreadsheet),

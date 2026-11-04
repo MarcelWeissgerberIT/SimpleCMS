@@ -675,3 +675,5 @@ export { buildWorkspacePackage, portableWorkspace, makeLocalWorkspace, parseWork
 
 /** Native language variants, explicit AI preview and per-workspace content language. */
 export { TranslationControls, WorkspaceTranslations } from './translation'
+
+export { MockBlockComposer } from './ai/agent/MockBlockComposer'

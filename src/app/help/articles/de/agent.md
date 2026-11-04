@@ -199,3 +199,8 @@ Nach Auswahl eines Kompilats kannst du zwischen **Auftrag und Start**, **Ablauf 
 Neue Laufnachweise speichern die tatsächlichen Host-Prüfungen, beobachteten Quellen-/Werkzeugschritte und das kompilierte Modellpaket. Über 120.000 Zeichen bleibt dessen Hash erhalten und die Auslassung wird ausdrücklich angezeigt. Das ist kein vollständiges Anbieter-Transportprotokoll und kein Beweis fachlicher Richtigkeit. Bei älteren Läufen ohne diesen Nachweis zeigt ONE nur die vorgesehenen, noch offenen Prüfungen. Historische Nachweise erlauben keine neue Aktion.
 
 Die Übersicht lädt zuerst Metadaten; vollständige persönliche Antworten und Würfel werden erst beim Öffnen eines Laufs geladen. Ein Fehler bleibt auch dann sichtbar, wenn eine Teilantwort vorliegt. Fehlgeschlagene Vorprüfungen eines gespeicherten Auftrags erhalten ebenfalls einen Laufnachweis; sie erzeugen kein neues ausführbares Kompilat.
+## UI-Mock als Seitenblock
+
+Tippe im Seiteneditor `/mock` und wähle **UI-Mock aus Atlas**. Trage die URL der Design-MD, den Anforderungs-Record in Atlas und deinen Auftrag ein. **Im KI-Terminal vorbereiten** öffnet den normalen `/mock`-Auftrag zur Prüfung; sende ihn dort ab.
+
+Wenn der Entwurf fertig ist, wähle ihn im Block unter **Ergebnis aus dem KI-Terminal** und drücke **Vorschau in Block übernehmen**. Die statische Vorschau bleibt auf der Seite gespeichert und lässt sich im Vollbild öffnen. Lesen oder Neuladen startet keinen KI-Aufruf. Die Vorschau ist ein gespeicherter Stand; Änderungen in Atlas werden erst durch einen neuen Auftrag berücksichtigt. HTML-/PNG-Export und die Ablage am Atlas-Record bleiben in der Mock-Karte im Terminal verfügbar.

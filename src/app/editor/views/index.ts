@@ -22,6 +22,7 @@ import { SpreadsheetView, spreadsheetViewOptions } from './SpreadsheetView'
 import { ChartBlockView, chartViewOptions } from './ChartBlockView'
 import { withInlineIconView } from './InlineIconView'
 import { BreadcrumbView } from './BreadcrumbView'
+import { DesignMockView, designMockViewOptions } from './DesignMockView'
 import './views.css'
 import './toggle.css'
 
@@ -73,6 +74,7 @@ export function nodeViewWraps({ readOnly, pageActions = false }: { readOnly: boo
     ...(readOnly ? {} : { syncedBlock: withView(SyncedBlockView, syncedViewOptions) }),
     // meeting notes: controls from the features area around the notes (content hole: no guard)
     meetingNotes: withView(MeetingNotesView, meetingViewOptions),
+    designMock: withView(guardView(DesignMockView), designMockViewOptions),
     // task block: the placard around its title + notes (content hole: no guard)
     workItem: withView(readOnly ? StaticWorkItemView : WorkItemView, workItemViewOptions),
     // spreadsheet: the grid (lazy) while editing; read-only renders show the schema's static tables
