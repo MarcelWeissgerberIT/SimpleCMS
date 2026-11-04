@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.6 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.7 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -21311,7 +21311,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.6" : "dev";
+var VERSION = true ? "1.35.7" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -21818,6 +21818,11 @@ function localContext(env) {
 // src/worker/local-agent.ts
 import { realpath as realpath5 } from "node:fs/promises";
 
+// ../src/shared/mcp/sourceLimits.ts
+var MCP_SOURCE_BYTES = 8 * 1024 * 1024;
+var MCP_CACHE_BYTES = 24 * 1024 * 1024;
+var sourceBytes = (text2) => new TextEncoder().encode(text2).byteLength;
+
 // ../src/shared/ai/connection-problem.ts
 function connectionProblem(error2) {
   const e = error2;
@@ -21827,16 +21832,19 @@ function connectionProblem(error2) {
   if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text2)) return "tls";
   if (/\b401\b|\bmcp_auth\b/.test(text2)) return "auth";
   if (/\b403\b|mcp_permission|permission denied|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text2)) return "permission";
+  if (/\b429\b|rate[ _-]?limit|too many requests/.test(text2)) return "rate";
   if (/authenticat.{0,20}(?:fail|reject|required)|unauthoriz|invalid.token|(?:expired|revoked)[ _-]?token|token.{0,30}(?:refused|rejected|abgelehnt|expired|revoked|invalid)/.test(text2) || text2 === "token") return "auth";
   if (/timeout|timed.out|zeitüberschreitung/.test(text2)) return "timeout";
   if (/network|netzwerk|enotfound|eai_again|econn|dns|fetch failed/.test(text2)) return "network";
   if (text2 === "worker" || /mcpworker|worker.{0,25}(?:unavailable|not connected|nicht verbunden)/.test(text2)) return "worker";
   if (text2 === "identity" || /atlas identity does not match/.test(text2)) return "identity";
   if (/\bpolicy\b|destination|datenregel|mcp-required|quantum.blocked/.test(text2)) return "policy";
-  if (/mcp_arguments_invalid|unsupported schema|schema (?:changed|validation)|arguments.{0,30}(?:invalid|match)|invalid arguments/.test(text2)) return "schema";
+  if (/invalid[ _-]?(?:query|aql)|mcp_query|query[ _-]?(?:syntax|parse)|(?:parse|parsing).{0,20}(?:query|aql)|(?:search query|query syntax).{0,20}(?:invalid|reject)|reject.{0,20}search query|unsupported.{0,15}(?:operator|filter)|unknown.{0,10}(?:field|operator)|operator.{0,25}not valid for field/.test(text2)) return "query";
+  if (/mcp_arguments_invalid|\b32602\b|invalid[ _-]?params|unsupported schema|schema (?:changed|validation)|arguments.{0,30}(?:invalid|match)|invalid arguments/.test(text2)) return "schema";
   if (/response_limit|catalogue_limit|bounded source cache|exceed the bounded limit|result.{0,20}too large|up to 20,000|exceeds.{0,20}20,000|180 kb/.test(text2)) return "limit";
   if (/invalid.{0,15}(?:mcp|tool).{0,15}response|malformed response|invalid json/.test(text2)) return "response";
   if (text2 === "tools" || /tool_unavailable|tool.{0,25}(?:unavailable|not available|not permitted)|werkzeug.{0,25}nicht freigegeben/.test(text2)) return "tools";
+  if (/\b50[0-9]\b|\b5xx\b|mcp_server|server error|service unavailable|bad gateway/.test(text2)) return "server";
   return "unknown";
 }
 function mcpConnectionMessage(error2, phase = "discovery") {
@@ -21854,7 +21862,10 @@ function mcpConnectionMessage(error2, phase = "discovery") {
     schema: "MCP arguments do not match the current tool schema. Refresh discovery and review the arguments; nothing should be repeated blindly.",
     response: "Invalid MCP tool response. No successful source result was verified.",
     limit: "MCP result or arguments exceed the bounded limit. Select a smaller source excerpt or narrower query.",
-    unknown: `MCP ${phase} failed. Check the personal worker, endpoint and selected tool. No source result was verified.`
+    query: "Atlas rejected the search query. Check the query syntax, supported filters and actual tool schema; preserve the requested tenant and project scope.",
+    rate: "MCP rate limit reached. Wait before explicitly retrying a read; do not automatically repeat writes.",
+    server: "MCP server returned a server error (5xx). The failed call has no verified result; check already accepted writes before retrying.",
+    unknown: `MCP ${phase} failed without a classified cause. This call has no verified source result. Inspect its request and receipt before retrying.`
   };
   return details[problem];
 }
@@ -40099,7 +40110,7 @@ var LocalMcp = class {
       const result = await client.callTool({ name, arguments: args }, void 0, { timeout: 6e4, signal });
       const text2 = this.redact(JSON.stringify(result));
       if (fullResult) {
-        if (text2.length > 18e4) throw new RangeError("MCP result exceeds 180 KB; request fewer sections or records.");
+        if (sourceBytes(text2) > (name === "atlas_get" ? MCP_SOURCE_BYTES : 18e4)) throw new RangeError("MCP result exceeds the bounded download size; request fewer sections or records.");
         return text2;
       }
       if (text2.length <= 2e4) return text2;
@@ -50355,7 +50366,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.6" : "dev";
+var VERSION2 = true ? "1.35.7" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

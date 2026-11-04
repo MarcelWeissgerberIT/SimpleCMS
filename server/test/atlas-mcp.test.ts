@@ -116,3 +116,12 @@ test('stability: 403, TLS and timeouts do not become invalid-token claims',async
   await assert.rejects(runAtlasMcp(request,new AbortController().signal,factory),(e:any)=>e.code===code&&!e.message.includes(secret))
  }
 })
+
+test('large atlas_get bodies are downloaded whole; other tools and oversize results retain bounds',async()=>{
+ const body='Design source. '.repeat(240000),raw={content:[{type:'text',text:JSON.stringify({item:{ref:12,title:'Large design',body}})}]}
+ const factory=(result:any)=>()=>({connect:async()=>{},listTools:async()=>({tools:[{name:'atlas_get',inputSchema:{type:'object'}},{name:'atlas_whoami',inputSchema:{type:'object'}}]}),callTool:async()=>result,close:async()=>{}}) as any
+ const reply:any=await runAtlasMcp({...request,name:'atlas_get',arguments:{ref:12}},new AbortController().signal,factory(raw))
+ assert.equal(reply.result,JSON.stringify(raw));assert(reply.result.length>3000000)
+ await assert.rejects(runAtlasMcp(request,new AbortController().signal,factory(raw)),(e:any)=>e.code==='mcp_response_limit')
+ await assert.rejects(runAtlasMcp({...request,name:'atlas_get'},new AbortController().signal,factory({content:[{type:'text',text:'x'.repeat(8*1024*1024)}]})),(e:any)=>e.code==='mcp_response_limit')
+})

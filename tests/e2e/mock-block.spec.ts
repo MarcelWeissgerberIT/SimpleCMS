@@ -1,4 +1,8 @@
 import { test, expect, openApp, createPage, gotoPage, editorOf, doc, para, reloadApp, wsEval } from './fixtures'
+test.beforeEach(async({page})=>{
+ await page.route('**/api/config',r=>r.fulfill({json:{version:'fixture',signup:{mode:'open',domains:[]},max_upload_mb:20,dev_mode:false,source_url:'',schema_min:2,supports:['ai','providers'],coding_relay:false}}))
+ await page.route('**/api/session',r=>r.fulfill({json:{user:null,workspaces:[]}}))
+})
 test('slash mock inserts a persistent request and prepares the terminal without starting AI',async({page})=>{
  await openApp(page)
  const id=await createPage(page,{title:'Mock block test',content:doc(para(''))});await gotoPage(page,id)
@@ -6,7 +10,7 @@ test('slash mock inserts a persistent request and prepares the terminal without 
  const menu=page.locator('.slash');await expect(menu.locator('.slash__item[aria-selected=true] .slash__name')).toHaveText('UI mock from Atlas');await page.keyboard.press('Enter')
  const block=page.locator('.mock-block');await expect(block).toBeVisible()
  await block.getByLabel('Atlas design MD',{exact:true}).fill('https://aj-atlas.com/docs/flux-client/atlas-ui-instructions?token=not-a-secret-fixture')
- await block.getByLabel('Atlas requirement record',{exact:true}).fill('#32155')
+ await block.getByLabel('Atlas requirement record (optional)',{exact:true}).fill('#32155')
  await block.getByLabel('What should the mock show?',{exact:true}).fill('Dialog for choosing a CyBio head')
  await block.getByRole('button',{name:'Prepare in AI terminal',exact:true}).click()
  const term=page.getByRole('region',{name:'AI terminal'});await expect(term).toBeVisible()
@@ -17,7 +21,7 @@ test('slash mock inserts a persistent request and prepares the terminal without 
  await editorOf(page).evaluate((el:any)=>el.editor.commands.setContent(el.editor.getHTML()))
  await reloadApp(page);await gotoPage(page,id)
  await expect(block.getByLabel('What should the mock show?',{exact:true})).toHaveValue('Dialog for choosing a CyBio head')
- await expect(block.getByLabel('Atlas requirement record',{exact:true})).toHaveValue('#32155')
+ await expect(block.getByLabel('Atlas requirement record (optional)',{exact:true})).toHaveValue('#32155')
  await block.screenshot({path:'test-results/mock-block-request.png'})
 })
 test('saved preview persists, opens full screen, and remains inert in a locked page',async({page,errors})=>{

@@ -18,8 +18,8 @@ export function mockBlockData(raw: unknown): MockBlockData {
 }
 export function mockBlockTask(data: MockBlockData): string | null {
  const source = mockSourceUrl(data.source), request = data.request.trim(), requirement = data.requirement.trim()
- if (!source || !request || !requirement) return null
- return `/mock ${request}\n\nAtlas design source: ${source}\nAtlas requirement record: ${requirement}\nRead the current full Atlas bodies and applicable design version before creating the proposal. Show unresolved questions. Prepare a preview; attach files to Atlas only on an explicit press.`
+ if (!source || !request) return null
+ return `/mock ${request}\n\nAtlas design source: ${source}${requirement ? '\nAtlas requirement record: '+requirement : ''}\nUse this explicitly selected design source for the free-form request. Download its complete body and use relevant exact excerpts. Requirements are optional; do not invent a requirement record or a binding/current-version claim. Show unresolved questions. Prepare a preview; attach files to Atlas only on an explicit press.`
 }
 /** This prefix is independent of the stored document: pasted previews cannot relax its CSP. */
 export const STATIC_MOCK_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; form-action 'none'; base-uri 'none'"

@@ -25,11 +25,11 @@ export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
  if(issues.length)throw new ToolInputError('Mock held: '+[...new Set(issues)].slice(0,6).join(' '))
  const clean=DOMPurify.sanitize(draft.html,{ALLOWED_TAGS:tags,ALLOWED_ATTR:attrs,ALLOW_DATA_ATTR:false,ALLOW_ARIA_ATTR:false})
  const tokens=draft.tokens.map(t=>t.name+':'+t.value).join(';')
- const used=[...new Set([draft.design,draft.authority,...draft.requirements,...draft.tokens,...draft.components].map(c=>c.source))].map(id=>{const {body,...meta}=sources.get(id)!;return meta})
+ const used=[...new Set([draft.design,...(draft.authority?[draft.authority]:[]),...draft.requirements,...draft.tokens,...draft.components].map(c=>c.source))].map(id=>{const {body,...meta}=sources.get(id)!;return meta})
  const createdAt=new Date().toISOString()
  const doc='<!doctype html><html lang="'+(/\b(?:der|die|das|und|mit)\b/i.test(draft.html)?'de':'en')+'"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;unsafe-inline&#39;; base-uri &#39;self&#39;; form-action &#39;none&#39;"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="one-mock-status" content="proposal; human review open"><meta name="one-mock-sources" content="'+escape(JSON.stringify(used))+'"><title>'+escape(draft.title)+'</title><style>:root{'+tokens+'}*{box-sizing:border-box}body{margin:0}'+draft.css+'</style></head><body inert>'+clean+'</body></html>'
  const htmlHash=sha256Hex(doc),{html,css,...provenance}=draft
- return {id:crypto.randomUUID(),title:draft.title,width:draft.width,height:draft.height,document:doc,htmlHash,createdAt,sources:used,draft:provenance,review:'open',target:used.find(s=>s.id===draft.target)!}
+ return {id:crypto.randomUUID(),title:draft.title,width:draft.width,height:draft.height,document:doc,htmlHash,createdAt,sources:used,draft:provenance,review:'open',target:used.find(s=>s.id===draft.target)??null}
 }
 export function mockTool(sources:MockSources,emit:(artifact:DesignMock)=>void,recover?:((input:unknown,error:unknown)=>Promise<MockDraft>)):AgentTool{
  let made=0,repaired=false

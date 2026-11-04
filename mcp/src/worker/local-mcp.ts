@@ -1,3 +1,4 @@
+import {MCP_SOURCE_BYTES,sourceBytes} from '../../../src/shared/mcp/sourceLimits.ts'
 import {mcpConnectionMessage} from '../../../src/shared/ai/connection-problem.ts'
 import {discoverMcpTools} from '../../../src/shared/mcp/discovery.ts'
 import { mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
@@ -192,7 +193,7 @@ export class LocalMcp {
       const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 60000, signal })
       const text = this.redact(JSON.stringify(result))
       if (fullResult) {
-        if (text.length > 180000) throw new RangeError('MCP result exceeds 180 KB; request fewer sections or records.')
+        if (sourceBytes(text) > (name === 'atlas_get' ? MCP_SOURCE_BYTES : 180000)) throw new RangeError('MCP result exceeds the bounded download size; request fewer sections or records.')
         return text
       }
       if (text.length <= 20000) return text

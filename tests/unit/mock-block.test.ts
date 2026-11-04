@@ -5,10 +5,10 @@ test('design links do not persist authentication query parameters',()=>{
  assert.equal(mockSourceUrl('https://aj-atlas.com/docs/p/design?token=secret#x'),'https://aj-atlas.com/docs/p/design')
  for(const u of ['javascript:alert(1)','http://atlas.test/r/1','https://person:secret@atlas.test/r/1'])assert.equal(mockSourceUrl(u),'')
 })
-test('drafts require source, actual requirement record and request; preparing makes a normal /mock task',()=>{
+test('drafts require source and request; requirement is optional; preparing makes a normal /mock task',()=>{
  const s=mockBlockData({source:'https://aj-atlas.com/r/12',requirement:'#14',request:'Create a head selector dialog'})
  assert.match(mockBlockTask(s)!,/^\/mock Create a head selector dialog/);assert.match(mockBlockTask(s)!,/https:\/\/aj-atlas.com\/r\/12/);assert.match(mockBlockTask(s)!,/#14/)
- for(const key of ['source','request','requirement'])assert.equal(mockBlockTask({...s,[key]:''}),null)
+ for(const key of ['source','request'])assert.equal(mockBlockTask({...s,[key]:''}),null)
 })
 test('pasted or malformed blocks cannot supply unbounded preview payloads or invalid dimensions',()=>{
  assert.equal(mockBlockData('{broken').preview,null)

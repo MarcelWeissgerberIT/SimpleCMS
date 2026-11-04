@@ -977,6 +977,18 @@ const shots = {
     await save(page, 'atlas-mock-block', await boxOf(block))
     await ctx.close()
   },
+  async 'free-design-mocks'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const content = { type: 'doc', content: [{ type: 'designMock', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Choose a CyBio head' }] }], attrs: { spec: { source: 'https://aj-atlas.com/docs/flux-client/atlas-ui-instructions', requirement: '', request: 'Create a dialog for choosing a CyBio head. Show the selected head in the dropdown.', preview: null } } }, { type: 'paragraph' }] }
+    const id = await createPage(page, 'UI proposal from Atlas', content)
+    await openPage(page, id)
+    const block = page.locator('.mock-block')
+    await block.getByRole('button', { name: 'Prepare in AI terminal', exact: true }).waitFor()
+    await block.scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'free-design-mocks', await boxOf(block))
+    await ctx.close()
+  },
   async 'frankfurt-costs'(browser) {
     const {ctx,page}=await freshPage(browser,{setup:async ctx=>{
       await ctx.route(`${LOCAL}/api/config`,route=>route.fulfill({json:{version:'shot',signup:{mode:'open'},max_upload_mb:25,dev_mode:true,source_url:'https://example.test/source',supports:['ai']}}))

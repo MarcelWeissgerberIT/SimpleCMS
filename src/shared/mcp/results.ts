@@ -1,4 +1,5 @@
 /** Run-local bounded source pages. No new request, permission, persistence or model summary. */
+import {MCP_SOURCE_BYTES,MCP_CACHE_BYTES,sourceBytes} from './sourceLimits.ts'
 const object=(v:unknown):v is Record<string,unknown>=>v!==null&&typeof v==='object'&&!Array.isArray(v)
 const pointer=(s:string)=>s.replace(/~/g,'~0').replace(/\//g,'~1')
 const BLOCKED=new Set(['__proto__','prototype','constructor'])
@@ -19,7 +20,8 @@ export class McpResults {
  private seq=0
  private bytes=0
  pack(raw:string):string {
-  if(raw.length>180000)throw new RangeError('MCP result exceeds the bounded source cache; request fewer sections or records.')
+  const size=sourceBytes(raw)
+  if(size>MCP_SOURCE_BYTES)throw new RangeError('MCP result exceeds the bounded source cache; request fewer sections or records.')
   const envelope=JSON.parse(raw)
   let data:unknown=envelope
   if(object(envelope)&&Array.isArray(envelope.content)&&envelope.content.length===1&&envelope.content[0]?.type==='text'){
@@ -27,10 +29,10 @@ export class McpResults {
   }
   const ref=object(data)&&object(data.item)&&Number.isSafeInteger(data.item.ref)&&typeof data.item.body==='string'&&!(object(envelope)&&envelope.isError===true)?Number(data.item.ref):null
   if(raw.length<=SMALL){if(ref!==null)this.bodies.set(ref,null);return raw}
-  while(this.entries.size>=8||this.bytes+raw.length>720000){const oldest=this.entries.entries().next().value;if(!oldest)break;this.entries.delete(oldest[0]);for(const key of this.seen.keys())if(key.startsWith(oldest[0]+'\n'))this.seen.delete(key);this.bytes-=oldest[1].size}
+  while(this.entries.size>=8||this.bytes+size>MCP_CACHE_BYTES){const oldest=this.entries.entries().next().value;if(!oldest)break;this.entries.delete(oldest[0]);for(const key of this.seen.keys())if(key.startsWith(oldest[0]+'\n'))this.seen.delete(key);this.bytes-=oldest[1].size}
   const id='mcp-result-'+this.prefix+'-'+(++this.seq)
   if(ref!==null)this.bodies.set(ref,id)
-  this.entries.set(id,{data,raw,size:raw.length,error:object(envelope)&&envelope.isError===true});this.bytes+=raw.length
+  this.entries.set(id,{data,raw,size,error:object(envelope)&&envelope.isError===true});this.bytes+=size
   return this.read({result_id:id})
  }
  /** Host-only fixed-program input. A tool-free generation cannot follow interactive cache pointers.

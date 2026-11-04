@@ -1,3 +1,4 @@
+import {MCP_SOURCE_BYTES} from '../../../src/shared/mcp/sourceLimits.ts'
 import {mcpArgumentsWithinLimit} from '../../../src/shared/mcp/attachment.ts'
 import {atlasQueryProblem} from '../../../src/shared/mcp/aql.ts'
 import {connectionProblem,mcpConnectionMessage} from '../../../src/shared/ai/connection-problem.ts'
@@ -62,7 +63,7 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
    if(!tool)throw badRequest('mcp_tool_unavailable','Tool unavailable or not permitted; nothing was executed.')
    if(!new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(args).valid)throw badRequest('mcp_arguments_invalid','MCP arguments do not match the current tool schema; nothing was executed.')
    const result=await client.callTool({name:request.name,arguments:args},undefined,{signal})
-   const raw=JSON.stringify(result);if(Buffer.byteLength(raw)>180000)throw new ApiError(502,'mcp_response_limit','Atlas result exceeds 180 KB; request a smaller result.')
+   const raw=JSON.stringify(result);if(Buffer.byteLength(raw)>(request.name==='atlas_get'?MCP_SOURCE_BYTES:180000))throw new ApiError(502,'mcp_response_limit','Atlas result exceeds the bounded download size; request fewer sections or records.')
    return {result:scrub(raw)}
   }
   if(request.action==='search'){

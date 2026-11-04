@@ -33,7 +33,7 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
       assert.equal(budgetTokens, 1800); return { content: [{ type: 'text', text: `Scoped memory ${ref} ${secret}` }] }
     })
     mcp.registerTool('atlas_get', { description: 'Fetch a record', inputSchema: { ref: z.number() } }, async ({ ref }) => {
-      calls.push(`get:${ref}`); return { content: [{ type: 'text', text: `Record ${ref}: implement local task. ${secret}` }] }
+      calls.push(`get:${ref}`); return { content: [{ type: 'text', text: ref===900?('Design source. '.repeat(240000)):`Record ${ref}: implement local task. ${secret}` }] }
     })
     mcp.registerTool('atlas_create', { description: 'Create a record', inputSchema: { title: z.string() } }, async () => {
       calls.push('create'); return { content: [{ type: 'text', text: 'Created' }] }
@@ -94,6 +94,8 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     assert.ok(readOnly.search('docs atlas_get').some(t => t.server === 'docs' && t.readOnly))
     await assert.rejects(readOnly.call('atlas', 'atlas_create', { title: 'no' }, new AbortController().signal))
     assert.ok(!(await readOnly.call('atlas', 'atlas_get', { ref: 42 }, new AbortController().signal)).includes(secret))
+    const designFull=await readOnly.call('atlas','atlas_get',{ref:900},new AbortController().signal,false,true)
+    assert.equal(JSON.parse(designFull).content[0].text,'Design source. '.repeat(240000))
     const large = await readOnly.call('atlas', 'atlas_large', {}, new AbortController().signal)
     assert.ok(large.length <= 20000)
     assert.equal(JSON.parse(large).oneOutputShortened, true)

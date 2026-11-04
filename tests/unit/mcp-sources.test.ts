@@ -48,7 +48,7 @@ test('bounded cache eviction, source errors and JSON-pointer escaping are explic
  assert.equal(JSON.parse(cache.read({result_id:first.result_id,path:'/a~1b~0c'})).content,'z'.repeat(2800))
  for(let i=0;i<8;i++)cache.pack(raw)
  assert.throws(()=>cache.read({result_id:first.result_id}),/expired/)
- assert.throws(()=>cache.pack('x'.repeat(180001)),/exceeds/)
+ assert.throws(()=>cache.pack('x'.repeat(8*1024*1024+1)),/exceeds/)
 })
 test('only complete text envelopes unwrap; arbitrary structured output is preserved',()=>{
  assert.equal(unwrapMcpText('[{"type":"text","text":"Hallo"}]'),'Hallo')
@@ -128,7 +128,7 @@ test('fixed programs restore the fresh bounded MCP response instead of generatin
  const decorated=JSON.stringify({...packed,oneObservedFacts:{refs:[42],outcome:'ok'},oneSourceLinks:'https://atlas.example/r/42'})
  const full=JSON.parse(cache.materialize(decorated));assert.equal(JSON.parse(full.content[0].text).item.body,body);assert.deepEqual(full.oneObservedFacts,{refs:[42],outcome:'ok'});assert.equal(full.oneSourceLinks,'https://atlas.example/r/42')
  assert.equal(cache.materialize(envelope({item:{ref:7}})),envelope({item:{ref:7}}))
- assert.throws(()=>new McpResults().materialize(decorated),/expired/);assert.throws(()=>cache.pack('x'.repeat(180001)),/bounded source cache/)
+ assert.throws(()=>new McpResults().materialize(decorated),/expired/);assert.throws(()=>cache.pack('x'.repeat(8*1024*1024+1)),/bounded source cache/)
 })
 
 
