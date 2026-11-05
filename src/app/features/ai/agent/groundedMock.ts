@@ -1,3 +1,6 @@
+import {mockColorStyle} from '@/shared/ai/mockBlockProvenance'
+import {sha256Hex} from '@/shared/mcp/sha256'
+import {mockFeedbackContext,assessMockFeedback} from './mockFeedbackContext'
 /** Explicit /mock sources are read by ONE, then one bounded draft and at most one correction. */
 import {MOCK_GUIDE,MockSources} from '@/shared/ai/designMock'
 import {workerMcpSession} from '../core/workerMcp'
@@ -19,7 +22,8 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
  if(candidates.length!==1)throw new ToolInputError('Select exactly one personal Atlas connection for this explicit mock; no server was guessed.')
  const server=candidates[0]
  if(plan.design&&new URL(plan.design.url).origin!==new URL(server.url).origin)throw new ToolInputError('The selected design link belongs to a different Atlas server.')
- const task=createTaskContract({reviewProfile:o.reviewProfile,prepared,goal:o.typed??'',instructions:MOCK_GUIDE,input:plan,tools:['create_design_mock'],one:false,atlas:true,sourcesRequired:true,bounds:{readOnly:true,externalWrite:false,execute:false},signal:o.signal,onReport:o.hooks.contract})
+ const feedback=mockFeedbackContext(o.typed??'',prepared,o.sources)
+ const task=createTaskContract({reviewProfile:o.reviewProfile,prepared,goal:o.typed??'',instructions:MOCK_GUIDE,input:plan,tools:['create_design_mock'],one:!!feedback,atlas:true,sourcesRequired:true,bounds:{readOnly:true,externalWrite:false,execute:false},signal:o.signal,onReport:o.hooks.contract})
  const audit=await beginLiveAudit(prepared.route!,o.typed??'',o.purpose),untap=tapSignal(o.signal,{onEntry:e=>o.hooks.usage(e.usage,e)})
  let state='failed',failure:unknown,answer=''
  try{
@@ -60,13 +64,14 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
   }
   else for(const ref of plan.refs)await read({ref})
   const artifact=await checkedMockDraft(
-   (input,error,repair)=>repairDesignMock(o,prepared,sources,input,error,{phase:repair?'repair':'draft',audit}),
+   (input,error,repair)=>repairDesignMock(o,prepared,sources,input,error,{phase:repair?'repair':'draft',audit,revision:feedback?.prompt}),
    draft=>({...compileMock(draft,sources),request:(o.typed??'').split(/^Atlas design (?:source|epic):/m)[0]!.replace(/^\/mock\s*/i,'')}),
    ()=>o.hooks.note('Der Mock-Entwurf wird einmal gegen echte Quellenausschnitte und das vollständige Schema korrigiert.'))
+  if(feedback){feedback.check();artifact.feedbackReview={journal:feedback.request.journal,base:feedback.request.base,notes:feedback.request.notes,assessments:[]};artifact.colorAdjustments=feedback.snapshot.preview.colors;artifact.document=artifact.document.replace('</head>',mockColorStyle(artifact.colorAdjustments??{})+'</head>');artifact.htmlHash=sha256Hex(artifact.document);try{artifact.feedbackReview=await assessMockFeedback(o,prepared,sources,feedback,audit)}catch(e){if(o.signal.aborted)throw e;feedback.check();o.hooks.note('Mock erstellt; die Designsystem-Einschätzung ist noch offen: '+String(e instanceof Error?e.message:e))}}
   task.dispatch('create_design_mock','read');task.finish('Statischer Design-Mock mit tatsächlich gelesenen Quellen erstellt. Diese Entwurfsphase hat Atlas nur gelesen.')
   artifact.route=prepared.route!
   let deliveryNote=''
-  if(plan.saveToEpic&&artifact.atlasContext){
+  if(!feedback&&plan.saveToEpic&&artifact.atlasContext){
    try{const {publishEpicMock}=await import('./publishEpicMock');await publishEpicMock(artifact,o.signal,o.hooks.note);deliveryNote=' Mock im Design-Epic gespeichert: '+artifact.atlasSaved!.url}
    catch(e){if(o.signal.aborted)throw e;deliveryNote=' Die Vorschau ist fertig, die Atlas-Ablage ist unvollständig: '+String(e instanceof Error?e.message:e)+(artifact.atlasDestination?' · '+artifact.atlasDestination.url:'')+'. Über die Mock-Karte fortsetzen; vorhandene Records werden wiederverwendet.';o.hooks.note(deliveryNote)}
   }

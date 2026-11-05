@@ -1,3 +1,4 @@
+import {mockFeedbackText} from '@/shared/ai/mockReview'
 import { Node, mergeAttributes, type Editor, type Range, type JSONContent } from '@tiptap/core'
 import { mockBlockData, mockBlocksAllowed } from '@/shared/ai/mockBlock'
 import { t } from '../../i18n'
@@ -10,8 +11,8 @@ export const DesignMockNode = Node.create({
  addAttributes() { return { spec: { default: null, parseHTML: el => mockBlockData(el.getAttribute('data-mock')), renderHTML: attrs => ({'data-mock': JSON.stringify(mockBlockData(attrs.spec))}) } } },
  parseHTML() { return [{tag: 'figure[data-type="design-mock"]', contentElement:'[data-mock-title]'}] },
  renderHTML({node, HTMLAttributes}) { const s = mockBlockData(node.attrs?.spec); return ['figure', mergeAttributes(HTMLAttributes, {'data-type':'design-mock'}), ['div', {'data-mock-title':''}, 0], ['figcaption', {}, s.preview?.title || 'UI mock'], ['p',{},s.request], ['p',{},s.source]] },
- renderText({node}) { const s=mockBlockData(node.attrs?.spec); return [node.textContent.trim() || s.preview?.title || 'UI mock',s.request,s.source,s.requirement].filter(Boolean).join('\n') },
- renderMarkdown(node) { const s=mockBlockData(node.attrs?.spec); return `**${escapeMarkdownText(blockTitle(node))}**\n\n${escapeMarkdownText(s.request)}\n\n${s.source}\n\n${escapeMarkdownText(s.requirement)}\n` },
+ renderText({node}) { const s=mockBlockData(node.attrs?.spec); return [node.textContent.trim() || s.preview?.title || 'UI mock',s.request,s.source,s.requirement,mockFeedbackText(s)].filter(Boolean).join('\n') },
+ renderMarkdown(node) { const s=mockBlockData(node.attrs?.spec); return `**${escapeMarkdownText(blockTitle(node))}**\n\n${escapeMarkdownText(s.request)}\n\n${s.source}\n\n${escapeMarkdownText(s.requirement)}\n\n${escapeMarkdownText(mockFeedbackText(s))}\n` },
 })
 
 export const canInsertDesignMock = () => mockBlocksAllowed(useCloud.getState())

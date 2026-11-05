@@ -679,3 +679,4 @@ export { TranslationControls, WorkspaceTranslations } from './translation'
 export { MockBlockComposer } from './ai/agent/MockBlockComposer'
 
 export { DesignMockCard } from './ai/agent/DesignMockCard'
+export { MockReviewPanel } from './ai/agent/MockReviewPanel'

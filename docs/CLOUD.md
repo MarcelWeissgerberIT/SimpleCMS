@@ -510,6 +510,11 @@ may write:
   that number in the same server release when, as for `1`, clients without the parameter must stop writing —
   later raises can follow the app by one release. The first gate (generation 1) makes every tab of a build
   before it read-only at once.
+- Generation 3 adds saved mock feedback and version journals. Deploy its frontend reader before raising
+  `MIN_CLIENT_SCHEMA` to 3. Cloud mock editing waits for that gate; generation-2 tabs become read-only
+  before a journal can be created. Local merges retain the journal by block id when a generation-2 spec
+  parser drops it, while keeping that older tab's preview/title edits. Notes and queued MD work are
+  included in page Markdown; full historical HTML remains in the block and its explicit JSON export.
 - **A misplaced node is never repaired on mount in a shared document**: every member opening it would repair
   the same spot at once and Y would merge both repairs (a task inside a task came out doubled). Placement
   rules are enforced where content is written: local edits (paste / drop: the task moves out whole) and JSON

@@ -1,3 +1,4 @@
+import {mockFeedbackText} from '@/shared/ai/mockReview'
 /** The plain text of TipTap JSON — pure (no store), so pure modules (merge.ts …) can use it. Re-exported by store.ts. */
 import type { JSONContent } from '@tiptap/core'
 import { mockBlockData } from '@/shared/ai/mockBlock'
@@ -29,7 +30,7 @@ export function plainText(node: JSONContent | null | undefined, max = 20000): st
         if (typed.length) out += `${typed.join(' ')}\n`
       }
     }
-    if (n.type === 'designMock') { const s = mockBlockData(n.attrs?.spec); out += [s.preview?.title, s.request, s.source, s.requirement].filter(Boolean).join('\n') + '\n' }
+    if (n.type === 'designMock') { const s = mockBlockData(n.attrs?.spec); out += [s.preview?.title, s.request, s.source, s.requirement, mockFeedbackText(s)].filter(Boolean).join('\n') + '\n' }
     // charts: their title (editor/schema/chart.ts)
     if (n.type === 'chart' && typeof n.attrs?.spec?.title === 'string' && n.attrs.spec.title) out += `${n.attrs.spec.title}\n`
   }

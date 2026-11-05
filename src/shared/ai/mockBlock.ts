@@ -1,16 +1,17 @@
+import {readMockJournal,type MockJournal} from './mockReview.ts'
 import {mockProvenance,mockColors,type MockProvenance} from './mockBlockProvenance.ts'
 import {sha256Hex} from '../mcp/sha256.ts'
 import type {DesignMock} from './designMock.ts'
 /** Persistent request + explicitly chosen static preview; never a credential or a live AI run. */
 export interface MockBlockPreview { title: string; document: string; width: number; height: number; createdAt: string; htmlHash: string; targetUrl: string; provenance?:MockProvenance; colors?:Record<string,string>; savedHtmlHash?:string }
-export interface MockBlockData { source: string; requirement: string; request: string; preview: MockBlockPreview | null; saveToEpic?: boolean }
+export interface MockBlockData { source: string; requirement: string; request: string; preview: MockBlockPreview | null; saveToEpic?: boolean; journal?:MockJournal }
 const text = (v: unknown, max: number) => typeof v === 'string' ? v.slice(0, max) : ''
 /** Atlas links are stored without sign-in tokens, credentials or query strings. */
 export function mockSourceUrl(value: unknown): string {
  if(typeof value !== 'string' || value.length > 2000)return ''
  try { const u = new URL(value); if (u.protocol !== 'https:' || u.username || u.password) return ''; u.search = ''; u.hash = ''; return u.href } catch { return '' }
 }
-export function mockBlockData(raw: unknown): MockBlockData {
+export function mockBlockData(raw: unknown, readHistory=true): MockBlockData {
  let v = raw
  if (typeof v === 'string') { try { v = JSON.parse(v) } catch { v = null } }
  const a = v && typeof v === 'object' ? v as Record<string, unknown> : {}
@@ -21,7 +22,7 @@ export function mockBlockData(raw: unknown): MockBlockData {
   const receipt=preview.htmlHash===sha256Hex(preview.document)?mockProvenance(p.provenance):undefined
   Object.assign(preview,{provenance:receipt,colors:mockColors(p.colors,receipt),savedHtmlHash:typeof p.savedHtmlHash==='string'&&/^[a-f0-9]{64}$/.test(p.savedHtmlHash)?p.savedHtmlHash:undefined})
  }
- return {source: mockSourceUrl(a.source), requirement: text(a.requirement,2000), request: text(a.request,8000), preview, saveToEpic:a.saveToEpic===true}
+ return {source: mockSourceUrl(a.source), requirement: text(a.requirement,2000), request: text(a.request,8000), preview, saveToEpic:a.saveToEpic===true,...(readHistory?{journal:readMockJournal(a.journal,p=>mockBlockData({preview:p},false).preview)}:{})}
 }
 export function mockBlockTask(data: MockBlockData): string | null {
  const source = mockSourceUrl(data.source), request = data.request.trim(), requirement = data.requirement.trim()
@@ -33,12 +34,12 @@ export const STATIC_MOCK_CSP = "default-src 'none'; style-src 'unsafe-inline'; s
 export const mockBlockFrame = (document: string) => `<meta http-equiv="Content-Security-Policy" content="${STATIC_MOCK_CSP}">${document}`
 
 /** Phase one: readers ship first; cloud creation waits until old clients are write-gated. */
-export const MOCK_BLOCK_GENERATION = 2
+export const MOCK_BLOCK_GENERATION = 3
 export function mockBlocksAllowed(c: {active:{kind:string}; readOnly:boolean; outdated?:boolean; schemaMin:number|null}) {
  return !c.readOnly && !c.outdated && (c.active.kind === 'local' || (c.schemaMin ?? 0) >= MOCK_BLOCK_GENERATION)
 }
 
 /** An explicit import retains the source receipt for a later Atlas upload. */
 export function mockPreviewFromArtifact(a:DesignMock):MockBlockPreview{
- return {title:a.title,document:a.document,width:a.width,height:a.height,createdAt:a.createdAt,htmlHash:a.htmlHash,targetUrl:a.atlasSaved?.url??a.atlasDestination?.url??a.target?.url??'',provenance:mockProvenance({...a,document:undefined}),colors:{},savedHtmlHash:a.atlasSaved?a.htmlHash:undefined}
+ return {title:a.title,document:a.document,width:a.width,height:a.height,createdAt:a.createdAt,htmlHash:a.htmlHash,targetUrl:a.atlasSaved?.url??a.atlasDestination?.url??a.target?.url??'',provenance:mockProvenance({...a,document:undefined}),colors:mockColors(a.colorAdjustments,mockProvenance({...a,document:undefined})),savedHtmlHash:a.atlasSaved?a.htmlHash:undefined}
 }

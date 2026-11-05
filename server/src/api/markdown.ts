@@ -10,6 +10,7 @@
  * - Comment marks and button actions never leave: comments are dropped, buttons show their label only.
  */
 import * as Y from 'yjs'
+import { mockFeedbackText } from '../../../src/shared/ai/mockReview.ts'
 import { mockBlockData } from '../../../src/shared/ai/mockBlock.ts'
 
 export interface MarkdownContext {
@@ -357,7 +358,7 @@ function block(n: MdNode, ctx: MarkdownContext): string {
       return chart(n)
     case 'designMock': {
       const s = mockBlockData(n.attrs.spec)
-      return [blocks(kids, ctx) || s.preview?.title || 'UI mock', s.request, s.source, s.requirement].filter(Boolean).join('\n\n')
+      return [blocks(kids, ctx) || s.preview?.title || 'UI mock', s.request, s.source, s.requirement, mockFeedbackText(s)].filter(Boolean).join('\n\n')
     }
     case 'workItem':
       // a task block (the app's editor/schema/workItem.ts) prints as its plain blocks — the title line, then the

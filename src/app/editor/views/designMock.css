@@ -42,3 +42,11 @@
 .mock-block__color input[type=color]{width:36px;height:36px;border:1px solid var(--rule);padding:2px;background:var(--surface);border-radius:4px;cursor:pointer}
 .mock-block__color>input{width:110px;padding:8px;border:1px solid var(--rule);border-radius:4px;background:var(--surface);color:var(--ink);font:inherit}
 .mock-block__atlas-status{padding:10px 12px;background:var(--surface-2,var(--bg));border-radius:4px}
+.mock-review{display:grid;gap:12px}
+.mock-review__compose{display:grid;gap:10px;padding:14px;border:1px solid var(--signal);border-radius:4px}
+.mock-review label{display:grid;gap:6px}
+.mock-review textarea,.mock-review select{width:100%;box-sizing:border-box;padding:8px;background:var(--surface);color:var(--ink);border:1px solid var(--rule);border-radius:4px;font:inherit}
+.mock-review__notes,.mock-review__versions{display:grid;gap:12px;padding:0;list-style:none}
+.mock-review__notes>li,.mock-review__versions>li{border:1px solid var(--rule);padding:14px;border-radius:4px;overflow-wrap:anywhere}
+.mock-review__assessment{border-left:3px solid var(--signal);padding-left:12px;margin-top:12px}
+.mock-review small{color:var(--ink-2)}
