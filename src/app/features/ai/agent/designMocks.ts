@@ -1,13 +1,14 @@
 import DOMPurify from 'dompurify'
-import {MockSources,MOCK_SCHEMA,mockIssues,type MockDraft,type DesignMock} from '@/shared/ai/designMock'
+import {MockSources,MOCK_SCHEMA,MOCK_TAGS,mockIssues,normalizeMockFonts,type MockDraft,type DesignMock} from '@/shared/ai/designMock'
 import {sha256Hex} from '@/shared/mcp/sha256'
 import {validateValue} from '@/shared/quandprofile/program'
 import {ToolInputError,type AgentTool} from './tools'
-const tags=['main','section','article','header','footer','nav','aside','div','span','h1','h2','h3','h4','p','strong','em','small','label','button','input','textarea','select','option','table','thead','tbody','tr','th','td','ul','ol','li','dl','dt','dd','hr','br','fieldset','legend','progress']
+const tags=MOCK_TAGS
 const attrs=['class','id','role','aria-label','aria-labelledby','aria-describedby','aria-selected','aria-checked','aria-disabled','aria-current','data-ds-component','data-requirement','type','name','value','placeholder','disabled','checked','selected','for','rows','cols','colspan','rowspan','scope','min','max','step']
 const escape=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
  try{validateValue(draft,MOCK_SCHEMA,'design mock')}catch(e){throw new ToolInputError(String(e))}
+ draft=normalizeMockFonts(draft)
  const issues=mockIssues(draft,sources)
  const parsed=new DOMParser().parseFromString(draft.html,'text/html')
  if(parsed.head.children.length||/<\s*\/?(?:html|head|body|!doctype)\b/i.test(draft.html))issues.push('Supply body markup only, not a document/head/style/script wrapper.')

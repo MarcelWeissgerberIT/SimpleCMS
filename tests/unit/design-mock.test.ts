@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {MockSources,mockIssues,type MockDraft} from '../../src/shared/ai/designMock.ts'
+import {MockSources,mockIssues,normalizeMockFonts,type MockDraft} from '../../src/shared/ai/designMock.ts'
 const design='Current Example Kit v5. Button uses --primary: #A50034. Card uses --surface: #FFFFFF. The spacing step is 16px.'
 const rule='Current design system: /r/12 Example Kit v5 is the only valid version.'
 const req='When a record is selected, the screen shall display its original title.'
@@ -43,4 +43,32 @@ test('inset is shadow syntax while nonzero shadow dimensions still require citat
  draft.css='p{box-shadow:inset var(--space) 0 0 var(--primary)}'
  assert.deepEqual(mockIssues(draft,s),[])
  for(const css of ['p{box-shadow:inset 4px 0 0 var(--primary)}','p{padding:inset var(--space)}']){draft.css=css;assert(mockIssues(draft,s).some(i=>i.includes('visual property')))}
+})
+
+function fontFixture(){
+ const f=fixture(),quote='Body font is "EuH Sans", system-ui, sans-serif.'
+ observe(f.s,12,design+' '+quote)
+ f.draft.tokens.push({source:f.d.id,name:'--font',value:'"EuH Sans", system-ui, sans-serif',quote})
+ return f
+}
+test('cited font stacks accept generic browser fallbacks and inheritance',()=>{
+ for(const value of ['var(--font)','var(--font), sans-serif','var(--font), system-ui, sans-serif','var(--font), var(--font), ui-sans-serif','inherit']){
+  const {s,draft}=fontFixture();draft.css='body{color:var(--primary);font-family:'+value+'}'
+  assert.deepEqual(mockIssues(draft,s),[],value)
+ }
+})
+test('font fallbacks cannot introduce an uncited named font or bypass other visual checks',()=>{
+ for(const css of ['body{font-family:var(--font), Arial}','body{font-family:Arial, var(--font)}','body{font-family:sans-serif}','body{font-family:var(--missing), sans-serif}','body{font-family:var(--font), "sans-serif"}','body{font-family:var(--font), url(https://evil.test)}','body{font-size:var(--font), sans-serif}']){
+  const {s,draft}=fontFixture();draft.css=css;assert(mockIssues(normalizeMockFonts(draft),s).length,css)
+ }
+})
+test('literal font values already cited are converted without inventing a token or changing the input',()=>{
+ const {s,draft}=fontFixture();draft.css='body{font-family:"EuH Sans", system-ui, sans-serif}button{font-family:inherit}'
+ const result=normalizeMockFonts(draft)
+ assert.equal(result.css,'body{font-family:var(--font)}button{font-family:inherit}')
+ assert(draft.css.includes('"EuH Sans"'));assert.deepEqual(mockIssues(result,s),[])
+ draft.css='body{font-family:"EuH Sans", system-ui, sans-serif, monospace}'
+ assert.equal(normalizeMockFonts(draft).css,'body{font-family:var(--font), monospace}')
+ draft.tokens.at(-1)!.quote='A fabricated font citation for this token.'
+ assert(mockIssues(normalizeMockFonts(draft),s).length)
 })
