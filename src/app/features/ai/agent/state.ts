@@ -106,6 +106,8 @@ export interface AgentState {
   /** run the draft as soon as the terminal is ready (opened with a task from the AI menu) */
   autorun: boolean
   status: AgentStatus
+  /** Quiet page-saving reminder dismissed for this conversation only. */
+  answerPageHintDismissed: boolean
   turns: AgentTurn[]
   steps: AgentStep[]
   changes: StagedChange[]
@@ -145,8 +147,9 @@ export interface AgentState {
   halt: HaltState | null
 }
 
-export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'pageTree'> => ({
+export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'pageTree' | 'answerPageHintDismissed'> => ({
   pageTree: null,
+  answerPageHintDismissed: false,
   route: null,
   status: 'idle',
   turns: [],

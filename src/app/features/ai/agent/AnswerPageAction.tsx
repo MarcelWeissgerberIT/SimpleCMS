@@ -1,7 +1,9 @@
-import {useState} from 'react'
+import {useMemo,useState} from 'react'
 import {Modal} from '../../../ui/Modal'
 import {useT} from '../../../i18n'
 import {useWorkspace} from '../../../store/store'
+import {plainText} from '../../../store/plain'
+import {markdownToDoc} from '../../../editor/convert'
 import {isEffectivelyTrashed} from '../../../store/selectors'
 import {useCloud} from '../../../cloud'
 import {openPage} from '../../../lib/router'
@@ -11,12 +13,21 @@ import {TERMINAL_TOOLS} from './tools'
 import type {AgentTurn} from './types'
 
 /** A human copies a completed answer into the existing ONE review. No new inference or Atlas effect. */
-export function AnswerPageAction({turn}:{turn:AgentTurn}) {
+export function AnswerPageAction({turn,last=false}:{turn:AgentTurn;last?:boolean}) {
   const t=useT(),readOnly=useCloud(s=>s.readOnly),cloud=useCloud(s=>s.active.kind==='cloud')
   const pages=useWorkspace(s=>s.pages),busy=useAgent(s=>s.status==='running'||s.applying)
+  const dismissed=useAgent(s=>s.answerPageHintDismissed)
   const change=useAgent(s=>s.changes.find(c=>c.id===turn.answerPageChange))
   const [open,setOpen]=useState(false),[title,setTitle]=useState(''),[destination,setDestination]=useState(''),[error,setError]=useState(''),[saving,setSaving]=useState(false)
   const [scope,setScope]=useState('')
+  const meaningful=turn.answer.trim().length>=300||(turn.answer.trim().length>=120&&/^(?:#{1,6} |[-*] |\d+\. |\|)/mu.test(turn.answer))
+  const mayRemind=last&&meaningful&&!busy&&!readOnly&&!dismissed&&turn.status==='done'&&(!change||change.status==='discarded')
+  // Compare complete text only. A matching excerpt is not proof the whole answer was saved.
+  const answerText=useMemo(()=>{
+    if(!mayRemind)return ''
+    try{return plainText(markdownToDoc(turn.answer),Infinity).replace(/\s+/gu,' ').trim()}catch{return ''}
+  },[mayRemind,turn.answer])
+  const alreadyOnPage=useMemo(()=>answerText.length>=120&&Object.values(pages).some(page=>!isEffectivelyTrashed(pages,page.id)&&page.plain?.replace(/\s+/gu,' ').includes(answerText)),[answerText,pages])
   const currentScope=()=>JSON.stringify([useWorkspace.getState().epoch,useCloud.getState().active,useCloud.getState().user?.id])
   if(turn.status!=='done'||!turn.answer.trim())return null
   const begin=()=>{
@@ -44,6 +55,10 @@ export function AnswerPageAction({turn}:{turn:AgentTurn}) {
   }
   const present=change&&change.status!=='discarded'
   return <div className="term-answer-page">
+    {mayRemind&&!alreadyOnPage&&<div className="term-answer-page__hint" role="note">
+      <span>{t('features.ai.answerPage.hint')}</span>
+      <button type="button" className="term-answer-page__dismiss" aria-label={t('features.ai.answerPage.dismissHint')} title={t('features.ai.answerPage.dismissHint')} onClick={()=>useAgent.setState({answerPageHintDismissed:true})}>×</button>
+    </div>}
     {present?<p role="status">{t(change.status==='applied'?'features.ai.answerPage.saved':'features.ai.answerPage.staged')}{change.status==='applied'&&pages[change.pageId]&&<button className="btn btn--sm" onClick={()=>openPage(change.pageId)}>{t('features.ai.answerPage.open')}</button>}</p>:<button className="btn btn--sm" disabled={readOnly||busy} onClick={begin}>{t('features.ai.answerPage.action')}</button>}
     {open&&<Modal open title={t('features.ai.answerPage.title')} label="ONE" width={560} onClose={()=>{if(!saving)setOpen(false)}} footer={<><button className="btn" disabled={saving} onClick={()=>setOpen(false)}>{t('common.cancel')}</button><button className="btn btn--primary" disabled={saving||busy||readOnly||!title.trim()} onClick={()=>void prepare()}>{t('features.ai.answerPage.prepare')}</button></>}>
       <p>{t('features.ai.answerPage.intro')}</p>

@@ -12,6 +12,8 @@ export const messages: Messages = {
     'features.ai.task.closed': 'The previous run has ended. Your answer can be prepared as a new request; current sources and existing changes must be checked again. Nothing starts automatically.',
     'features.ai.task.recover': 'Prepare answer as a new request',
 
+    'features.ai.answerPage.hint': "Keep this result for later: save it on a ONE page. Console content is temporary.",
+    'features.ai.answerPage.dismissHint': "Hide this reminder for this conversation",
     'features.ai.answerPage.action': "Prepare as a ONE page",
     'features.ai.answerPage.title': "Save this answer in ONE",
     'features.ai.answerPage.intro': "Create an editable page from this completed answer. No new model request or Atlas record is needed. Review the proposed page and press Apply to save it.",
@@ -707,6 +709,8 @@ export const messages: Messages = {
     'features.ai.task.closed': 'Der vorige Lauf ist beendet. Du kannst deine Antwort als neuen Auftrag vorbereiten; aktuelle Quellen und vorhandene Änderungen werden erneut geprüft. Es startet nichts automatisch.',
     'features.ai.task.recover': 'Antwort als neuen Auftrag vorbereiten',
 
+    'features.ai.answerPage.hint': "Zum Wiederfinden auf einer ONE-Seite ablegen. Inhalte der Konsole sind nur vorübergehend verfügbar.",
+    'features.ai.answerPage.dismissHint': "Hinweis für diese Unterhaltung ausblenden",
     'features.ai.answerPage.action': "Als ONE-Seite vorbereiten",
     'features.ai.answerPage.title': "Antwort in ONE ablegen",
     'features.ai.answerPage.intro': "Erstelle aus dieser fertigen Antwort eine bearbeitbare Seite. Dafür sind weder eine weitere Modellanfrage noch ein Atlas-Record nötig. Prüfe die vorgeschlagene Seite und drücke Übernehmen, um sie zu speichern.",

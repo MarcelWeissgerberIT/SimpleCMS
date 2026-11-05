@@ -2495,3 +2495,10 @@
 .term-answer-page .btn { white-space: normal; max-width: 100%; }
 .answer-page__field { display: grid; gap: 6px; margin: 16px 0; min-width: 0; }
 .answer-page__field input, .answer-page__field select { width: 100%; min-width: 0; }
+
+/* One quiet reminder beside the existing action; no popup, animation or focus change. */
+.term-answer-page__hint { display: flex; align-items: flex-start; gap: 12px; max-width: 68ch; margin-bottom: 8px; color: var(--ink-2); font-size: var(--text-xs); line-height: 1.5; }
+.term-answer-page__hint > span { flex: 1; min-width: 0; }
+.term-answer-page__dismiss { flex: 0 0 28px; min-height: 28px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; font-size: 18px; cursor: pointer; }
+.term-answer-page__dismiss:hover { background: var(--surface-2); color: var(--ink); }
+.term-answer-page__dismiss:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }

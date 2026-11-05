@@ -643,7 +643,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       {turn.answer && (
         <div className="term-answer">
           <MarkdownLite source={turn.answer} />
-          <AnswerPageAction turn={turn}/>
+          <AnswerPageAction turn={turn} last={last}/>
         </div>
       )}
       {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock}/>)}
