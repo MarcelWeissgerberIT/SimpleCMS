@@ -83,7 +83,7 @@ export function createGateway({upstream='http://127.0.0.1:11434',keyFile,keys,lo
       if(req.method==='GET'&&req.url==='/healthz'){status=200;send(res,200,{status:'ok',service:'atlas-flow'});return}
       if(new URL(req.url??'/', 'http://localhost').pathname==='/admin/audit'){
         if(!audit||!audit.authorized(req.headers.authorization))throw fault(404,'not_found','Not found.')
-        if(req.method==='POST'){const input=await jsonBody(req,1024*1024);status=200;send(res,200,input.action==='start'?audit.startRun(input):input.action==='event'?audit.appendRun(input):(()=>{throw fault(400,'invalid_audit_action','Invalid action')})());return}
+        if(req.method==='POST'){const input=await jsonBody(req,16*1024*1024);status=200;send(res,200,input.action==='start'?audit.startRun(input):input.action==='event'?audit.appendRun(input):(()=>{throw fault(400,'invalid_audit_action','Invalid action')})());return}
         if(req.method!=='GET')throw fault(405,'method_not_allowed','Read only.')
         const url=new URL(req.url,'http://localhost'),entry=url.searchParams.get('id'),run=url.searchParams.get('run')
         if(url.searchParams.get('costs')==='1'){

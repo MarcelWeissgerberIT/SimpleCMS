@@ -4,6 +4,7 @@ import {useEffect,useState} from 'react'
 import {Download,RefreshCw} from 'lucide-react'
 import {cloudRequest} from '../../../cloud'
 import {useLang} from '../../../i18n'
+import {auditResultFailed,auditPreview} from '@/shared/ai/audit-display'
 import {atlasReceipt} from '@/shared/mcp/facts'
 import type {QuantumProof} from '@/shared/quandprofile/runtime'
 import {AtlasFactsView} from '../mcp-servers/AtlasFacts'
@@ -31,12 +32,6 @@ function readableResult(value:Value,depth=0):Value{
  if(Array.isArray(value))return value.map(v=>readableResult(v,depth+1))
  const v=object(value);return v?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,readableResult(x,depth+1)])):value
 }
-function resultFailed(value:Value):boolean{
- const v=object(value);if(!v)return false
- if(v.isError===true||v.oneNotExecuted===true)return true
- if(typeof v.result==='string'){try{return resultFailed(JSON.parse(v.result))}catch{}}
- return false
-}
 function dispatchReceipt(event:AuditEvent|undefined){
  const wrapper=object(event?.result),proof=object(wrapper?.oneDispatchProof)
  if(!proof||proof.status!=='verified'||typeof proof.profileHash!=='string'||!Array.isArray(proof.checks)||!Array.isArray(proof.quantumIds)||!proof.quantumIds.every(id=>typeof id==='string'))return null
@@ -50,15 +45,15 @@ export function LiveAuditRuns({path,scope}:{path:string;scope:string}){
  const [live,setLive]=useState(true),[revision,setRevision]=useState(0),[selected,setSelected]=useState(''),[rows,setRows]=useState<Row[]>([]),[detail,setDetail]=useState<Detail|null>(null),[cursor,setCursor]=useState<string|null>(null),[before,setBefore]=useState(''),[busy,setBusy]=useState(true),[error,setError]=useState(''),[updated,setUpdated]=useState<number|null>(null)
  useEffect(()=>{setSelected('');setRows([]);setDetail(null);setBefore('');setCursor(null);setUpdated(null)},[scope])
  useEffect(()=>{
-  const abort=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined,first=true
+  const abort=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined,first=true,finished=false
   const load=async()=>{
    if(first)setBusy(true)
    try{
-    if(selected){const next=await cloudRequest<Detail>('GET',path+'?run='+encodeURIComponent(selected),undefined,{signal:abort.signal});if(!abort.signal.aborted)setDetail(next)}
+    if(selected){const next=await cloudRequest<Detail>('GET',path+'?run='+encodeURIComponent(selected),undefined,{signal:abort.signal});if(!abort.signal.aborted){setDetail(next);finished=next.run.state!=='running'}}
     else{const next=await cloudRequest<{entries:Row[];nextCursor?:string|null}>('GET',path+'?runs=1'+(before?'&before='+encodeURIComponent(before):''),undefined,{signal:abort.signal});if(!abort.signal.aborted){setRows(previous=>before?[...new Map([...previous,...next.entries].map(x=>[x.auditId,x])).values()]:next.entries);setCursor(next.nextCursor??null)}}
     if(!abort.signal.aborted){setError('');setUpdated(Date.now())}
    }catch{if(!abort.signal.aborted)setError(tr('Live-Protokoll nicht erreichbar. Angezeigte Daten sind möglicherweise veraltet.','Live log unavailable. Displayed data may be stale.'))}
-   finally{if(!abort.signal.aborted){setBusy(false);first=false;if(live)timer=setTimeout(()=>void load(),2000)}}
+   finally{if(!abort.signal.aborted){setBusy(false);first=false;if(live&&!finished)timer=setTimeout(()=>void load(),2000)}}
   }
   void load();return()=>{abort.abort();clearTimeout(timer)}
  },[path,scope,selected,before,revision,live,lang])
@@ -67,10 +62,10 @@ export function LiveAuditRuns({path,scope}:{path:string;scope:string}){
  const run=detail?.run
  const calls=run?.events.filter(e=>['tool-call','tool-blocked'].includes(e.type))??[]
  const timeline=run?[...detail!.rounds.map((round,i)=>({kind:'model' as const,id:round.auditId,time:round.processingAt??round.receivedAt,round,index:i+1})),...calls.map(event=>({kind:'tool' as const,id:event.id,time:event.receivedAt,event}))].sort((a,b)=>a.time-b.time||a.id.localeCompare(b.id)):[]
- const contents=(label:string,value:Value,open=false)=><details open={open||undefined}><summary>{label}</summary><pre>{pretty(value)}</pre></details>
+ const contents=(label:string,value:Value,open=false)=>{const preview=auditPreview(value);return <details open={open||undefined}><summary>{label}</summary><pre>{preview.text}</pre>{preview.truncated&&<p>{tr('Gekürzte Anzeige. Der vollständige Inhalt bleibt im Download dieses Tests erhalten.','Shortened display. The complete content is preserved in this test’s download.')}</p>}</details>}
  return <div className="frankfurt-live" data-testid="frankfurt-live">
   <div className="frankfurt-audit__toolbar">
-   <label><input type="checkbox" checked={live} onChange={e=>setLive(e.target.checked)}/>{tr('Live verfolgen · alle 2 Sekunden','Follow live · every 2 seconds')}</label>
+   <label><input type="checkbox" checked={live} onChange={e=>setLive(e.target.checked)}/>{tr('Laufende Tests live verfolgen · alle 2 Sekunden','Follow running tests · every 2 seconds')}</label>
    <button className="btn btn--sm" disabled={busy} onClick={()=>setRevision(x=>x+1)}><RefreshCw size={14}/>{tr('Jetzt aktualisieren','Refresh now')}</button>
    <small role="status">{busy?tr('Wird geladen …','Loading …'):updated?tr('Stand: ','Updated: ')+date(updated):''}</small>
   </div>
@@ -83,11 +78,11 @@ export function LiveAuditRuns({path,scope}:{path:string;scope:string}){
     <p className="frankfurt-audit__ids">{run.auditId}<br/>{run.request.model} · {detail!.rounds.length} {tr('Modellrunden','model rounds')} · {calls.filter(c=>c.name!=='compiled_task').length} {tr('Tool-Aufrufe','tool calls')}<br/>Workspace: {run.trace.workspace} · {tr('Ende','End')}: {date(run.finishedAt)}</p>
     <section className="frankfurt-live__prompt"><strong>{tr('Deine Anfrage','Your request')}</strong><pre>{run.request.prompt}</pre></section>
     {run.error&&<p role="alert">{run.error}</p>}
-    {run.answer!==undefined&&<section className="frankfurt-live__answer"><strong>{tr('Von ONE ausgegebene Antwort','Answer displayed by ONE')}</strong><pre>{answerText(run.answer)}</pre></section>}
+    {run.answer!==undefined&&<section className="frankfurt-live__answer"><strong>{tr('Von ONE ausgegebene Antwort','Answer displayed by ONE')}</strong>{contents(tr('Antwort','Answer'),answerText(run.answer),true)}</section>}
     <h4>{tr('Verlauf · Anfrage → Modell → Tools → Antwort','Timeline · request → model → tools → answer')}</h4>
     {timeline.map(item=>{
      if(item.kind==='model'){const r=item.round;return <article className="frankfurt-live__event" key={item.id} data-kind="model"><header><strong>{tr('Modellrunde','Model round')} {item.index}</strong><small>{date(item.time)}</small></header><p>{r.state} · HTTP {r.status??'—'} · {tr('Gateway-Beleg','Gateway receipt')}<br/>{tr('Antwort empfangen','Response received')}: {date(r.finishedAt)}</p>{r.error&&<p role="alert">{r.error}</p>}{contents(tr('Modellantwort / angeforderte Tools','Model response / requested tools'),modelReply(r.response),true)}{contents(tr('Vollständige Anfrage am Gateway','Complete request at gateway'),r.request)}{contents(tr('Tatsächlicher Modellkontext','Actual model context'),r.modelInput)}{contents(tr('Unveränderte rohe Antwort','Unmodified raw response'),r.response??'')}<small className="frankfurt-audit__ids">{r.auditId} · ONE job: {r.trace?.job??'—'}</small></article>}
-     const e=item.event,returned=e.type==='tool-blocked'?e:run.events.find(r=>r.callId===e.callId&&['tool-result','tool-error'].includes(r.type)),failed=returned&&(['tool-error','tool-blocked'].includes(returned.type)||resultFailed(returned.result)),receipt=dispatchReceipt(returned)
+     const e=item.event,returned=e.type==='tool-blocked'?e:run.events.find(r=>r.callId===e.callId&&['tool-result','tool-error'].includes(r.type)),failed=returned&&(['tool-error','tool-blocked'].includes(returned.type)||auditResultFailed(returned.result)),receipt=dispatchReceipt(returned)
      const task=e.server==='ONE'&&e.name==='compiled_task'&&object(object(returned?.result)?.compiled)?.protocol==='quandprofile.task.v1'?returned!.result as TaskReport:null
      if(task)return <article className="frankfurt-live__event" data-kind="compiler" key={item.id}><header><strong>{tr('Auftragscompiler · Host-Prüfung','Task compiler · host check')}</strong><small>{date(e.receivedAt)}</small></header><TaskContractCard report={task} historical/></article>
      return <article className="frankfurt-live__event" data-kind={failed?'error':'tool'} key={item.id}><header><strong>{e.server} · {e.name}</strong><small>{date(e.receivedAt)}</small></header><p>{returned?failed?tr('Tool-Fehler / blockiert','Tool error / blocked'):tr('Tool-Rückgabe empfangen','Tool result received'):tr('Aufruf begonnen · Rückgabe noch nicht belegt','Call started · result not yet recorded')} · ONE-Harness</p>{contents(tr('Übergebene Argumente','Submitted arguments'),e.arguments,true)}{returned&&contents(tr('Tatsächliche Rückgabe / Fehler','Actual result / error'),returned.error??readableResult(returned.result),true)}{receipt&&<AtlasFactsView receipt={receipt}/>} {returned&&<small>{tr('Rückgabe','Returned')}: {date(returned.receivedAt)} · {tr('JSON-Text zur Lesbarkeit entfaltet; Original im Download.','JSON text expanded for readability; originals in download.')}</small>}</article>

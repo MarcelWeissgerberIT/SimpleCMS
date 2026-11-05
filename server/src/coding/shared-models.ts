@@ -92,7 +92,7 @@ export function sharedModelRoutes(s:Services) {
       z.object({action:z.literal('start'),model:z.string().max(200),prompt:z.string().max(50000),purpose:z.string().max(100)}).strict(),
       z.object({action:z.literal('event'),runId:z.string().regex(/^\d{13}-[a-f0-9-]{36}$/),event:z.object({id:z.string().uuid(),type:z.enum(['tool-call','tool-result','tool-error','tool-blocked','run-end']),clientAt:z.number(),callId:z.string().uuid().optional(),server:z.string().max(100).optional(),name:z.string().max(200).optional(),arguments:z.unknown().optional(),result:z.unknown().optional(),error:z.string().max(10000).optional(),answer:z.unknown().optional(),state:z.string().max(40).optional()}).strict()}).strict(),
     ]))
-    if(Buffer.byteLength(JSON.stringify(input))>1024*1024)throw new ApiError(413,'audit_event_limit','Test event exceeds 1 MiB; full event was not logged')
+    if(Buffer.byteLength(JSON.stringify(input))>16*1024*1024)throw new ApiError(413,'audit_event_limit','Test event exceeds 16 MiB; full event was not logged')
     const r=await fetch(audit.url,{method:'POST',redirect:'error',headers:{authorization:'Bearer '+audit.token,'content-type':'application/json'},body:JSON.stringify({...input,workspace:workspace.id,user:auth.user.id}),signal:AbortSignal.timeout(15000)})
     if(!r.ok)throw new ApiError(503,'audit_write_failed','Live test log could not be saved; test stopped to avoid an incomplete trace')
     c.header('Cache-Control','no-store');return c.json(await r.json())

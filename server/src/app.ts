@@ -177,9 +177,11 @@ function jsonLimit(): MiddlewareHandler<AppEnv> {
       throw new ApiError(413, 'payload_too_large', 'Request body too large')
     },
   })
+  // Full source evidence is larger than model context; restricted further to the designated audit lead.
+  const auditLimit = bodyLimit({ maxSize: 16 * 1024 * 1024 })
   const checkoutLimit = bodyLimit({ maxSize: 16 * 1024 * 1024 })
   // Transient personal Atlas attachment transport: never persisted in ONE.
   const atlasLimit = bodyLimit({ maxSize: 1024 * 1024 })
   const centralLimit = bodyLimit({ maxSize: 32 * 1024 * 1024 })
-  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/programs\/runs$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/central-ai\/messages$/.test(c.req.path) ? centralLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
+  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/model-audit$/.test(c.req.path) ? auditLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/programs\/runs$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/central-ai\/messages$/.test(c.req.path) ? centralLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
 }

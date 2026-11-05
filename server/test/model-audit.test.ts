@@ -45,3 +45,35 @@ test('live audit writes derive scope from the signed-in lead, validate input and
   assert.equal((await lead.get(path+'?run=..%2Fx')).status,400)
  }finally{await server.stop();upstream.closeAllConnections();upstream.close()}
 })
+
+test('large design source passes ONE and the real gateway into encrypted audit storage; ordinary requests stay bounded',async()=>{
+ const {mkdtempSync,readFileSync,rmSync}=await import('node:fs'),{tmpdir}=await import('node:os'),{join}=await import('node:path')
+ // @ts-expect-error The separately deployed gateway is plain JavaScript; integration exercises its real implementation.
+ const {ModelAudit}=await import('../../deploy/model-service/audit.mjs'),{createGateway}=await import('../../deploy/model-service/gateway.mjs')
+ const dir=mkdtempSync(join(tmpdir(),'one-large-audit-')),token='synthetic-large-audit-credential-at-least-32-chars'
+ const audit=new ModelAudit({dir,keyFile:join(dir,'key'),token}),upstream=createGateway({audit,keys:[]}).server
+ upstream.listen(0,'127.0.0.1');await once(upstream,'listening')
+ const server=await startServer({MODEL_AUDIT_URL:'http://127.0.0.1:'+(upstream.address() as any).port+'/admin/audit',MODEL_AUDIT_TOKEN:token,MODEL_AUDIT_OWNER:'lead@audit.test'})
+ try{
+  const lead=await signIn(server,'lead@audit.test'),other=await signIn(server,'other@audit.test'),ws=(await lead.post('/api/workspaces',{name:'Large source trace'})).body.id,path=`/api/workspaces/${ws}/model-audit`
+  const link=(await lead.post(`/api/workspaces/${ws}/invites`,{email:'other@audit.test',role:'admin'})).body.link;await other.post('/api/invites/'+link.split('#/invite/')[1]+'/accept')
+  const started=await lead.post(path,{action:'start',model:'one-shared/test',prompt:'Free mock from design without requirements',purpose:'mock'});assert.equal(started.status,200)
+  const runId=started.body.runId,callId=crypto.randomUUID(),base={callId,server:'atlas',name:'atlas_get',clientAt:Date.now()}
+  assert.equal((await lead.post(path,{action:'event',runId,event:{...base,id:crypto.randomUUID(),type:'tool-call',arguments:{ref:5116,parts:['body']}}})).status,200)
+  const source=process.env.MOCK_REFERENCE_MD?readFileSync(process.env.MOCK_REFERENCE_MD,'utf8'):'# Design\n'+('Farbe und Dialog äöü\n'.repeat(180000))
+  assert.ok(Buffer.byteLength(source)>1024*1024)
+  const result={result:JSON.stringify({content:[{type:'text',text:JSON.stringify({ok:true,item:{ref:5116,body:source}})}]})}
+  const input={action:'event',runId,event:{...base,id:crypto.randomUUID(),type:'tool-result',result}}
+  assert.equal((await other.post(path,input)).status,404)
+  assert.equal((await lead.post(path,input)).status,200)
+  assert.equal((await lead.post(path,{action:'event',runId,event:{id:crypto.randomUUID(),type:'run-end',state:'done',clientAt:Date.now(),answer:'Mock created'}})).status,200)
+  const detail=await lead.get(path+'?run='+runId);assert.equal(detail.status,200);assert.equal(detail.body.run.state,'done');assert.deepEqual(detail.body.run.events[1].result,result)
+  const file=readFileSync(audit.file(runId),'utf8');assert.ok(!file.includes(source.slice(0,100)))
+  assert.equal((await lead.post('/api/workspaces',{name:'x'.repeat(300000)})).status,413)
+  // A Content-Length refusal must not require transmitting the oversized body first.
+  const {request}=await import('node:http')
+  const oversized=await new Promise<number|undefined>((resolve,reject)=>{const req=request(server.url+path,{method:'POST',headers:{'content-type':'application/json','content-length':String(17*1024*1024)}},res=>{res.resume();resolve(res.statusCode)});req.on('error',reject);req.end('{}')})
+  assert.equal(oversized,413)
+  assert.equal((await lead.get('/api/health')).status,200)
+ }finally{await server.stop();upstream.closeAllConnections();upstream.close();rmSync(dir,{recursive:true,force:true})}
+})
