@@ -13,6 +13,13 @@ test('writes and unrelated failures are never automatically repeated',async()=>{
  assert.equal(mcpRateDelay({result:JSON.stringify({item:{body:'Rate limit — retry in 43s.'}})}),null)
 })
 test('retry waits have a total bound and remain cancellable',async()=>{
- let calls=0;await retryMcpRead(async()=>{calls++;return limited},{read:true,wait:async()=>{}});assert.equal(calls,4)
+ let calls=0;await retryMcpRead(async()=>{calls++;return limited},{read:true,wait:async()=>{}});assert.equal(calls,9)
  const c=new AbortController();await assert.rejects(()=>retryMcpRead(async()=>limited,{read:true,signal:c.signal,wait:async()=>{c.abort()}}))
+})
+
+test('long rate-limit waits obey the ten-minute total budget',async()=>{
+ let calls=0;const waits:number[]=[]
+ await retryMcpRead(async()=>{calls++;return {status:429,retryAfter:120}},{read:true,wait:async ms=>{waits.push(ms)}})
+ assert.equal(calls,6);assert.equal(waits.reduce((a,b)=>a+b,0),600000)
+ assert.equal(mcpRateDelay({status:429,retryAfter:121}),null)
 })

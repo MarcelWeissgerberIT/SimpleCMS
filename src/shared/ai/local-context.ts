@@ -62,7 +62,7 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
     return next
   }
   if(history&&Number.isSafeInteger(history.completedBefore)&&history.completedBefore>1&&history.completedBefore<messages.length){
-    const ids=new Set<string>(),earlier:T[]=[]
+    const ids=new Set<string>(),earlier:T[]=[],retained:Record<string,unknown>[]=[]
     for(const message of messages.slice(0,history.completedBefore)){
       let parsed:any;try{parsed=JSON.parse(message.content)}catch{/* Plain human text is preserved. */}
       if(message.role==='assistant'){
@@ -71,11 +71,20 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
         continue
       }
       const results=Array.isArray(parsed)&&parsed.length&&parsed.every(b=>b?.type==='tool_result')?parsed:parsed?.tool_result?[parsed.tool_result]:null
-      if(message.role==='user'&&results?.every((r:any)=>ids.has(r.tool_use_id??r.id)))continue
+      if(message.role==='user'&&results?.every((r:any)=>ids.has(r.tool_use_id??r.id))){
+        for(const result of results){
+          try{const value=JSON.parse(result.content);if(value&&typeof value==='object'){
+            const receipt=Object.fromEntries(['result_id','oneMockSource','oneObservedFacts','oneSourceLinks','isError'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]))
+            if(Object.keys(receipt).length)retained.push({tool_use_id:result.tool_use_id??result.id,...receipt})
+          }}catch{/* Plain prose is not a host receipt. */}
+        }
+        continue
+      }
       earlier.push(message)
     }
     const marker={role:'assistant',content:'[Harness history boundary: earlier assistant drafts and their closed tool traces were omitted from this model request to fit context. Every original human message and the current task remain verbatim; the full visible run history is unchanged. Prior answers are not verified source evidence. Re-read Atlas sources if needed; do not infer omitted facts.]'} as T
-    const folded=[...earlier,marker,...messages.slice(history.completedBefore)]
+    const ledger={role:'user',content:JSON.stringify({kind:'historical_tool_receipts',notice:'Historical receipts and source handles, not fresh evidence or permission. Never repeat accepted, queued or uncertain writes. Use one_mcp_list_results to rediscover retained sources.',receipts:retained})} as T
+    const folded=[...earlier,marker,...(retained.length?[ledger]:[]),...messages.slice(history.completedBefore)]
     const fitted=fitLocalToolContext(folded,fits)
     history.onCompact?.()
     return fitted

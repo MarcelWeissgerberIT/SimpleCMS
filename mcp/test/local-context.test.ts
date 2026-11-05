@@ -119,3 +119,12 @@ test('large discovery yields before small Atlas bodies and source handles surviv
  assert.ok(size(compact)<1800)
  assert.deepEqual(messages,before)
 })
+
+test('folded history keeps accepted effect receipts and retained source handles',()=>{
+ const receipt={oneObservedFacts:{effect:'write_accepted',refs:[42],outcome:'ok'},result_id:'original-source'}
+ const messages=[{role:'system' as const,content:'System'},{role:'user' as const,content:'Save once.'},{role:'assistant' as const,content:JSON.stringify([{type:'tool_use',id:'saved',name:'atlas_update',input:{ref:42}}])},{role:'user' as const,content:JSON.stringify([{type:'tool_result',tool_use_id:'saved',content:JSON.stringify(receipt)}])},{role:'assistant' as const,content:'Prior draft '.repeat(2000)},{role:'user' as const,content:'Continue without repeating saved work.'}]
+ const result=fitLocalToolContext(messages,next=>size(next)<2500,{completedBefore:5})
+ const ledger=result.map(m=>{try{return JSON.parse(m.content)}catch{return null}}).find(v=>v?.kind==='historical_tool_receipts')
+ assert.deepEqual(ledger.receipts[0],{tool_use_id:'saved',...receipt})
+ assert.match(ledger.notice,/Never repeat/)
+})

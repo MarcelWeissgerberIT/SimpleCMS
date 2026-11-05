@@ -71,7 +71,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {
     if (!opts.mcp.worker || !prepared.allows('mcp')) throw new AIError('capability', 'Selected MCP connections are unavailable on this route.')
-    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000,audit,task,opts.mockSources)
+    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000,audit,task,opts.mockSources,opts.mcpResults)
   }
   const definitions: WorkerFunction[] = [TASK_QUESTION,...(local ? [...LOCAL_WORKSPACE_FUNCTIONS,...local.functions] : tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema }))), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
   let contextNoted=false

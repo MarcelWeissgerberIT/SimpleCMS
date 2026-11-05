@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {discoverMcpTools,taskMcpDiscoveryQuery} from '../../src/shared/mcp/discovery.ts'
-import {McpResults,unwrapMcpText} from '../../src/shared/mcp/results.ts'
+import {McpResults,McpResultSession,McpCacheCapacityError,packObservedMcpResult,unwrapMcpText} from '../../src/shared/mcp/results.ts'
 const tools=['atlas_get','atlas_get_details','atlas_search','atlas_query','atlas_project_list','atlas_delete','atlas_whoami'].map(name=>({name,description:name==='atlas_search'?'Search records by q':'Generic tool'}))
 test('Atlas topic/date discovery finds general read tools without requiring topic words in schemas',()=>{
  assert.equal(discoverMcpTools(tools,'atlas document lab notebook')[0]?.name,'atlas_search')
@@ -55,12 +55,14 @@ test('array and object pagination retain every source entry with bounded valid J
  do{const page=JSON.parse(cache.read({result_id:objectId,offset}));assert.ok(JSON.stringify(page).length<4500);keys.push(...page.content.map((r:any)=>r.key));offset=page.next_offset}while(offset!==null)
  assert.deepEqual(keys,Object.keys(data))
 })
-test('bounded cache eviction, source errors and JSON-pointer escaping are explicit',()=>{
+test('duplicate sources retain their handle; source errors and JSON-pointer escaping are explicit',()=>{
  const cache=new McpResults(),raw=JSON.stringify({isError:true,content:[{type:'text',text:JSON.stringify({'a/b~c':'z'.repeat(5000)})}]})
  const first=JSON.parse(cache.pack(raw));assert.equal(first.isError,true)
  assert.equal(JSON.parse(cache.read({result_id:first.result_id,path:'/a~1b~0c'})).content,'z'.repeat(2800))
  for(let i=0;i<64;i++)cache.pack(raw)
- assert.throws(()=>cache.read({result_id:first.result_id}),/expired/)
+ assert.equal(JSON.parse(cache.pack(raw)).result_id,first.result_id)
+ assert.equal(JSON.parse(cache.catalogue()).total,1)
+ assert.equal(JSON.parse(cache.read({result_id:first.result_id})).isError,true)
  assert.throws(()=>cache.pack('x'.repeat(8*1024*1024+1)),/exceeds/)
 })
 test('only complete text envelopes unwrap; arbitrary structured output is preserved',()=>{
@@ -167,4 +169,49 @@ test('retained section lookup reads actual target windows, preserves gaps and bl
  assert.throws(()=>new McpResults().find({result_id:id,path:'/item/body',query:'AC-17'}),/expired/)
  let offset=0;do{const p=JSON.parse(cache.read({result_id:id,path:'/item/body',offset}));offset=p.next_offset}while(offset!==null)
  assert(!cache.unreadBody(42))
+})
+
+
+test('more than 64 responses and 24 MiB preserve the first source and the complete registry',()=>{
+ const cache=new McpResults();let first=''
+ for(let ref=1;ref<=100;ref++){
+  const page=JSON.parse(cache.pack(envelope({item:{ref,title:'Source '+ref,body:'é'.repeat(150000)}})))
+  if(ref===1)first=page.result_id
+ }
+ assert.equal(JSON.parse(cache.read({result_id:first,path:'/item/body'})).content,'é'.repeat(2800))
+ const refs:number[]=[];let offset:number|null=0
+ do{const page=JSON.parse(cache.catalogue({offset}));refs.push(...page.items.map((x:any)=>x.source.metadata.ref));offset=page.next_offset;assert(page.retainedBytes>24*1024*1024)}while(offset!==null)
+ assert.deepEqual(refs,Array.from({length:100},(_,i)=>i+1))
+ assert.equal(JSON.parse(cache.catalogue({query:'Source 100'})).items.length,1)
+})
+test('a full cache refuses only the new source and keeps every existing handle',()=>{
+ const cache=new McpResults({bytes:16000,entries:2,pageChars:3000})
+ const first=JSON.parse(cache.pack(envelope({item:{ref:1,body:'a'.repeat(5000)}}))).result_id
+ cache.pack(envelope({item:{ref:2,body:'b'.repeat(5000)}}))
+ assert.throws(()=>cache.pack(envelope({item:{ref:3,body:'c'.repeat(5000)}})),McpCacheCapacityError)
+ assert.equal(JSON.parse(cache.catalogue()).total,2)
+ assert.equal(JSON.parse(cache.read({result_id:first,path:'/item/body'})).content,'a'.repeat(2800))
+})
+test('conversation source handles survive continuation, but not scope changes or new conversations',()=>{
+ const session=new McpResultSession(),cache=session.get('workspace:user:access-a')
+ const id=JSON.parse(cache.pack(envelope({item:{ref:42,title:'Design',body:'🦆"\\'.repeat(10000)}}))).result_id
+ assert.equal(session.get('workspace:user:access-a'),cache)
+ let offset:number|null=0,restored=''
+ do{const page=JSON.parse(cache.read({result_id:id,path:'/item/body',offset}));assert(JSON.stringify(page).length<=12000);restored+=page.content;offset=page.next_offset}while(offset!==null)
+ assert.equal(restored,'🦆"\\'.repeat(10000));assert(!cache.unreadBody(42))
+ cache.resetCoverage();cache.pack(envelope({item:{ref:42,title:'Design',body:'🦆"\\'.repeat(10000)}}));assert(cache.unreadBody(42))
+ assert.throws(()=>session.get('workspace:user:access-b').read({result_id:id}),/expired/)
+ session.clear();assert.equal(JSON.parse(session.get('workspace:user:access-a').catalogue()).total,0)
+})
+
+test('source storage exhaustion never reclassifies an accepted write as failed',()=>{
+ const cache=new McpResults({bytes:10000,entries:1,pageChars:3000})
+ const first=JSON.parse(cache.pack(envelope({item:{ref:1,body:'a'.repeat(5000)}}))).result_id
+ const written=envelope({item:{ref:2,body:'saved'.repeat(1000)}})
+ const write=packObservedMcpResult(cache,written,false,false)
+ assert(write.sourceError);assert.equal(JSON.parse(write.packed).isError,false)
+ assert.equal(JSON.parse(write.packed).oneSourceUnavailable,true)
+ assert.match(JSON.parse(write.packed).note,/do not repeat writes/)
+ assert.equal(JSON.parse(packObservedMcpResult(cache,written,true,false).packed).isError,true)
+ assert(JSON.parse(cache.read({result_id:first,path:'/item/body'})).content)
 })

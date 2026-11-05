@@ -20,7 +20,7 @@ export async function runGroundedBrief(o:Parameters<typeof runAgent>[0],prepared
  const task=createTaskContract({reviewProfile:o.reviewProfile,prepared,goal:o.typed??'',instructions:system,input:{refs},tools:[],one:false,atlas:true,sourcesRequired:true,bounds:{readOnly:true,externalWrite:false,execute:false},signal:o.signal,onReport:o.hooks.contract}),audit=await beginLiveAudit(prepared.route!,o.typed??'',o.purpose),untap=tapSignal(o.signal,{onEntry:e=>o.hooks.usage(e.usage,e)})
  let state='failed',failure:unknown,answer=''
  try{
-  const remote=workerMcpSession(servers,o.signal,o.hooks.mcp,12000,audit,task),server=servers[0]!
+  const remote=workerMcpSession(servers,o.signal,o.hooks.mcp,12000,audit,task,undefined,o.mcpResults),server=servers[0]!
   o.hooks.note(de?'PM-Programm: persönliche Atlas-Identität und genau die genannten Records lesen; danach ein kurzer Entwurf ohne Modell-Werkzeuge.':'PM program: read personal Atlas identity and exactly the requested records, then a short tool-free draft.')
   await remote('one_mcp_search',{query:'atlas_whoami'},crypto.randomUUID());const identity=unwrap(remote.materializeResult(await remote('one_mcp_call',{server:server.name,name:'atlas_whoami',arguments:{}},crypto.randomUUID())));if(typeof identity.person!=='string'||!identity.person.trim())throw new ToolInputError('Atlas returned no verifiable personal identity.')
   await remote('one_mcp_search',{query:'atlas_get'},crypto.randomUUID());const sources:PMSource[]=[]

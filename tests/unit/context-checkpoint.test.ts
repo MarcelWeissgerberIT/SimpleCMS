@@ -16,3 +16,12 @@ test('large historical logs have explicit bounded omission instead of carrying s
  const text=contextCheckpoint(turns as any,steps as any,[]),value=JSON.parse(text)
  assert(value.earlierToolsOmitted);assert.equal(value.tools.length,24);assert(text.length<16000);assert(!text.includes('BODY_NOT_CARRIED'));assert.equal(value.unverifiedDraft.length,1800)
 })
+
+test('old accepted writes and answered decisions survive many later read tasks',()=>{
+ const turns=Array.from({length:30},(_,i)=>({n:i,answer:'',contract:{evidence:{one_pages:[],atlas_records:[String(i)]},questions:i===0?[{state:'answered',question:'Destination?',answer:'Keep record 42'}]:[]}}))
+ const steps=[{turn:0,kind:'mcp',state:'ok',mcp:{server:'Atlas',tool:'atlas_update',receipt:{effect:'write_accepted',outcome:'ok',refs:[42],ids:['original-write'],verification:'verified'}}},...Array.from({length:100},()=>({turn:29,kind:'tool',tool:'read_page',state:'ok'}))]
+ const result=JSON.parse(contextCheckpoint(turns as any,steps as any,[]))
+ assert.equal(result.effects[0].receipt.ids[0],'original-write')
+ assert.equal(result.decisions[0].answer,'Keep record 42')
+ assert(result.sources.some((s:any)=>s.id==='0'))
+})

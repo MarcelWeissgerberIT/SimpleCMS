@@ -49,7 +49,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
   audit=await beginLiveAudit(prepared.route!,p.goal+'\nProgram '+saved.compiled.hash,o.purpose)
   const observed=await delivery.prepare(prepared);delivery.bind(task)
   if(observed)await audit.tool('ONE','source_preflight_snapshot',{target,urls:delivery.plan.urls},()=>observed)
-  const remote=o.mcp?.worker?.length?workerMcpSession(o.mcp.worker,signal,hooks.mcp,12000,audit,task):null
+  const remote=o.mcp?.worker?.length?workerMcpSession(o.mcp.worker,signal,hooks.mcp,12000,audit,task,undefined,o.mcpResults):null
   // All schemas/endpoints are checked before the first effect. A changed schema requires a new reviewed version.
   for(const step of p.steps){check();if(step.kind!=='tool')continue
    if(step.server){const server=o.mcp?.worker?.find(s=>s.name===step.server);if(!remote||!server||server.url!==step.endpoint)throw Error('MCP endpoint missing or changed: '+step.server)

@@ -1,3 +1,4 @@
+import {TERMINAL_TOOL_CALLS,TERMINAL_MODEL_ROUNDS} from '@/shared/ai/requestLimits'
 /**
  * Workspace agent — the tools Claude can call. Read-only tools answer from the store; writing
  * tools never touch it: each call stages (or extends) one StagedChange through the StageApi.
@@ -79,9 +80,9 @@ export { ToolInputError, currentReadLimit, currentToolScope, withReadLimit, with
  * Provider-native MCP iterations have their own bounds. A task at the limit can continue
  * with a fresh budget ("Continue", /continue — session.ts), retaining staged changes.
  */
-export const MAX_TOOL_CALLS = 120
+export const MAX_TOOL_CALLS = TERMINAL_TOOL_CALLS
 /** Extra model turns for a final answer and bounded format/evidence corrections. */
-export const MAX_MODEL_ROUNDS = MAX_TOOL_CALLS + 12
+export const MAX_MODEL_ROUNDS = TERMINAL_MODEL_ROUNDS
 /** Pages one create_pages call may stage. */
 export const MAX_BATCH_PAGES = 50
 /** Characters of one page part (read_page) and of any other tool result. */

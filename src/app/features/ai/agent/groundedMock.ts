@@ -24,7 +24,7 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
  let state='failed',failure:unknown,answer=''
  try{
   o.hooks.note('Mock-Quellenprüfung: ONE liest die ausgewählte Quelle und bei einem Design-Epic gezielt dessen zugehörige Teile.')
-  const remote=workerMcpSession([server],o.signal,o.hooks.mcp,12000,audit,task,sources)
+  const remote=workerMcpSession([server],o.signal,o.hooks.mcp,12000,audit,task,sources,o.mcpResults)
   await remote('one_mcp_search',{query:'atlas_get'},crypto.randomUUID())
   const read=async(address:import('@/shared/ai/mockPlan').MockRecordAddress)=>{assertPreparedFlow(prepared)
    const reply=await remote('one_mcp_call',{server:server.name,name:'atlas_get',arguments:{...address,parts:['body'],includeConstraints:'none'}},crypto.randomUUID())

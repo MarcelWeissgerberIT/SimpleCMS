@@ -184,3 +184,20 @@ Inline MCP completion loops allow one metered, budget-checked correction when a 
 MCP one-shot adapters are interactive only when they receive a UI `onMcp` handler. Their `one_task_question` call then awaits the human answer, exactly as the terminal does. A headless caller still cannot wait on a nonexistent UI. `taskDecisionActive` distinguishes an actual scoped waiter from a persisted or released report; displaying a report alone grants no continuation capability.
 
 The inline run store checkpoints decision reports. Reloaded runs are interrupted, never resumed automatically. A closed card prepares the original goal and current clarification as a fresh terminal draft, with actor/workspace/epoch and run/page checks. No tool transcript, approvals, read evidence or write is replayed. Existing targets must be read again before any external effect. Stopping an empty run with an open question retains its report for this recovery path.
+
+
+## Large Atlas tasks and retained sources (2026-11-05)
+
+The terminal allows 1,000 tool calls and 1,012 model rounds per task. Provider context/output limits and the person's spending rules still apply independently. Raising a call budget does not put every downloaded byte into the model at once.
+
+Large MCP responses (over 4,500 characters) are retained in browser memory for the current conversation: up to 128 MiB of original UTF-8 responses and 2,048 distinct responses. Identical responses reuse a handle. Earlier entries are never silently evicted: if capacity is reached, the additional download is explicitly refused while existing sources remain readable. Raw strings and parsed objects use additional JavaScript heap beyond the original-byte allowance.
+
+`one_mcp_list_results` pages through source handles and metadata; `one_mcp_read_result` and `one_mcp_find_result` retrieve original passages without a new Atlas request. Conversation pages target 12,000 serialized characters. Model context fitting preserves source handles and observed effect receipts. Historical recovery retains earlier accepted/queued/uncertain MCP effects, answered decisions and staged changes, rather than only the latest read steps.
+
+The cache survives task continuation in the same open conversation. New conversation, page reload, changed account/workspace, connection credentials or access policy invalidate it. It is not durable storage; no original sources or tokens are added to project files or localStorage by this cache. Cached data does not confer fresh source evidence or write permission. Reading coverage is reset for each task, and existing fresh-read write guards still apply.
+
+Read operations explicitly refused by a rate limit may retry eight times, with a maximum two-minute individual wait and ten minutes of total waiting per invocation. Cancellation remains available. Writes and ambiguous failures are not automatically replayed.
+
+Transport bounds remain separate: Atlas `get` responses support 8 MiB at the MCP adapter; other MCP responses remain bounded at 180,000 bytes and need server pagination. The encrypted worker relay can impose a lower envelope limit. Native Claude context is fitted before the first request as well as between tool rounds, with room reserved for output and definitions. Model catalogue context windows are not inflated beyond provider specifications. Local-model windows are not increased without actual model support.
+
+Validation: source retention beyond 64 entries/24 MiB, complete paged source index, explicit capacity refusal, scope isolation, continuation/reset, UTF-16-safe text paging, rate-limit wait budget/cancellation, historical effect preservation and SDK continuation without replaying a completed write.

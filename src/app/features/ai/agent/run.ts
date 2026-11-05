@@ -1,3 +1,4 @@
+import type {McpResultSession} from '@/shared/mcp/results'
 import {fitNativeToolContext} from '@/shared/ai/native-context'
 import {prepareTypedAI} from '../core/typedAI'
 import {t} from '../../../i18n'
@@ -283,6 +284,7 @@ export async function runAgent(opts: {
   hooks: RunHooks
   /** the external MCP servers of this conversation (null = none) */
   mcp?: McpAttachment | null
+  mcpResults?: McpResultSession
   /**
    * Custom agents (features/agents) run the same loop headless with their own tool list (a subset,
    * scope-checked), system prompt, model and effort. Absent = the workspace agent's (the AI
@@ -361,7 +363,7 @@ export async function runAgent(opts: {
     compiledTask=createTaskContract({reviewProfile:opts.reviewProfile,prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),...(opts.mockSources?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
     const task=compiledTask
     delivery.bind(task)
-    const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined):null
+    const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined,opts.mcpResults):null
     const identity=await remote?.prepareIdentity();if(identity)messages.push({role:'user',content:identity})
     let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
@@ -527,6 +529,10 @@ export async function runAgent(opts: {
     let guardedFinal:string|null=null,sectionRepairs=0
     // media in MCP results: cards for the person (features/ai/media), nothing is fetched
     const media = mcp && hooks.media ? createMediaCollector() : null
+    const initialBudget=Math.max(16000,Math.floor(((prepared.caps?.context??200000)-capped(LOOP_MAX_TOKENS,prepared)-8000)*2)-JSON.stringify({system:params.system,tools}).length)
+    const initialMessages=fitNativeToolContext(messages,initialBudget)
+    if(initialMessages!==messages)hooks.note('Frühere Werkzeugantworten wurden für diese Anfrage gekürzt. Geladene Quellen bleiben über das Quellenverzeichnis abrufbar.')
+    messages=initialMessages
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
     // the tool definitions go out with every request (a cut one is estimated with them)
     const toolChars = JSON.stringify(params.tools).length

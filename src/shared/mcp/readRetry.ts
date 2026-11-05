@@ -1,3 +1,4 @@
+import {MCP_READ_RETRIES,MCP_READ_WAIT_MS,MCP_SINGLE_WAIT_MS} from '../ai/requestLimits.ts'
 /** Retry only reads explicitly refused by rate limiting, never ambiguous writes. */
 export function mcpRateDelay(value:unknown,thrown=false):number|null {
  let v:any=value
@@ -12,7 +13,7 @@ export function mcpRateDelay(value:unknown,thrown=false):number|null {
  if(v?.status!==429&&v?.statusCode!==429&&!/rate.?limit|too many (?:requests|aql queries)|\b429\b/i.test(text))return null
  const seconds=/retry (?:in|after)\s+(\d+(?:\.\d+)?)\s*s/i.exec(text)
  const ms=typeof v?.retryAfterMs==='number'?v.retryAfterMs:typeof v?.retryAfter==='number'?v.retryAfter*1000:seconds?Number(seconds[1])*1000:5000
- return Number.isFinite(ms)&&ms>=0&&ms<=90000?Math.max(250,ms):null
+ return Number.isFinite(ms)&&ms>=0&&ms<=MCP_SINGLE_WAIT_MS?Math.max(250,ms):null
 }
 export function waitForMcp(ms:number,signal?:AbortSignal):Promise<void>{return new Promise((resolve,reject)=>{
  signal?.throwIfAborted()
@@ -27,7 +28,7 @@ export async function retryMcpRead<T>(run:()=>Promise<T>,options:{read:boolean;s
   let result:T|undefined,error:unknown,thrown=false
   try{result=await run()}catch(e){error=e;thrown=true}
   const delay=options.read?mcpRateDelay(thrown?error:result,thrown):null
-  if(delay===null||attempt>=3||waited+delay>180000){if(thrown)throw error;return result!}
+  if(delay===null||attempt>=MCP_READ_RETRIES||waited+delay>MCP_READ_WAIT_MS){if(thrown)throw error;return result!}
   waited+=delay;options.waiting?.(delay,attempt+1);await (options.wait??waitForMcp)(delay,options.signal)
  }
 }

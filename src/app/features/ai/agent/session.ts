@@ -1,3 +1,4 @@
+import {McpResultSession} from '@/shared/mcp/results'
 import {openSkills} from '../skills/dialog'
 import {contextCheckpoint} from './checkpoint'
 import {skillLibraryQuery,pinSkillRequest} from '@/shared/ai/skills'
@@ -72,6 +73,7 @@ const set = useAgent.setState
 const get = useAgent.getState
 
 /** The API conversation of this session (append-only). */
+const mcpResults = new McpResultSession()
 let history: BetaMessageParam[] = []
 /** A provider change starts fresh model context; proposals and the visible log stay available. */
 let historyProvider: ProviderId | null = null
@@ -670,6 +672,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       signal: ac.signal,
       hooks,
       mcp,
+      mcpResults,
       readLimit: terminalReadLimit,
       // the tool reads are built for the route (run.ts); references were read before the route was known — with them a
       // route that does not see everything is refused (the gate's backstop)
@@ -1018,6 +1021,7 @@ export function pickRedo(input: string) {
 
 /** Forget the session: conversation, steps and every proposal that was not applied. */
 export function newTask() {
+  mcpResults.clear()
   pendingReceipts.clear()
   cancelAtlasTransferChoice()
   controller?.abort()
