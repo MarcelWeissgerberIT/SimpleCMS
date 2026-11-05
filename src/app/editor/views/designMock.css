@@ -7,6 +7,7 @@
 .mock-block__composer input,.mock-block__composer textarea,.mock-block__composer select{width:100%;min-width:0;box-sizing:border-box;padding:10px;border:1px solid var(--rule);border-radius:4px;background:var(--surface);color:inherit;font:inherit}
 .mock-block__composer p,.mock-block__preview>p{font-size:12px;margin:0}
 .mock-block__import>.mock-block__field{flex:1;min-width:180px}
+.mock-block__preview[hidden]{display:none}
 .mock-block__preview{margin-top:16px;display:grid;gap:10px}
 .mock-block__viewport{overflow:auto;max-height:650px;max-width:100%;border:1px solid var(--rule);border-radius:5px;background:white}
 .mock-block__viewport iframe{display:block;border:0;pointer-events:none;max-width:none;background:white}
@@ -14,18 +15,24 @@
 .mock-block-modal .mock-block__viewport{height:100%;max-height:none}
 @media(max-width:600px){.mock-block{padding:10px}.mock-block__actions .btn{min-height:40px}}
 
-.mock-block>details>summary{cursor:pointer;font-size:13px;color:var(--ink-2);margin-bottom:12px}
+.mock-block details>summary{cursor:pointer;font-size:13px;color:var(--ink-2);margin-bottom:12px}
 
 .mock-block__title{font-size:18px;font-weight:600;margin-bottom:12px}
 .mock-block__title p{margin:0}
 
-.mock-block>details>summary::before{content:'▸';display:inline-block;width:1em}
-.mock-block>details[open]>summary::before{content:'▾'}
-.mock-block__settings{margin-top:18px;border:1px solid var(--rule);border-radius:6px;overflow:hidden}
-.mock-block__tabs{display:flex;gap:4px;border-bottom:1px solid var(--rule);padding:4px 8px}
-.mock-block__tabs button{border:0;background:none;color:var(--ink-2);font:inherit;padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent}
-.mock-block__tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--signal,#ff5a00);font-weight:600}
-.mock-block__panel{padding:16px;font-size:13px;min-width:0}
+.mock-block details>summary::before{content:'▸';display:inline-block;width:1em}
+.mock-block details[open]>summary::before{content:'▾'}
+/* The same raised tabs and orange top edge used by database boards. */
+.mock-block__settings{min-width:0}
+.mock-block__tabs{display:flex;align-items:flex-end;gap:3px;border-bottom:1px solid var(--rule-strong);padding-top:6px;overflow-x:auto;scrollbar-width:none}
+.mock-block__tabs button{position:relative;flex:none;display:flex;align-items:center;gap:6px;min-height:33px;padding:0 12px 0 9px;border:1px solid var(--rule);border-bottom:0;border-radius:var(--radius-2) var(--radius-2) 0 0;background:var(--surface-2);color:var(--ink-2);font:inherit;font-size:calc(13px * var(--text-scale));font-weight:560;white-space:nowrap;cursor:pointer}
+.mock-block__tabs button:hover{color:var(--ink);background:var(--surface-3)}
+.mock-block__tabs button[aria-selected=true]{min-height:37px;background:var(--surface);border-color:var(--rule-strong);color:var(--ink)}
+.mock-block__tabs button[aria-selected=true]::before{content:'';position:absolute;left:-1px;right:-1px;top:-1px;height:3px;border-radius:var(--radius-2) var(--radius-2) 0 0;background:var(--signal)}
+.mock-block__tabs button[aria-selected=true]::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--surface)}
+.mock-block__tab-index{font-family:var(--font-mono);font-size:calc(10px * var(--text-scale));font-weight:500;letter-spacing:.04em;color:var(--ink-3)}
+.mock-block__tabs button[aria-selected=true] .mock-block__tab-index{color:var(--signal-ink)}
+.mock-block__panel{padding:16px 0 0;font-size:13px;min-width:0}
 .mock-block__panel p{line-height:1.5;overflow-wrap:anywhere}
 .mock-block__colors{display:grid;gap:8px;margin-top:14px}
 .mock-block__color{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--rule);border-radius:5px;flex-wrap:wrap}
