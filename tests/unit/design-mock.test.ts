@@ -72,3 +72,25 @@ test('literal font values already cited are converted without inventing a token 
  draft.tokens.at(-1)!.quote='A fabricated font citation for this token.'
  assert(mockIssues(normalizeMockFonts(draft),s).length)
 })
+
+test('static selectors, zero lengths and token-based CSS list syntax do not create false rejections',()=>{
+ for(const css of [
+  '#face > button{color:var(--primary);padding:0px;margin:0rem 0%}',
+  'button{box-shadow:0px 0px var(--space) var(--primary), inset 0 0 var(--space) var(--primary)}',
+  'button{font:var(--space)/var(--space) var(--font);border-radius:var(--space) / var(--space)}',
+  'button{COLOR:var(--primary);PADDING:0.0px .0rem}',
+ ]){const {s,draft}=fontFixture();draft.tokens.push({source:draft.design.source,name:'--space',value:'16px',quote:'The spacing step is 16px.'});draft.css=css;assert.deepEqual(mockIssues(draft,s),[],css)}
+})
+test('CSS syntax support still checks every declaration and disallows resource and literal bypasses',()=>{
+ for(const css of [
+  '#face > button{color:var(--primary);padding:3px}',
+  'button{color:var(--primary);COLOR:red}',
+  'button{color:var(--primary);box-shadow:0px 0px 3px var(--primary),none}',
+  'button{color:var(--primary);font:16px/20px Arial}',
+  'button{color:var(--primary);--primary:red}',
+  'button{color:var(--primary);--primary2:red}',
+  'button{color:var(--primary);background:#abc}',
+  'button{color:var(--primary);background:url(https://evil.test)}',
+  'button{color:var(--primary)} </style><script>alert(1)</script>',
+ ]){const {s,draft}=fontFixture();draft.css=css;assert(mockIssues(draft,s).length,css)}
+})

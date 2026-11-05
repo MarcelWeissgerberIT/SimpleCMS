@@ -84,7 +84,8 @@ export class MockSources {
 }
 const citation={type:'object',properties:{source:{type:'string'},quote:{type:'string',minLength:12,maxLength:1200}},required:['source','quote'],additionalProperties:false}
 export const MOCK_SCHEMA={type:'object' as const,properties:{title:{type:'string',minLength:3,maxLength:160},width:{type:'integer',minimum:320,maximum:1600},height:{type:'integer',minimum:320,maximum:1400},html:{type:'string',minLength:30,maxLength:24000},css:{type:'string',maxLength:16000},design:citation,authority:{anyOf:[citation,{type:'null'}]},target:{type:['string','null'],description:'Optional source id of a supplied requirement record; must occur in requirements. Use null for a free request. The user may choose an attachment destination later.'},requirements:{type:'array',minItems:0,maxItems:6,items:citation},tokens:{type:'array',minItems:1,maxItems:40,items:{...citation,properties:{...citation.properties,name:{type:'string',pattern:'^--[a-z][a-z0-9-]{1,60}$'},value:{type:'string',minLength:1,maxLength:160}},required:['source','quote','name','value']}},components:{type:'array',minItems:1,maxItems:20,items:{...citation,properties:{...citation.properties,name:{type:'string',pattern:'^[A-Za-z][A-Za-z0-9_-]{0,60}$'}},required:['source','quote','name']}},notes:{type:'array',maxItems:12,items:{type:'string',maxLength:600}}},required:['title','width','height','html','css','design','authority','target','requirements','tokens','components','notes'],additionalProperties:false}
-export const MOCK_TAGS=['main','section','article','header','footer','nav','aside','div','span','h1','h2','h3','h4','p','strong','em','small','label','button','input','textarea','select','option','table','caption','thead','tbody','tfoot','tr','th','td','ul','ol','li','dl','dt','dd','hr','br','fieldset','legend','progress']
+export const MOCK_TAGS=['main','section','article','header','footer','nav','aside','div','span','h1','h2','h3','h4','p','strong','em','small','label','button','input','textarea','select','option','table','caption','thead','tbody','tfoot','tr','th','td','ul','ol','li','dl','dt','dd','hr','br','fieldset','legend','progress','meter','h5','h6','figure','figcaption','blockquote','pre','code','kbd','samp','b','i','u','s','sub','sup','abbr','time','mark','output','details','summary','colgroup','col']
+export const MOCK_ATTRS=['class','id','role','aria-label','aria-labelledby','aria-describedby','aria-selected','aria-checked','aria-disabled','aria-current','data-ds-component','data-requirement','type','name','value','placeholder','disabled','checked','selected','for','rows','cols','colspan','rowspan','scope','min','max','step','title','lang','dir','aria-hidden','aria-expanded','aria-controls','aria-modal','aria-valuemin','aria-valuemax','aria-valuenow','aria-valuetext','readonly','required','multiple','minlength','maxlength','datetime','open']
 // Generic browser fallbacks are rendering syntax, not a substitute for a cited design font.
 const genericFont=/(?:serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|emoji|math|fangsong)/.source
 const genericFontTail=new RegExp('^(?:\\s*,\\s*'+genericFont+')*\\s*$','i')
@@ -113,17 +114,23 @@ export function mockIssues(d:MockDraft,sources:MockSources):string[]{
  if(new Set(d.tokens.map(t=>t.name)).size!==d.tokens.length)issues.push('Token names must be unique.')
  if(new Set(d.components.map(t=>t.name)).size!==d.components.length)issues.push('Component names must be unique.')
  // Static mocks deliberately support no external assets, URLs, scripts or CSS escape obfuscation.
- if(/url\s*\(|@|\\|<|>|\/\*|expression\s*\(|behavior\s*:|-moz-binding/i.test(d.css))issues.push('Use static inline CSS without imports, URLs, escapes, comments, at-rules or active content.')
- if(/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|lab|lch|color)\s*\(/i.test(d.css))issues.push('Use the cited CSS token variables for colours; no hard-coded colour values in layout CSS.')
- if(/--[a-z][a-z0-9-]*\s*:/i.test(d.css))issues.push('Define tokens only in tokens, not again in CSS.')
+ if(/url\s*\(|@|\\|<|\/\*|expression\s*\(|behavior\s*:|-moz-binding/i.test(d.css))issues.push('Use static inline CSS without imports, URLs, escapes, comments, at-rules or active content.')
+ // Inspect complete declarations, not selectors (e.g. #face is an ID, not a colour).
+ const declarations=[...d.css.matchAll(/(?:^|[;{])\s*([a-z-][a-z0-9-]*)\s*:\s*([^;{}]+)(?=[;}])/gi)]
+ for(const m of declarations){
+  const property=m[1]!.toLowerCase(),value=m[2]!
+  if(/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|lab|lch|color)\s*\(/i.test(value))issues.push('Use the cited CSS token variables for colours; no hard-coded colour values in layout CSS.')
+  if(property.startsWith('--'))issues.push('Define tokens only in tokens, not again in CSS.')
+  if(!/^(?:color|background(?:-color)?|font(?:-size|-family|-weight)?|line-height|padding(?:-.+)?|margin(?:-.+)?|gap|row-gap|column-gap|border(?:-radius|-color|-width)?|box-shadow)$/.test(property))continue
+  if(property==='font-family'&&tokenFontStack.test(value.trim()))continue
+  let rest=value.replace(/var\(\s*--[a-z0-9-]+\s*\)/gi,'').replace(/\b(?:transparent|currentColor|inherit|unset|none|normal|auto|solid|dashed)\b/gi,'')
+  if(property==='box-shadow')rest=rest.replace(/\binset\b/gi,'').replace(/,/g,' ')
+  if(property==='font'||property==='border-radius')rest=rest.replace(/\//g,' ')
+  rest=rest.trim()
+  if(rest&&!/^(?:[+-]?(?:0(?:\.0+)?|\.0+)(?:px|rem|em|%|vh|vw|vmin|vmax|ch|ex)?\s*)+$/i.test(rest))issues.push('Use cited token variables for visual property '+property+', including spacing/typography; no ad-hoc visual literals.')
+ }
  for(const match of d.css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi))if(!d.tokens.some(t=>t.name===match[1]))issues.push('CSS refers to an uncited token: '+match[1])
  if(!d.css.includes('var('))issues.push('The mock must actually use its cited design tokens.')
- for(const m of d.css.matchAll(/([a-z-]+)\s*:\s*([^;{}]+)/gi))if(/^(?:color|background(?:-color)?|font(?:-size|-family|-weight)?|line-height|padding(?:-.+)?|margin(?:-.+)?|gap|row-gap|column-gap|border(?:-radius|-color|-width)?|box-shadow)$/.test(m[1]!)){
-  if(m[1]!.toLowerCase()==='font-family'&&tokenFontStack.test(m[2]!.trim()))continue
-  const value=m[1]==='box-shadow'?m[2]!.replace(/\binset\b/gi,''):m[2]!
-  const rest=value.replace(/var\(\s*--[a-z0-9-]+\s*\)/gi,'').replace(/\b(?:transparent|currentColor|inherit|unset|none|normal|auto|solid|dashed)\b/gi,'').trim()
-  if(rest&&!/^(?:0\s*)+$/.test(rest))issues.push('Use cited token variables for visual property '+m[1]+', including spacing/typography; no ad-hoc visual literals.')
- }
  return [...new Set(issues)]
 }
 export const mockIntent=(text:string)=>/^\/mock(?:\s|$)/i.test(text.trim())
@@ -133,6 +140,8 @@ export const MOCK_GUIDE=`Design mocks (BA and PO)
 - An explicitly selected package Epic is the design root. Its verified child records collectively form the catalogue. Cite the root in design; tokens and components cite their own actually read child source ids. The Epic index is navigation only; never cite an index row as component or token evidence. Load only relevant components plus shared foundations. Requirements remain optional.
 - Cite the design catalogue and any supplied requirements with exact body quotes. An applicability/current-version quote is required only for a design source the model selected; for an explicitly human-selected design source use authority:null without inventing binding status. Unknown version, missing component, conflicting rule or missing required screen: inspect ONE/Atlas first, then ask a focused one_task_question if needed. Never invent a design system or component.
 - Allowed HTML elements: ${MOCK_TAGS.join(', ')}. Tables may use caption for their visible accessible title and tfoot for totals.
+- Allowed HTML attributes: ${MOCK_ATTRS.join(', ')}. No other attributes, inline styles, URLs or handlers.
+- Zero lengths (including 0px), child selectors, comma-separated token-based shadows and slash-separated token-based font/radius values are allowed.
 - For font-family use a cited variable such as var(--font); generic browser fallbacks after it (for example var(--font), sans-serif) are allowed. Named fonts must be inside cited tokens. Form controls may use font-family:inherit.
 - html is body markup only, using data-ds-component="ExactCatalogueName" on each control or its enclosing component block and data-requirement="R1" etc on requirement areas. Every requirement must map to a visible area. Use CSS variables for design colours, fonts, spacing and radius; tokens carry exact catalogue values and quote. No JS, imports, external images/fonts/links, network, forms submission or inline style attributes. Put styling in css. Use semantic HTML labels and static states; describe interactions and unresolved states in notes. Include font/asset limitations and design approximations honestly. No invented data/approval: mark illustrative examples.
 - ONE verifies citation origin, static markup and some token mechanics, NOT semantic completeness or pixel-perfect design compliance. Deliver as a proposal with open BA/PO decisions. Do not call create_page as a substitute for an actual mock artifact. On /mock create at most one focused screen unless the person explicitly asks for more. If sources cannot support it, report the missing source and make no mock.`

@@ -1,10 +1,10 @@
 import DOMPurify from 'dompurify'
-import {MockSources,MOCK_SCHEMA,MOCK_TAGS,mockIssues,normalizeMockFonts,type MockDraft,type DesignMock} from '@/shared/ai/designMock'
+import {MockSources,MOCK_SCHEMA,MOCK_TAGS,MOCK_ATTRS,mockIssues,normalizeMockFonts,type MockDraft,type DesignMock} from '@/shared/ai/designMock'
 import {sha256Hex} from '@/shared/mcp/sha256'
 import {validateValue} from '@/shared/quandprofile/program'
 import {ToolInputError,type AgentTool} from './tools'
 const tags=MOCK_TAGS
-const attrs=['class','id','role','aria-label','aria-labelledby','aria-describedby','aria-selected','aria-checked','aria-disabled','aria-current','data-ds-component','data-requirement','type','name','value','placeholder','disabled','checked','selected','for','rows','cols','colspan','rowspan','scope','min','max','step']
+const attrs=MOCK_ATTRS
 const escape=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
  try{validateValue(draft,MOCK_SCHEMA,'design mock')}catch(e){throw new ToolInputError(String(e))}
@@ -18,7 +18,7 @@ export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
   if(el instanceof HTMLInputElement&&!['text','number','checkbox','radio','search','date','time','email'].includes(el.type))issues.push('Unsupported input type.')
   const name=el.getAttribute('data-ds-component')
   if(name&&!draft.components.some(c=>c.name===name))issues.push('Uncited component: '+name)
-  if(['BUTTON','INPUT','SELECT','TEXTAREA','PROGRESS','TABLE'].includes(el.tagName)&&!el.closest('[data-ds-component]'))issues.push('Every control/table needs a data-ds-component catalogue mapping on itself or its enclosing component.')
+  if(['BUTTON','INPUT','SELECT','TEXTAREA','PROGRESS','METER','TABLE'].includes(el.tagName)&&!el.closest('[data-ds-component]'))issues.push('Every control/table needs a data-ds-component catalogue mapping on itself or its enclosing component.')
   for(const ref of (el.getAttribute('data-requirement')??'').split(/\s+/).filter(Boolean))if(!/^R[1-6]$/.test(ref)||Number(ref.slice(1))>draft.requirements.length)issues.push('Unknown requirement mapping: '+ref)
  }
  for(let n=1;n<=draft.requirements.length;n++)if(!parsed.body.querySelector(`[data-requirement~="R${n}"]`))issues.push('Map requirement R'+n+' to its visible mock area with data-requirement.')
