@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react'
-import { mockBlockData, mockBlockTask, mockSourceUrl, type MockBlockData } from '@/shared/ai/mockBlock'
+import { mockBlockData, mockPreviewFromArtifact, mockBlockTask, mockSourceUrl, type MockBlockData } from '@/shared/ai/mockBlock'
 import { useAgent, openAgent } from './state'
 import { useWorkspace } from '../../../store/store'
 import { useT } from '../../../i18n'
@@ -15,7 +15,7 @@ export function MockBlockComposer({value,onChange}:{value:MockBlockData;onChange
   if(epoch!==useWorkspace.getState().epoch)return
   const artifact=candidates.find(a=>a.id===selected)
   if(!artifact)return
-  const next=mockBlockData({...value,source:value.source||artifact.sources.find(s=>s.id===artifact.draft.design.source)?.url||'',requirement:value.requirement||(artifact.target?.url??''),request:value.request||artifact.title,preview:{title:artifact.title,document:artifact.document,width:artifact.width,height:artifact.height,createdAt:artifact.createdAt,htmlHash:artifact.htmlHash,targetUrl:(artifact.atlasSaved?.url??artifact.atlasDestination?.url??artifact.target?.url??'')}})
+  const next=mockBlockData({...value,source:value.source||artifact.sources.find(s=>s.id===artifact.draft.design.source)?.url||'',requirement:value.requirement||(artifact.target?.url??''),request:value.request||artifact.title,preview:mockPreviewFromArtifact(artifact)})
   if(next.preview)onChange(next)
  }
  return <div className="mock-block__composer">

@@ -36,3 +36,22 @@ test('cloud creation waits for generation two and never bypasses viewer or outda
  assert.equal(mockBlocksAllowed({...c,schemaMin:2,readOnly:true}),false)
  assert.equal(mockBlocksAllowed({...c,schemaMin:2,outdated:true}),false)
 })
+
+test('persistent mock receipt keeps source evidence and strips unrelated connection fields',async()=>{
+ const {mockProvenance,mockColors,mockColorStyle}=await import('../../src/shared/ai/mockBlockProvenance.ts')
+ const source={id:'source-1',ref:12,title:'Design',server:'atlas',url:'https://atlas.example/r/12?token=secret',hash:'a'.repeat(64),stateHash:'b'.repeat(64),readAt:new Date().toISOString(),token:'must-not-persist'}
+ const citation={source:'source-1',quote:'Primary colour is #a50034.'}
+ const receipt={id:'11111111-1111-4111-8111-111111111111',sources:[source],draft:{title:'Example',width:960,height:640,design:citation,authority:null,target:null,requirements:[],tokens:[{...citation,name:'--primary',value:'#a50034'}],components:[{...citation,name:'Button'}],notes:[]},target:null,connection:{token:'must-not-persist'}}
+ const parsed=mockProvenance(receipt)!
+ assert(parsed);assert.equal(parsed.sources[0].url,'https://atlas.example/r/12');assert(!JSON.stringify(parsed).includes('must-not-persist'));assert(!JSON.stringify(parsed).includes('?token'))
+ assert.deepEqual(mockColors({'--primary':'#123456','--unknown':'#abcdef','--primary2':'url(evil)'},parsed),{'--primary':'#123456'})
+ assert.equal(mockColorStyle({'--primary':'</style><script>bad</script>'}), '')
+ assert.equal(mockProvenance({...receipt,draft:{...receipt.draft,credentials:'not allowed'}}),undefined)
+ const {mockPreviewFromArtifact}=await import('../../src/shared/ai/mockBlock.ts'),{sha256Hex}=await import('../../src/shared/mcp/sha256.ts')
+ const document='<html><body><p>Example</p></body></html>',artifact={...receipt,title:'Example',width:960,height:640,createdAt:new Date().toISOString(),document,htmlHash:sha256Hex(document),review:'open'} as any
+ const preview=mockPreviewFromArtifact(artifact)
+ const restored=mockBlockData({preview:{...preview,colors:{'--primary':'#123456'}}}).preview!
+ assert.equal(restored.provenance?.id,receipt.id);assert.deepEqual(restored.colors,{'--primary':'#123456'})
+ const tampered=mockBlockData({preview:{...preview,document:'tampered',colors:{'--primary':'#123456'}}}).preview!
+ assert.equal(tampered.provenance,undefined);assert.deepEqual(tampered.colors,{})
+})

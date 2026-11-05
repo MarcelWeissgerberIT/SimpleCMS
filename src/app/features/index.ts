@@ -677,3 +677,5 @@ export { buildWorkspacePackage, portableWorkspace, makeLocalWorkspace, parseWork
 export { TranslationControls, WorkspaceTranslations } from './translation'
 
 export { MockBlockComposer } from './ai/agent/MockBlockComposer'
+
+export { DesignMockCard } from './ai/agent/DesignMockCard'
