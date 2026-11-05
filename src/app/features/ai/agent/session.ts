@@ -724,7 +724,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
     const err = missingSources?new AIError('bad_request',t('features.ai.transfer.sourcesMissing')):detail?.startsWith('Typed AI check blocked:')||e instanceof ToolInputError?new AIError('bad_request',detail):e instanceof AIError ? e : new AIError('unknown',detail)
     if (err.code === 'aborted') finish('stopped')
     // a server that rejected its token: named, so the terminal can offer to sign in to it
-    else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
+    else finish('error', { code: err.code, message: err.message, ...(err.detail?.startsWith('features.ai.central.')?{centralLog:true}:{}), ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
     // a key in the task: the text goes back into the prompt to be fixed (never into the history)
     if (err.code === 'key_in_text' && here() && !get().draft.trim()) set({ draft: task })
   } finally {

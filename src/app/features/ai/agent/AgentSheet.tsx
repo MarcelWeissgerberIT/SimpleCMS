@@ -750,6 +750,7 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
     <div className="term-error" role={last?'alert':undefined}>
       <span className="term-error__code">✗ ERR · {error.code.toUpperCase()}</span>
       <p>{error.message}</p>
+      {error.centralLog&&<button type="button" className="btn btn--sm" onClick={()=>{navigate({name:'workspace',section:'ai'});useAgent.setState({open:false})}}><Settings2 size={13} aria-hidden/> {t('features.ai.central.open')}</button>}
       {signIn && <SignInKey server={error.server!} retry={retryOf(n)} />}
       {keyIssue && (
         <button type="button" className="btn btn--sm" onClick={() => openAISetup({ reason: error.code === 'no_key' ? 'nokey' : error.code === 'key_in_text' ? 'add' : 'refused', step: error.code === 'no_key' ? undefined : 'key', provider: 'anthropic', feature: 'terminal' })}>

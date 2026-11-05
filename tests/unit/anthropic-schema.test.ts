@@ -18,5 +18,16 @@ test('Claude wire schema removes unsupported constraints recursively while origi
 test('Claude wire keeps supported minimum cardinality and exact enum/type definitions',()=>{
  const original={type:'object',properties:{values:{type:'array',minItems:1,maxItems:2,items:{type:['string','null'],enum:['yes',null]}}},required:['values'],additionalProperties:false}
  const wire=anthropicOutputSchema(original) as any
- assert.equal(wire.properties.values.minItems,1);assert.deepEqual(wire.properties.values.items,original.properties.values.items)
+ assert.equal(wire.properties.values.minItems,1);assert.deepEqual(wire.properties.values.items,{anyOf:[{type:'string',enum:['yes']},{type:'null',enum:[null]}]})
+})
+
+test('Claude nullable enums preserve membership without the rejected type-array enum combination',()=>{
+ for(const values of [[null],['yes'],['yes',null],[0,false,null]]){
+  const original={type:['string','number','boolean','null'],enum:values},wire=anthropicOutputSchema(original)
+  for(const value of [null,'yes','no',0,1,false,true]){
+   const accepts=(schema:Record<string,unknown>)=>{try{validateValue(value,schema);return true}catch{return false}}
+   assert.equal(accepts(wire),accepts(original))
+  }
+  assert(!(Array.isArray(wire.type)&&Array.isArray(wire.enum)))
+ }
 })

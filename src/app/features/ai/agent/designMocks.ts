@@ -4,7 +4,7 @@ import {sha256Hex} from '@/shared/mcp/sha256'
 import {validateValue} from '@/shared/quandprofile/program'
 import {ToolInputError,type AgentTool} from './tools'
 const tags=['main','section','article','header','footer','nav','aside','div','span','h1','h2','h3','h4','p','strong','em','small','label','button','input','textarea','select','option','table','thead','tbody','tr','th','td','ul','ol','li','dl','dt','dd','hr','br','fieldset','legend','progress']
-const attrs=['class','id','role','aria-label','aria-labelledby','aria-describedby','aria-selected','aria-checked','aria-disabled','aria-current','data-ds-component','data-requirement','type','value','placeholder','disabled','checked','selected','for','rows','cols','colspan','rowspan','scope','min','max','step']
+const attrs=['class','id','role','aria-label','aria-labelledby','aria-describedby','aria-selected','aria-checked','aria-disabled','aria-current','data-ds-component','data-requirement','type','name','value','placeholder','disabled','checked','selected','for','rows','cols','colspan','rowspan','scope','min','max','step']
 const escape=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
 export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
  try{validateValue(draft,MOCK_SCHEMA,'design mock')}catch(e){throw new ToolInputError(String(e))}
@@ -17,12 +17,12 @@ export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
   if(el instanceof HTMLInputElement&&!['text','number','checkbox','radio','search','date','time','email'].includes(el.type))issues.push('Unsupported input type.')
   const name=el.getAttribute('data-ds-component')
   if(name&&!draft.components.some(c=>c.name===name))issues.push('Uncited component: '+name)
-  if(['BUTTON','INPUT','SELECT','TEXTAREA','PROGRESS','TABLE'].includes(el.tagName)&&!name)issues.push('Every control/table needs its own data-ds-component catalogue mapping.')
+  if(['BUTTON','INPUT','SELECT','TEXTAREA','PROGRESS','TABLE'].includes(el.tagName)&&!el.closest('[data-ds-component]'))issues.push('Every control/table needs a data-ds-component catalogue mapping on itself or its enclosing component.')
   for(const ref of (el.getAttribute('data-requirement')??'').split(/\s+/).filter(Boolean))if(!/^R[1-6]$/.test(ref)||Number(ref.slice(1))>draft.requirements.length)issues.push('Unknown requirement mapping: '+ref)
  }
  for(let n=1;n<=draft.requirements.length;n++)if(!parsed.body.querySelector(`[data-requirement~="R${n}"]`))issues.push('Map requirement R'+n+' to its visible mock area with data-requirement.')
  for(const component of draft.components)if(![...parsed.body.querySelectorAll('[data-ds-component]')].some(el=>el.getAttribute('data-ds-component')===component.name))issues.push('Cited component is not used: '+component.name)
- if(issues.length)throw new ToolInputError('Mock held: '+[...new Set(issues)].slice(0,6).join(' '))
+ if(issues.length)throw new ToolInputError('Mock held: '+[...new Set(issues)].join(' ').slice(0,8000))
  const clean=DOMPurify.sanitize(draft.html,{ALLOWED_TAGS:tags,ALLOWED_ATTR:attrs,ALLOW_DATA_ATTR:false,ALLOW_ARIA_ATTR:false})
  const tokens=draft.tokens.map(t=>t.name+':'+t.value).join(';')
  const used=[...new Set([draft.design,...(draft.authority?[draft.authority]:[]),...draft.requirements,...draft.tokens,...draft.components].map(c=>c.source))].map(id=>{const {body,...meta}=sources.get(id)!;return meta})

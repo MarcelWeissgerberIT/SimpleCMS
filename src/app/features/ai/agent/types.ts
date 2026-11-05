@@ -364,7 +364,7 @@ export interface AgentTurn {
   /** "Continue" (/continue): this task picks up task n where it stopped at the tool-call limit (task = that task's text) */
   continues?: number
   /** server: the MCP server that rejected its token (mcp_auth) — the terminal offers to sign in to it */
-  error?: { code: AIErrorCode | 'max_tokens'; message: string; server?: string }
+  error?: { code: AIErrorCode | 'max_tokens'; message: string; server?: string; centralLog?:boolean }
   /** MCP servers this task left out because they rejected their token here (the terminal offers a sign-in) */
   signIn?: string[]
 }

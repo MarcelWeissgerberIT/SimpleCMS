@@ -37,3 +37,10 @@ test('exact slug resolution verifies both project and slug before accepting the 
  assert(s.observe('atlas','https://aj-atlas.com','atlas_get',args,JSON.stringify({item:record})))
  for(const patch of [{project:'other'},{slug:'other'},{ref:0}])assert.equal(s.observe('atlas','https://aj-atlas.com','atlas_get',args,JSON.stringify({item:{...record,...patch}})),null)
 })
+
+test('inset is shadow syntax while nonzero shadow dimensions still require citations',()=>{
+ const {s,draft}=fixture();draft.tokens.push({source:draft.design.source,name:'--space',value:'16px',quote:'The spacing step is 16px.'})
+ draft.css='p{box-shadow:inset var(--space) 0 0 var(--primary)}'
+ assert.deepEqual(mockIssues(draft,s),[])
+ for(const css of ['p{box-shadow:inset 4px 0 0 var(--primary)}','p{padding:inset var(--space)}']){draft.css=css;assert(mockIssues(draft,s).some(i=>i.includes('visual property')))}
+})

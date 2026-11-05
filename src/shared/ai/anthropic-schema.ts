@@ -15,6 +15,17 @@ export function anthropicOutputSchema(schema:Record<string,unknown>):Record<stri
   }
   if(s.type==='object'&&out.additionalProperties===undefined)out.additionalProperties=false
   if(Object.keys(hints).length)out.description=(typeof out.description==='string'?out.description+'\n':'')+'ONE validates these constraints after generation: '+JSON.stringify(hints)
+  // Claude rejects enum values against a type array even when they match a member
+  // (observed: enum [null], type ["string","null"]). Partition by scalar type.
+  if(Array.isArray(out.type)&&Array.isArray(out.enum)){
+   const values=out.enum,variants=out.type.map(type=>({type,enum:values.filter(v=>type==='null'?v===null:type==='integer'?Number.isSafeInteger(v):type==='array'?Array.isArray(v):type==='object'?v!==null&&typeof v==='object'&&!Array.isArray(v):typeof v===type)})).filter(v=>v.enum.length)
+   if(variants.length){
+    delete out.type;delete out.enum
+    if(variants.length===1)Object.assign(out,variants[0])
+    else if(out.anyOf||out.allOf||out.oneOf){out.allOf=[...(Array.isArray(out.allOf)?out.allOf:[]),{anyOf:variants}]}
+    else out.anyOf=variants
+   }
+  }
   return out
  }
  return visit(schema)

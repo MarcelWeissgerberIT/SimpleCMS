@@ -1,11 +1,12 @@
 /** Explicit /mock sources are read by ONE, then one bounded draft and at most one correction. */
-import {MOCK_GUIDE,MockSources,type DesignMock} from '@/shared/ai/designMock'
+import {MOCK_GUIDE,MockSources} from '@/shared/ai/designMock'
 import {workerMcpSession} from '../core/workerMcp'
 import {createTaskContract} from '../core/taskContract'
 import {beginLiveAudit} from '../core/liveAudit'
 import {assertPreparedFlow,type Prepared} from '../core/gate'
 import {tapSignal} from '../core/meter'
 import {compileMock} from './designMocks'
+import {checkedMockDraft} from '@/shared/ai/mockCorrection'
 import {repairDesignMock} from './repairDesignMock'
 import {ToolInputError} from './tools'
 import {epicSelection,epicFoundation} from '@/shared/ai/mockEpic'
@@ -58,12 +59,10 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
    if(plan.requirement)sources.selectedTarget=(await read(plan.requirement)).id
   }
   else for(const ref of plan.refs)await read({ref})
-  let input:unknown=null,error:unknown='Initial draft from the exact requested source bodies.',artifact:DesignMock|undefined
-  for(let i=0;i<2;i++){
-   const draft=await repairDesignMock(o,prepared,sources,input,error,{phase:i?'repair':'draft',audit})
-   try{artifact={...compileMock(draft,sources),request:(o.typed??'').split(/^Atlas design (?:source|epic):/m)[0]!.replace(/^\/mock\s*/i,'')};break}catch(e){input=draft;error=e;if(i)throw e;o.hooks.note('Der Mock-Entwurf wird einmal gegen echte Quellenausschnitte und das vollständige Schema korrigiert.')}
-  }
-  if(!artifact)throw new ToolInputError('No source-grounded mock passed the minimum checks.')
+  const artifact=await checkedMockDraft(
+   (input,error,repair)=>repairDesignMock(o,prepared,sources,input,error,{phase:repair?'repair':'draft',audit}),
+   draft=>({...compileMock(draft,sources),request:(o.typed??'').split(/^Atlas design (?:source|epic):/m)[0]!.replace(/^\/mock\s*/i,'')}),
+   ()=>o.hooks.note('Der Mock-Entwurf wird einmal gegen echte Quellenausschnitte und das vollständige Schema korrigiert.'))
   task.dispatch('create_design_mock','read');task.finish('Statischer Design-Mock mit tatsächlich gelesenen Quellen erstellt. Diese Entwurfsphase hat Atlas nur gelesen.')
   artifact.route=prepared.route!
   let deliveryNote=''

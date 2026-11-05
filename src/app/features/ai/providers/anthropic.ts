@@ -119,9 +119,9 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
 }
 
 /** Resolve a centrally managed connection before opening any personal vault key. */
-async function configuredClient(): Promise<{client:AnthropicSDK;sdk:SDKModule}> {
+async function configuredClient(): Promise<{client:AnthropicSDK;sdk:SDKModule;maxRetries?:0}> {
   const central=await centralTransport()
-  if(central){const sdk=await loadSDK();return {sdk,client:new sdk.default({apiKey:'central-managed',dangerouslyAllowBrowser:true,maxRetries:0,fetch:central.fetch,middleware:[wireMiddleware]})}}
+  if(central){const sdk=await loadSDK();return {sdk,maxRetries:0,client:new sdk.default({apiKey:'central-managed',dangerouslyAllowBrowser:true,maxRetries:0,fetch:central.fetch,middleware:[wireMiddleware]})}}
   const key=await getAIKey('anthropic')
   if(!key)throw new AIError('no_key')
   return getClient(key)
@@ -528,6 +528,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     if (signal?.aborted) throw new AIError('aborted')
     const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content: prompt }]
     const format = { type: 'json_schema' as const, schema: anthropicOutputSchema(schema) }
+    const requestRetries=got.maxRetries??maxRetries
     const promptChars = () => system.length + prompt.length
     let stopReason: string | null
     let blocks: Array<{ type: string; text?: string }>
@@ -544,7 +545,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
       const msg=await streamWithMcp(client,model,opus,system+'\n'+attached.system,prompt,attached,()=>{},calls=>{sawMcp ||= calls.some(c=>!c.contract&&c.tool!=='one_mcp_search');opts.onMcpActivity?.({attached:attached!.names,blocks:[],calls})},signal,{prepared,call,sdk,schema})
       const receipt=call.receipt();if(receipt)onUsage?.({p:'anthropic',model,input:receipt.usage.input,output:receipt.usage.output,cacheRead:receipt.usage.cacheRead,cacheWrite:receipt.usage.cacheWrite+receipt.usage.cacheWrite1h,usd:receipt.usd??0});stopReason=msg.stop_reason;blocks=msg.content
     } else if (!opus) {
-      const { msg, entry } = await metered(call, (sig) => client.messages.create({ model, max_tokens: capped(maxTokens, prepared), system, messages, output_config: { format } }, { signal: sig, maxRetries }), promptChars, sdk, signal)
+      const { msg, entry } = await metered(call, (sig) => client.messages.create({ model, max_tokens: capped(maxTokens, prepared), system, messages, output_config: { format } }, { signal: sig, maxRetries:requestRetries }), promptChars, sdk, signal)
       used(entry)
       stopReason = msg.stop_reason
       blocks = msg.content
@@ -556,7 +557,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
         (sig) =>
           client.beta.messages.create(
             { model, max_tokens: capped(maxTokens, prepared), betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', output_config: { effort: 'low', format }, system, messages },
-            { signal: sig, maxRetries },
+            { signal: sig, maxRetries:requestRetries },
           ),
         promptChars,
         sdk,
