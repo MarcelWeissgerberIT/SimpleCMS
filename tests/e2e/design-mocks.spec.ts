@@ -128,6 +128,10 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   const ed=editorOf(page);await ed.evaluate((el:any)=>el.editor.commands.insertContentAt(el.editor.state.doc.content.size,{type:'paragraph'}));await ed.locator(':scope > p').last().click();await expect(ed).toBeFocused();await page.keyboard.type('/mock');await expect(page.locator('.slash .slash__item[aria-selected=true] .slash__name')).toHaveText('UI mock from Atlas');await page.keyboard.press('Enter')
   const block=page.locator('.mock-block');await expect(block).toBeVisible();await block.getByLabel('Result from the AI terminal',{exact:true}).selectOption({label:'Record detail · catalogue mock · #14'});await block.getByRole('button',{name:'Use preview in block',exact:true}).click()
   await expect(page.frameLocator('.mock-block iframe').getByRole('heading',{name:'Original record title'})).toBeVisible();expect(round).toBe(count)
+  if(legacy){
+   await ed.evaluate((el:any)=>{const editor=el.editor;editor.state.doc.descendants((node:any,pos:number)=>{if(node.type.name!=='designMock')return;const spec=structuredClone(node.attrs.spec),receipt=spec.preview.provenance;spec.source=receipt.sources.find((s:any)=>s.id===receipt.draft.design.source).url;spec.requirement=receipt.target?.url??'';delete spec.preview.provenance;editor.view.dispatch(editor.state.tr.setNodeMarkup(pos,undefined,{...node.attrs,spec}));return false})})
+  }
+
   await expect(block.getByRole('tab',{name:'Mock',exact:true})).toHaveAttribute('aria-selected','true');await block.getByRole('tab',{name:'Colours',exact:true}).click()
   await block.getByRole('textbox',{name:'--primary Hex',exact:true}).fill('#123456');await block.getByRole('textbox',{name:'--primary Hex',exact:true}).press('Tab')
   await expect(page.frameLocator('.mock-block__preview iframe').locator('button')).toHaveCSS('background-color','rgb(18, 52, 86)')
@@ -160,7 +164,7 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   await block.getByRole('tab',{name:'Atlas',exact:true}).click();await expect(block.getByRole('button',{name:'Attach to Atlas record',exact:true})).toHaveCount(0)
 
  })
- test('marked feedback survives reload and AI revision with an independent Markdown backlog',async({page})=>{
+ for(const legacy of [false,true])test('marked feedback survives reload and AI revision with an independent Markdown backlog'+(legacy?' · legacy preview':''),async({page})=>{
   let round=0
   let revised=false,assessed=false
   fake.onText=r=>{round++;expect(r.schema).toBeTruthy();expect(r.tools??[]).toHaveLength(0);const user=r.messages.map((m:any)=>m.content).join('\n');let result:any
@@ -172,6 +176,10 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   const ed=editorOf(page);await ed.evaluate((el:any)=>el.editor.commands.insertContentAt(el.editor.state.doc.content.size,{type:'paragraph'}));await ed.locator(':scope > p').last().click();await expect(ed).toBeFocused();await page.keyboard.type('/mock');await expect(page.locator('.slash .slash__item[aria-selected=true] .slash__name')).toHaveText('UI mock from Atlas');await page.keyboard.press('Enter')
   const block=page.locator('.mock-block');await expect(block).toBeVisible();await block.getByLabel('Result from the AI terminal',{exact:true}).selectOption({label:'Record detail · catalogue mock · #14'});await block.getByRole('button',{name:'Use preview in block',exact:true}).click()
   await expect(page.frameLocator('.mock-block iframe').getByRole('heading',{name:'Original record title'})).toBeVisible();expect(round).toBe(count)
+  if(legacy){
+   await ed.evaluate((el:any)=>{const editor=el.editor;editor.state.doc.descendants((node:any,pos:number)=>{if(node.type.name!=='designMock')return;const spec=structuredClone(node.attrs.spec),receipt=spec.preview.provenance;spec.source=receipt.sources.find((s:any)=>s.id===receipt.draft.design.source).url;spec.requirement=receipt.target?.url??'';delete spec.preview.provenance;editor.view.dispatch(editor.state.tr.setNodeMarkup(pos,undefined,{...node.attrs,spec}));return false})})
+  }
+
   await block.getByRole('button',{name:'Mark element',exact:true}).click()
   await page.frameLocator('.mock-block__preview iframe').getByRole('button',{name:'Continue',exact:true}).click()
   await expect(block.getByRole('tab',{name:'Notes',exact:true})).toHaveAttribute('aria-selected','true')
@@ -185,6 +193,8 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   await block.getByRole('button',{name:'View marked element',exact:true}).click()
   await expect(page.frameLocator('iframe[title="Marked mock version"]').getByRole('button',{name:'Continue'})).toHaveCSS('outline-color','rgb(255, 90, 0)')
   await page.keyboard.press('Escape')
+  await expect(block.getByRole('button',{name:'Revise with AI',exact:true})).toBeEnabled()
+  if(legacy)await expect(block).toContainText('saved Atlas design source will be read again')
   await block.getByRole('button',{name:'Revise with AI',exact:true}).click()
   await expect(input).toHaveValue(/One mock review:/);await input.press('Enter')
   await expect(term.locator('.term-head__status')).toHaveText('Error');await expect(term).toContainText('cannot receive the complete saved mock page');expect(revised).toBe(false);expect(assessed).toBe(false)

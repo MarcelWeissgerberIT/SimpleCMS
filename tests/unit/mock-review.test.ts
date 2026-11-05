@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {checkpointMock,adoptMockPreview,mockVersionKey,mockNoteHash,mockMarkdownTask,MOCK_VERSION_LIMIT,type MockFeedback} from '../../src/shared/ai/mockReview.ts'
+import {checkpointMock,adoptMockPreview,mockVersionKey,mockNoteHash,mockMarkdownTask,mockReviewTask,mockReviewSource,mockReviewUnavailable,MOCK_VERSION_LIMIT,type MockFeedback} from '../../src/shared/ai/mockReview.ts'
 import {mockBlockData,type MockBlockData,type MockBlockPreview} from '../../src/shared/ai/mockBlock.ts'
 import {sha256Hex} from '../../src/shared/mcp/sha256.ts'
 const preview=(label:string):MockBlockPreview=>({title:label,document:'<body><button>'+label+'</button></body>',width:960,height:640,createdAt:'2026-11-05T00:00:00Z',htmlHash:sha256Hex('<body><button>'+label+'</button></body>'),targetUrl:''})
@@ -38,4 +38,26 @@ test('a revision cannot overwrite a mock edited since its request',()=>{
  let d=checkpointMock(data(),'initial');const base=mockVersionKey(d.preview!)
  d=checkpointMock({...d,preview:preview('edited later')},'later')
  assert.throws(()=>adoptMockPreview(d,preview('stale result'),{journal:d.journal!.id,base,notes:[],assessments:[]}),/seit diesem KI-Auftrag/)
+})
+
+
+test('legacy preview feedback prepares a fresh source read without fabricating a receipt',()=>{
+ const d=checkpointMock(data(),'legacy');d.journal!.notes.push(note(d));d.requirement='#42'
+ const restored=mockBlockData(JSON.parse(JSON.stringify(d))),task=mockReviewTask(restored,'page-1')!
+ assert.match(task,/Atlas design source: https:\/\/atlas.example\/r\/12/)
+ assert.match(task,/Atlas requirement record: #42/)
+ assert.match(task,/One mock review:/)
+ assert.match(task,/Use a badge instead/)
+ assert.equal(restored.preview!.provenance,undefined)
+ assert.equal(mockReviewUnavailable(restored),null)
+ assert.match(mockMarkdownTask(restored,restored.journal!.notes[0]),/https:\/\/atlas.example\/r\/12/)
+})
+test('feedback explains missing source, resolved notes, missing preview and oversized document',()=>{
+ const d=checkpointMock(data(),'legacy');d.journal!.notes.push(note(d))
+ assert.equal(mockReviewUnavailable({...d,source:''}),'source')
+ assert.equal(mockReviewTask({...d,source:''},'page-1'),null)
+ assert.equal(mockReviewSource({...d,source:'javascript:alert(1)'}),'')
+ assert.equal(mockReviewUnavailable({...d,preview:null}),'preview')
+ assert.equal(mockReviewUnavailable({...d,preview:{...d.preview!,document:'x'.repeat(96001)}}),'size')
+ d.journal!.notes[0].resolved=true;assert.equal(mockReviewUnavailable(d),'notes')
 })

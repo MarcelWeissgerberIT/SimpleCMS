@@ -1,6 +1,6 @@
 import {classOfPage} from '../core/sources'
 import {mockBlockData} from '@/shared/ai/mockBlock'
-import {mockVersionKey,mockNoteHash,type MockReviewResult} from '@/shared/ai/mockReview'
+import {mockVersionKey,mockNoteHash,mockReviewSource,type MockReviewResult} from '@/shared/ai/mockReview'
 import {useWorkspace} from '../../../store/store'
 import {ToolInputError} from './tools'
 import type {MockSources} from '@/shared/ai/designMock'
@@ -23,10 +23,10 @@ export function mockFeedbackContext(typed:string,prepared:Prepared,declared:Para
   const matches:ReturnType<typeof mockBlockData>[]=[]
   const visit=(node:any)=>{if(node?.type==='designMock'){const data=mockBlockData(node.attrs?.spec);if(data.journal?.id===request.journal)matches.push(data)}if(Array.isArray(node?.content))node.content.forEach(visit)};visit(page.content)
   if(matches.length!==1)throw new ToolInputError('The marked mock must identify exactly one page block. Prepare feedback from the intended block again.')
-  const data=matches[0],p=data.preview;if(!p?.provenance||mockVersionKey(p)!==request.base)throw new ToolInputError('The mock changed after the feedback task was prepared. Prepare it again from the current version.')
+  const data=matches[0],p=data.preview;if(!p||mockVersionKey(p)!==request.base)throw new ToolInputError('The mock changed after the feedback task was prepared. Prepare it again from the current version.')
   const notes=request.notes.map((r:any)=>{const n=data.journal!.notes.find(n=>n.id===r.id);if(!n||mockNoteHash(n)!==r.hash)throw new ToolInputError('A feedback note changed. Prepare the task again.');return n})
-  const source=p.provenance.sources.find(s=>s.id===p.provenance!.draft.design.source)?.url
-  if(!source||!typed.includes('\nAtlas design source: '+source+'\n'))throw new ToolInputError('The feedback task does not match the saved design source.')
+  const source=mockReviewSource(data)
+  if(!source||/^Atlas design source: (.+)$/m.exec(typed)?.[1]!==source)throw new ToolInputError('The feedback task does not match the saved design source.')
   if(p.document.length>96000)throw new ToolInputError('This mock is too large for one focused revision. Use a smaller mock block; no previous markup was silently omitted.')
   return {data,preview:p,notes}
  }

@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {checkpointMock,mockVersionKey,mockReviewTask,mockMarkdownTask,MOCK_NOTE_LIMIT,type MockElement,type MockFeedback} from '@/shared/ai/mockReview'
+import {checkpointMock,mockVersionKey,mockReviewTask,mockReviewUnavailable,mockMarkdownTask,MOCK_NOTE_LIMIT,type MockElement,type MockFeedback} from '@/shared/ai/mockReview'
 import type {MockBlockData} from '@/shared/ai/mockBlock'
 import {useWorkspace} from '../../../store/store'
 import {openAgent,useAgent} from './state'
@@ -14,6 +14,8 @@ export function MockReviewPanel({value,onChange,selection,onClear,pageId,editabl
  })
  const patch=(id:string,part:Partial<MockFeedback>)=>{if(editable&&j)onChange({...value,journal:{...j,notes:notes.map(n=>n.id===id?{...n,...part}:n)}})}
  const task=pageId?mockReviewTask(value,pageId):null
+ const unavailable=mockReviewUnavailable(value)
+ const reason=!editable?(de?'Diese Seite ist schreibgeschützt.':'This page is read-only.'):running?(de?'Es läuft bereits ein KI-Auftrag. Nach dessen Abschluss kannst du die Überarbeitung vorbereiten.':'An AI task is running. Prepare the revision after it finishes.'):!pageId?(de?'Die Seite konnte nicht zugeordnet werden. Öffne sie erneut.':'The page could not be identified. Reopen it.'):unavailable?({preview:de?'Übernimm zuerst eine Mock-Vorschau.':'Adopt a mock preview first.',notes:de?'Speichere eine offene Notiz zur gewünschten Änderung.':'Save an open note about the desired change.',source:de?'Hinterlege unter Mock → Auftrag und Atlas-Quellen die Designquelle.':'Set the design source under Mock → Request and Atlas sources.',size:de?'Dieser Mock ist zu groß für eine einzelne Überarbeitung. Teile ihn in kleinere Mock-Blöcke auf; der gespeicherte Stand bleibt erhalten.':'This mock is too large for one revision. Split it into smaller mock blocks; the saved snapshot is retained.'})[unavailable]:''
  const exportHistory=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({preview:p,journal:j},null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='mock-review-history.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
  return <div className="mock-review">
   {error&&<p role="alert">{error}</p>}
@@ -28,6 +30,8 @@ export function MockReviewPanel({value,onChange,selection,onClear,pageId,editabl
     <div className="mock-block__actions"><button className="btn btn--primary btn--sm" onClick={save} disabled={!editable||!text.trim()}>{de?'Notiz speichern':'Save note'}</button><button className="btn btn--sm" onClick={onClear}>{de?'Abbrechen':'Cancel'}</button></div>
    </div>}
    <div className="mock-block__actions"><button className="btn btn--sm" disabled={!editable||running||!task} onClick={()=>task&&openAgent({task,run:false})}>{de?'Mit KI überarbeiten':'Revise with AI'}</button><span className="faint">{de?'Bis zu 8 offene Notizen je Auftrag. Das Ergebnis wird als neue Version übernommen.':'Up to 8 open notes per task. Adopt the result as a new version.'}</span></div>
+   {reason&&<p className="faint" role="status">{reason}</p>}
+   {!reason&&!p?.provenance&&<p className="faint">{de?'Die hinterlegte Atlas-Designquelle wird für diese ältere Vorschau neu gelesen. Mock und Notizen bleiben erhalten.':'The saved Atlas design source will be read again for this older preview. The mock and notes are retained.'}</p>}
    {!notes.length&&!selection&&<p className="faint">{de?'„Element markieren“ aktivieren, eine Stelle im Mock anklicken und eine Notiz speichern.':'Enable “Mark element”, click a mock element and save a note.'}</p>}
    <ol className="mock-review__notes">{notes.slice().reverse().map(n=><li key={n.id}><strong>{n.element.component||n.element.tag} · {n.resolved?(de?'Mock erledigt':'Mock resolved'):(de?'Mock offen':'Mock open')}</strong><p>{n.text}</p><button className="btn btn--sm" onClick={()=>onLocate(n)}>{de?'Markierte Stelle ansehen':'View marked element'}</button><small>V{(j?.versions.findIndex(v=>v.key===n.version)??-1)+1} · {n.element.text.slice(0,120)} · {new Date(n.at).toLocaleString()}</small>
     {n.assessment&&<div className="mock-review__assessment"><strong>{de?'KI-Einschätzung (Vorschlag): ':'AI assessment (proposal): '}{n.assessment.scope==='design-system'?(de?'Designsystem betroffen':'Design-system impact'):n.assessment.scope==='mock'?(de?'Mock-Korrektur':'Mock correction'):(de?'Noch unklar':'Unclear')}</strong><p>{n.assessment.reason}</p><p>{n.assessment.proposal}</p><p>{n.assessment.refs.map(ref=>{const source=j?.versions.find(v=>v.key===n.version)?.preview.provenance?.sources[0];return source?<a key={ref} href={new URL('/r/'+ref,source.url).href} target="_blank" rel="noreferrer">#{ref} </a>:null})}</p></div>}
