@@ -29,7 +29,7 @@ export class McpResults {
   }
   const ref=object(data)&&object(data.item)&&Number.isSafeInteger(data.item.ref)&&typeof data.item.body==='string'&&!(object(envelope)&&envelope.isError===true)?Number(data.item.ref):null
   if(raw.length<=SMALL){if(ref!==null)this.bodies.set(ref,null);return raw}
-  while(this.entries.size>=8||this.bytes+size>MCP_CACHE_BYTES){const oldest=this.entries.entries().next().value;if(!oldest)break;this.entries.delete(oldest[0]);for(const key of this.seen.keys())if(key.startsWith(oldest[0]+'\n'))this.seen.delete(key);this.bytes-=oldest[1].size}
+  while(this.entries.size>=64||this.bytes+size>MCP_CACHE_BYTES){const oldest=this.entries.entries().next().value;if(!oldest)break;this.entries.delete(oldest[0]);for(const key of this.seen.keys())if(key.startsWith(oldest[0]+'\n'))this.seen.delete(key);this.bytes-=oldest[1].size}
   const id='mcp-result-'+this.prefix+'-'+(++this.seq)
   if(ref!==null)this.bodies.set(ref,id)
   this.entries.set(id,{data,raw,size,error:object(envelope)&&envelope.isError===true});this.bytes+=size

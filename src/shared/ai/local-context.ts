@@ -37,7 +37,7 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
     try {
       const value = JSON.parse(result.text)
       if(value && typeof value === 'object' && !Array.isArray(value)){
-        const kept = Object.fromEntries(['oneMockSource','result_id','isError','oneSourceLinks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]))
+        const kept = Object.fromEntries(['oneMockSource','result_id','isError','oneObservedFacts','oneSourceLinks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]))
         if(Object.keys(kept).length) pointers=kept
       }
     } catch { /* Plain text results keep their existing explicit excerpt marker. */ }

@@ -59,7 +59,7 @@ test('bounded cache eviction, source errors and JSON-pointer escaping are explic
  const cache=new McpResults(),raw=JSON.stringify({isError:true,content:[{type:'text',text:JSON.stringify({'a/b~c':'z'.repeat(5000)})}]})
  const first=JSON.parse(cache.pack(raw));assert.equal(first.isError,true)
  assert.equal(JSON.parse(cache.read({result_id:first.result_id,path:'/a~1b~0c'})).content,'z'.repeat(2800))
- for(let i=0;i<8;i++)cache.pack(raw)
+ for(let i=0;i<64;i++)cache.pack(raw)
  assert.throws(()=>cache.read({result_id:first.result_id}),/expired/)
  assert.throws(()=>cache.pack('x'.repeat(8*1024*1024+1)),/exceeds/)
 })

@@ -1,3 +1,4 @@
+import {retryMcpRead} from '@/shared/mcp/readRetry'
 import type {MockSources} from '@/shared/ai/designMock'
 import {mcpConnectionMessage} from '@/shared/ai/connection-problem'
 import {atlasQueryProblem} from '@/shared/mcp/aql'
@@ -32,7 +33,19 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
   const schemas=new Map<string,DiscoveredMcpTool>(),discovered=new Set<string>(),results=new McpResults(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
   const readBodies=new Set<string>(),bodyKey=(server:string,args:Record<string,unknown>)=>JSON.stringify([server,args.tenant??null,args.ref])
-  const request=(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
+  const request=async(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>{
+    let waiting:McpCall|undefined
+    try{
+      const result=await retryMcpRead(async()=>{
+        if(signature()!==pinned)throw new AIError('policy','features.ai.mcp.sessionChanged')
+        return audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
+      },{read:input.action!=='call'||mcpTaskEffect(input.name,input.arguments,schemas.get(JSON.stringify([input.server,input.name])))==='read',signal,waiting:(ms,attempt)=>{
+        waiting={id:waiting?.id??'mcp-retry:'+crypto.randomUUID(),server:input.action==='call'?input.server:'MCP',tool:input.action==='call'?input.name:input.action,arg:'Abfragelimit · weiter in '+Math.ceil(ms/1000)+' s · Versuch '+attempt+' / 3 · Ergebnisse bleiben erhalten',state:'run'};event(waiting)
+      }})
+      if(waiting)event({...waiting,state:'ok',arg:'Wartephase beendet · Ergebnis siehe Werkzeugaufruf'})
+      return result
+    }catch(error){if(waiting)event({...waiting,state:'err',error:signal?.aborted?'Angehalten':'Erneuter Leseversuch fehlgeschlagen'});throw error}
+  }
   const discoveryCache=new Map<string,{schemas:DiscoveredMcpTool[];result:string}>()
   let attempts=0
   const signature=()=>JSON.stringify([useCloud.getState().active,useCloud.getState().user?.id,flowSignature(),currentSetup().servers.map(mcpAccessIdentity),useWorkspace.getState().integrations])

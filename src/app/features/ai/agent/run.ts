@@ -1,3 +1,4 @@
+import {fitNativeToolContext} from '@/shared/ai/native-context'
 import {prepareTypedAI} from '../core/typedAI'
 import {t} from '../../../i18n'
 import {activeReviewProfile} from '../profiles/storage'
@@ -427,7 +428,7 @@ export async function runAgent(opts: {
 
     const remoteTool=(definition:import('@/shared/ai/worker').WorkerFunction):BetaRunnableTool<Record<string,unknown>>=>({type:'custom',name:definition.name,description:definition.description,input_schema:definition.parameters as {type:'object'},parse:input=>input as Record<string,unknown>,run:async input=>{
       if(signal.aborted)throw new AIError('aborted')
-      if(++calls>MAX_TOOL_CALLS)throw new AIError('capability','Task tool-call limit reached.')
+      if(++calls>MAX_TOOL_CALLS){if(!refused){refused=true;hooks.limit()}return JSON.stringify({isError:true,oneNotExecuted:true,error:'Tool-call limit reached. Summarize completed work and remaining steps now. The person can continue with a fresh budget; do not repeat completed writes.'})}
       const result=definition.name===TASK_QUESTION.name?await task.modelQuestion(input):await remote!(definition.name,input,crypto.randomUUID())
       ;(runner.params as unknown as {system:string}).system=task.packet()
       if(remote){(runner.params as unknown as {tools:BetaRunnableTool<Record<string,unknown>>[]}).tools=[...tools,...remote.functions().map(remoteTool)]}
@@ -628,6 +629,14 @@ export async function runAgent(opts: {
                   runner.setMessagesParams(p=>({...p,messages:[...p.messages,{role:'assistant',content:answer}]}))
                   end='done';break outer
                 }
+              }
+              if(msg.stop_reason==='tool_use'&&prepared.caps?.context){
+                const receipt=await runner.generateToolResponse()
+                const closed:BetaMessageParam[]=[...runner.params.messages,{role:'assistant',content:msg.content},...(receipt?[receipt]:[])]
+                const definitions=JSON.stringify({system:task.packet(),tools:runner.params.tools}).length
+                const budget=Math.max(16000,Math.floor((prepared.caps.context-capped(LOOP_MAX_TOKENS,prepared)-8000)*2)-definitions)
+                const fitted=fitNativeToolContext(closed,budget)
+                if(fitted!==closed){runner.setMessagesParams(p=>({...p,messages:fitted}));hooks.note('Lange Werkzeugantworten wurden für den nächsten Schritt gekürzt. Quellenverweise bleiben verfügbar; fehlende Abschnitte können gezielt nachgelesen werden.')}
               }
             }
           }

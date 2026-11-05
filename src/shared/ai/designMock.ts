@@ -1,18 +1,25 @@
 /** Run-local provenance for static design proposals. Discovery and search excerpts cannot mint sources. */
 import {MCP_SOURCE_BYTES,MCP_CACHE_BYTES,sourceBytes} from '../mcp/sourceLimits.ts'
+import {mockEpic,isEpicMember,type MockEpic} from './mockEpic.ts'
 import {sha256Hex} from '../mcp/sha256.ts'
 export interface MockSource {id:string;server:string;ref:number;url:string;title:string;body:string;hash:string;stateHash:string;readAt:string}
 export interface MockCitation {source:string;quote:string}
 export interface MockToken extends MockCitation {name:string;value:string}
 export interface MockComponent extends MockCitation {name:string}
 export interface MockDraft {title:string;width:number;height:number;html:string;css:string;design:MockCitation;authority:MockCitation|null;target:string|null;requirements:MockCitation[];tokens:MockToken[];components:MockComponent[];notes:string[]}
-export interface DesignMock {id:string;title:string;width:number;height:number;document:string;htmlHash:string;createdAt:string;sources:Array<Omit<MockSource,'body'>>;draft:Omit<MockDraft,'html'|'css'>;review:'open';target:Omit<MockSource,'body'>|null;route?:{p:import('./types').ProviderId;m:string}}
+export interface DesignMock {id:string;title:string;width:number;height:number;document:string;htmlHash:string;createdAt:string;sources:Array<Omit<MockSource,'body'>>;draft:Omit<MockDraft,'html'|'css'>;review:'open';request?:string;atlasSaved?:{ref:number;url:string};atlasDestination?:{ref:number;url:string};atlasContext?:Omit<MockEpic,'members'>;target:Omit<MockSource,'body'>|null;route?:{p:import('./types').ProviderId;m:string}}
 const obj=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 /** Stable source lifecycle fields, not comments/attachments changed by our own upload. */
-export function mockSourceState(record:Record<string,unknown>):string{return sha256Hex(JSON.stringify(Object.fromEntries(['ref','title','project','tenant','tenantSlug','kind','status','fields','archived','confirmed'].filter(k=>Object.hasOwn(record,k)).map(k=>[k,record[k]]))))}
+export function mockSourceState(record:Record<string,unknown>):string{return sha256Hex(JSON.stringify(Object.fromEntries(['ref','title','project','tenant','tenantSlug','kind','status','fields','archived','confirmed','parent','tags'].filter(k=>Object.hasOwn(record,k)).map(k=>[k,record[k]]))))}
 export class MockSources {
  selectedDesign:string|null=null
  selectedTarget:string|null=null
+ epic:MockEpic|null=null
+ private records=new Map<string,Record<string,any>>()
+ private designMembers=new Set<string>()
+ selectDesign(id:string){this.selectedDesign=id;const source=this.get(id);this.epic=source?mockEpic(this.records.get(id)??{},source.url):null}
+ acceptEpicMember(id:string){const source=this.get(id),root=this.get(this.selectedDesign??'');if(!this.epic||!source||source.server!==root?.server||new URL(source.url).origin!==new URL(root.url).origin||!isEpicMember(this.epic,this.records.get(id)??{}))throw Error('Atlas-Teil gehört nicht nachweislich zum ausgewählten Design-Epic.');this.designMembers.add(id)}
+ designSource(id:string){return id===this.selectedDesign||this.designMembers.has(id)}
  created=0
  repaired=false
  repairAttempted=false
@@ -29,17 +36,18 @@ export class MockSources {
   if(typeof body!=='string'||body.trim().length<30||sourceBytes(body)>MCP_SOURCE_BYTES||record.truncated===true||data.truncated===true)return null
   const key=JSON.stringify([server,origin,args.tenant??null,record.ref]),old=this.sources.get(key)
   const source:MockSource={id:old?.id??'design-source-'+this.prefix+'-'+(this.sources.size+1),server,ref:Number(record.ref),url:new URL('/r/'+record.ref,origin).href,title:record.title,body,hash:sha256Hex(body),stateHash:mockSourceState(record),readAt:new Date().toISOString()}
-  if(!old&&this.sources.size>=12||[...this.sources.values()].reduce((n,s)=>n+(s.id===old?.id?0:sourceBytes(s.body)),sourceBytes(body))>MCP_CACHE_BYTES)return null
+  if(!old&&this.sources.size>=24||[...this.sources.values()].reduce((n,s)=>n+(s.id===old?.id?0:sourceBytes(s.body)),sourceBytes(body))>MCP_CACHE_BYTES)return null
   this.sources.set(key,source)
+  this.records.set(source.id,{ref:record.ref,title:record.title,body,project:record.project,kind:record.kind,tags:record.tags,parent:record.parent,archived:record.archived})
   return {id:source.id,ref:source.ref,title:source.title,hash:source.hash,readAt:source.readAt,note:'Actually read Atlas body; use this source id and verbatim body quotes in create_design_mock. Still resolve the applicable current design rule; title alone is not evidence.'}
  }
  snapshot(){return [...this.sources.values()].map(s=>({...s}))}
  /** Exact bounded windows, not a model summary. Full bodies remain available to the run-local reader. */
- context(target?:number,request=''){let remaining=17000;return this.snapshot().sort((a,b)=>Number(b.id===this.selectedDesign)-Number(a.id===this.selectedDesign)).map(({body,...source})=>{
+ context(target?:number,request=''){let remaining=this.epic?36000:17000;const weight=(s:Pick<MockSource,'id'|'title'>)=>s.id===this.selectedDesign?0.4:/color|colour|typography/i.test(s.title)?1.8:/spacing|radius/i.test(s.title)?1.3:1;const totalWeight=this.snapshot().reduce((n,s)=>n+weight(s),0);return this.snapshot().sort((a,b)=>Number(b.id===this.selectedDesign)-Number(a.id===this.selectedDesign)).map(({body,...source})=>{
   const headings=[...body.matchAll(/^#{1,6}\s+(.+)$/gm)]
   const foundation=/^(?:colou?r|farben|typography|schrift|spacing|abstände|radius|eckenradien|schatten|css-variablen|tier 2|button)/iu
-  const catalogue=headings.some(h=>foundation.test(h[1]!)),limit=Math.min(remaining,source.ref===target?2200:catalogue||source.id===this.selectedDesign?12500:2800)
-  const candidates:Array<[number,number]>=[[0,Math.min(body.length,catalogue?700:1000)],[Math.max(0,body.length-(catalogue?700:1800)),body.length]]
+  const catalogue=headings.some(h=>foundation.test(h[1]!)),limit=Math.min(remaining,this.epic?Math.floor(36000*weight(source)/totalWeight):source.ref===target?2200:catalogue||source.id===this.selectedDesign?12500:2800)
+  const candidates:Array<[number,number]>=this.epic?[[0,Math.min(body.length,limit)]]:[[0,Math.min(body.length,catalogue?700:1000)],[Math.max(0,body.length-(catalogue?700:1800)),body.length]]
   const sections=new Set<string>()
   for(let i=0;i<headings.length;i++){const h=headings[i]!,key=h[1]!.toLowerCase();if(!foundation.test(key)||sections.has(key))continue;sections.add(key)
    const from=h.index!,size=/typography/i.test(key)?2000:/css-variablen/iu.test(key)?1700:800
@@ -86,8 +94,8 @@ export function mockIssues(d:MockDraft,sources:MockSources):string[]{
  const design=sources.get(d.design.source)
  if(design&&d.authority&&!(d.authority.quote.includes('/r/'+design.ref)||d.authority.quote.includes('#'+design.ref)||d.authority.quote.includes(design.title)))issues.push('The applicability/current-version quote must name this exact design catalogue (record link, ref or full title). Resolve superseding notes before generating.')
  if(d.authority&&!/(?:current|only valid|leading|must|version|catalog|aktuell|gültig|verbindlich|Katalog)/iu.test(d.authority.quote))issues.push('Read the applicable design rule/current-version statement, not just a catalogue description.')
- for(const t of d.tokens)if(t.source!==d.design.source||!t.quote.includes(t.value)||/[{};<>\\]|url\s*\(|@import|expression\s*\(/i.test(t.value))issues.push('Each CSS token value must occur verbatim in its cited design catalogue passage and contain no executable/resource syntax.')
- for(const c of d.components)if(c.source!==d.design.source||!c.quote.includes(c.name))issues.push('Each component must be named verbatim in its cited design catalogue passage; missing components need specification, not an inline substitute.')
+ for(const t of d.tokens)if((t.source!==d.design.source&&!sources.designSource(t.source))||!t.quote.includes(t.value)||/[{};<>\\]|url\s*\(|@import|expression\s*\(/i.test(t.value))issues.push('Each CSS token value must occur verbatim in its cited design catalogue passage and contain no executable/resource syntax.')
+ for(const c of d.components)if((c.source!==d.design.source&&!sources.designSource(c.source))||!c.quote.includes(c.name))issues.push('Each component must be named verbatim in its cited design catalogue passage; missing components need specification, not an inline substitute.')
  if(new Set(d.tokens.map(t=>t.name)).size!==d.tokens.length)issues.push('Token names must be unique.')
  if(new Set(d.components.map(t=>t.name)).size!==d.components.length)issues.push('Component names must be unique.')
  // Static mocks deliberately support no external assets, URLs, scripts or CSS escape obfuscation.
@@ -106,6 +114,7 @@ export const mockIntent=(text:string)=>/^\/mock(?:\s|$)/i.test(text.trim())
 export const MOCK_GUIDE=`Design mocks (BA and PO)
 - For an HTML/PNG mock use create_design_mock. It creates a STATIC preview artifact, never production code or an approved decision. Requirements and an attachment target are OPTIONAL. A free-form user request with an explicitly selected design source is sufficient: authority:null, target:null, requirements:[]. Human selection does not imply approval or that this is the latest binding version. If a requirement was explicitly supplied, read and cite it; otherwise never ask for or invent one. ONE is only a transient preview/controller; saving attaches HTML, PNG and a source receipt to that record in Atlas, not to ONE. ONE renders PNG from that exact HTML; never claim image generation or tests happened before their receipt.
 - First download the explicitly selected design source with atlas_get. If no source was selected, resolve the applicable Atlas design constraint/current catalogue. Read a requirement record only when supplied. Successful full body reads return oneMockSource with run-local source ids. Use read_design_source with that id and a component/token/version keyword to read bounded exact windows from a large catalogue. Search and discovery alone do not suffice. Respect tenant/project and access rules; do not change them. Follow explicit superseding notes: old attached exports and old rules can be obsolete. For FluX FeliX/CNSX resolve the shared FluX catalogue and its latest binding notes, not the E+H workshop system. Load the actual current screen foundation where required; if unavailable, state that gap.
+- An explicitly selected package Epic is the design root. Its verified child records collectively form the catalogue. Cite the root in design; tokens and components cite their own actually read child source ids. The Epic index is navigation only; never cite an index row as component or token evidence. Load only relevant components plus shared foundations. Requirements remain optional.
 - Cite the design catalogue and any supplied requirements with exact body quotes. An applicability/current-version quote is required only for a design source the model selected; for an explicitly human-selected design source use authority:null without inventing binding status. Unknown version, missing component, conflicting rule or missing required screen: inspect ONE/Atlas first, then ask a focused one_task_question if needed. Never invent a design system or component.
 - html is body markup only, using data-ds-component="ExactCatalogueName" on each control/component and data-requirement="R1" etc on requirement areas. Every requirement must map to a visible area. Use CSS variables for design colours, fonts, spacing and radius; tokens carry exact catalogue values and quote. No JS, imports, external images/fonts/links, network, forms submission or inline style attributes. Put styling in css. Use semantic HTML labels and static states; describe interactions and unresolved states in notes. Include font/asset limitations and design approximations honestly. No invented data/approval: mark illustrative examples.
 - ONE verifies citation origin, static markup and some token mechanics, NOT semantic completeness or pixel-perfect design compliance. Deliver as a proposal with open BA/PO decisions. Do not call create_page as a substitute for an actual mock artifact. On /mock create at most one focused screen unless the person explicitly asks for more. If sources cannot support it, report the missing source and make no mock.`

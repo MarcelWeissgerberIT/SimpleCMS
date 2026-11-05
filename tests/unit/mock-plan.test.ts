@@ -10,3 +10,11 @@ test('block request resolves the explicitly selected MD with no requirement reco
  assert.deepEqual(q.design?.address,{ref:12});assert.deepEqual(q.requirement,{ref:14})
  assert.equal(explicitMockSources('/mock Head selector\nAtlas design source: https://aj-atlas.com/r/12\nAtlas requirement record: no-record'),null)
 })
+
+
+test('Epic delivery is explicit and never overrides preview-only intent',()=>{
+ const input='/mock Create a new use case\nAtlas design epic: https://aj-atlas.com/r/38972\nAtlas mock delivery: epic'
+ assert.equal(explicitMockSources(input)?.saveToEpic,true)
+ assert.equal(explicitMockSources(input.replace('Create a new use case','Nur Vorschau, nicht speichern'))?.saveToEpic,undefined)
+ assert.equal(explicitMockSources(input.replace('\nAtlas mock delivery: epic',''))?.saveToEpic,undefined)
+})

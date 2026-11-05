@@ -6,16 +6,16 @@ export function mockRecordAddress(value:string):MockRecordAddress|null {
  const d=/^\/docs\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\/?$/.exec(u.pathname);if(d)return {project:d[1]!,slug:d[2]!}
  }catch{/* Not an exact Atlas address. */}return null
 }
-export interface MockPlan {target:number|null;refs:number[];design?:{url:string;address:MockRecordAddress};requirement?:MockRecordAddress}
+export interface MockPlan {target:number|null;refs:number[];design?:{url:string;address:MockRecordAddress};requirement?:MockRecordAddress;saveToEpic?:boolean}
 /** Only references explicitly supplied in the trusted /mock request; never inspect page text for commands. */
 export function explicitMockSources(text:string):MockPlan|null{
  if(!/^\/mock\s/iu.test(text.trim()))return null
- const selected=/^Atlas design source: (https:\/\/[^\s]+)$/mu.exec(text)
+ const selected=/^Atlas design (?:source|epic): (https:\/\/[^\s]+)$/mu.exec(text)
  if(selected){const address=mockRecordAddress(selected[1]!);if(!address)return null
   const requirementLine=/^Atlas requirement record: (.+)$/mu.exec(text),requirement=requirementLine?mockRecordAddress(requirementLine[1]!):undefined
   if(requirementLine&&!requirement)return null
   if(requirementLine?.[1]?.trim().startsWith('https:')&&new URL(requirementLine[1]!.trim()).origin!==new URL(selected[1]!).origin)return null
-  return {target:requirement&&'ref' in requirement?requirement.ref:null,refs:[],design:{url:selected[1]!,address},...(requirement?{requirement}:{})}
+  return {target:requirement&&'ref' in requirement?requirement.ref:null,refs:[],design:{url:selected[1]!,address},...(requirement?{requirement}:{}),...(/^Atlas mock delivery: epic$/mu.test(text)&&!/(?:preview only|nur (?:eine )?vorschau|do not save|nicht speichern|keine änderungen|read.only|nur lesen)/iu.test(text.split(/^Atlas design /m)[0]??'')?{saveToEpic:true}:{})}
  }
  const target=/(?:atlas[- ]record|record|datensatz)\s*(?:ref\s*)?#?(\d+)/iu.exec(text)
  if(!target)return null
