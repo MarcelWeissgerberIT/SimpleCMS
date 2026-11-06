@@ -108,3 +108,21 @@ test('one note retains multiple targets, hashes every target and passes them to 
  assert.throws(()=>adoptMockPreview(read,preview('updated'),{journal:read.journal!.id,base:mockVersionKey(read.preview!),notes:[{id:n.id,hash}],assessments:[]}),/Notiz wurde inzwischen geändert/)
  assert.match(mockMarkdownTask(d,n),/Second status/)
 })
+
+test('free rectangles survive persistence, participate in approval hashes and retain Markdown context',()=>{
+ const d=checkpointMock(data(),'initial'),n=note(d)
+ n.region={x:12,y:24,width:220,height:140,viewportWidth:960,viewportHeight:640,targets:[{path:n.element.path,text:'Status',component:'Label',x:20,y:30,width:40,height:20}],totalTargets:1,scrolls:[]}
+ d.journal!.notes.push(n)
+ const read=mockBlockData(JSON.parse(JSON.stringify(d)))
+ assert.deepEqual(read.journal!.notes[0].region,n.region)
+ assert.match(mockMarkdownTask(read,read.journal!.notes[0]),/"region":\{"x":12/)
+ const hash=mockNoteHash(n);n.region.x=13;assert.notEqual(mockNoteHash(n),hash)
+ assert.throws(()=>adoptMockPreview(d,preview('new'),{journal:d.journal!.id,base:mockVersionKey(d.preview!),notes:[{id:n.id,hash}],assessments:[]}),/Notiz wurde inzwischen geändert/)
+})
+test('malformed rectangle annotations cannot silently become whole-body instructions',()=>{
+ for(const region of [{x:-1},{x:0,y:0,width:100,height:100,viewportWidth:960,viewportHeight:640,targets:[],totalTargets:0,scrolls:[],},null]){
+  const d=checkpointMock(data(),'initial'),n=note(d)
+  n.region=region as any;if(region?.x===0)n.region!.width=Infinity
+  d.journal!.notes.push(n);assert.equal(mockBlockData(d).journal!.notes.length,0)
+ }
+})

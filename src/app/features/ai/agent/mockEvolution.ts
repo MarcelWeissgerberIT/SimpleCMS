@@ -11,7 +11,7 @@ export function elementPath(el:Element):string{
 /** Resolve saved selectors only against the hash-checked base. A stale annotation is never guessed. */
 export function focusedMockRegion(preview:MockBlockPreview,notes:MockFeedback[]){
  const doc=new DOMParser().parseFromString(preview.document,'text/html')
- if(!preview.provenance||notes.some(n=>n.scenario))return null
+ if(!preview.provenance||notes.some(n=>n.scenario||n.region))return null
  const elements=notes.flatMap(mockNoteElements).map(element=>{const el=doc.querySelector(element.path);if(!el||el.tagName.toLowerCase()!==element.tag.toLowerCase()||(el.textContent??'').trim().slice(0,500)!==element.text||(el.closest('[data-ds-component]')?.getAttribute('data-ds-component')??'')!==element.component)throw Error('Die markierte Stelle hat sich geändert. Bitte erneut markieren.');return el.closest('[data-ds-component]')??el})
  let root:Element=elements[0]!
  while(!elements.every(e=>root.contains(e))&&root.parentElement)root=root.parentElement

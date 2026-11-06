@@ -108,3 +108,14 @@ Cached complete bodies remain eligible only after a successful live Atlas metada
 ### Continuous multi-selection
 
 Marking no longer jumps to Notes after the first target. The toolbar displays the selected count and **Write note for selection** opens the shared composer. Switching between Mock and Notes keeps marking active and retains typed note text; other tabs end marking so normal interaction remains available. Full-screen previews share the same selection and support adding/removing targets before returning to the note. Regression tests cover returning to Mock mid-note, full-screen selection, reload persistence and grouped AI revisions.
+
+
+## Free rectangle annotations (generation 6)
+
+**Mark area** enables a host-owned crosshair overlay in the inline or full-screen preview. Drag in either direction, including across whitespace, unrelated components and disabled controls. The rectangle does not need a DOM element. Redrawing replaces the pending area; **Write note for selection** saves one area per note. Element selection remains a separate mode. Selecting an element after an area starts a fresh element set.
+
+The note stores document CSS-pixel geometry, the preview viewport, bounded intersecting element labels/paths/bounds (up to 32 with an explicit total), and nested scroll positions. It is tied to the same saved mock version and participates in feedback hashes. **View marked element** restores that version at the original viewport with the rectangle overlaid; this re-renders saved HTML, not a raster screenshot. Area notes can be attached to blank space. Existing note text and Atlas write separation are preserved.
+
+The built-in mock guide receives the rectangle plus its rendered context and the version markup. A body anchor is surrounding context, never permission to replace the whole screen. Free areas use a whole-mock proposal instead of forcing an arbitrary component merge; the existing size limits and human acceptance still apply. The comparison does not claim that sampled element changes prove the entire rectangle was correctly changed. Markdown preparation retains region context. Older clients must not drop the new note field: ship generation-6 readers before raising `schema_min` to 6; generation-5 and older journal recovery retains the opaque journal.
+
+Tests cover reverse drags, unrelated/disabled controls, whitespace-only areas, reload, original-viewport display, normal interaction after marking, grouped notes, AI request context, note-hash invalidation and older-client preservation.
