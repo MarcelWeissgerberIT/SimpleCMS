@@ -72,3 +72,12 @@ test('historical compact receipts remain partial and mismatched detail never bec
  assert.equal(inspectQuantumProof({...proof,inspection:{} as any}).kind,'mismatch')
  assert.deepEqual(proof.inspection?.result.quanta[0].dimensions,['permission','privacy'])
 })
+
+test('model receipts retain effects and verification while full cryptographic proofs stay on the host',()=>{
+ const proof=runtime.check(provider('anthropic',['page']))
+ const source={tool:'atlas_update',effect:'write_accepted' as const,outcome:'ok' as const,refs:[42],ids:['saved'],counts:[],verification:'read_back_differs' as const,quantum:proof}
+ const packet=modelAtlasReceipt(source)
+ assert.equal(packet.effect,'write_accepted');assert.deepEqual(packet.refs,[42]);assert.equal(packet.verification,'read_back_differs')
+ assert.deepEqual(packet.quantum,{gate:proof.gate,status:'verified'});assert.ok(JSON.stringify(packet).length<400)
+ assert.ok(source.quantum.inspection);assert.ok(source.quantum.quantumIds.length)
+})

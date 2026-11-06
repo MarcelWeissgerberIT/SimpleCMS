@@ -33,25 +33,25 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
     const minimum = index === results.length - 1 ? 512 : 128
     // Source handles must survive excerpting: otherwise the model cannot ask the
     // run-local reader for the omitted passage. These are copied, never inferred.
-    let pointers: Record<string, unknown> | undefined
+    let pointers: Record<string, unknown> | undefined,sourceText=result.text
     try {
       const value = JSON.parse(result.text)
       if(value && typeof value === 'object' && !Array.isArray(value)){
-        const kept = Object.fromEntries(['oneMockSource','result_id','isError','oneObservedFacts','oneSourceLinks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]))
-        if(Object.keys(kept).length) pointers=kept
+        const kept = Object.fromEntries(['oneMockSource','result_id','isError','oneNotExecuted','oneReadReuse','oneObservedFacts','oneSourceLinks'].filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]))
+        if(Object.keys(kept).length){pointers=kept;sourceText=JSON.stringify(Object.fromEntries(Object.entries(value).filter(([k])=>!Object.hasOwn(kept,k))))}
       }
     } catch { /* Plain text results keep their existing explicit excerpt marker. */ }
     if (result.text.length <= minimum + OMITTED.length) continue
     const excerpt = (end: number) => {
       // Never split a UTF-16 surrogate pair when selecting the prefix.
-      if (end > 0 && /[\uD800-\uDBFF]/.test(result.text.charAt(end - 1))) end--
-      const excerpt = result.text.slice(0, end)
+      if (end > 0 && /[\uD800-\uDBFF]/.test(sourceText.charAt(end - 1))) end--
+      const excerpt = sourceText.slice(0, end)
       return pointers ? JSON.stringify({...pointers, oneContextExcerpt:true, excerpt, note:OMITTED.trim()}) : excerpt + OMITTED
     }
     result.set(excerpt(minimum))
     if (!fits(next)) continue
     // Keep as much real source as the exact serialized wire budget permits (UTF-8 + escaping).
-    let low = minimum, high = result.text.length - OMITTED.length
+    let low = Math.min(minimum,sourceText.length), high = sourceText.length
     while (low < high) {
       const mid = Math.ceil((low + high) / 2)
       result.set(excerpt(mid))

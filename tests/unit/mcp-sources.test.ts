@@ -215,3 +215,12 @@ test('source storage exhaustion never reclassifies an accepted write as failed',
  assert.equal(JSON.parse(packObservedMcpResult(cache,written,true,false).packed).isError,true)
  assert(JSON.parse(cache.read({result_id:first,path:'/item/body'})).content)
 })
+
+test('small complete source responses remain addressable after context compaction without altering their wire shape',()=>{
+ const cache=new McpResults(),raw=envelope({item:{ref:42,title:'Small but important requirement',body:'The confirmed status must remain visible.'}})
+ assert.equal(cache.pack(raw),raw);assert.equal(cache.unreadBody(42),false)
+ const index=JSON.parse(cache.catalogue({query:'42'}));assert.equal(index.total,1)
+ assert.equal(JSON.parse(cache.read({result_id:index.items[0].result_id,path:'/item/body'})).content,'The confirmed status must remain visible.')
+ cache.pack(raw);assert.equal(JSON.parse(cache.catalogue()).total,1)
+ cache.resetCoverage();assert.equal(cache.pack(raw),raw);assert.equal(cache.unreadBody(42),false)
+})

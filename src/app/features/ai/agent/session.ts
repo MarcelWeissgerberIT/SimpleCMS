@@ -1,3 +1,6 @@
+import {mockIntent,MOCK_WORKSPACE_SYSTEM} from '@/shared/ai/designMock'
+import {mcpWorkScope,readMcpWork,saveMcpWork,deleteMcpWork} from '../core/localMcpWork'
+import {validTaskRecovery,recoveryTask,type TaskRecovery} from '@/shared/ai/taskRecovery'
 import {McpResultSession} from '@/shared/mcp/results'
 import {openSkills} from '../skills/dialog'
 import {contextCheckpoint} from './checkpoint'
@@ -400,6 +403,14 @@ export function continueTask(): Promise<void> {
   return runTask(prev.task, { history: false, continues: prev.continues ?? prev.n })
 }
 
+export const activeRecoveryKey=()=> 'terminal-recovery:'+convId
+export async function resumeSavedWork(scope:string,key:string){
+ if(get().status==='running'||scope!==mcpWorkScope())return
+ const saved=await readMcpWork<TaskRecovery>(scope,key)
+ if(scope!==mcpWorkScope()||!validTaskRecovery(saved))return
+ return runTask(recoveryTask(saved),{history:false,noMemory:true,again:{refs:[],mentions:[]},compact:scrubSecrets(saved.checkpoint)})
+}
+
 /** Fresh, read-only recovery after a context/output limit; existing proposals and receipts remain intact. */
 export function continueWithCompactContext():Promise<void>{
  const prev=get().turns.at(-1)
@@ -440,6 +451,26 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
   const programSpec=opts.program?readProgram(opts.program.saved.compiled):null
   const pageId = programSpec?workflowTarget(programSpec,opts.program!.inputs)??(programSpec.steps.some(s=>s.kind==='workflow')?null:contextPageId()):contextPageId()
   const archiveScope=programScope()
+  const recoveryScope=mcpWorkScope(),recoveryKey=activeRecoveryKey()
+  let recoveryQueue=Promise.resolve(),recoveryWarned=false,recoveryWriting=false,pendingRecovery:TaskRecovery|null=null
+  const saveRecovery=()=>{
+   if(!here()||opts.program)return
+   const turn=get().turns.find(t=>t.n===n)
+   if(!turn||turn.error?.code==='key_in_text')return
+   const value:TaskRecovery={v:1,task:scrubSecrets(task),checkpoint:scrubSecrets(contextCheckpoint(get().turns,get().steps,get().changes)),at:Date.now(),status:turn.status,page:pageId}
+   pendingRecovery=value
+   if(recoveryWriting)return
+   recoveryWriting=true
+   recoveryQueue=Promise.resolve().then(async()=>{
+    try{while(pendingRecovery){
+     const latest=pendingRecovery;pendingRecovery=null
+     if(!here()||recoveryScope!==mcpWorkScope())break
+     const ok=validTaskRecovery(latest)&&await saveMcpWork(recoveryScope,recoveryKey,latest).catch(()=>false)
+     if(!ok&&!recoveryWarned&&here()){recoveryWarned=true;note(t('features.agent.recovery.failed'))}
+     if(ok)window.dispatchEvent(new Event('one-mcp-work-changed'))
+    }}finally{recoveryWriting=false}
+   })
+  }
   const suffix = pageId ? contextSuffix(pageId) : ''
   const ctx: TurnContext = {
     refs: refs.length,
@@ -512,7 +543,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       return id
     },
     toolEnd(id, o) {
-      if (here()) patchStep(id, { state: o.state, result: o.summary || undefined, changeId: o.changeId, ms: o.ms })
+      if (here()) {patchStep(id, { state: o.state, result: o.summary || undefined, changeId: o.changeId, ms: o.ms });saveRecovery()}
     },
     note,
     text(delta) {
@@ -529,7 +560,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       if (kind === 'note') note(text)
       else {
         answer = answer ? `${answer}\n\n${text}` : text
-        patchTurn(n, { answer })
+        patchTurn(n, { answer });saveRecovery()
       }
     },
     usage(u, entry) {
@@ -564,7 +595,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       if (!here()) return Promise.resolve('stop')
       return waitAtLine(n, h, wait, () => taskUsd, ac.signal)
     },
-    contract(report) { if(here())patchTurn(n,{contract:report}) },
+    contract(report) { if(here()){patchTurn(n,{contract:report});saveRecovery()} },
     mcp(call) {
       if(call.contract){if(here())patchTurn(n,{contract:call.contract});return}
       sawMcp = true
@@ -576,6 +607,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error, notExecuted:call.notExecuted, receipt:call.receipt }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
       else set((s) => ({ calls: s.calls + (call.skipped ? 0 : 1), steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'mcp', arg: call.arg, state: call.state, startedAt: Date.now(), mcp }] }))
+      saveRecovery()
     },
   }
 
@@ -594,7 +626,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       live: '',
       steps: s.steps.map((x) => (x.state === 'run' ? { ...x, state: 'err' } : x)),
     }))
-    patchTurn(n, { status, endedAt: Date.now(), answer, ...(error ? { error } : {}) })
+    patchTurn(n, { status, endedAt: Date.now(), answer, ...(error ? { error } : {}) });saveRecovery()
     if (!get().open && status !== 'stopped') notifyHidden(status)
     // the One memory: the request goes into the memory log; proposals for what is worth keeping
     const staged = turnChanges(n)
@@ -662,6 +694,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
     return execute({
       purpose: 'terminal.task',
       privateContext:!!opts.compact,
+      readOnly:!!opts.compact,
       targetPage: pageId,
       route: pre.route,
       sources,
@@ -679,7 +712,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       applied: refs.length ? null : appliedOf(pre),
       // the coding pipelines' and the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
       tools: tooling.tools,
-      system: tooling.system,
+      system: mockIntent(task)&&!opts.program ? MOCK_WORKSPACE_SYSTEM : tooling.system,
       run: { source: taskSource },
     }, opts.program!)
   }
@@ -731,6 +764,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
     // a key in the task: the text goes back into the prompt to be fixed (never into the history)
     if (err.code === 'key_in_text' && here() && !get().draft.trim()) set({ draft: task })
   } finally {
+    await recoveryQueue
     const ended=here()?get().turns.find(turn=>turn.n===n):undefined
     if(!opts.program&&!receiptSaved&&ended&&ended.status!=='running'&&ended.error?.code!=='key_in_text'){
       pendingReceipts.set(n,{run:terminalRun(ended,get().steps,{provider:runProvider??'',model:runModel}),scope:archiveScope})
@@ -1021,6 +1055,7 @@ export function pickRedo(input: string) {
 
 /** Forget the session: conversation, steps and every proposal that was not applied. */
 export function newTask() {
+  void deleteMcpWork(mcpWorkScope(),activeRecoveryKey()).catch(()=>{})
   mcpResults.clear()
   pendingReceipts.clear()
   cancelAtlasTransferChoice()

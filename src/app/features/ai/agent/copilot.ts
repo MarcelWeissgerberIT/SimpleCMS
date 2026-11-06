@@ -66,7 +66,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' || (prepared.caps?.context ?? 32768) < 64000 ? localWorkspaceTools(tools) : null
   const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system + WORKER_MCP_GUIDE + '\n' + ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
-  task=createTaskContract({reviewProfile:opts.reviewProfile,prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:system,input:messages,tools:tools.map(t=>t.name),...(opts.mockSources?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:tools.some(t=>t.name==='search_pages'),atlas:!!opts.mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
+  task=createTaskContract({reviewProfile:opts.reviewProfile,prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:system,input:messages,tools:tools.map(t=>t.name),...(opts.mockSources||opts.readOnly?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:tools.some(t=>t.name==='search_pages'),atlas:!!opts.mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
   opts.delivery?.bind(task)
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {
@@ -154,7 +154,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
         const key = remote?.hasFunction(c.name)?remote.callKey(c.name,c.arguments):JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
         repeated.set(key, n)
         if (++calls > MAX_TOOL_CALLS) { hooks.limit(); return 'limit' as const }
-        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || remote?.hasFunction(c.name)&&c.name!=='one_mcp_search' || c.name==='one_workspace_call')) throw new AIError('capability','features.agent.err.repeatedTool')
+        if (n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || remote?.hasFunction(c.name)&&c.name!=='one_mcp_search'&&!remote.readOnly(c.name,c.arguments) || c.name==='one_workspace_call')) throw new AIError('capability','features.agent.err.repeatedTool')
         let content: string, failed = false
         let resolved: ReturnType<ReturnType<typeof localWorkspaceTools>['resolve']> | null = null
         try { resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null }

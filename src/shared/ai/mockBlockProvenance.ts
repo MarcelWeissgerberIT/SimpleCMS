@@ -11,7 +11,7 @@ export function mockProvenance(raw:unknown):MockProvenance|undefined{
   validateValue({...a.draft,html:'<main>Static design mock preview</main>',css:''},MOCK_SCHEMA,'mock receipt')
   const sources=a.sources.map(s=>{
    if(!Number.isSafeInteger(s.ref)||s.ref<1||!url(s.url)||!hash(s.hash)||!hash(s.stateHash)||![s.id,s.server,s.title,s.readAt].every(x=>typeof x==='string'&&x.length>0&&x.length<=300))throw Error('Invalid source receipt')
-   return {id:s.id,server:s.server,ref:s.ref,url:url(s.url),title:s.title,hash:s.hash,stateHash:s.stateHash,readAt:s.readAt}
+   return {id:s.id,server:s.server,ref:s.ref,url:url(s.url),title:s.title,hash:s.hash,stateHash:s.stateHash,readAt:s.readAt,...(s.reused===true&&typeof s.validatedAt==='string'&&s.validatedAt.length<=80?{reused:true,validatedAt:s.validatedAt}:{})}
   })
   const draft=Object.fromEntries(Object.keys(MOCK_SCHEMA.properties).filter(k=>k!=='html'&&k!=='css').map(k=>[k,(a.draft as any)[k]])) as DesignMock['draft']
   if([draft.design,...draft.requirements,...draft.tokens,...draft.components,...(draft.authority?[draft.authority]:[])].some(c=>!sources.some(s=>s.id===c.source)))return

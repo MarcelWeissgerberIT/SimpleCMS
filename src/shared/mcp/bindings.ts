@@ -1,3 +1,4 @@
+import {mcpToolGuidance} from './toolGuidance.ts'
 import {canonicalJson} from './duplicates.ts'
 /** Native inference schemas for tools discovered on the person's selected MCP connections.
  * This registry grants no access: execution still uses the authenticated MCP path and schema checks. */
@@ -33,7 +34,7 @@ export class McpBindings {
   functionName(server:string,name:string){return this.bindings.get(JSON.stringify([server,name]))?.native}
   functions(budget?:number){
     const keys=budget===undefined?this.active:this.priority.filter(key=>this.active.includes(key))
-    const functions=keys.map(key=>{const {tool,native}=this.bindings.get(key)!;return {name:native,description:`[${tool.server} / ${tool.name}] ${tool.description??''}`,parameters:tool.inputSchema}})
+    const functions=keys.map(key=>{const {tool,native}=this.bindings.get(key)!;return {name:native,description:`[${tool.server} / ${tool.name}] ${tool.description??''}\n${mcpToolGuidance(tool.name,tool.readOnly)}`,parameters:tool.inputSchema}})
     return budget===undefined?functions:selectMcpSchemas(functions,budget)
   }
   has(name:string){return [...this.bindings.values()].some(b=>b.native===name)}

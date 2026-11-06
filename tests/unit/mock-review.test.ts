@@ -61,3 +61,20 @@ test('feedback explains missing source, resolved notes, missing preview and over
  assert.equal(mockReviewUnavailable({...d,preview:{...d.preview!,document:'x'.repeat(96001)}}),'size')
  d.journal!.notes[0].resolved=true;assert.equal(mockReviewUnavailable(d),'notes')
 })
+
+test('accepted feedback records its resulting version without completing pending Markdown work',()=>{
+ let d=checkpointMock(data(),'initial');const n=note(d);d.journal!.notes.push(n)
+ const review={journal:d.journal!.id,base:mockVersionKey(d.preview!),notes:[{id:n.id,hash:mockNoteHash(n)}],assessments:[{id:n.id,scope:'design-system' as const,reason:'Shared variant needed',proposal:'Document badge mapping',refs:[12]}]}
+ d=adoptMockPreview(d,preview('revised'),review)
+ const saved=mockBlockData(JSON.parse(JSON.stringify(d))),feedback=saved.journal!.notes[0]
+ assert.equal(feedback.appliedIn,mockVersionKey(saved.preview!));assert.equal(feedback.resolved,false);assert.equal(feedback.md,'pending')
+ assert.equal(mockReviewTask(saved,'p1'),null)
+ feedback.appliedIn=undefined;assert.match(mockReviewTask(saved,'p1')!,/Use a badge/)
+ feedback.appliedIn='nonexistent';assert.equal(mockBlockData(saved).journal!.notes[0].appliedIn,undefined)
+})
+
+test('an adopted revision remains traceable when the separate design-system assessment was unavailable',()=>{
+ let d=checkpointMock(data(),'initial');const n={...note(d),scope:'design-system' as const,md:'pending' as const};d.journal!.notes.push(n)
+ d=adoptMockPreview(d,preview('revised'),{journal:d.journal!.id,base:mockVersionKey(d.preview!),notes:[{id:n.id,hash:mockNoteHash(n)}],assessments:[]})
+ assert.equal(d.journal!.notes[0].appliedIn,mockVersionKey(d.preview!));assert.equal(d.journal!.notes[0].md,'pending');assert.equal(d.journal!.notes[0].assessment,undefined)
+})

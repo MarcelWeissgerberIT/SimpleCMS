@@ -43,15 +43,15 @@ export class McpResults {
    try{data=JSON.parse(envelope.content[0].text)}catch{data={text:envelope.content[0].text}}
   }
   const ref=object(data)&&object(data.item)&&Number.isSafeInteger(data.item.ref)&&typeof data.item.body==='string'&&!(object(envelope)&&envelope.isError===true)?Number(data.item.ref):null
-  if(raw.length<=SMALL){if(ref!==null)this.bodies.set(ref,null);return raw}
+  const small=raw.length<=SMALL
   const hash=sha256Hex(raw),existing=this.hashes.get(hash)
-  if(existing){if(ref!==null)this.bodies.set(ref,existing);return this.read({result_id:existing})}
+  if(existing){if(ref!==null)this.bodies.set(ref,small?null:existing);return small?raw:this.read({result_id:existing})}
   if(this.entries.size>=this.limits.entries||this.bytes+size>this.limits.bytes)throw new McpCacheCapacityError('Source memory is full. All previously retained sources remain readable; this additional result was not retained. Finish with existing sources or start a new conversation for more data.')
   const id='mcp-result-'+this.prefix+'-'+(++this.seq)
-  if(ref!==null)this.bodies.set(ref,id)
+  if(ref!==null)this.bodies.set(ref,small?null:id)
   this.hashes.set(hash,id)
   this.entries.set(id,{data,raw,size,error:object(envelope)&&envelope.isError===true});this.bytes+=size
-  return this.read({result_id:id})
+  return small?raw:this.read({result_id:id})
  }
  /** Host-only fixed-program input. A tool-free generation cannot follow interactive cache pointers.
   * Restore the bounded, freshly observed response; the normal model/context gate still applies. */

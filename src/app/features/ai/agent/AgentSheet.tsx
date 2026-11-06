@@ -1,3 +1,4 @@
+import {SavedWork} from './SavedWork'
 import {openSkills} from '../skills/dialog'
 import {openReviewProfiles} from '../profiles/dialog'
 import {AnswerPageAction} from './AnswerPageAction'
@@ -254,6 +255,7 @@ export default function AgentSheet() {
           {turns.length === 0 && echo.length === 0 && <Standby disabled={!hasKey} />}
           {/* below the intro: the scroll keeps to the bottom, so the card is what shows */}
           {!hasKey && <NoKey />}
+          <SavedWork />
           <Timeline />
           {changes.length > 0 && <Review listRef={listRef} readOnly={readOnly} />}
           <MemoryStart />

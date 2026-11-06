@@ -23,3 +23,12 @@ test('long rate-limit waits obey the ten-minute total budget',async()=>{
  assert.equal(calls,6);assert.equal(waits.reduce((a,b)=>a+b,0),600000)
  assert.equal(mcpRateDelay({status:429,retryAfter:121}),null)
 })
+
+test('structured MCP rate errors and Retry-After headers honor the service delay',()=>{
+ assert.equal(mcpRateDelay({isError:true,structuredContent:{status:429,retryAfter:17}}),17000)
+ assert.equal(mcpRateDelay({status:429,headers:{'Retry-After':'21'}}),21000)
+ assert.equal(mcpRateDelay({isError:true,content:[{type:'text',text:'Too many requests.'},{type:'text',text:'Retry after 19s'}]}),19000)
+ assert.equal(mcpRateDelay({content:[{type:'text',text:'Too many requests. Retry after 19s'}]}),null)
+ assert.equal(mcpRateDelay({status:429,headers:{'retry-after':'900'}}),null)
+ assert.equal(mcpRateDelay({status:429,headers:{'retry-after':'nonsense'}}),null)
+})

@@ -23,3 +23,9 @@ export interface WorkerMcpTool extends WorkerFunction { server: string; tool: st
 export const WORKER_TEXT_BYTES_PER_TOKEN = 1.5
 export const WORKER_TEXT_MAX = 180000
 export const validWorkerModel = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(v)
+
+/** Respect the host-advertised output limit instead of reserving an unsupported larger response. */
+export function workerOutputLimit(model:Pick<WorkerModel,'provider'|'context'|'maxOutput'>){
+ const fallback=model.provider==='copilot'?8192:16384
+ return Number.isSafeInteger(model.maxOutput)&&model.maxOutput!>0&&model.maxOutput!<model.context?Math.min(model.maxOutput!,fallback):Math.min(fallback,Math.max(256,Math.floor(model.context/2)))
+}

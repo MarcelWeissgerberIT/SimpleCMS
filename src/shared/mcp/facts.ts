@@ -1,4 +1,4 @@
-import {compactQuantumProof,type QuantumProof} from '../quandprofile/runtime.ts'
+import {type QuantumProof} from '../quandprofile/runtime.ts'
 /** Run-local facts from tool responses. Model prose, discovery and document bodies cannot mint facts. */
 export type AtlasReceipt = {
   quantum?: QuantumProof
@@ -16,7 +16,9 @@ export type AtlasReceipt = {
   verification?: 'not_checked' | 'read_back_matches' | 'read_back_differs' | 'unavailable'
 }
 export type FactIssue = { kind: 'reference' | 'count' | 'effect' | 'outcome'; detail: string }
-export const modelAtlasReceipt=(receipt:AtlasReceipt):AtlasReceipt=>({...receipt,...(receipt.quantum?{quantum:compactQuantumProof(receipt.quantum)}:{})})
+/** Models need the observed effect, target and read-back state. Cryptographic gate details
+ * remain in the original host receipt/inspector; repeating them per read crowds out source text. */
+export function modelAtlasReceipt({quantum,...receipt}:AtlasReceipt){return {...receipt,...(quantum?{quantum:{gate:quantum.gate,status:quantum.status}}:{})}}
 type Call = { server: string; name: string; arguments: Record<string, unknown> }
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const READ = new Set(['atlas_whoami','atlas_project_list','atlas_tenant_search','atlas_record_kinds','atlas_get','atlas_search','atlas_query','atlas_constraints','atlas_children','atlas_graph','atlas_sprint_report','atlas_code_resolve','atlas_setup_bootstrap','atlas_setup_changelog','atlas_similar','atlas_context','atlas_briefing','atlas_agent_list','atlas_flow_list','atlas_agent_inbox','atlas_agent_approvals','atlas_my_agent_jobs','atlas_polarion_status','atlas_polarion_resolve','atlas_polarion_read','atlas_polarion_inspect','atlas_polarion_search'])

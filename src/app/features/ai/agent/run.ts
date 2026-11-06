@@ -269,6 +269,8 @@ export async function runAgent(opts: {
   /** Host-pinned page at task start, never a model-supplied target. */
   targetPage?: string | null
   privateContext?:boolean
+  /** Host-pinned recovery mode, independent of the model or historical task wording. */
+  readOnly?:boolean
   reviewProfile?:ReviewProfile|null
   mockSources?: MockSources
   delivery?: ReturnType<typeof groundedTask>
@@ -360,7 +362,7 @@ export async function runAgent(opts: {
       const { runCopilotAgent } = await import('./copilot')
       return await runCopilotAgent(opts, prepared, messages)
     }
-    compiledTask=createTaskContract({reviewProfile:opts.reviewProfile,prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),...(opts.mockSources?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
+    compiledTask=createTaskContract({reviewProfile:opts.reviewProfile,prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),...(opts.mockSources||opts.readOnly?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
     const task=compiledTask
     delivery.bind(task)
     const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined,opts.mcpResults):null
