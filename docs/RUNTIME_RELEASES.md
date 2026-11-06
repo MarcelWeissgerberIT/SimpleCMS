@@ -56,3 +56,15 @@ Frontend source `a6e41711` adds a native UI Studio block (project/Markdown/verif
 - All 1,436 release-manifest files verified in the new image and running container. Public app HTML and 88 referenced JS/CSS assets hash-verified over HTTPS; health passed and schema minimum remains 6.
 - Backend SHA-256 remains `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`. Atomic frontend publication, compatibility assets retained, no container restart (start time remains `2026-11-06T12:18:51.708916279Z`). Compose pins the new runtime.
 - Rollback HTML and compose: `/opt/one/rollback-ui-studio-a6e41711`. Free server disk after publication: 894 MB. No data, volumes, archives or rollback images were removed.
+
+
+## 2026-11-06 · Document-stage source checks
+
+Frontend source `c05116f7` corrects the One-model document pipeline's source contract: required One page reads no longer imply a mandatory Atlas read merely because Atlas is connected. Explicit profile-required Atlas evidence remains enforced. Editor-generated block IDs no longer invalidate an unchanged source snapshot; genuine source edits still stop stale results. Failed stages retain previously saved analysis and provide a readable missing-source explanation.
+
+- The prior live bundle reproduced `Compiled result check blocked: task_sources_observed` with synthetic provider/MCP fixtures. Eleven browser checks, 36 unit checks, TypeScript, WASM artifact verification and the production build passed. Desktop/mobile light/dark views were inspected. The user's paid BA run was not restarted.
+- Image: `one-workshop:ba-sources-c05116f7`; archive SHA-256: `a7e2c7525d38d0e2250bb38d5999b91fd8271dd8a79c2bc65dab15947c7ee937`.
+- Public entry SHA-256: `0b8ca8e8e680995c8c408b84acc2ac0cdfbefcd433f09a3fe9687b368cb792aa`.
+- All 1,585 release-manifest files verified in the image and running container. Public app HTML and 88 referenced JS/CSS assets hash-verified over HTTPS; health passed and schema minimum remains 6.
+- Backend SHA-256 remains `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`. Atomic frontend publication retained compatibility assets and the existing container start time (`2026-11-06T12:18:51.708916279Z`). Compose pins the new runtime for future starts.
+- Rollback HTML and compose: `/opt/one/rollback-ba-sources-c05116f7`. Only redundant `dist`, `static-assets` and `entries` folders from the previous release staging directory were removed, after every file matched its retained SHA-256-verified archive. Data, volumes, release archives and rollback images remain intact. Final free server space: 604 MB.
