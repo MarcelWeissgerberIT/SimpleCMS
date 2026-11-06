@@ -35,3 +35,13 @@ Frontend source commit `81154bc7` adds browser-owned document analysis without a
 - Rollback HTML and compose file: `/opt/one/rollback-analysis-81154bc7-r2`. An earlier publication attempt detected stale HTML caused by copying into an existing staging directory and automatically rolled back; the final deployment used a unique staging directory and passed full verification.
 
 Only hash-verified duplicate build folders and redundant archived release copies were retired to provide build space. Seven old archives were preserved with a SHA-256 manifest at `/Users/marcelweissgerber/Documents/Playground/.one-release-archives/2026-11-06`. Workspace data, Docker volumes and rollback images were preserved. Free server space after publication was about 1.7 GB.
+
+## 2026-11-06 · Read-only Atlas source references
+
+Frontend source `78245d77` adds portable `atlas-code` reference cards, verified read-only source excerpts and finding highlighting. Seven browser journeys (including cloud transport without a worker and Markdown round-trip), ten source-policy/reference unit checks, TypeScript and the production build passed. Browser Atlas replies were synthetic; no private repository analysis was run. Desktop/mobile light/dark views were visually inspected.
+
+- Image: `one-workshop:code-evidence-78245d77`; archive SHA-256: `01adb54aba704d6f3052e3839ccfca0772f3e840e641cd3d41492a91b32fb552`.
+- Public entry SHA-256: `ca5965f862d4bbb1b52fb177d417d1b95de92ef51183095493cd04f44fab0b16`.
+- All 1,274 manifest files verified in the image and running container; public HTML and 88 referenced JS/CSS assets verified over HTTPS. Health passed and schema minimum remains 6.
+- The backend artifact remains `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`. No container restart; old hashed assets retained for open tabs. Compose pins the new runtime image.
+- Rollback HTML and compose: `/opt/one/rollback-code-evidence-78245d77`. Final free disk space: about 1.4 GB; no data, volumes or rollback images removed for this release.
