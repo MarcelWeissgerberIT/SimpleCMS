@@ -3,6 +3,20 @@ import type { Messages } from '@/shared/i18n'
 /** Team-cloud UI strings (merged into the shell messages). Keys are prefixed "shell.cloud." — always add en and de. */
 export const cloudMessages: Messages = {
   en: {
+    'shell.cloud.inv.directSession': 'Access in this browser',
+    'shell.cloud.inv.direct': 'Direct access without a sign-in email',
+    'shell.cloud.inv.directHint': 'Anyone holding this link can join. New participants have an unverified email. Address and domain restrictions require email sign-in.',
+    'shell.cloud.inv.directJoinHint': 'Join immediately with a separate, unverified profile. Keep this browser session until you verify your email in account settings. To use an existing account, sign in first.',
+    'shell.cloud.inv.directName': 'Your name',
+    'shell.cloud.inv.directJoin': 'Join directly',
+    'shell.cloud.inv.existingAccount': 'Sign in to existing account',
+    'shell.cloud.inv.unverified': 'Email unverified',
+    'shell.cloud.inv.verify': 'Verify email now',
+    'shell.cloud.inv.verifyHint': 'Your access currently belongs to this browser session. Verify your email for future sign-ins.',
+    'shell.cloud.inv.verifySent': 'Check your inbox to verify your email.',
+    'shell.cloud.inv.verifyRequired': 'Verify your email in account settings before using this action.',
+    'shell.cloud.inv.emailInUse': 'This address already has an account. Sign in separately to that account and ask for a new invitation. Profiles are not merged automatically.',
+
     'shell.cloud.atlas.wrongEndpoint': 'This start page is configured for another Atlas address. Ask your workspace owner to check the Atlas connection.',
     'shell.cloud.atlas.checkTimeout': 'Atlas has not answered in time. Your access has not been confirmed. Try the connection check again; no records were changed.',
     'shell.cloud.atlas.privacy': 'Connecting checks your personal identity through ONE. Your token is encrypted on this device. Requested Atlas content reaches the selected model only when you start an AI task; project permissions remain unchanged.',
@@ -493,6 +507,20 @@ export const cloudMessages: Messages = {
     'shell.cloud.server.admins': 'Server admins are the addresses in ADMIN_EMAILS of the server’s configuration.',
   },
   de: {
+    'shell.cloud.inv.directSession': 'Zugang in diesem Browser',
+    'shell.cloud.inv.direct': 'Direkter Zugang ohne Anmeldemail',
+    'shell.cloud.inv.directHint': 'Jeder mit diesem Link kann beitreten. Neue Teilnehmer haben eine unbestätigte Mailadresse. Adress- und Domainbeschränkungen erfordern die Anmeldung per Mail.',
+    'shell.cloud.inv.directJoinHint': 'Du trittst sofort mit einem separaten, unbestätigten Profil bei. Behalte diese Browsersitzung, bis du deine Mailadresse in den Kontoeinstellungen bestätigst. Für ein vorhandenes Konto melde dich zuerst an.',
+    'shell.cloud.inv.directName': 'Dein Name',
+    'shell.cloud.inv.directJoin': 'Direkt beitreten',
+    'shell.cloud.inv.existingAccount': 'Mit vorhandenem Konto anmelden',
+    'shell.cloud.inv.unverified': 'Mailadresse unbestätigt',
+    'shell.cloud.inv.verify': 'Mailadresse jetzt bestätigen',
+    'shell.cloud.inv.verifyHint': 'Dein Zugang gehört derzeit zu dieser Browsersitzung. Bestätige deine Mailadresse für spätere Anmeldungen.',
+    'shell.cloud.inv.verifySent': 'Prüfe dein Postfach, um deine Mailadresse zu bestätigen.',
+    'shell.cloud.inv.verifyRequired': 'Bestätige vor dieser Aktion deine Mailadresse in den Kontoeinstellungen.',
+    'shell.cloud.inv.emailInUse': 'Diese Adresse hat bereits ein Konto. Melde dich separat damit an und bitte um eine neue Einladung. Profile werden nicht automatisch zusammengeführt.',
+
     'shell.cloud.atlas.wrongEndpoint': 'Diese Einstiegsseite verwendet eine andere Atlas-Adresse. Bitte den Workspace-Inhaber die Atlas-Verbindung prüfen lassen.',
     'shell.cloud.atlas.checkTimeout': 'Atlas hat nicht rechtzeitig geantwortet. Dein Zugang ist noch nicht bestätigt. Du kannst die Verbindung erneut prüfen; es wurden keine Records geändert.',
     'shell.cloud.atlas.privacy': 'Beim Verbinden prüft ONE deine persönliche Identität. Dein Token liegt verschlüsselt auf diesem Gerät. Angeforderte Atlas-Inhalte erreichen das gewählte Modell erst beim Start einer KI-Aufgabe; Projektrechte bleiben unverändert.',

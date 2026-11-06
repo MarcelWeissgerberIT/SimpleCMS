@@ -15,6 +15,7 @@ export function access(s: Services, c: Context<AppEnv>, min: Role) {
   const role = idSchema.safeParse(id).success ? s.sessions.role(auth, id) : undefined
   const workspace = role ? s.repo.workspaceById(id) : undefined
   if (!role || !workspace) throw notFound('workspace_not_found', 'Workspace not found')
+  if (auth.user.pending_email && atLeast(min, 'admin')) throw forbidden('email_unverified', 'Verify your email before managing workspace access')
   if (!atLeast(role, min)) throw forbidden('forbidden', `This needs the ${min} role or higher`)
   return { auth, role, workspace }
 }

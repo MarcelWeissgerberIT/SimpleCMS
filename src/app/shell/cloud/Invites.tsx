@@ -72,6 +72,8 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
   const guests = useCloud(s=>s.supports?.includes('guests:1'))
   const [role, setRole] = useState<Role|'guest'>('member')
   const effectiveRole = role === 'guest' ? 'viewer' : role
+  const directSupported = useCloud(s=>s.supports?.includes('direct-invites:1'))
+  const [direct, setDirect] = useState(false)
   const [days, setDays] = useState(7)
   const [uses, setUses] = useState(1)
   const [domains, setDomains] = useState('')
@@ -91,7 +93,7 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
   }, [focusForm])
 
   const days$ = DAY_CHOICES.map((n) => ({ value: n, label: t(plural('shell.cloud.inv.days', n), { n }) }))
-  const domainList = parseDomainInput(domains)
+  const domainList = direct ? [] : parseDomainInput(domains)
   const addresses = parseAddressList(emails)
 
   const switchMode = (m: Mode) => {
@@ -106,9 +108,9 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
     setBusy(true)
     setError(null)
     try {
-      const custom = role === 'guest' || uses !== 1 || days !== 7 || domainList.length > 0
+      const custom = direct || role === 'guest' || uses !== 1 || days !== 7 || domainList.length > 0
       // the plain single-use link keeps its short call (the server's defaults)
-      const inv = custom ? await cloudApi.createInvite(wsId, effectiveRole, undefined, { maxUses: uses, days, domains: domainList, ...(role==='guest'?{guest:true}:{}) }) : await cloudApi.createInvite(wsId, effectiveRole, undefined)
+      const inv = custom ? await cloudApi.createInvite(wsId, effectiveRole, undefined, { direct, maxUses: uses, days, domains: direct ? [] : domainList, ...(role==='guest'?{guest:true}:{}) }) : await cloudApi.createInvite(wsId, effectiveRole, undefined)
       setCreated(inv)
       void reload()
     } catch (e) {
@@ -166,6 +168,10 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
           <Select id={`${uid}-days`} label={t('shell.cloud.inv.valid')} value={days} onChange={setDays} options={days$} />
           {mode === 'link' ? (
             <>
+              {directSupported && <div className="tm-field tm-field--full">
+                <label><input type="checkbox" checked={direct} onChange={e=>{setDirect(e.target.checked);if(e.target.checked)setDays(1);setCreated(null)}} /> {t('shell.cloud.inv.direct')}</label>
+                <p className="cl-fine">{t('shell.cloud.inv.directHint')}</p>
+              </div>}
               <Select
                 id={`${uid}-uses`}
                 label={t('shell.cloud.inv.uses')}
@@ -181,6 +187,7 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
                   id={`${uid}-domains`}
                   className="input tm-mono"
                   value={domains}
+                  disabled={direct}
                   placeholder={t('shell.cloud.inv.domainsPh')}
                   autoComplete="off"
                   autoCapitalize="off"
@@ -302,7 +309,7 @@ function OpenInvites({ invites, onRevoke }: { invites: Invite[]; onRevoke: (i: I
             return (
               <li key={inv.id} className="tm-inv" data-testid="invite">
                 <span className="cl-role" data-role={inv.role}>
-                  {roleLabel(t, inv.role, !!inv.guest)}
+                  {roleLabel(t, inv.role, !!inv.guest)}{inv.direct ? ` · ${t('shell.cloud.inv.direct')}` : ''}
                 </span>
                 <span className="tm-inv__who">
                   <span className="tm-inv__line">

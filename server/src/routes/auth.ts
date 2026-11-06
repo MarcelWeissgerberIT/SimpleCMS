@@ -29,6 +29,7 @@ interface LoginTokenRow {
   signup_hash: string | null
   lang: string | null
   owner_activation:number
+  verify_user_id?:string|null
 }
 
 const requestSchema = z.object({
@@ -53,6 +54,7 @@ export function authRoutes(s: Services) {
   app.post('/request', async (c) => {
     const input = await body(c, requestSchema)
     const email = normalizeEmail(input.email)
+    if (email.endsWith('@unverified.invalid')) return c.body(null, 204)
     const ipWait = s.limiter.hit(`auth:ip:${clientIp(c, s.config)}`, s.config.authIpLimit, 15 * MINUTE)
     if (ipWait) throw rateLimited(ipWait)
     const emailWait = s.limiter.hit(`auth:email:${email}`, 5, 15 * MINUTE)
@@ -125,7 +127,7 @@ export function authRoutes(s: Services) {
     const used = activation?true:s.db.run('UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?', now, s.repo.hash(token), now)
     if (!used) return htmlPage(c, linkInvalidPage(lang, 'invalid'), 400)
 
-    const user = activation?consumeOwnerActivation(s,activation,row.email):s.repo.userByEmail(row.email) ?? createAccount(row)
+    const user = row.verify_user_id ? verifyInviteIdentity(row) : activation?consumeOwnerActivation(s,activation,row.email):s.repo.userByEmail(row.email) ?? createAccount(row)
     if (!user) return htmlPage(c, linkInvalidPage(lang, row.signup_hash ? 'signup_link' : 'signup_closed'), 403)
     if(!activation)ensurePersonalSpace(user, lang)
 
@@ -140,6 +142,23 @@ export function authRoutes(s: Services) {
     deleteCookie(c, LOGIN_COOKIE, { path: '/api/auth', httpOnly: true, sameSite: 'Lax', secure })
     c.header('Cache-Control', 'no-store')
     return c.redirect(safeRedirect(openLoginRedirect(token, row.redirect)), c.req.method === 'POST' ? 303 : 302)
+  }
+
+  function verifyInviteIdentity(row: LoginTokenRow): UserRow | null {
+    const user = s.db.tx(() => {
+      const u = s.repo.userById(row.verify_user_id!)
+      if (!u?.pending_email || u.pending_email !== row.email || s.repo.userByEmail(row.email)) return null
+      s.db.run('UPDATE users SET email=?,pending_email=NULL WHERE id=?', row.email, u.id)
+      // No earlier link-holder session survives the proof of mailbox ownership.
+      const sessions = s.db.all<{id:string}>('SELECT id FROM sessions WHERE user_id=?', u.id)
+      s.sessions.revokeAllForUser(u.id)
+      for (const session of sessions) {
+        s.collab.closeSession(session.id, 'session-ended')
+        s.coding.closeSession(session.id, 'session-ended')
+      }
+      return s.repo.userById(u.id)!
+    })
+    return user
   }
 
   /**

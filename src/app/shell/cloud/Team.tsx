@@ -1,3 +1,4 @@
+import { EmailVerification } from './EmailVerification'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, LogOut, RotateCw, Trash2, UserMinus } from 'lucide-react'
 import { format } from 'date-fns'
@@ -213,7 +214,7 @@ export function AccountNameField() {
   const t = useT()
   const user = useCloud((s) => s.user)
   if (!user) return null
-  return <SavedField label={t('shell.cloud.team.yourName')} hint={t('shell.cloud.team.yourNameHint')} value={user.name ?? ''} maxLength={60} onSave={(v) => cloudApi.updateProfile(v)} />
+  return <><EmailVerification /><SavedField label={t('shell.cloud.team.yourName')} hint={t('shell.cloud.team.yourNameHint')} value={user.name ?? ''} maxLength={60} onSave={(v) => cloudApi.updateProfile(v)} /></>
 }
 
 /** The open team workspace's name: owners and admins rename it on the server, everyone else reads it. */
@@ -319,7 +320,7 @@ function Members({
                 {me && <span className="tm-you">{t('shell.cloud.team.youTag')}</span>}
               </span>
               <span className="tm-row__meta">
-                {m.user.email} · {t('shell.cloud.team.since', { date: format(toMs(m.created_at), 'dd MMM yyyy', { locale: lang === 'de' ? de : enUS }).toUpperCase() })}
+                {m.user.email}{m.user.emailVerified === false ? ` · ${t('shell.cloud.inv.unverified')}` : ''} · {t('shell.cloud.team.since', { date: format(toMs(m.created_at), 'dd MMM yyyy', { locale: lang === 'de' ? de : enUS }).toUpperCase() })}
                 {(me || here.includes(m.user.id)) && (
                   <span className="tm-here" data-testid="member-here">
                     {' · '}

@@ -100,7 +100,7 @@ export function useWorkspaceEntries(): MenuEntry[] {
             <Avatar name={user.name} email={user.email} id={user.id} size={24} />
             <span className="cl-sw-acct__text">
               <span className="cl-sw-acct__name">{user.name || user.email.split('@')[0]}</span>
-              <span className="cl-sw-acct__mail">{user.email}</span>
+              <span className="cl-sw-acct__mail">{user.email}{user.emailVerified === false ? ` · ${t('shell.cloud.inv.unverified')}` : ''}</span>
             </span>
           </div>
         ),

@@ -19,6 +19,7 @@ export const INVITE_TTL = 7 * DAY
 export const MAX_LINK_USES = 100
 
 export interface UserRow {
+  pending_email?: string | null
   id: string
   email: string
   name: string | null
@@ -40,6 +41,7 @@ export interface WorkspaceRow {
 }
 
 export interface InviteRow {
+  direct?: number
   id: string
   token_hash: string
   workspace_id: string
@@ -149,7 +151,7 @@ export const CODING_PENDING_TTL = DAY
 export const API_TOKEN_PREFIX = 'one_'
 export const isApiTokenShape = (s: unknown): s is string => typeof s === 'string' && /^one_[A-Za-z0-9_-]{43}$/.test(s)
 
-export const publicUser = (u: Pick<UserRow, 'id' | 'email' | 'name'>) => ({ id: u.id, email: u.email, name: u.name })
+export const publicUser = (u: Pick<UserRow, 'id' | 'email' | 'name' | 'pending_email'>) => ({ id: u.id, email: u.pending_email ?? u.email, name: u.name, ...(u.pending_email ? { email_verified: false } : {}) })
 
 /** `viewer`: the user asking — `personal` is true on their own personal workspace (while they own it). */
 export const publicWorkspace = (w: WorkspaceRow & { participationUntil?: number }, role: Role, viewer?: string) => ({
@@ -224,6 +226,13 @@ export class Repo {
     const user: UserRow = { id: newId(), email: normalizeEmail(email), name, created_at: Date.now(), last_seen_at: null }
     this.db.run('INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)', user.id, user.email, user.name, user.created_at)
     return user
+  }
+
+  /** A claimed address never participates in login, domain grants or administrator matching. */
+  createInviteUser(email: string, name: string): UserRow {
+    const user = this.createUser(`${newId()}@unverified.invalid`, name)
+    this.db.run('UPDATE users SET pending_email=? WHERE id=?', normalizeEmail(email), user.id)
+    return { ...user, pending_email: normalizeEmail(email) }
   }
 
   findOrCreateUser(email: string): { user: UserRow; created: boolean } {
@@ -387,12 +396,13 @@ export class Repo {
 
   // ── invites ──────────────────────────────────────────────────────────
 
-  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string; maxUses?: number; ttl?: number; domains?: string[] | null; guest?: boolean }) {
+  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string; maxUses?: number; ttl?: number; domains?: string[] | null; guest?: boolean; direct?: boolean }) {
     const token = randomToken()
     const now = Date.now()
     const row: InviteRow = {
       id: newId(),
       token_hash: this.hash(token),
+      direct: Number(input.direct ?? false),
       workspace_id: input.workspaceId,
       role: input.role,
       guest: Number(input.guest ?? false),
@@ -407,9 +417,9 @@ export class Repo {
       allowed_domains: input.domains?.length ? input.domains.join(',') : null,
     }
     this.db.run(
-      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at, max_uses, allowed_domains, guest)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains, row.guest,
+      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at, max_uses, allowed_domains, guest, direct)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains, row.guest, row.direct!,
     )
     return { token, row }
   }
@@ -421,7 +431,7 @@ export class Repo {
   /** Invites with places left that have not expired, newest first, with their creator and the latest joiner. */
   openInvites(workspaceId: string) {
     return this.db.all<InviteRow & { inviter_name: string | null; inviter_email: string | null; joiner_name: string | null; joiner_email: string | null }>(
-      `SELECT i.*, u.name AS inviter_name, u.email AS inviter_email, j.name AS joiner_name, j.email AS joiner_email
+      `SELECT i.*, u.name AS inviter_name, u.email AS inviter_email, j.name AS joiner_name, COALESCE(j.pending_email,j.email) AS joiner_email
        FROM invites i LEFT JOIN users u ON u.id = i.created_by LEFT JOIN users j ON j.id = i.accepted_by
        WHERE i.workspace_id = ? AND i.uses < i.max_uses AND i.expires_at > ? ORDER BY i.created_at DESC`,
       workspaceId,

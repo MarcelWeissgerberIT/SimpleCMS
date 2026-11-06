@@ -1440,3 +1440,10 @@ Disabling/removing a key blocks new calls; requests already started can still in
 Validation: `server/test/central-ai.test.ts`, the route-isolation sweep in `server/test/tenancy.test.ts`,
 and `npx playwright test -c playwright.central.config.ts` (root app build and server build required).
 All provider traffic in those tests is local and fictional; no paid requests or real credentials.
+
+### Direct invitation identities (migration 24)
+Explicit `direct: true` workspace invitations accept `POST /api/invites/:token/join` with name and email, without authentication or SMTP. Default validity is one day and one use. Only member/viewer roles, no address/domain restrictions; existing invitation behavior is unchanged. Creation and acceptance retain the existing admin/CSRF/rate/expiry/revocation checks. User creation, invite consumption, membership and session creation are one transaction. Authenticated clients use `/accept`.
+
+Unverified identities store a random reserved `@unverified.invalid` login identifier and a separate `pending_email`. Claimed addresses never enter login lookup, server-admin/domain grants, or email-bound participation. Public profiles expose the claimed address plus `email_verified:false`. They cannot create workspaces, receive admin/owner roles or register durable workers.
+
+`POST /api/me/verify-email` sends a normal single-use mailbox proof bound to that identity. Completion atomically checks that the address is still pending and not owned by another account, promotes it, and revokes previous sessions/sockets. No automatic account merge. A personal workspace is created only after proof. Losing the unverified session requires a new invitation. Invite bearer tokens remain hashed and redacted from logs.

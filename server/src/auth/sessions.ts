@@ -70,19 +70,19 @@ export class Sessions {
 
   resolve(token: string | undefined | null): Auth | null {
     if (!token || token.length > 100) return null
-    const row = this.repo.db.get<SessionRow & { u_email: string; u_name: string | null; u_created_at: number; u_last_seen_at: number | null }>(
-      `SELECT s.*, u.email AS u_email, u.name AS u_name, u.created_at AS u_created_at, u.last_seen_at AS u_last_seen_at
+    const row = this.repo.db.get<SessionRow & { u_email: string; u_name: string | null; u_created_at: number; u_last_seen_at: number | null; u_pending_email: string | null }>(
+      `SELECT s.*, u.email AS u_email, u.pending_email AS u_pending_email, u.name AS u_name, u.created_at AS u_created_at, u.last_seen_at AS u_last_seen_at
        FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`,
       this.repo.hash(token),
       Date.now(),
     )
     if (!row) return null
-    const { u_email, u_name, u_created_at, u_last_seen_at, ...session } = row
+    const { u_email, u_pending_email, u_name, u_created_at, u_last_seen_at, ...session } = row
     const testAccess = this.testAccess(session.id)
     if ((session.test_access && !testAccess) || (testAccess && !this.validTest(testAccess))) return null
     return { session, user: testAccess
       ? { id: `test_${session.id}`, email: testAccess.target_email, name: `${testAccess.target_name} (Test)`, created_at: session.created_at, last_seen_at: null }
-      : { id: row.user_id, email: u_email, name: u_name, created_at: u_created_at, last_seen_at: u_last_seen_at }, ...(testAccess ? { testAccess } : {}) }
+      : { id: row.user_id, email: u_email, pending_email: u_pending_email, name: u_name, created_at: u_created_at, last_seen_at: u_last_seen_at }, ...(testAccess ? { testAccess } : {}) }
   }
 
   isValid(sessionId: string): boolean {

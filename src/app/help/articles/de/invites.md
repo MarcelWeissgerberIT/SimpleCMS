@@ -27,3 +27,10 @@ Adressen, die in `ADMIN_EMAILS` des Servers stehen, sehen **Einstellungen → Se
 
 ## Gäste im selben Workspace
 Wähle **Gast · nur lesen** als Zugang. Die Einladung führt in diesen Workspace, mit denselben gemeinsamen Seiten und Live-Änderungen. Gäste werden unter **Personen** als Gäste gekennzeichnet; sie können weder Inhalte ändern noch andere Personen einladen. Ein Gastzugang schützt keine lesbaren Inhalte vor dem Kopieren.
+
+## Direkter Zugang ohne Mail
+Aktiviere beim Erstellen eines Links **Direkter Zugang ohne Anmeldemail**. Voreinstellung: eine Nutzung und ein Tag. Jeder mit dem Link kann Name und Mailadresse eingeben und sofort beitreten; es wird keine Mail versendet. Neue Profile sind als **Mailadresse unbestätigt** markiert. Sie können kein vorhandenes Konto öffnen, keine Domainfreigaben nutzen, keine Administratorrechte erhalten und keinen Worker registrieren.
+
+Der Zugang gehört zu dieser Browsersitzung. Für spätere Anmeldungen wähle unter **Einstellungen → Allgemein** die Aktion **Mailadresse jetzt bestätigen**. Die Bestätigung erhält die Mitgliedschaft und beendet vorherige Sitzungen. Gehört die Adresse bereits zu einem Konto, wird nichts automatisch zusammengeführt: Melde dich separat damit an und bitte um eine neue Einladung. Bereits angemeldete Personen treten mit ihrem Konto bei.
+
+Direkte Links können weder an eine Adresse oder Domain gebunden werden noch Administratorrechte vergeben. Nutze dafür Einladungen per Mail. Widerrufen beendet weitere Beitritte; bereits beigetretene Mitglieder entfernst du separat.
