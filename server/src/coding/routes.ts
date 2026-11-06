@@ -52,6 +52,7 @@ export function codingRoutes(s: Services) {
   })
 
   app.post('/:id/coding/workers', async (c) => {
+    if (c.get('auth')?.user.pending_email) throw forbidden('email_unverified', 'Verify your email before registering a worker')
     if (!s.config.codingRelay) throw relayOff()
     const { workspace, auth } = access(s, c, 'member')
     const input = await body(c, z.object({ label: z.string().trim().max(60).optional() }))

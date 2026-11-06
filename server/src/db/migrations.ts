@@ -543,4 +543,11 @@ export const migrations: Migration[] = [
       guest INTEGER NOT NULL CHECK(guest IN(0,1))
     );`,
   },
+  {
+    version:24,
+    name:'explicit direct invitations and unverified identities',
+    sql:`ALTER TABLE invites ADD COLUMN direct INTEGER NOT NULL DEFAULT 0 CHECK(direct IN(0,1));
+    ALTER TABLE users ADD COLUMN pending_email TEXT;
+    ALTER TABLE login_tokens ADD COLUMN verify_user_id TEXT REFERENCES users(id) ON DELETE CASCADE;`,
+  },
 ]

@@ -9,6 +9,7 @@ import type { HocuspocusProvider } from '@hocuspocus/provider'
 export type Role = 'owner' | 'admin' | 'member' | 'viewer'
 
 export interface CloudUser {
+  emailVerified?: boolean
   id: string
   email: string
   name: string
@@ -157,6 +158,7 @@ export interface Member {
 }
 
 export interface Invite {
+  direct?: boolean
   guest?: boolean
   id: string
   role: Role
@@ -181,6 +183,7 @@ export interface Invite {
 
 /** Options of a new invite link (server defaults: single use, 7 days, any address). */
 export interface InviteOptions {
+  direct?: boolean
   guest?: boolean
   /** 1–100 people (reusable links: member / viewer only). */
   maxUses?: number
@@ -198,6 +201,7 @@ export interface EmailInviteResult {
 }
 
 export interface InvitePreview {
+  direct?: boolean
   guest?: boolean
   workspace: { name: string; icon?: unknown }
   role: Role

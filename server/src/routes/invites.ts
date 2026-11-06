@@ -1,10 +1,11 @@
 import { Hono, type Context } from 'hono'
 import type { AppEnv, Services } from '../context.ts'
 import { domainAllowed, domainList, isOpenInvite } from '../auth/signup.ts'
-import { forbidden, notFound } from '../errors.ts'
-import { requireAuth } from '../http/util.ts'
+import { z } from 'zod'
+import { forbidden, notFound, rateLimited } from '../errors.ts'
+import { body, clientIp, requireAuth } from '../http/util.ts'
 import { atLeast, type InviteRow, type WorkspaceRow } from '../repo.ts'
-import { isTokenShape, iso } from '../tokens.ts'
+import { MINUTE, isTokenShape, iso } from '../tokens.ts'
 
 const DEAD = 'This invitation does not exist, has expired, was used up or revoked'
 
@@ -42,6 +43,7 @@ export function inviteRoutes(s: Services) {
       workspace: { name: ws.name, icon: ws.icon ? JSON.parse(ws.icon) : null },
       role: invite.role,
       guest: !!invite.guest,
+      direct: !!invite.direct,
       inviter: inviter ? { name: inviter.name, email: inviter.email } : null,
       email: invite.email,
       expires_at: iso(invite.expires_at),
@@ -51,9 +53,31 @@ export function inviteRoutes(s: Services) {
     })
   })
 
+  // Possession of an explicitly created direct link grants workspace membership, never an existing identity.
+  app.post('/:token/join', async (c) => {
+    const wait = s.limiter.hit(`invite:join:${clientIp(c, s.config)}`, 20, 15 * MINUTE)
+    if (wait) throw rateLimited(wait)
+    const input = await body(c, z.object({ email: z.email().max(254), name: z.string().trim().min(1).max(80) }).strict())
+    if (c.get('auth')) throw forbidden('already_signed_in', 'Use the signed-in join action')
+    const result = s.db.tx(() => {
+      const { invite } = load(c, c.req.param('token'))
+      if (!invite.direct || invite.email || invite.allowed_domains || invite.role === 'admin') throw forbidden('invite_signin_required', 'This invitation requires email sign-in')
+      const user = s.repo.createInviteUser(input.email, input.name)
+      if (!s.repo.consumeInvite(invite.id, user.id)) throw notFound('invite_not_found', DEAD)
+      s.repo.addMember(invite.workspace_id, user.id, invite.role, !!invite.guest)
+      const session = s.sessions.create(user.id, c.req.header('user-agent') ?? null)
+      return { workspaceId: invite.workspace_id, user, session }
+    })
+    s.sessions.setCookie(c, result.session.token)
+    c.header('Cache-Control', 'no-store')
+    s.log.info('direct invite accepted', { workspace: result.workspaceId, user: result.user.id })
+    return c.json({ workspaceId: result.workspaceId }, 201)
+  })
+
   app.post('/:token/accept', (c) => {
     const { user } = requireAuth(c)
     const { invite } = load(c, c.req.param('token'))
+    if (user.pending_email && (invite.email || invite.allowed_domains || invite.role === 'admin')) throw forbidden('email_unverified', 'Verify your email before accepting a restricted invitation')
     if (invite.email && invite.email !== user.email) throw forbidden('invite_email_mismatch', `This invitation is for ${invite.email}`)
     if (!domainAllowed(invite.allowed_domains, user.email)) {
       throw forbidden('invite_domain_mismatch', `This invitation is for addresses at ${domainList(invite.allowed_domains)?.join(', ')}`)

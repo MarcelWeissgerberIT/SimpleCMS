@@ -38,6 +38,7 @@ function inviteJson(i: InviteRow & { inviter_name?: string | null; inviter_email
     id: i.id,
     role: i.role,
     guest: !!i.guest,
+    direct: !!i.direct,
     email: i.email,
     created_at: iso(i.created_at),
     expires_at: iso(i.expires_at),
@@ -58,6 +59,7 @@ export function workspaceRoutes(s: Services) {
 
   app.post('/', async (c) => {
     const { user } = requireAuth(c)
+    if (user.pending_email) throw forbidden('email_unverified', 'Verify your email before creating a workspace')
     const input = await body(c, z.object({ name: nameSchema, icon: iconSchema.optional() }))
     if (s.repo.countWorkspacesCreatedSince(user.id, Date.now() - DAY) >= WORKSPACES_PER_DAY) throw rateLimited(3600)
     const ws = s.repo.createWorkspace(user.id, input.name, input.icon ?? null)
@@ -136,6 +138,7 @@ export function workspaceRoutes(s: Services) {
     if (guest && role !== 'viewer') throw badRequest('guest_readonly', 'Guests must have viewer access')
     const current = idSchema.safeParse(userId).success ? s.repo.memberRole(workspace.id, userId) : undefined
     if (!current) throw notFound('member_not_found', 'This person is not a member')
+    if ((role === 'admin' || role === 'owner') && s.repo.userById(userId)?.pending_email) throw forbidden('email_unverified', 'Verify the address before assigning administrative access')
 
     if (role === 'owner') {
       if (actorRole !== 'owner') throw forbidden('owner_only', 'Only the owner can hand over ownership')
@@ -191,6 +194,7 @@ export function workspaceRoutes(s: Services) {
     email: z.email().max(254).optional(),
     /** Explicit copy-link preparation; still address-bound, never an authentication token. */
     send_email:z.boolean().optional(),
+    direct:z.boolean().default(false),
     lang: langSchema.optional(),
     max_uses: usesSchema.optional(),
     expires_in_days: daysSchema.optional(),
@@ -216,6 +220,7 @@ export function workspaceRoutes(s: Services) {
     if (input.guest && input.role !== 'viewer') throw badRequest('guest_readonly', 'Guests must have viewer access')
     const maxUses = input.max_uses ?? 1
     const domains = domainsOrThrow(input.domains)
+    if (input.direct && (input.email || domains || input.role === 'admin')) throw badRequest('invalid_request', 'Direct links cannot grant admin access or restrict email addresses or domains')
     // an address-bound invite is for that one person; a reusable link never makes admins
     if (input.email && (maxUses !== 1 || domains)) throw badRequest('invalid_request', 'An invite for an email address is single-use and has no domain restriction')
     if (input.role === 'admin' && maxUses !== 1) throw badRequest('invalid_request', 'Admin invites are single-use')
@@ -224,8 +229,8 @@ export function workspaceRoutes(s: Services) {
       const existing = s.repo.userByEmail(input.email)
       if (existing && s.repo.memberRole(workspace.id, existing.id)) throw conflict('already_member', 'This person is already a member')
     }
-    const days = input.expires_in_days ?? 7
-    const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, guest: input.guest, email: input.email ?? null, createdBy: auth.user.id, maxUses, ttl: days * DAY, domains })
+    const days = input.expires_in_days ?? (input.direct ? 1 : 7)
+    const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, guest: input.guest, email: input.email ?? null, createdBy: auth.user.id, maxUses, ttl: days * DAY, domains, direct: input.direct })
     const link = inviteLink(token)
 
     let emailSent: boolean | undefined

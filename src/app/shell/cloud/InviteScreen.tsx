@@ -11,6 +11,7 @@ import { CheckInbox, SignInForm, useSignInFlow } from './SignIn'
 import { roleLabel } from './state'
 
 interface Preview {
+  direct: boolean
   guest: boolean
   workspace: string
   role: Role
@@ -25,7 +26,7 @@ interface Preview {
 
 /** The core passes the server's preview through; read it defensively (inviter is a name or { name, email }). */
 function readPreview(raw: unknown): Preview {
-  const p = (raw ?? {}) as { workspace?: { name?: string }; role?: Role; guest?: boolean; inviter?: unknown; email?: unknown; expires_at?: unknown; domains?: unknown; places_left?: unknown; max_uses?: unknown }
+  const p = (raw ?? {}) as { direct?: boolean; workspace?: { name?: string }; role?: Role; guest?: boolean; inviter?: unknown; email?: unknown; expires_at?: unknown; domains?: unknown; places_left?: unknown; max_uses?: unknown }
   let inviter: string | null = null
   if (typeof p.inviter === 'string') inviter = p.inviter.trim() || null
   else if (p.inviter && typeof p.inviter === 'object') {
@@ -37,6 +38,7 @@ function readPreview(raw: unknown): Preview {
     workspace: p.workspace?.name?.trim() || '—',
     role: p.role ?? 'member',
     guest: p.guest === true,
+    direct: p.direct === true,
     inviter,
     email: typeof p.email === 'string' && p.email ? p.email : null,
     expires: Number.isFinite(exp) ? exp : null,
@@ -54,6 +56,9 @@ export function InviteScreen({ token }: { token: string }) {
   const user = useCloud((s) => s.user)
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [joining, setJoining] = useState(false)
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [existingAccount, setExistingAccount] = useState(false)
   const [joinError, setJoinError] = useState<{ code: string; text: string } | null>(null)
   const flow = useSignInFlow(token, undefined, load.state === 'ready' ? load.preview.domains : undefined)
 
@@ -89,9 +94,22 @@ export function InviteScreen({ token }: { token: string }) {
     }
   }
 
+  const joinDirect = async () => {
+    setJoining(true);setJoinError(null)
+    try {
+      const result = await cloudApi.cloudRequest<{workspaceId:string}>('POST',`api/invites/${encodeURIComponent(token)}/join`,{email:email.trim(),name:name.trim()})
+      // Reload establishes the new session before connecting to the selected workspace.
+      window.location.assign(`${window.location.pathname}?w=${encodeURIComponent(result.workspaceId)}#/`)
+    } catch(e) {setJoinError({code:errorCode(e),text:errorText(e,t)});setJoining(false)}
+  }
+
   const leave = () => navigate({ name: 'home' }, { replace: true })
   const signedIn = !!user
-  const steps: Step[] = [
+  const directEntry = load.state === 'ready' && load.preview.direct && !existingAccount
+  const steps: Step[] = directEntry ? [
+    {label:t('shell.cloud.inv.directName'),state:signedIn?'done':'now'},
+    {label:t('shell.cloud.inv.directJoin'),state:signedIn?'now':'next'},
+  ] : [
     { label: t('shell.cloud.step.email'), state: signedIn || flow.phase === 'sent' ? 'done' : load.state === 'ready' ? 'now' : 'next' },
     { label: t('shell.cloud.step.link'), state: signedIn ? 'done' : flow.phase === 'sent' ? 'now' : 'next' },
     { label: t('shell.cloud.step.join'), state: signedIn && load.state === 'ready' ? 'now' : 'next' },
@@ -104,7 +122,7 @@ export function InviteScreen({ token }: { token: string }) {
         : { led: 'off' as const, text: load.state === 'no-server' ? t('shell.cloud.status.noServer') : load.state === 'dead' ? t('shell.cloud.status.inviteDead') : t('shell.cloud.err.network') }
 
   return (
-    <CloudFrame docTitle={t('shell.cloud.invite.doc')} steps={steps} status={status}>
+    <CloudFrame docTitle={t('shell.cloud.invite.doc')} steps={steps} status={status} accessHint={directEntry?t('shell.cloud.inv.directSession'):undefined}>
       <SheetHead section={t('shell.cloud.invite.section')} code={load.state === 'ready' && load.preview.expires ? `${t('shell.cloud.invite.expires')} ${fmtDay(load.preview.expires, lang)}` : 'FORM T-0'} />
       {load.state === 'loading' && (
         <p className="cl-lede cl-loading" role="status">
@@ -210,6 +228,15 @@ export function InviteScreen({ token }: { token: string }) {
                 </button>
               )}
             </div>
+          ) : load.preview.direct && !existingAccount ? (
+            <form className="cl-join cl-direct-form" onSubmit={e=>{e.preventDefault();void joinDirect()}}>
+              <p className="cl-fine">{t('shell.cloud.inv.directJoinHint')}</p>
+              <label className="cl-direct-field"><span className="label">{t('shell.cloud.inv.directName')}</span><input className="input cl-form__input" autoComplete="name" value={name} onChange={e=>setName(e.target.value)} maxLength={80} required /></label>
+              <label className="cl-direct-field"><span className="label">{t('shell.cloud.step.email')}</span><input className="input cl-form__input" type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} maxLength={254} required /></label>
+              <div className="cl-actions"><button className="btn btn--primary btn--lg" disabled={joining||!name.trim()}>{t('shell.cloud.inv.directJoin')}</button>
+              <button className="btn btn--ghost" type="button" onClick={()=>setExistingAccount(true)}>{t('shell.cloud.inv.existingAccount')}</button></div>
+              {joinError && <p role="alert" className="cl-err">{joinError.text}</p>}
+            </form>
           ) : flow.phase === 'form' ? (
             <>
               <p className="cl-fine cl-join__who">{t('shell.cloud.invite.signInFirst')}</p>

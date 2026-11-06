@@ -1469,3 +1469,8 @@
     flex: 1 1 auto;
   }
 }
+
+/* Direct invitations use the same field and action sizes as email sign-in. */
+.cl-direct-form { display: grid; gap: var(--sp-4); }
+.cl-direct-field { display: grid; gap: var(--sp-2); }
+.cl-direct-form .cl-actions { flex-wrap: wrap; }

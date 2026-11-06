@@ -1,4 +1,7 @@
 import { isVaultEnvelope } from '../../../src/shared/personalVault.ts'
+import { issueLoginLink } from '../auth/login-link.ts'
+import { pickLang } from '../i18n.ts'
+import { magicLinkMail } from '../mail/templates.ts'
 import { ApiError, rateLimited } from '../errors.ts'
 import { MINUTE } from '../tokens.ts'
 import { Hono } from 'hono'
@@ -42,6 +45,21 @@ export function meRoutes(s: Services) {
   const app = new Hono<AppEnv>()
 
   app.get('/', (c) => c.json(account(s, requireAuth(c))))
+
+  app.post('/verify-email', async c => {
+    const {user} = requireAuth(c)
+    if (!user.pending_email) return c.body(null, 204)
+    const wait = s.limiter.hit(`verify-invite:${user.id}`, 3, 15 * MINUTE)
+    if (wait) throw rateLimited(wait)
+    if (s.repo.userByEmail(user.pending_email)) throw new ApiError(409, 'email_in_use', 'Sign in to your existing account separately; identities are never merged automatically')
+    const input = await body(c, z.object({lang:z.enum(['en','de']).optional()}))
+    const lang = pickLang(input.lang, c.req.header('accept-language'))
+    const {link} = issueLoginLink(s, {email:user.pending_email,lang,redirect:'/app/?signed-in=1'})
+    const token = new URL(link).searchParams.get('token')!
+    s.db.run('UPDATE login_tokens SET verify_user_id=? WHERE token_hash=?', user.id, s.repo.hash(token))
+    await s.mailer.send({to:user.pending_email,link,...magicLinkMail(lang,{link,email:user.pending_email,minutes:15})})
+    return c.body(null,204)
+  })
 
   // Only the current session's owner. No user-id parameter, admin bypass, MCP or workspace export.
   app.get('/secrets', (c) => {

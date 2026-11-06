@@ -3,6 +3,8 @@ import type { Translate } from '@/shared/i18n'
 
 /** Error codes from docs/CLOUD.md → plain-language message keys. */
 const KEYS: Record<string, string> = {
+  email_unverified: 'shell.cloud.inv.verifyRequired',
+  email_in_use: 'shell.cloud.inv.emailInUse',
   checkout_stale: 'shell.checkout.stale',
   checkout_file: 'shell.checkout.attachment',
   checkout_pending: 'shell.checkout.pending',

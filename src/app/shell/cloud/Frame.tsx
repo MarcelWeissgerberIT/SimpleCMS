@@ -16,7 +16,7 @@ export interface Step {
  * Full-screen frame of the cloud screens (sign-in, invitation): a technical-manual sheet with the
  * form on the left and the procedure plate on the right (stacked on phones).
  */
-export function CloudFrame({ docTitle, steps, status, children }: { docTitle: string; steps: Step[]; status: { led: 'on' | 'ok' | 'off'; text: string }; children: ReactNode }) {
+export function CloudFrame({ docTitle, steps, status, children, accessHint }: { accessHint?: string; docTitle: string; steps: Step[]; status: { led: 'on' | 'ok' | 'off'; text: string }; children: ReactNode }) {
   const t = useT()
   const lang = useLang()
   useEffect(() => {
@@ -63,7 +63,7 @@ export function CloudFrame({ docTitle, steps, status, children }: { docTitle: st
           <dl className="cl-spec">
             <div>
               <dt>{t('shell.cloud.spec.password')}</dt>
-              <dd>{t('shell.cloud.spec.passwordV')}</dd>
+              <dd>{accessHint ?? t('shell.cloud.spec.passwordV')}</dd>
             </div>
             <div>
               <dt>{t('shell.cloud.spec.offline')}</dt>

@@ -136,6 +136,7 @@ export async function fetchConfig(timeoutMs: number): Promise<ServerConfig | 'ab
 /* ------------------------------------------------------------------ shapes */
 
 interface RawUser {
+  email_verified?: boolean
   id: string
   email: string
   name: string | null
@@ -149,7 +150,7 @@ interface RawWorkspace {
   personal?: boolean
 }
 
-const toUser = (u: RawUser): CloudUser => ({ id: u.id, email: u.email, name: u.name ?? '' })
+const toUser = (u: RawUser): CloudUser => ({ id: u.id, email: u.email, name: u.name ?? '', emailVerified: u.email_verified !== false })
 const toWorkspace = (w: RawWorkspace): CloudWorkspace => ({ id: w.id, name: w.name, icon: (w.icon ?? null) as string | null, role: w.role, ...(w.personal ? { personal: true } : {}), ...(Number.isFinite(w.participation_until) ? { participationUntil: w.participation_until } : {}) })
 const toMs = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) || 0 : 0)
 
@@ -222,6 +223,7 @@ export function delMember(wsId: string, userId: string): Promise<void> {
 type RawPerson = { id: string; name: string | null; email: string | null } | null
 
 interface RawInvite {
+  direct?: boolean
   guest?: boolean
   id: string
   role: Role
@@ -241,6 +243,7 @@ interface RawInvite {
 const toPerson = (p: NonNullable<RawPerson>) => ({ id: p.id, name: p.name ?? '', email: p.email ?? '' })
 
 const toInvite = (i: RawInvite): Invite => ({
+  direct: i.direct === true,
   id: i.id,
   role: i.role,
   guest: !!i.guest,
@@ -259,6 +262,7 @@ const toInvite = (i: RawInvite): Invite => ({
 
 /** Option names on the wire (docs/CLOUD.md § Invites & registration links). */
 const linkOptions = (o?: InviteOptions) => ({
+  ...(o?.direct !== undefined ? { direct: o.direct } : {}),
   ...(o?.guest !== undefined ? { guest: o.guest } : {}),
   ...(o?.maxUses !== undefined ? { max_uses: o.maxUses } : {}),
   ...(o?.days !== undefined ? { expires_in_days: o.days } : {}),
@@ -292,6 +296,7 @@ export function delInvite(wsId: string, inviteId: string): Promise<void> {
 
 export async function getInvitePreview(token: string): Promise<InvitePreview> {
   const r = await request<{
+    direct?: boolean
     workspace: { name: string; icon?: unknown }
     guest?: boolean
     role: Role
@@ -303,6 +308,7 @@ export async function getInvitePreview(token: string): Promise<InvitePreview> {
     max_uses?: number
   }>('GET', `api/invites/${encodeURIComponent(token)}`)
   return {
+    direct: r.direct === true,
     workspace: { name: r.workspace?.name ?? '', icon: r.workspace?.icon ?? null },
     role: r.role,
     guest: !!r.guest,
