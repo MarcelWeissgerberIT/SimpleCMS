@@ -89,3 +89,16 @@ test('the pipeline step limit stops the model without completing a stage', async
   expect(mock.bodies).toHaveLength(1)
   await expect(page.getByTestId('coding-approve')).toHaveCount(0)
 })
+
+test('a changed pipeline keeps the execution selector available to return to the worker', async ({ page }) => {
+  const id = await setup(page)
+  await page.getByLabel('Execution', { exact: true }).selectOption('worker')
+  await page.getByLabel('Execution', { exact: true }).selectOption('one')
+  await wsEval(page, (s, id) => {
+    const db = s.databases[s.pages[id].databaseId]
+    s.updateDatabase(db.id, { pipeline: db.pipeline.map((p: any) => p.kind === 'doc' ? { ...p, kind: 'analyze' } : p) })
+  }, id)
+  await expect(page.getByLabel('Execution', { exact: true })).toHaveValue('one')
+  await page.getByLabel('Execution', { exact: true }).selectOption('worker')
+  await expect(page.getByTestId('coding-offline')).toBeVisible()
+})

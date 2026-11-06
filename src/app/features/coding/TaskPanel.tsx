@@ -170,7 +170,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const { pipeline, stage, row: task, props, kind } = ctx
   const coding = kind === 'coding'
   const eligible = canUseOneAnalysis(ctx)
-  const one = eligible && (local.execution === 'one' || !local.execution && conn !== 'connected')
+  const one = local.execution === 'one' || eligible && !local.execution && conn !== 'connected'
   const running = !!busy || !!modelJob
   const connected = conn === 'connected'
   const repo = props.repo ? (ctx.db.properties.find((p) => p.id === props.repo)?.options?.find((o) => o.id === task.properties[props.repo!])?.name ?? null) : null
@@ -264,7 +264,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </p>
         ) : null}
 
-        {eligible && <OneAnalysisControls taskId={pageId} one={one} disabled={!canAct || running} />}
+        {(eligible || one) && <OneAnalysisControls taskId={pageId} one={one} disabled={!canAct || running} />}
         {intake && trusted !== false && <ImportBox taskId={pageId} canAct={canAct} />}
         {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} kind={kind} oneModel={one} />}
         {canAct && stage?.kind !== 'done' && (
