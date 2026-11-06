@@ -1,3 +1,5 @@
+import {compareMockPreviews} from '@/shared/ai/mockComparison'
+import {mockPreviewFromArtifact} from '@/shared/ai/mockBlock'
 import {mergeMockRegion} from './mockEvolution'
 import {persistMockProposal} from './MockRevisionActions'
 import {t} from '../../../i18n'
@@ -97,6 +99,16 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
    (input,error,repair)=>repairDesignMock(o,prepared,sources,input,error,{phase:repair?'repair':'draft',audit,revision:feedback?.prompt,focused:!!feedback?.region}),
    draft=>({...((feedback?.region)?mergeMockRegion(feedback.snapshot.preview,feedback.region,compileMock(draft,sources),draft):compileMock(draft,sources)),request:(o.typed??'').split(/^Atlas design (?:source|epic):/m)[0]!.replace(/^\/mock\s*/i,'')}),
    ()=>o.hooks.note('Der Mock-Entwurf wird einmal gegen echte Quellenausschnitte und das vollständige Schema korrigiert.'))
+  if(feedback){
+   const comparison=await compareMockPreviews(feedback.snapshot.preview,mockPreviewFromArtifact({...artifact,colorAdjustments:feedback.snapshot.preview.colors}),o.signal)
+   feedback.check();assertPreparedFlow(prepared)
+   await audit.tool('ONE','compare_mock_revision',{base:feedback.request.base},()=>({state:comparison.state,changedAreas:comparison.changes.length,sourceChanges:comparison.sources,checks:'DOM semantics, computed styles and geometry at the original viewport; not a semantic fulfilment claim'}))
+   if(comparison.state==='identical'){
+    answer='Keine Änderung an Inhalt, Komponenten oder Darstellung festgestellt. Keine zusätzliche Mock-Version angelegt; die gespeicherten Notizen bleiben offen.'+(comparison.sources.length?' Nur Quellennachweise haben sich geändert: '+comparison.sources.join(', '):'')
+    task.finish(answer);o.hooks.note(answer);o.hooks.text(answer);o.hooks.textDone('answer');o.hooks.history([...o.history,o.user,{role:'assistant',content:answer}]);state='done';return 'done' as const
+   }
+   if(comparison.state==='unverified')o.hooks.note('Der technische Vergleich ist unvollständig. Den Vorschlag vor der Übernahme prüfen: '+comparison.reason)
+  }
   if(feedback){feedback.check();artifact.feedbackReview={journal:feedback.request.journal,base:feedback.request.base,notes:feedback.request.notes,assessments:[]};artifact.colorAdjustments=feedback.snapshot.preview.colors;artifact.document=artifact.document.replace('</head>',mockColorStyle(artifact.colorAdjustments??{})+'</head>');artifact.htmlHash=sha256Hex(artifact.document);try{artifact.feedbackReview=await assessMockFeedback(o,prepared,sources,feedback,audit)}catch(e){if(o.signal.aborted)throw e;feedback.check();o.hooks.note('Mock erstellt; die Designsystem-Einschätzung ist noch offen: '+String(e instanceof Error?e.message:e))}}
   task.dispatch('create_design_mock','read');task.finish('Statischer Design-Mock mit tatsächlich gelesenen Quellen erstellt. Diese Entwurfsphase hat Atlas nur gelesen.')
   artifact.route=prepared.route!

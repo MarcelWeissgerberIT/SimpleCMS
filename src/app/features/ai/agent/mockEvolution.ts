@@ -1,5 +1,5 @@
 import type {MockBlockPreview} from '@/shared/ai/mockBlock'
-import type {MockFeedback} from '@/shared/ai/mockReview'
+import {mockNoteElements,type MockFeedback} from '@/shared/ai/mockReview'
 import type {DesignMock,MockDraft,MockCitation} from '@/shared/ai/designMock'
 import {sha256Hex} from '@/shared/mcp/sha256'
 import {mockProvenance} from '@/shared/ai/mockBlockProvenance'
@@ -12,7 +12,7 @@ export function elementPath(el:Element):string{
 export function focusedMockRegion(preview:MockBlockPreview,notes:MockFeedback[]){
  const doc=new DOMParser().parseFromString(preview.document,'text/html')
  if(!preview.provenance||notes.some(n=>n.scenario))return null
- const elements=notes.map(n=>{const el=doc.querySelector(n.element.path);if(!el||el.tagName.toLowerCase()!==n.element.tag.toLowerCase()||(el.textContent??'').trim().slice(0,500)!==n.element.text||(el.closest('[data-ds-component]')?.getAttribute('data-ds-component')??'')!==n.element.component)throw Error('Die markierte Stelle hat sich geändert. Bitte erneut markieren.');return el.closest('[data-ds-component]')??el})
+ const elements=notes.flatMap(mockNoteElements).map(element=>{const el=doc.querySelector(element.path);if(!el||el.tagName.toLowerCase()!==element.tag.toLowerCase()||(el.textContent??'').trim().slice(0,500)!==element.text||(el.closest('[data-ds-component]')?.getAttribute('data-ds-component')??'')!==element.component)throw Error('Die markierte Stelle hat sich geändert. Bitte erneut markieren.');return el.closest('[data-ds-component]')??el})
  let root:Element=elements[0]!
  while(!elements.every(e=>root.contains(e))&&root.parentElement)root=root.parentElement
  if(root===doc.body||root===doc.documentElement)return null
@@ -48,8 +48,13 @@ export function mergeMockRegion(base:MockBlockPreview,region:NonNullable<ReturnT
  const requirements=reqs.map(oldCitation)
  draft.requirements.forEach((r,i)=>{const c=cite(r);let at=requirements.findIndex(q=>q.source===c.source&&q.quote===c.quote);if(at<0){at=requirements.length;requirements.push(c)}container.querySelectorAll('[data-requirement]').forEach(el=>el.setAttribute('data-requirement',(el.getAttribute('data-requirement')??'').split(/\s+/).map(v=>v==='R'+(i+1)?'TEMP'+(at+1):v).join(' ')))})
  container.querySelectorAll('[data-requirement]').forEach(el=>el.setAttribute('data-requirement',el.getAttribute('data-requirement')!.replace(/TEMP/g,'R')))
+ // Preserve the identity of a replaced instance, including a change of component type.
+ const instance=target.getAttribute('data-mock-id'),replacement=container.children.length===1?container.firstElementChild:null
+ if(instance&&replacement)replacement.setAttribute('data-mock-id',instance)
+ const instanceIds=new Set<string>()
+ for(const el of [...doc.querySelectorAll('[data-mock-id]')].filter(e=>!target.contains(e)).concat([...container.querySelectorAll('[data-mock-id]')])){const key=el.getAttribute('data-mock-id')!;if(instanceIds.has(key))throw Error('Duplicate mock instance identity in revision.');instanceIds.add(key)}
  target.replaceWith(container)
- const style=doc.createElement('style');style.textContent='#'+id+'{'+draft.tokens.map(t=>names.get(t.name)+':'+(base.colors?.[t.name]??t.value)).join(';')+'}'+scopedMockCss(rename(draft.css),id);doc.head.append(style)
+ const style=doc.createElement('style');style.textContent='#'+id+'{display:contents;'+draft.tokens.map(t=>names.get(t.name)+':'+(base.colors?.[t.name]??t.value)).join(';')+'}'+scopedMockCss(rename(draft.css),id);doc.head.append(style)
  const used=new Set([...doc.querySelectorAll('[data-ds-component]')].map(e=>e.getAttribute('data-ds-component')))
  const components=[...old.draft.components.map(oldCitation),...draft.components.map(cite)].filter((c,i,all)=>used.has(c.name)&&all.findIndex(q=>q.name===c.name&&q.source===c.source)===i)
  const merged={...old.draft,design:oldCitation(old.draft.design),authority:old.draft.authority?oldCitation(old.draft.authority):null,target:old.draft.target?'old-'+old.draft.target:null,requirements,components,tokens:[...old.draft.tokens.map(oldCitation),...draft.tokens.filter(t=>!old.draft.tokens.some(o=>o.name===names.get(t.name))).map(t=>({...cite(t),name:names.get(t.name)!}))],notes:[...draft.notes,'Gezielte Änderung: '+region.path].slice(0,12)}

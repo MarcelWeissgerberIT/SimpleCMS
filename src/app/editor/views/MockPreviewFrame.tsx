@@ -1,12 +1,15 @@
 import {useEffect,useRef} from 'react'
 import type {MockElement} from '@/shared/ai/mockReview'
 /** The host handles selection. Imported markup never receives script permission. */
-export function MockPreviewFrame({document:html,title,width,height,marking,onSelect,highlight,locate}:{document:string;title:string;width:number;height:number;marking:boolean;highlight?:string;locate?:number;onSelect:(element:MockElement)=>void}){
+export function MockPreviewFrame({document:html,title,width,height,marking,onSelect,highlight,highlights=[],locate}:{document:string;title:string;width:number;height:number;marking:boolean;highlight?:string;highlights?:string[];locate?:number;onSelect:(element:MockElement)=>void}){
  const frame=useRef<HTMLIFrameElement>(null),cleanup=useRef<(()=>void)|null>(null)
  const bind=()=>{
   cleanup.current?.();cleanup.current=null
   const doc=frame.current?.contentDocument;if(!doc?.body)return
-  if(!marking){if(highlight)try{const el=doc.querySelector(highlight) as HTMLElement|null;if(el){const outline=el.style.outline,offset=el.style.outlineOffset;el.style.outline='3px solid #ff5a00';el.style.outlineOffset='2px';el.scrollIntoView({block:'center',inline:'center'});cleanup.current=()=>{el.style.outline=outline;el.style.outlineOffset=offset}}}catch{/* Stored selectors are data, never executable. */}return}
+  const restores:Array<()=>void>=[]
+  for(const path of new Set([...(highlight?[highlight]:[]),...highlights]))try{const el=doc.querySelector(path) as HTMLElement|null;if(el){const outline=el.style.outline,offset=el.style.outlineOffset;el.style.outline='3px solid #ff5a00';el.style.outlineOffset='2px';restores.push(()=>{el.style.outline=outline;el.style.outlineOffset=offset});if(path===highlight&&!marking)el.scrollIntoView({block:'center',inline:'center'})}}catch{/* Stored selectors are data. */}
+  const restore=()=>restores.forEach(f=>f())
+  if(!marking){cleanup.current=restore;return}
   const body=doc.body,wasInert=body.hasAttribute('inert');body.removeAttribute('inert')
   let outlined:HTMLElement|null=null,oldOutline='',oldOffset=''
   const clear=()=>{if(outlined){outlined.style.outline=oldOutline;outlined.style.outlineOffset=oldOffset;outlined=null}}
@@ -17,8 +20,8 @@ export function MockPreviewFrame({document:html,title,width,height,marking,onSel
    onSelect({path:'body > '+parts.join(' > '),tag:el.tagName.toLowerCase(),text:(el.textContent??'').trim().slice(0,500),component:el.closest('[data-ds-component]')?.getAttribute('data-ds-component')??'',requirement:el.closest('[data-requirement]')?.getAttribute('data-requirement')??'',snippet:el.outerHTML.slice(0,2000)})
   }
   doc.addEventListener('pointermove',move,true);doc.addEventListener('click',click,true);doc.addEventListener('pointerdown',block,true);doc.addEventListener('keydown',block,true);doc.addEventListener('submit',block,true)
-  cleanup.current=()=>{clear();if(wasInert)body.setAttribute('inert','');doc.removeEventListener('pointermove',move,true);doc.removeEventListener('click',click,true);doc.removeEventListener('pointerdown',block,true);doc.removeEventListener('keydown',block,true);doc.removeEventListener('submit',block,true)}
+  cleanup.current=()=>{clear();restore();if(wasInert)body.setAttribute('inert','');doc.removeEventListener('pointermove',move,true);doc.removeEventListener('click',click,true);doc.removeEventListener('pointerdown',block,true);doc.removeEventListener('keydown',block,true);doc.removeEventListener('submit',block,true)}
  }
- useEffect(()=>{bind();return()=>cleanup.current?.()},[html,marking,onSelect,highlight,locate])
+ useEffect(()=>{bind();return()=>cleanup.current?.()},[html,marking,onSelect,highlight,highlights,locate])
  return <iframe ref={frame} title={title} sandbox="allow-same-origin" referrerPolicy="no-referrer" tabIndex={0} srcDoc={html} onLoad={bind} style={{width,height,minHeight:320,pointerEvents:'auto'}}/>
 }

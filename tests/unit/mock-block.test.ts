@@ -31,10 +31,11 @@ test('cloud creation waits for generation four and never bypasses viewer or outd
  const {mockBlocksAllowed}=await import('../../src/shared/ai/mockBlock.ts')
  const c={active:{kind:'cloud'},readOnly:false,outdated:false,schemaMin:null as number|null}
  for(const schemaMin of [null,0,1,2])assert.equal(mockBlocksAllowed({...c,schemaMin}),false)
- assert.equal(mockBlocksAllowed({...c,schemaMin:4}),true)
+ assert.equal(mockBlocksAllowed({...c,schemaMin:4}),false)
+ assert.equal(mockBlocksAllowed({...c,schemaMin:5}),true)
  assert.equal(mockBlocksAllowed({...c,active:{kind:'local'}}),true)
- assert.equal(mockBlocksAllowed({...c,schemaMin:4,readOnly:true}),false)
- assert.equal(mockBlocksAllowed({...c,schemaMin:4,outdated:true}),false)
+ assert.equal(mockBlocksAllowed({...c,schemaMin:5,readOnly:true}),false)
+ assert.equal(mockBlocksAllowed({...c,schemaMin:5,outdated:true}),false)
 })
 
 test('persistent mock receipt keeps source evidence and strips unrelated connection fields',async()=>{

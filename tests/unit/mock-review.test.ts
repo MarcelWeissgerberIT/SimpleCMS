@@ -97,3 +97,14 @@ test('Markdown checkpoints retain uncertainty and verified receipt but reject a 
  assert.equal(readMarkdownChange({...c,before:'Unexpected edit'}),undefined)
  assert.equal(readMarkdownChange({...c,state:'verified',verifiedAt:'2026-11-06'})!.verifiedAt,'2026-11-06')
 })
+
+test('one note retains multiple targets, hashes every target and passes them to Markdown context',()=>{
+ const d=checkpointMock(data(),'initial'),n=note(d),second={...n.element,path:'body > button:nth-of-type(2)',text:'Second status'}
+ const legacyHash=mockNoteHash(n);n.elements=[n.element,second];d.journal!.notes.push(n)
+ const read=mockBlockData(JSON.parse(JSON.stringify(d))),saved=read.journal!.notes[0]
+ assert.deepEqual(saved.elements,[n.element,second]);assert.notEqual(mockNoteHash(saved),legacyHash)
+ const hash=mockNoteHash(saved);saved.elements![1].text='Newer feedback target'
+ assert.notEqual(mockNoteHash(saved),hash)
+ assert.throws(()=>adoptMockPreview(read,preview('updated'),{journal:read.journal!.id,base:mockVersionKey(read.preview!),notes:[{id:n.id,hash}],assessments:[]}),/Notiz wurde inzwischen geändert/)
+ assert.match(mockMarkdownTask(d,n),/Second status/)
+})

@@ -79,7 +79,7 @@ export const BUILTIN_TYPED_SHADOWS:TypedShadow[]=[
  ['pm','project-evidence','briefing',true,'Distinguish observations, risks, dependencies and proposed next steps. Never invent ownership or commitments.'],
  ['research','sources','comparison',true,'Compare actually read sources and their dates. Separate evidence from inference and unresolved claims.'],
  ['test','requirements','test-matrix',true,'Separate test proposals, linked tests and executed test evidence. A proposal is not passing coverage.'],
- ['mock','requirements','html+png',true,'Use the applicable actually read design system, components and tokens. HTML/PNG are proposals saved at the Atlas target after review.'],
+ ['mock','requirements','html+png',true,'Use the applicable actually read design system, components and tokens. Preserve stable instance IDs and unchanged layout when revising. Report concrete before/after changes for each note; distinguish unresolved notes and source-only updates. One independently compares the result and avoids duplicate unchanged versions. Save in the One block after acceptance; Atlas synchronization is separate and explicit.'],
  ['coding','specification','patch',false,'Use the current specification and repository conventions. Require meaningful verification; a generated patch is not an executed test.'],
 ].map(([operation,input,output,readOnly,guidance])=>({protocol:'one.typed-shadow.v1',id:'one.'+operation,version:1,match:[{kind:'operation',value:String(operation)}],input:String(input),output:String(output),readOnly:Boolean(readOnly),requiresSources:true,format:'inherit',requiredTerms:[],requiredKeys:[],guidance:String(guidance)}))
 export function typedTemplate(operation:string):TypedAI{

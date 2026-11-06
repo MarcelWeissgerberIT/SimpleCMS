@@ -10,12 +10,16 @@ export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
  try{validateValue(draft,MOCK_SCHEMA,'design mock')}catch(e){throw new ToolInputError(String(e))}
  draft=normalizeMockFonts(draft)
  const issues=mockIssues(draft,sources)
- const parsed=new DOMParser().parseFromString(draft.html,'text/html')
+ const parsed=new DOMParser().parseFromString(draft.html,'text/html'),instanceIds=new Set<string>(),instancePrefix=crypto.randomUUID().slice(0,8)
+ let instanceNumber=0
  if(parsed.head.children.length||/<\s*\/?(?:html|head|body|!doctype)\b/i.test(draft.html))issues.push('Supply body markup only, not a document/head/style/script wrapper.')
  for(const el of parsed.body.querySelectorAll('*')){
   if(!tags.includes(el.tagName.toLowerCase()))issues.push('Unsupported static mock element: '+el.tagName)
   for(const attr of el.attributes)if(!attrs.includes(attr.name))issues.push('Unsupported attribute: '+attr.name+'; no URLs, inline CSS or handlers.')
   if(el instanceof HTMLInputElement&&!['text','number','checkbox','radio','search','date','time','email'].includes(el.type))issues.push('Unsupported input type.')
+  const suppliedId=el.getAttribute('data-mock-id')
+  if(suppliedId!==null&&(!/^[a-zA-Z0-9_-]{1,80}$/.test(suppliedId)||instanceIds.has(suppliedId)))issues.push('data-mock-id must identify one unique component instance (letters, digits, dash/underscore, up to 80 characters).')
+  if(suppliedId)instanceIds.add(suppliedId)
   const name=el.getAttribute('data-ds-component')
   if(name&&!draft.components.some(c=>c.name===name))issues.push('Uncited component: '+name)
   if(['BUTTON','INPUT','SELECT','TEXTAREA','PROGRESS','METER','TABLE'].includes(el.tagName)&&!el.closest('[data-ds-component]'))issues.push('Every control/table needs a data-ds-component catalogue mapping on itself or its enclosing component.')
@@ -24,7 +28,8 @@ export function compileMock(draft:MockDraft,sources:MockSources):DesignMock{
  for(let n=1;n<=draft.requirements.length;n++)if(!parsed.body.querySelector(`[data-requirement~="R${n}"]`))issues.push('Map requirement R'+n+' to its visible mock area with data-requirement.')
  for(const component of draft.components)if(![...parsed.body.querySelectorAll('[data-ds-component]')].some(el=>el.getAttribute('data-ds-component')===component.name))issues.push('Cited component is not used: '+component.name)
  if(issues.length)throw new ToolInputError('Mock held: '+[...new Set(issues)].join(' ').slice(0,8000))
- const clean=DOMPurify.sanitize(draft.html,{ALLOWED_TAGS:tags,ALLOWED_ATTR:attrs,ALLOW_DATA_ATTR:false,ALLOW_ARIA_ATTR:false})
+ parsed.body.querySelectorAll('[data-ds-component]').forEach(el=>{if(!el.hasAttribute('data-mock-id'))el.setAttribute('data-mock-id','one-mock-'+instancePrefix+'-'+(++instanceNumber))})
+ const clean=DOMPurify.sanitize(parsed.body.innerHTML,{ALLOWED_TAGS:tags,ALLOWED_ATTR:attrs,ALLOW_DATA_ATTR:false,ALLOW_ARIA_ATTR:false})
  const tokens=draft.tokens.map(t=>t.name+':'+t.value).join(';')
  const used=[...new Set([draft.design,...(draft.authority?[draft.authority]:[]),...draft.requirements,...draft.tokens,...draft.components].map(c=>c.source))].map(id=>{const {body,...meta}=sources.get(id)!;return meta})
  const createdAt=new Date().toISOString()
