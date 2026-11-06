@@ -268,6 +268,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     if (owner && owner !== workerName && Date.now() - claimedAt(row.properties[props.claimed ?? '']) < CLAIM_STALE_MS) continue
     await loadTask(row.id)
     const local = taskLocal(row.id)
+    if (local.execution === 'one') continue
     let stage = stageOfRow(pipeline, props, row)
     if (!stage) continue
     const go = (st: ResolvedStage) => st.auto || !!local.runNow
@@ -352,7 +353,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     const fresh = ws().pages[row.id]
     // a custom agent writing right now: its stamp (and with it the wait for Confirm) comes only when its batch is
     // written — no task is handed out in between (the stamp race, Prüfaufträge B2)
-    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db || isAgentWriting() || isParkedStep(row.id)) {
+    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db || isAgentWriting() || isParkedStep(row.id) || taskLocal(row.id).execution === 'one') {
       skip()
       continue
     }
@@ -424,11 +425,12 @@ export function heartbeat(taskIds: ID[], workerName: string): void {
 const KIND_ICON: Record<string, string> = { implement: 'asset:code', git: 'asset:publish', test: 'asset:counter', plan: 'asset:notepad' }
 
 /** The worker's outcome of a stage: into the row, the page, this device's log — and on to the next stage. */
-export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome): Promise<void> {
+export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome, validate?: () => void): Promise<void> {
   const ctx = taskContext(taskId)
   if (!ctx) return
   const readiness = captureReadiness()
   await loadTask(taskId)
+  validate?.()
   const { props, pipeline, row } = ctx
   const stage = pipeline.find((s) => s.id === stageId) ?? null
   // the worker's stage run (store/writer.ts): everything it writes, the follow-ups it starts included — the run the
@@ -568,8 +570,10 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   }
 
   let wrote = false
+  validate?.()
   await keepTrust([taskId], () =>
     aiWrite(() => {
+      validate?.()
       if (outcome.cost && outcome.cost > 0) {
         const prev = typeof row.properties[props.cost ?? ''] === 'number' ? (row.properties[props.cost!] as number) : 0
         set(taskId, props.cost, Math.round((prev + outcome.cost) * 100) / 100)
@@ -930,6 +934,11 @@ const PANEL: Writer = { kind: 'you', via: 'ui' }
 /** The worker's run of a stage on a task (store/writer.ts): coding:<task>:<run> — one run id per stage execution. */
 const codingWriter = (task: ID, run: string): Writer => ({ kind: 'coding', task, run })
 
+function nudgeTask(taskId: ID) {
+  if (taskLocal(taskId).execution === 'one') void import('./oneAnalysis').then(m => m.runOneAnalysis(taskId))
+  else nudge()
+}
+
 /** Approve at a gate: on to the next stage. */
 export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void> {
   const ctx = taskContext(taskId)
@@ -948,7 +957,7 @@ export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void>
     await spawnFollowUps(taskId, opts.writer ?? PANEL)
     chainHook(taskId)
   }
-  nudge()
+  nudgeTask(taskId)
 }
 
 /** Rework with instructions: back to the stage that made it (plan / implement), the note into the page. */
@@ -969,7 +978,7 @@ export async function reworkTask(taskId: ID, note: string, opts: ActOpts = {}): 
     opts.writer ?? PANEL,
   )
   await patchTask(taskId, { state: 'idle', error: null, rework: { stageId: back.id, text }, runNow: !back.auto })
-  nudge()
+  nudgeTask(taskId)
 }
 
 /** Answer Claude's question: the Q + A into the page, the stage runs again. */
@@ -983,14 +992,19 @@ export async function answerTask(taskId: ID, answer: string, opts: ActOpts = {})
   if (opts.confirm !== false) await trustTask(taskId)
   await keepTrust([taskId], () => aiWrite(() => appendNote(taskId, 'asset:microphone', 'blue', `${t('features.coding.page.answer')} · ${stamp()}`, `**${t('features.coding.page.q')}** ${q}\n\n**${t('features.coding.page.a')}** ${a}`)), opts.writer ?? PANEL)
   await patchTask(taskId, { state: 'idle', question: null, answers: [...(local.answers ?? []), { q, a, stageId: ctx.stage.id }], runNow: true })
-  nudge()
+  nudgeTask(taskId)
 }
 
 /** Run now / Retry: the worker takes the task in its stage once, also when the stage is not automatic. */
 export async function runTaskNow(taskId: ID, opts: ActOpts = {}): Promise<void> {
   if (opts.confirm !== false) await trustTask(taskId)
+  if (taskLocal(taskId).execution === 'one') {
+    const { runOneAnalysis } = await import('./oneAnalysis')
+    void runOneAnalysis(taskId, true)
+    return
+  }
   await patchTask(taskId, { state: 'idle', error: null, runNow: true, resume: false })
-  nudge()
+  nudgeTask(taskId)
 }
 
 /**

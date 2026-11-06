@@ -86,7 +86,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const identity=await remote?.prepareIdentity();if(identity)messages.push({role:'user',content:identity})
   const material = new CopilotContent(signal)
   const run = async () => {
-    while (++rounds <= MAX_MODEL_ROUNDS) {
+    while (++rounds <= (Number.isFinite(opts.maxRounds) ? Math.max(1, Math.min(MAX_MODEL_ROUNDS, Math.floor(opts.maxRounds!))) : MAX_MODEL_ROUNDS)) {
       assertPreparedFlow(prepared)
       if (signal.aborted) throw new AIError('aborted')
       const compiled=task!.packet()

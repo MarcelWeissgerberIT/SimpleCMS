@@ -21,6 +21,10 @@ import { LOG_MAX, type GitInfo, type LogLine, type TestResult } from './protocol
 
 /** What this device knows about a task's run (the row holds what everyone sees). */
 export interface TaskLocal {
+  execution?: 'one' | 'worker'
+  analysisRoute?: import('@/shared/ai/types').Route | null
+  /** An interrupted/conflicting model result, never applied as a completed stage. */
+  analysisDraft?: string | null
   stageRuns?: Array<{run:string;stageId:ID;stage:string;status:string;receipt:import('@/shared/coding/evidence').StageRunEvidence}>
   copilot?: import('@/shared/copilot').CopilotChoice
   copilotRole?: import('@/shared/copilot').CopilotChoice

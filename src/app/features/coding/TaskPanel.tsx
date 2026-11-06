@@ -1,3 +1,5 @@
+import { canUseOneAnalysis, useOneAnalysis, oneJobKey, stopOneAnalysis } from './oneAnalysis'
+import { OneAnalysisControls } from './OneAnalysisControls'
 import { DataFlowNotice } from '../ai/data-flow/DataFlowNotice'
 import { codingProvider } from '@/shared/ai/dataFlow'
 import { CopilotTaskOptions, CopilotRunHistory } from './CopilotOptions'
@@ -20,7 +22,7 @@ import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
 import type { ID } from '../../store/types'
 import { HelpLink } from '../../help'
-import { clearLog, loadTask, useCodingLocal, useTaskLocal, useTaskLog } from './local'
+import { clearLog, loadTask, patchTask, useCodingLocal, useTaskLocal, useTaskLog } from './local'
 import { useCoding } from './state'
 import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, stageSteps, taskContext, taskHasText } from './tasks'
 import { confirmWhy, isTrusted } from './trust'
@@ -95,6 +97,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const log = useTaskLog(pageId)
   const conn = useCoding((s) => s.conn)
   const enabled = useCoding((s) => s.enabled)
+  const modelJob = useOneAnalysis(s => s.jobs[oneJobKey(pageId)] ?? null)
   const busy = useCoding((s) => s.busy.find((b) => b.taskId === pageId) ?? null)
   // worker 1.11.0: the permission request the running stage waits for (only on the worker's own tab); a card answered
   // hands the focus on (the state line, then the next request's first key)
@@ -113,7 +116,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const reworkForm = useRef<HTMLFormElement>(null)
   /** null while checking */
   const [trusted, setTrusted] = useState<boolean | null>(null)
-  const elapsed = useElapsed(busy?.since ?? null)
+  const elapsed = useElapsed(modelJob?.since ?? busy?.since ?? null)
   // a gate whose approval ends a work order's chain step: the step it starts, and whether its fold was seen whole
   const [chainNext, setChainNext] = useState<ChainNext | null>(null)
   const [nextSeen, setNextSeen] = useState(false)
@@ -166,7 +169,9 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   if (!ctx) return null
   const { pipeline, stage, row: task, props, kind } = ctx
   const coding = kind === 'coding'
-  const running = !!busy
+  const eligible = canUseOneAnalysis(ctx)
+  const one = eligible && (local.execution === 'one' || !local.execution && conn !== 'connected')
+  const running = !!busy || !!modelJob
   const connected = conn === 'connected'
   const repo = props.repo ? (ctx.db.properties.find((p) => p.id === props.repo)?.options?.find((o) => o.id === task.properties[props.repo!])?.name ?? null) : null
   const branch = props.branch ? String(task.properties[props.branch] ?? '').trim() || null : null
@@ -198,7 +203,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const draft = state === 'question' && canAct ? draftText(answer) : state === 'gate' && canAct && rework ? draftText(rework) : ''
 
   const act = (fn: () => Promise<void>) => () => {
-    void fn().catch((e: unknown) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' }))
+    void (async () => { if (one && !running) await patchTask(pageId, { execution: 'one' }); await fn() })().catch((e: unknown) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' }))
   }
 
   const TABS: Array<[Tab, string]> = coding
@@ -247,10 +252,10 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         })}
       </ol>
 
-      {agent && <DataFlowNotice provider={codingProvider(agent) ?? 'anthropic'} sources={[{page:pageId}]} />}
+      {!one && agent && <DataFlowNotice provider={codingProvider(agent) ?? 'anthropic'} sources={[{page:pageId}]} />}
       <CopilotRunHistory taskId={pageId} />
       <div className="ctk-act">
-        {!enabled || conn !== 'connected' ? (
+        {!one && (!enabled || conn !== 'connected') ? (
           <p className="ctk-msg" data-testid="coding-offline">
             {t('features.coding.panel.offline')}{' '}
             <button type="button" className="ctk-link" onClick={() => navigate(coding ? { name: 'coding' } : { name: 'coding', kind })}>
@@ -259,16 +264,17 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </p>
         ) : null}
 
+        {eligible && <OneAnalysisControls taskId={pageId} one={one} disabled={!canAct || running} />}
         {intake && trusted !== false && <ImportBox taskId={pageId} canAct={canAct} />}
-        {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} kind={kind} />}
+        {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} kind={kind} oneModel={one} />}
         {canAct && stage?.kind !== 'done' && (
           <div className="ctk-picks">
             <ApprovalsPick taskId={pageId} kind={kind} pipeline={pipeline} />
-            {codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'claude' && <ModelPick taskId={pageId} pipeline={pipeline} />}
-            {codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'copilot' && <CopilotTaskOptions taskId={pageId} />}
+            {!one && codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'claude' && <ModelPick taskId={pageId} pipeline={pipeline} />}
+            {!one && codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'copilot' && <CopilotTaskOptions taskId={pageId} />}
           </div>
         )}
-        {stage?.kind !== 'done' && <TaskMcp taskId={pageId} repo={repo} />}
+        {!one && stage?.kind !== 'done' && <TaskMcp taskId={pageId} repo={repo} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">
@@ -286,7 +292,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {waitsForYou && ask && <PermissionCard key={ask.id} taskId={pageId} ask={ask} canAct={canAct && connected} onAnswered={permFocus.onAnswered} />}
         {state === 'running' && (
           <div className="ctk-keys">
-            <button type="button" className="btn btn--sm btn--danger" onClick={act(() => stopTask(pageId))} data-testid="coding-stop">
+            <button type="button" className="btn btn--sm btn--danger" onClick={act(() => modelJob ? stopOneAnalysis(pageId) : stopTask(pageId))} data-testid="coding-stop">
               <CircleStop size={14} strokeWidth={1.75} aria-hidden />
               {t('features.coding.act.stop')}
             </button>
@@ -295,8 +301,9 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         )}
         {state === 'running' && (
           <div className="ctk-live">
-            <NowLine taskId={pageId} />
-            <RunCounters taskId={pageId} files={files} onFiles={() => setTab('diff')} />
+            <span role="status">{modelJob?.activity}</span>
+            {!modelJob && <NowLine taskId={pageId} />}
+            {!modelJob && <RunCounters taskId={pageId} files={files} onFiles={() => setTab('diff')} />}
           </div>
         )}
 
@@ -428,7 +435,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
 
         {/* context: where the task hands on to, the pages that go along */}
         {!coding && <FollowUps taskId={pageId} kind={kind} done={stage?.kind === 'done'} canAct={canAct} />}
-        {stage?.kind !== 'done' && <RefsLine taskId={pageId} draft={draft} ask={state === 'question' && canAct ? 'answer' : state === 'gate' && canAct && rework ? 'note' : null} />}
+        {stage?.kind !== 'done' && <RefsLine oneModel={one} taskId={pageId} draft={draft} ask={state === 'question' && canAct ? 'answer' : state === 'gate' && canAct && rework ? 'note' : null} />}
       </div>
 
       <div className="ctk-tabs" role="tablist" aria-label={t('features.coding.panel.tabs')}>

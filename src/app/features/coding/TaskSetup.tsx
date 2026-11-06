@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { FileText } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { useCoding } from './state'
 import { useTaskLocal } from './local'
@@ -20,8 +20,9 @@ import type { PipelineKind, ResolvedStage } from './schema'
 import { claudeRuns, cleanModel } from './protocol'
 import { APPROVALS, MODEL_CHOICES, approvalsOf, freezeApprovals, insertTaskOutline, ownApprovals, knownRepos, modelLabel, pipelineModels, setDefaultApprovals, setTaskApprovals, setTaskBranch, setTaskModel, setTaskRepo, skipsGate, workerBranches, type Approvals } from './tasks'
 
-export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: { taskId: ID; repo: string | null; branch: string | null; described: boolean; kind?: PipelineKind }) {
+export function TaskSetup({ taskId, repo, branch, described, kind = 'coding', oneModel = false }: { taskId: ID; repo: string | null; branch: string | null; described: boolean; kind?: PipelineKind; oneModel?: boolean }) {
   const t = useT()
+  const de = useLang() === 'de'
   const worker = useCoding((s) => s.worker)
   const dbs = useWorkspace((s) => s.databases)
   const repos = useMemo(() => knownRepos(), [worker, dbs]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -63,7 +64,7 @@ export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: 
         )}
       </div>
       <p className="ctk-hint" data-testid="coding-setup-hint">
-        {kind !== 'coding'
+        {oneModel ? (de ? 'Dokumentanalyse direkt mit dem gewählten One-Modell.' : 'Document analysis directly with the selected One model.') : kind !== 'coding'
           ? t(repo ? 'features.coding.task.docRepo' : 'features.coding.task.docNoRepo', { repo: repo ?? '' })
           : !repo
             ? repos.length
@@ -77,7 +78,7 @@ export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: 
                   ? t('features.coding.task.freshPlain')
                   : t('features.coding.task.unknownRepo', { repo })}
       </p>
-      <ChangeReposButton className="btn btn--sm btn--ghost ctk-setup__import" label={t('features.coding.task.importRepo')} testId="coding-setup-import" />
+      {!oneModel && <ChangeReposButton className="btn btn--sm btn--ghost ctk-setup__import" label={t('features.coding.task.importRepo')} testId="coding-setup-import" />}
       {!described && (
         <div className="ctk-box ctk-box--spec" data-testid="coding-setup-spec">
           <FileText size={16} strokeWidth={1.75} aria-hidden />
