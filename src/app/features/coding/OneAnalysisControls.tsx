@@ -17,6 +17,6 @@ export function OneAnalysisControls({ taskId, one, disabled }: { taskId: string;
       </label>
       {one && <RouteChip purpose="agents.run" chip={local.analysisRoute ?? null} onChip={analysisRoute => void patchTask(taskId, { analysisRoute })} sources={sources} reads={de ? 'Aufgabe, verknüpfte Seiten und erlaubte Atlas-Quellen' : 'Task, linked pages and permitted Atlas sources'} disabled={disabled} />}
     </div>
-    {one && <p className="ctk-hint">{de ? 'One liest die Aufgabe, verknüpfte Seiten und erlaubte Atlas-Quellen. Ergebnisse werden je Stufe in dieser Aufgabe gespeichert; Freigaben bleiben erhalten. Lass diesen One-Tab während der Ausführung geöffnet.' : 'One reads the task, linked pages and permitted Atlas sources. Each stage saves its document in this task and keeps approval gates. Keep this One tab open while it runs.'}</p>}
+    {one && <p className="ctk-hint">{de ? 'One liest die Aufgabe und verknüpfte Seiten; erlaubte Atlas-Quellen werden bei Bedarf ergänzt. Ergebnisse werden je Stufe in dieser Aufgabe gespeichert; Freigaben bleiben erhalten. Lass diesen One-Tab während der Ausführung geöffnet.' : 'One reads the task and linked pages; permitted Atlas sources are added when needed. Each stage saves its document in this task and keeps approval gates. Keep this One tab open while it runs.'}</p>}
   </div>
 }

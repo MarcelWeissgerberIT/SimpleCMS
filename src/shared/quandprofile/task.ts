@@ -4,7 +4,7 @@ import {atlasTransferChoice} from './atlas-transfer.ts'
 import {oneOnlyTask} from '../ai/oneTask.ts'
 import {writeActionRequested} from '../ai/actionIntent.ts'
 import type {EvidenceQuantum,QuantumStatus} from './runtime.ts'
-export type TaskContract={review_profile?:ReviewProfile;id:string;revision:number;goal:string;instruction_context:string;input_hash:string;scope_hash:string;source_pointers:string[];allowed_tools:string[];read_only:boolean;external_write:boolean;execute:boolean;authenticate?:boolean;requires_sources:boolean;search_one:boolean;search_atlas:boolean;output:'text'|'json';required_literals:string[];decisions:Array<{question:string;answer:string}>}
+export type TaskContract={review_profile?:ReviewProfile;id:string;revision:number;goal:string;instruction_context:string;input_hash:string;scope_hash:string;source_pointers:string[];allowed_tools:string[];read_only:boolean;external_write:boolean;execute:boolean;authenticate?:boolean;requires_sources:boolean;requires_atlas_sources?:boolean;search_one:boolean;search_atlas:boolean;output:'text'|'json';required_literals:string[];decisions:Array<{question:string;answer:string}>}
 export type TaskEvidence={one_pages?:string[];atlas_records?:string[];typed_sources?:string[];typed_sources_current?:boolean;other_sources?:string[];source_reads:number;atlas_reads:number;one_checked:boolean;atlas_checked:boolean;staged_changes:number;issues:number;denied_actions:number;pending_decisions:number;scope_current:boolean;provider_checked:boolean;answer:string|null;human_accepted:boolean}
 export type TaskPhase='compile'|'dispatch'|'question'|'result'
 export type TaskEffect='read'|'stage'|'local_state'|'write'|'execute'|'authenticate'|'forbidden'

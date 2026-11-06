@@ -942,6 +942,32 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'analysis-source-check'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    await page.evaluate(()=>{window.__one.workspace.getState().updateSettings({aiApiKey:'sk-ant-shot-only'});location.hash='#/coding/spec'})
+    await page.waitForFunction(()=>!!window.__oneCodingWrites)
+    const id=await page.evaluate(()=>window.__oneCodingWrites.create('Protocol requirements · document review','spec'))
+    await openPage(page,id)
+    await mockClaude(ctx,{turns:[
+      ()=>sseTurn([{type:'tool_use',id:'read-analysis',name:'read_page',input:{id}}]),
+      ()=>sseTurn([{type:'text',text:'## Analysis\nThe task requests a document review. Requirements remain proposals for the team.'}]),
+      ()=>sseTurn([{type:'tool_use',id:'read-spec',name:'read_page',input:{id}}]),
+      ()=>sseTurn([{type:'text',text:'## Specification\nBased on the saved One analysis. No fresh Atlas verification was requested.\n\nThe team reviews the specification before it is recorded.'}]),
+    ]})
+    await page.getByTestId('coding-run').click()
+    await page.getByTestId('coding-approve').waitFor({timeout:30000})
+    await page.getByRole('tab',{name:'Log',exact:true}).click()
+    const panel=page.getByTestId('coding-panel')
+    await scrollToTop(panel,30);await rest(page)
+    await save(page,'analysis-source-check')
+    for(const [width,theme] of [[390,'light'],[1440,'dark'],[390,'dark']]){
+      await page.setViewportSize({width,height:width===390?844:900})
+      await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
+      await scrollToTop(panel,20);await rest(page)
+      await page.screenshot({path:`.shots/analysis-source-check-${width}-${theme}.png`})
+    }
+    await ctx.close()
+  },
   async 'ui-studio-evidence'(browser) {
     const {ctx,page}=await freshPage(browser)
     const manifest={version:1,definitions:[{id:'C001',name:'Protocol list',kind:'DataTable',evidence:'dom'},{id:'C002',name:'Status badge',kind:'Badge',evidence:'image'}],trees:[{id:'T1',name:'Protocols',width:1440,nodes:[{id:'N1',componentId:'C001',parentId:null,label:'Table with search and status filter'},{id:'N2',componentId:'C002',parentId:'N1',label:'Ready / In review / Draft'}]}]}

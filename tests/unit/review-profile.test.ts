@@ -31,3 +31,12 @@ test('target is part of the dispatch receipt hash and cannot be substituted',()=
  const allowed=runtime.task({...request,target:'24335'}),blocked=runtime.task({...request,target:'26267'})
  assert.equal(allowed.decision,'allow');assert.equal(blocked.decision,'block');assert.notEqual(allowed.request_hash,blocked.request_hash)
 })
+
+test('optional Atlas for document stages does not override an explicit review profile source',()=>{
+ const c={...contract(),requires_atlas_sources:false}
+ const e={...taskEvidence(),provider_checked:true,source_reads:1,one_pages:['correct-page'],answer:'One document only'}
+ const result=runtime.task({contract:c,evidence:e,phase:'result',tool:null,effect:null})
+ assert.equal(result.findings.find(f=>f.id==='task_sources_observed')?.status,'verified')
+ assert.equal(result.decision,'block')
+ assert.equal(result.findings.find(f=>f.id==='profile_atlas_sources')?.status,'open')
+})

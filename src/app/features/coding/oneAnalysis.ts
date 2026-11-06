@@ -8,6 +8,7 @@ import { withWriter, type Writer } from '../../store/writer'
 import { runAgent, type RunHooks } from '../ai/agent/run'
 import { TERMINAL_TOOLS, withToolScope, type StageApi } from '../ai/agent/tools'
 import { newItemSession } from '../ai/agent/workItems'
+import { AIError } from '../ai/core'
 import { precheck } from '../ai/core/gate'
 import { appliedOf } from '../ai/core/shape'
 import { attachMcp, currentSetup } from '../ai/mcp-servers/config'
@@ -19,6 +20,7 @@ import { refPlan } from './refs'
 import { isTrusted, keepTrust } from './trust'
 import { PageReadBuffer } from '@/shared/ai/sourcePassages'
 import { readableContent, readableBlocks, isContextLimited } from '../../editor'
+import { contentKey } from '../history/snapshots'
 import { CLAIM_STALE_MS } from './protocol'
 
 export const canUseOneAnalysis = (ctx: TaskContext | null): boolean => !!ctx && ctx.kind !== 'coding'
@@ -101,7 +103,7 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
       if (refs.left.length) log(say(`${refs.left.length} weitere Verweise sind nicht im Lesebereich.`, `${refs.left.length} further references are outside the reading scope.`))
       const snapshot = () => JSON.stringify([taskContext(id)?.pipeline, [...allowed].map(p => {
         const page = useWorkspace.getState().pages[p]
-        return page && [page.title, page.content, page.trashed, page.databaseId, Object.fromEntries(Object.entries(page.properties).filter(([k]) => k !== props.worker && k !== props.claimed)), readableContent(p)]
+        return page && [page.title, contentKey(page.content), page.trashed, page.databaseId, Object.fromEntries(Object.entries(page.properties).filter(([k]) => k !== props.worker && k !== props.claimed)), readableContent(p)]
       })])
       const before = snapshot()
       const valid = () => {
@@ -112,7 +114,7 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
         try { valid(); if (props.claimed) withWriter(writer, () => useWorkspace.getState().setRowProperty(id, props.claimed!, { start: new Date().toISOString() })) } catch { controller.abort() }
       }, 30_000)
       const sources = [...allowed].map(page => ({ page }))
-      const instructions = `Read task page ${id} and its referenced pages with read_page before doing any analysis. Complete only the current document stage: ${stage.name}.\n${stage.instructions ?? ''}\nReturn the full stage document as Markdown. Include source references and distinguish observed facts, assumptions and open questions. You may read approved Atlas sources when needed. Never execute code, change repository files, write external records, or claim tests ran. Host One saves your final document in this task and handles subsequent stages and approvals. If sources are unavailable, state this clearly. Use the language of the task. Referenced page ids: ${[...allowed].join(', ')}.`
+      const instructions = `Read task page ${id} and its referenced pages with read_page before doing any analysis. Complete only the current document stage: ${stage.name}.\n${stage.instructions ?? ''}\nReturn the full stage document as Markdown. Include source references and distinguish observed facts, assumptions and open questions. The One task and its referenced pages are required sources for this document stage. An available Atlas connection alone does not require an external read. Read approved Atlas sources when the task requires fresh external verification or the One sources are insufficient. Clearly attribute carried-forward evidence to the One document; do not claim an Atlas read unless it actually occurred in this stage. Never execute code, change repository files, write external records, or claim tests ran. Host One saves your final document in this task and handles subsequent stages and approvals. If sources are unavailable, state this clearly. Use the language of the task. Referenced page ids: ${[...allowed].join(', ')}.`
       const pre = precheck({ purpose: 'agents.run', route: local.analysisRoute, sources, typed: instructions })
       const route = pre.route
       if (!route || ['codex', 'copilot', 'local'].includes(route.p)) throw Error(say('Wähle ein direkt verfügbares One-Modell ohne lokalen Worker.', 'Choose a directly available One model without a local worker.'))
@@ -133,6 +135,11 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
       const api: StageApi = { list: () => [], add: readonly, update: readonly, resolve: id => id, items: newItemSession('agent') }
       let live = '', answer = '', cost = 0, turns = 0, held = ''
       const hooks: RunHooks = {
+        contract: report => {
+          if (!['ready', 'blocked'].includes(report.phase)) return
+          const pages = (report.evidence.one_pages ?? []).map(p => useWorkspace.getState().pages[p]?.title || say('Seite ohne Titel', 'Untitled page'))
+          log(say(`Quellen dieser Stufe: ${pages.length} One-Seiten, ${report.evidence.atlas_reads} Atlas-Abrufe.`, `Sources for this stage: ${pages.length} One pages, ${report.evidence.atlas_reads} Atlas reads.`) + (pages.length ? ` ${pages.join(' · ')}` : ''))
+        },
         toolStart: (name, arg) => { log(`${name === 'read_page' ? say('Seite lesen', 'Read page') : name === 'search_pages' ? say('Seiten suchen', 'Find pages') : name} · ${arg}`); return newId() },
         toolEnd: (_id, out) => log(out.summary, out.state === 'err' ? 'error' : 'info'),
         note: text => log(text), text: text => { live += text; draft = live },
@@ -144,7 +151,7 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
       }
       log(`${stage.name} · ${pre.label}`)
       const startedAt = Date.now()
-      const result = await runAgent({ purpose: 'agents.run', targetPage: id, readOnly: true, maxRounds: stage.maxTurns ?? 40, route: pre.route, sources, typed: instructions,
+      const result = await runAgent({ purpose: 'agents.run', targetPage: id, readOnly: true, sourcePolicy: 'document', maxRounds: stage.maxTurns ?? 40, route: pre.route, sources, typed: instructions,
         history: [], user: { role: 'user', content: instructions }, stage: api, signal: controller.signal, hooks, mcp, tools,
         system: 'You perform a read-only document analysis inside One. Read the task and sources with tools. Return a sourced Markdown document; host One saves it. Never perform external writes or execute code.',
         readLimit: p => {
@@ -176,7 +183,9 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
     })
   } catch (error) {
     if (same()) {
-      const message = controller.signal.aborted ? say('Analyse gestoppt.', 'Analysis stopped.') : error instanceof Error ? error.message : String(error)
+      const detail = error instanceof AIError ? error.detail ?? error.message : error instanceof Error ? error.message : String(error)
+      const missingSources = detail.startsWith('Compiled result check blocked:') && detail.includes('task_sources_observed')
+      const message = controller.signal.aborted ? say('Analyse gestoppt.', 'Analysis stopped.') : missingSources ? say('Quellenprüfung: In dieser Stufe wurde keine erforderliche Quelle erfolgreich gelesen. Bereits gespeicherte Dokumente bleiben erhalten; die Stufe wurde nicht abgeschlossen.', 'Source check: no required source was successfully read in this stage. Previously saved documents are retained; the stage was not completed.') : error instanceof Error ? error.message : String(error)
       log(message, 'error')
       if (draft.trim()) log(draft)
       if (acquired) await patchTask(id, { state: controller.signal.aborted ? 'stopped' : 'failed', error: message, analysisDraft: draft || null, runNow: false })

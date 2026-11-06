@@ -20,6 +20,9 @@ pub struct TaskContract {
     #[serde(default)]
     pub authenticate: bool,
     pub requires_sources: bool,
+    // Availability is separate from a mandatory external source. Absent preserves older contracts.
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub requires_atlas_sources: Option<bool>,
     pub search_one: bool,
     pub search_atlas: bool,
     pub output: String,
@@ -143,7 +146,7 @@ pub fn evaluate(request: TaskRequest) -> Result<TaskResponse, String> {
         "Before asking a prerequisite question, actually inspect the available ONE and Atlas sources; discovery is not a source read");
     finding("task_decisions_resolved", &["interpretation"], if e.pending_decisions == 0 {Status::Verified}else{Status::Open},request.phase == "result",
         "Only a person may resolve a prerequisite decision; model proposals are not answers");
-    finding("task_sources_observed", &["provenance"], if !c.requires_sources || (e.source_reads > 0 && (!c.search_atlas || e.atlas_reads > 0)) {Status::Verified}else{Status::Open},request.phase == "result",
+    finding("task_sources_observed", &["provenance"], if !c.requires_sources || (e.source_reads > 0 && (!c.requires_atlas_sources.unwrap_or(c.search_atlas) || e.atlas_reads > 0)) {Status::Verified}else{Status::Open},request.phase == "result",
         "A source-required answer needs an actual successful read in this task, not a source pointer or tool catalogue");
     finding("task_observed_claims", &["data"], if e.issues == 0 {Status::Verified}else{Status::Violated},true,
         "Host-observed reference/count/effect checks must report no conflict; this is not proof of every sentence");

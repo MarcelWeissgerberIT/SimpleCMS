@@ -93,3 +93,15 @@ test('human Atlas delivery choice is host-enforced and bound in the compiler goa
  for(const [tool,effect]of [['atlas:atlas_update','write'],['atlas:atlas_create','write'],['stage','stage']] as const)assert.throws(()=>task.dispatch(tool,effect),/human selected Atlas delivery mode/)
  task.close()
 })
+
+
+test('document source policy permits real One reads without forcing optional Atlas calls',()=>{
+ const c={...contract(),requires_atlas_sources:false}
+ assert.equal(check({contract:c,phase:'result',evidence:{...evidence(),answer:'Unsupported'}}).decision,'block')
+ assert.equal(check({contract:c,phase:'result',evidence:{...evidence(),source_reads:1,one_pages:['task'],answer:'Based on the One document'}}).decision,'allow')
+ // Existing and explicitly Atlas-required contracts still need a successful external read.
+ for(const required of [undefined,true])assert.equal(check({contract:{...contract(),...(required===undefined?{}:{requires_atlas_sources:required})},phase:'result',evidence:{...evidence(),source_reads:1,answer:'One alone'}}).decision,'block')
+ assert.equal(check({contract:{...c,requires_atlas_sources:true},phase:'result',evidence:{...evidence(),source_reads:1,atlas_reads:1,answer:'Read Atlas'}}).decision,'allow')
+ // Availability still controls prerequisite questions; the document policy does not fake source checks.
+ assert.equal(check({contract:c,phase:'question',evidence:{...evidence(),one_checked:true}}).decision,'block')
+})

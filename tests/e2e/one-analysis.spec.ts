@@ -1,8 +1,12 @@
 import { test, expect, openApp, wsEval } from './fixtures'
 import { mockAgent, call, say, setKey } from './helpers/terminal'
+import { startFakeWorker } from './helpers/fakeWorker'
+import { WORKER_CAN } from '../../src/app/features/coding/protocol'
 import type { Page } from '@playwright/test'
 
 async function setup(page: Page) {
+  await page.route('**/api/config', r => r.fulfill({ json: { schema_min: 6 } }))
+  await page.route('**/api/session', r => r.fulfill({ json: {} }))
   await openApp(page)
   await setKey(page)
   await page.evaluate(() => { location.hash = '#/coding/spec' })
@@ -64,7 +68,7 @@ test('an answer without reading the task remains a failed draft', async ({ page,
   const id = await setup(page)
   await mockAgent(context, [say('UNSOURCED DOCUMENT')])
   await page.getByTestId('coding-run').click()
-  await expect(page.locator('.ctk')).toContainText('Analysis incomplete')
+  await expect(page.locator('.ctk')).toContainText('Source check:')
   await expect(page.getByTestId('coding-approve')).toHaveCount(0)
   expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).not.toContain('UNSOURCED DOCUMENT')
 })
@@ -101,4 +105,85 @@ test('a changed pipeline keeps the execution selector available to return to the
   await expect(page.getByLabel('Execution', { exact: true })).toHaveValue('one')
   await page.getByLabel('Execution', { exact: true }).selectOption('worker')
   await expect(page.getByTestId('coding-offline')).toBeVisible()
+})
+
+
+test('document stages can use read One sources while Atlas is connected but optional', async ({ page, context }) => {
+  const fake = await startFakeWorker(47512, { worker: '1.35.3', name: 'mcp-read-fixture', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: false, version: null }, setup: true })
+  fake.can = [...WORKER_CAN]
+  try {
+    const id = await setup(page)
+    await page.evaluate(() => (window as any).__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /Coding worker/ }).click()
+    await page.getByLabel('Port', { exact: true }).fill('47512')
+    await page.getByLabel('Port', { exact: true }).press('Enter')
+    await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+    await expect(page.getByTestId('coding-conn')).toContainText('mcp-read-fixture')
+    await page.keyboard.press('Escape')
+    await page.getByLabel('Execution', { exact: true }).selectOption('one')
+    await wsEval(page, s => s.updateSettings({ mcpServers: [{ id: 'atlas-docs', name: 'atlas', url: 'https://atlas.example.com/mcp', token: '', enabled: true, prompt: '', tools: ['atlas_get'], checkedAt: Date.now() }] }))
+    const mock = await mockAgent(context, [call('a', 'read_page', { id }), say('## Analysis\nObserved from the One task.'), call('b', 'read_page', { id }), say('## Specification\nRequirements derived from the saved analysis.')])
+    await page.getByTestId('coding-run').click()
+    await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 20_000 })
+    expect(mock.bodies).toHaveLength(4)
+    expect(JSON.stringify(mock.bodies[0].tools)).toContain('one_mcp_search')
+    expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('Requirements derived from the saved analysis')
+    expect(fake.mcpAsked).toHaveLength(0)
+  } finally { await fake.close() }
+})
+
+
+test('retry resumes failed specification and retains the completed analysis', async ({ page, context }) => {
+  const id = await setup(page)
+  const mock = await mockAgent(context, [call('analysis', 'read_page', { id }), say('## Analysis\nPRESERVED ANALYSIS'), say('UNSOURCED SPECIFICATION'), call('retry-spec', 'read_page', { id }), say('## Specification\nREVIEWABLE SPECIFICATION')])
+  await page.getByTestId('coding-run').click()
+  await expect(page.locator('.ctk')).toContainText('Source check:')
+  expect(mock.bodies).toHaveLength(3)
+  expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('PRESERVED ANALYSIS')
+  expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).not.toContain('UNSOURCED SPECIFICATION')
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByTestId('coding-approve')).toBeVisible()
+  expect(mock.bodies).toHaveLength(5)
+  const document = await wsEval(page, (s, id) => s.pages[id].plain, id)
+  expect(document.match(/PRESERVED ANALYSIS/g)).toHaveLength(1)
+  expect(document).toContain('REVIEWABLE SPECIFICATION')
+})
+
+
+test('editor block IDs added during a model request do not invalidate unchanged sources', async ({ page, context }) => {
+  const id = await setup(page)
+  let release!: () => void
+  const waiting = new Promise<void>(resolve => { release = resolve })
+  const mock = await mockAgent(context, [async () => { await waiting; return call('after-ids', 'read_page', { id })() }, say('## Analysis\nUNCHANGED SOURCE'), call('spec', 'read_page', { id }), say('## Specification\nREVIEWABLE AFTER EDITOR NORMALIZATION')])
+  await page.getByTestId('coding-run').click()
+  await expect.poll(() => mock.bodies.length).toBe(1)
+  await wsEval(page, (s, id) => {
+    const content = structuredClone(s.pages[id].content)
+    content.content[0].attrs = { ...content.content[0].attrs, id: 'editor-assigned-block-id' }
+    s.setContent(id, content, 'editor:normalization')
+  }, id)
+  release()
+  await expect(page.getByTestId('coding-approve')).toBeVisible()
+  expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('REVIEWABLE AFTER EDITOR NORMALIZATION')
+})
+
+
+test('a real text edit still invalidates the source snapshot', async ({ page, context }) => {
+  const id = await setup(page)
+  let release!: () => void
+  const waiting = new Promise<void>(resolve => { release = resolve })
+  const mock = await mockAgent(context, [call('read-before-edit', 'read_page', { id }), async () => { await waiting; return say('STALE SPECIFICATION')() }])
+  await page.getByTestId('coding-run').click()
+  await expect.poll(() => mock.bodies.length).toBe(2)
+  await wsEval(page, (s, id) => {
+    const content = structuredClone(s.pages[id].content)
+    content.content.push({ type: 'paragraph', content: [{ type: 'text', text: 'NEW REQUIREMENT FROM USER' }] })
+    s.setContent(id, content, 'editor:typing')
+  }, id)
+  release()
+  await expect(page.locator('.ctk')).toContainText('Task or sources changed')
+  const document = await wsEval(page, (s, id) => s.pages[id].plain, id)
+  expect(document).toContain('NEW REQUIREMENT FROM USER')
+  expect(document).not.toContain('STALE SPECIFICATION')
+  await expect(page.getByTestId('coding-approve')).toHaveCount(0)
 })
