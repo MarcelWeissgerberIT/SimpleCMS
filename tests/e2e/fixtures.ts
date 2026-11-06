@@ -341,6 +341,26 @@ export function escapeRe(s: string): string {
 /** Mod key for shortcuts (tests run on Linux Chromium → Control). */
 export const MOD = process.platform === 'darwin' ? 'Meta' : 'Control'
 
+/**
+ * AI terminal: unfold the applied / discarded proposals. They fold into one summary line below the open ones
+ * ("3 applied · Show"); unfolded, they stay so for the conversation (until /new).
+ */
+export async function showDone(page: Page): Promise<void> {
+  const key = page.getByTestId('term-done-show')
+  await expect(key).toBeVisible()
+  if ((await key.getAttribute('aria-expanded')) !== 'true') await key.click()
+  await expect(key).toHaveAttribute('aria-expanded', 'true')
+}
+
+/**
+ * AI terminal (?e2e seam): this conversation keeps its applied / discarded proposals unfolded, as Show leaves them —
+ * for specs about what a proposal does, not about the folding. Call it with the terminal open; /new folds again.
+ */
+export async function unfoldDone(page: Page): Promise<void> {
+  await page.waitForFunction(() => !!(window as unknown as { __oneTerm?: unknown }).__oneTerm)
+  await page.evaluate(() => (window as unknown as { __oneTerm: { state: { setState: (p: object) => void } } }).__oneTerm.state.setState({ doneShown: true }))
+}
+
 /** The export dialog, opened where it lives: Workspace settings → Data → Export workspace. */
 export async function openExportDialog(page: Page): Promise<Locator> {
   await page.keyboard.press('Escape')

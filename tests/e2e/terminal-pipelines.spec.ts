@@ -6,8 +6,8 @@
  * at the end for the real one).
  */
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, wsEval, flush, pageIdByTitle, gotoPage, MOD } from './fixtures'
-import { call, mockAgent, openTerminal, prompt, resultText, run, say, setKey, sseMessage, terminal, toolResult, type AnyState } from './helpers/terminal'
+import { test, expect, openApp, reloadApp, wsEval, flush, pageIdByTitle, gotoPage, MOD, unfoldDone } from './fixtures'
+import { call, mockAgent, openTerminal as openTerm, prompt, resultText, run, say, setKey, sseMessage, terminal, toolResult, type AnyState } from './helpers/terminal'
 import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 
 /** #/coding → "Set up" (the Coding project, or `kind`'s): the terminal then offers the pipeline tools. */
@@ -136,8 +136,15 @@ const thenOf = (page: Page, id: string) =>
     id,
   )
 
+/** The terminal, with applied / discarded proposals unfolded (they fold into a summary line otherwise). */
+async function openTerminal(page: Page) {
+  await openTerm(page)
+  await unfoldDone(page)
+}
+
 const review = (page: Page) => terminal(page).locator('.term-changes')
-const item = (page: Page, n: number) => review(page).locator(`li[data-i="${n - 1}"]`)
+// by its number (#n): open proposals come first, the applied / discarded ones below the summary line
+const item = (page: Page, n: number) => review(page).locator(`li.term-change[data-n="${n}"]`)
 const applyKey = (page: Page, n: number) => item(page, n).getByRole('button', { name: `Apply #${n}` })
 
 test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {

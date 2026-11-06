@@ -9,7 +9,7 @@
  * Everything external is mocked: Google's sign-in script, the Gmail REST API and api.anthropic.com.
  */
 import type { BrowserContext, Locator, Page, Route } from '@playwright/test'
-import { test, expect, openApp, wsEval, flush, gotoPage, editorOf, pageIdByTitle, escapeRe, mockClaude as mockText, MOD } from './fixtures'
+import { test, expect, openApp, wsEval, flush, gotoPage, editorOf, pageIdByTitle, escapeRe, mockClaude as mockText, MOD, showDone } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -452,6 +452,7 @@ test.describe('One Script with Claude (mocked)', () => {
     await expect(change).toContainText('Offene hochstufen')
     await expect(change.getByTestId('script-diff')).toContainText('t.set(Priorität: "Hoch")')
     await change.getByRole('button', { name: /^Apply #/ }).click()
+    await showDone(page)
     await expect(change).toHaveAttribute('data-status', 'applied')
     const saved = await wsEval(page, (s) => (Object.values(s.scripts ?? {}) as AnyState[]).find((x) => x.name === 'Offene hochstufen'))
     expect(saved).toMatchObject({ kind: 'script', description: 'Stuft alle offenen Aufgaben hoch.' })
