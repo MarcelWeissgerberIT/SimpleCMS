@@ -1,3 +1,4 @@
+import {CodeAnalysisView} from './CodeAnalysisView'
 import {UIStudioView} from './UIStudioView'
 import {codeReference} from '@/shared/mcp/codeReference'
 import { CodeReferenceView } from './CodeReferenceView'
@@ -59,7 +60,7 @@ const subscribeViews = (fn: () => void) => {
 /* ------------------------------------------------------------------ the view */
 
 export function CodeBlockView(props: ReactNodeViewProps) {
-  return props.node.attrs.language === 'ui-instructions' ? <UIStudioView {...props}/> : props.node.attrs.language === 'atlas-code' ? <CodeReferenceView {...props}/> : <PlainCodeBlockView {...props}/>
+  return props.node.attrs.language === 'code-analysis' ? <CodeAnalysisView {...props}/> : props.node.attrs.language === 'ui-instructions' ? <UIStudioView {...props}/> : props.node.attrs.language === 'atlas-code' ? <CodeReferenceView {...props}/> : <PlainCodeBlockView {...props}/>
 }
 
 function PlainCodeBlockView({ node, updateAttributes, editor, getPos }: ReactNodeViewProps) {

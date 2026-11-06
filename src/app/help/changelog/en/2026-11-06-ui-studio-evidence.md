@@ -1,7 +1,7 @@
 ---
 id: 2026-11-06-ui-studio-evidence
 date: 2026-11-06
-order: 2
+order: 3
 title: UI Instructions and source evidence in One
 summary: Edit UI projects on pages and investigate selected claims against source code.
 image: assets/shots/changelog/ui-studio-evidence.webp

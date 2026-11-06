@@ -23,3 +23,45 @@ Unit coverage checks effects, pagination, denied/missing metadata, revocation, c
 MCP rows show the operation, observed repository name, branch/short commit, file, line range and search term. Names come from successful responses in the current task, scoped by connection and repository; no additional lookups are sent. Unknown names stay generic. Exact identifiers and bounded parameters remain under Technical details. Existing receipt-backed code rows can show their file and range even without the newer display metadata.
 
 A fixed Current activity strip shows up to three executing calls while the log scrolls. Between tool calls it reports processing results, streaming an answer, or waiting for a decision. It does not estimate progress or invent model reasoning. Retained-source reads keep their source label during the same task and remain explicitly marked as retained reads. The change affects display only, not tool dispatch, source permissions or provider payloads.
+
+## Native analysis block
+
+Insert **Code analysis** (`/code-analysis`) on an editable One page. Configure the
+question, repository, requested branch/commit/snapshot, scope (question, flow or
+module), total revision budget and phase round limit. Select the personal Atlas
+connection, then explicitly start. The existing One model route, source/data rules,
+compiled read-only task boundary and governor apply. No local coding worker is
+required for the prepared Atlas cloud connection.
+
+The portable fenced `code-analysis` JSON block retains up to 20 revisions, each
+with its own pinned request, phase checkpoints, bounded observed activity, cost,
+report and state. Phases are scope, investigate, challenge and synthesize. A failed
+or stopped phase keeps earlier checkpoints and resumes only the open phase. Model
+history and source bytes are not persisted. Unfinished model output is not promoted
+to a completed checkpoint. Budget is cumulative across phases and retries; estimates
+are checked before model requests, actual provider charges can differ.
+
+Findings carry stable IDs, impact, severity, supporting/counter evidence and an
+explicit countercheck. Ordered flows link to the same evidence cards. Requirements
+map implementation and test **source** independently; no tests are executed. A
+verified citation authenticates a source excerpt, not the interpretation. The host
+loads and verifies every returned citation before saving a phase and rechecks saved
+references before sending derived reports into a continuation. Each repository
+stays on the same explicit snapshot within a revision. Changed access, context,
+source content or a concurrent block edit prevents stale writes. Web Locks prevent
+concurrent execution of the same analysis across local tabs.
+
+The existing accepted version stays active while a proposed version is investigated.
+Acceptance is explicit. Versions show added, changed, absent and unchanged findings;
+comparisons include source path/range/digest and interpretation, ignoring only
+verification time, human review status and snapshot metadata when content is equal.
+The new-snapshot investigation asks Atlas for changed paths and checks impacted
+findings and their callers. This is evidence-led model analysis, not a compiler call
+graph or proof of complete repository coverage. Historical reports retain their
+original source references; they are never silently relabeled as current.
+
+Opening the block, switching tabs and exporting its JSON make no model requests.
+Evidence loads on explicit click using the existing read-only source viewer. The
+updated Atlas code-analysis template describes scope boundaries, counterchecks,
+requirement/test mapping and version handling. Existing pinned skill versions stay
+unchanged until the user saves the updated template.

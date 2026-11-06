@@ -689,3 +689,5 @@ export { CodeEvidence } from './code-evidence/CodeEvidence'
 export {requestCodeEvidence} from './ai/agent/CodeEvidenceRequest'
 
 export {UIStudio} from './ui-studio/UIStudio'
+export {CodeAnalysis} from './code-analysis/CodeAnalysis'
+export {runCodeAnalysis} from './ai/code-analysis/run'

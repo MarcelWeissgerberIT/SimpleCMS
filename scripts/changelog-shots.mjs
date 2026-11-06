@@ -38,6 +38,7 @@ import { strToU8, zipSync } from 'fflate'
 import { seedMorning, seedPipeline, waitPreflight, flushLamps } from '../tests/e2e/helpers/preflightStory.mjs'
 import { seedTrust } from '../tests/e2e/helpers/trustStory.mjs'
 import { playStoryPage, storyTime } from '../tests/e2e/helpers/recorderStory.mjs'
+import {analysisFixture} from '../tests/e2e/helpers/codeAnalysisStory.mjs'
 import { routeAIHosts } from './lib/aiHosts.mjs'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
@@ -942,6 +943,22 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'code-analysis'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const raw=JSON.stringify(analysisFixture(true))
+    const id=await createPage(page,'Protocol analysis',doc({type:'codeBlock',attrs:{language:'code-analysis'},content:[{type:'text',text:raw}]},para('')))
+    await openPage(page,id)
+    const block=page.getByRole('region',{name:'Code analysis',exact:true})
+    await block.waitFor();await block.getByRole('tab',{name:'Findings',exact:true}).click()
+    await scrollToTop(block,20);await rest(page);await save(page,'code-analysis')
+    for(const [width,theme] of [[390,'light'],[1440,'dark'],[390,'dark']]){
+      await page.setViewportSize({width,height:width===390?844:900})
+      await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
+      await scrollToTop(block,20);await rest(page)
+      await page.screenshot({path:`.shots/code-analysis-${width}-${theme}.png`})
+    }
+    await ctx.close()
+  },
   async 'analysis-source-check'(browser) {
     const {ctx,page}=await freshPage(browser)
     await page.evaluate(()=>{window.__one.workspace.getState().updateSettings({aiApiKey:'sk-ant-shot-only'});location.hash='#/coding/spec'})

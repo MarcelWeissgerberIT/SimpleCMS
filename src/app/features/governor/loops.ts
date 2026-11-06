@@ -32,10 +32,10 @@ function nextBand(ctx: RoundCtx, cold: boolean): Band | null {
 /** Between two loop requests (beforeRound): go · halt (the AI terminal) · stop (agents, background) — null: no line. */
 export function roundAt(ctx: RoundCtx): RoundVerdict | null {
   const l = limitsNow()
-  if (!hasLimit(l)) return null
+  if (!hasLimit(l) && !ownRun(ctx.prepared.run)) return null
   const t = totalsNow()
   const prepared = ctx.prepared
-  const runOwn = ownRun(prepared.run, ctx.spent)
+  const runOwn = ownRun(prepared.run, (prepared.run.spent ?? 0) + ctx.spent)
   // the run's own reservation is what it may spend — never counted against it
   const rest = restOf(l, t, { reservation: prepared.reservation?.id ?? null, run: runOwn }, allowanceOf({ source: prepared.run.source }))
   const cold = !!ctx.cold
@@ -66,7 +66,7 @@ export function roundAt(ctx: RoundCtx): RoundVerdict | null {
 /** Before a run's first request (startCheck): the totals read in full first; the first step's band against the rests. */
 export async function startAt(input: PrepareInput, follow: () => void): Promise<StartCheck> {
   const l = limitsNow()
-  if (!hasLimit(l)) return { start: true }
+  if (!hasLimit(l) && !Number.isFinite(input.run?.budget)) return { start: true }
   follow()
   await loadToday()
   if (hasMonthLimit(l)) await loadMonth()
