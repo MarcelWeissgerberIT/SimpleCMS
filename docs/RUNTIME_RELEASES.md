@@ -22,3 +22,16 @@ Frontend source commit `22b78cd3` was built with `BASE_PATH=/` after TypeScript 
 - Rollback HTML and compose file: `/opt/one/rollback-mcp-reliability-22b78cd3`. Compose pins the verified new runtime for future starts; the currently running container was not restarted.
 
 Disk headroom was checked during image preparation. Only the previous release's redundant `dist` and `static-assets` build folders were removed, after verifying every file against its retained hash-verified release archive. Running assets, rollback images, data volumes and backups were preserved; free space after publication was about 1.6 GB.
+
+## 2026-11-06 · One-model document analysis
+
+Frontend source commit `81154bc7` adds browser-owned document analysis without a local worker. TypeScript, the production build, seven dedicated browser tests and the existing worker-backed business-analysis regression passed. Provider and Atlas calls in these tests used synthetic fixtures. Published image: `one-workshop:analysis-81154bc7`; backend behavior is unchanged.
+
+- Archive SHA-256: `a7f59b5442d7391a91c3543f3f4cbd6f2cd5812bc600f66978725d8e72688e79`.
+- Public `/app/index.html` SHA-256: `a80fbde4941dc5fe327bd17fb7b21dc2984ad9d31c3b37faf59896089e895a9b`.
+- Unchanged backend SHA-256: `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`.
+- All 1,112 manifest files verified in the image and running container; public entry HTML and 88 referenced JS/CSS files hash-verified over HTTPS. Schema minimum remains 6; health returned `ok: true`.
+- Frontend entrypoints were replaced atomically after publishing assets. Existing hashed assets remain available, and the container was not restarted. Compose pins the verified runtime for future starts.
+- Rollback HTML and compose file: `/opt/one/rollback-analysis-81154bc7-r2`. An earlier publication attempt detected stale HTML caused by copying into an existing staging directory and automatically rolled back; the final deployment used a unique staging directory and passed full verification.
+
+Only hash-verified duplicate build folders and redundant archived release copies were retired to provide build space. Seven old archives were preserved with a SHA-256 manifest at `/Users/marcelweissgerber/Documents/Playground/.one-release-archives/2026-11-06`. Workspace data, Docker volumes and rollback images were preserved. Free server space after publication was about 1.7 GB.
