@@ -1,0 +1,5 @@
+.worker-connection-help { grid-column: 2 / -1; border-left: 2px solid var(--signal, #ff5a00); padding: 10px 14px; white-space: normal; font: inherit; }
+.worker-connection-help p { margin: 6px 0; }
+.worker-connection-help ol { margin: 8px 0; padding-left: 20px; }
+.worker-connection-help li { margin: 5px 0; }
+.worker-connection-help__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }

@@ -1,3 +1,4 @@
+import {centralAI,refreshCentralAI} from './centralAI'
 /**
  * verifyProvider(): is a provider's key good — without sending any text (multi-provider S2, A9). Claude: one
  * `models.list` (limit 1); OpenRouter: `GET /api/v1/key` (its credit comes back too). Never on the boot path: the
@@ -10,6 +11,7 @@ import { getAIKey } from '../../../store/secrets'
 import { verifyKey } from '../providers/anthropic'
 
 export async function verifyProvider(p: ProviderId, key?: string, signal?: AbortSignal): Promise<VerifyResult> {
+  if(p==='anthropic'&&key===undefined){await refreshCentralAI();const c=centralAI();if(c?.assigned)return c.ready?{ok:true}:{ok:false,code:'no_key'}}
   const k = (key ?? (await getAIKey(p))).trim()
   if (!k) return { ok: false, code: 'no_key' }
   // another provider's key (pasted into the wrong tab): never sent to this provider's check

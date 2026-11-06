@@ -225,6 +225,10 @@ function shortPattern(home: string): string | null {
 
 export class Scrubber {
   private rules: Array<{ re: RegExp; to: string }> = []
+  protect(name: string, value: string): void {
+    if (value.length >= 8) this.secrets = [...this.secrets, { name, value }].sort((a, b) => b.value.length - a.value.length)
+  }
+
   private secrets: readonly SecretValue[]
 
   constructor(pairs: Array<[string | null | undefined, string]> = [], opts: ScrubOptions = {}) {

@@ -1,0 +1,142 @@
+---
+id: coding-harness
+title: Coding harness, context and quality
+section: ai
+order: 21
+keywords: local, ollama, coding, harness, atlas, memory, skills, methods, repair, qa, benchmark, evaluation, context, model comparison
+related: coding-pipeline, workorders, custom-agents, mcp-bridge
+summary: How One prepares coding packages, retrieves context, bounds QA repairs and evaluates local models.
+---
+One owns the request, its work packages and acceptance. The selected model works on one package at a time. A profile such as `atlas-flow` changes instructions, not model weights. Switching models retains the harness, tools and boundaries.
+
+## Task packet and methods
+The shared harness for **Local · Ollama**, **MiniMax**, **Ollama Cloud** and **GitHub Copilot** prepares a bounded packet: project guidance, available terminology in `GLOSSARY.md`/`CONTEXT.md`, relevant file pointers, symbols, imports and selected versioned methods. The source map uses bounded lexical/symbol search, not a complete architecture graph. An excerpt does not count as a source read for subsequent editing.
+
+`code_map` loads more orientation. `skill_list` and `skill_read` load small methods for implementation, diagnosis, contracts, sources, UI checks and acceptance review. They grant no permissions and execute no downloaded scripts. A UI method does not give a text model vision or screenshot judgment.
+
+The run log shows packet size, methods and a **Harness receipt**: model, profile hash, context limit, declared model capabilities, rounds, tool failures, compactions and check runs. Declared capabilities are not a passed evaluation.
+
+## Memory and Atlas
+Tool observations and model notes are distinguished. File excerpts carry content hashes; a newer read supersedes older revisions of the same source in normal search. Restored entries are historical. An old receipt does not prove current tests passed. Resuming requires fresh source reads and checks.
+
+Local task memory and Atlas shadow checkpoints remain bounded and task-scoped. Atlas needs an existing connection and explicit private-shadow consent. Atlas failures do not create retry loops. `mcp_check_tools` checks exact tools discovered and permitted in this stage; only a successful real call proves execution and account permission.
+
+## Automatic QA repairs
+Open **Work orders → Settings → Automatic QA repairs**. The default is **Off**. Optionally select **1** or **2**. The choice and Coding agent are pinned when the chain is confirmed. Changing the setting invalidates earlier automatic-start consent.
+
+When final QA fails a check or returns a concrete `needs_rework` finding, the worker may start a repair sub-run with the confirmed Coding agent. It uses the already approved combined branch. The QA report retains the finding and associated Coding page links. No extra pipeline rows are created. Fresh QA follows each successful repair.
+
+Existing tests, verification entry points and recognized test/dependency configuration are inventoried first. Changes prevent acceptance; new regression tests are allowed. This is a verification guard, not an OS sandbox. Shared step and known monetary limits span the sub-runs. Unmetered cloud tariffs remain unmetered. Identical recurring findings, missing progress or permissions, and exhausted attempts stop the run. A private journal prevents Retry from resetting attempts. The branch remains available for inspection.
+
+## Choose local and cloud deliberately
+**Local · Ollama** uses loopback inference. MiniMax and Ollama Cloud send selected context to their providers. Choosing BA, Coding and QA agents does not automatically change the actual planner's route: it uses workspace AI settings. MCP connections to Atlas may contact remote services even with local inference. No silent cloud-model fallback is introduced.
+
+## Compare models
+Worker **1.20.0** includes 24 synthetic CMS/repository evaluation cases. On the computer running Ollama:
+
+```
+node one-worker.mjs evaluate --limit 3 --cases module-integration,source-conflict,resume-package
+node one-worker.mjs evaluate --limit 24 --repeats 3
+```
+
+Choose model and context through `ONE_CODER_MODEL` and `ONE_CODER_CONTEXT` (32768, 65536 or 131072) in this command's environment. Evaluations change no personal repository, attach no personal MCP and use no cloud inference. They consume local time and memory. Acceptance checks live outside the model's worktree; this is not OS isolation.
+
+JSON output includes suite hash, model, context, passed cases, false completions, duration, steps and run receipts. Repeat the same cases under the same conditions before comparing models or contexts. Even 24 green cases do not establish general frontier-model parity. A failure is evidence, not a reason to weaken acceptance. The older ten-function suite remains available as `benchmark`.
+
+
+## The harness opens doors: source quotation checks
+The harness opens access to permitted sources and tools and coordinates small work packages. Models actively look for contradictions, inconsistencies and problems, group related findings, explain impact and recommend next steps. Binding domain decisions and acceptance remain with the team. A rejected proposal is a valid outcome; enthusiasm for AI is not a success criterion.
+
+In the AI terminal, browser/server agents and the shared local coding adapter, `read_page` or `read_file` provides a receipt for the observed excerpt. `check_finding` compares exact quotations against receipts from this run. Starting with worker **1.28.0**, native coding clients get the same check through `one_task_source` and `one_task_check_finding`; `one_task_read` and personally granted MCP call results also provide receipts. The `checkWith` field identifies the matching checker.
+
+The checker fetches no arbitrary URLs, grants no extra access and writes nothing. It verifies only that a quotation occurred in an observed excerpt. Missing, expired or invalidated receipts require reading again. Request narrower excerpts when output is shortened. Historical memory and model notes do not mint fresh source receipts.
+
+**Supported quotations do not prove a semantic contradiction or approval.** Scope, versions, currentness, authority and meaning still need review. Reports separate findings, sources, context, impact, options and recommendations as proposals; the team decision remains open. A quotation check is neither an executed test nor automatic acceptance. Instructions require the checker, but free-form model responses are not thereby guaranteed truthful.
+
+Update existing coding installations to worker 1.28.0 and start a new run. Running processes and saved reports are not changed retroactively.
+
+## Actively retaining useful knowledge
+The shared companion rule asks models to consult relevant Atlas decisions and constraints before new work. Durable knowledge should carry its source, version, meaning and recall trigger. A confirmed human decision is retained as a reference to the actual decision; proposals and open questions stay separate.
+
+In the shared coding adapter — also used by MiniMax, Ollama Cloud and Copilot — `memory_knowledge` first checks an actual source quotation and persists the note locally. Authorized private Atlas sync is attempted immediately, rather than only at the end. Duplicate notes are deduplicated; at most three Atlas checkpoint writes occur per run. Failure stops further automatic attempts. Missing rights, connectivity or a reached limit remain visibly **ATLAS PENDING**. Saving memory grants no new access and replaces no binding team decision in Atlas.
+
+Browser/server agents and native coding clients receive the same knowledge rule and use their explicitly granted Atlas tools. The shared adapter’s automatic private checkpoint transport is not a universal background service on those paths. Each person needs their own access and correct workspace/project association; private credentials and memories are not automatically shared.
+
+## Share a local model with the team · worker 1.29.0+
+In the target **cloud workspace → Settings → AI → Share a local model**, select your installed model and choose **Share with this workspace**. The hosting cloud worker must belong to your account and that workspace. There is no global workspace grant. The panel shows the name, model, availability and queue. **Stop sharing** also works while the host is offline; restarting cannot reactivate a server-disabled share.
+
+Members select its entry under **Local · Ollama** for a text action without a worker of their own. One request runs at a time; at most twelve jobs including the running one and two per person are admitted. Existing personal worker jobs take priority over the next shared request. The route chip shows the queue position. Cancellation, lost membership, revocation and workspace changes stop requests. Waiting is bounded to eight minutes; inference to three. There is no automatic retry or cloud fallback.
+
+The first shared channel supports **text, reviews and code proposals**: up to 36 KB input and 4,096 output tokens. It does not run a coding pipeline, execute tools or share repositories or Atlas tokens. Guests and other workspaces cannot use it. Selected context reaches the host computer. Browser and worker encrypt contents with a fresh key per request; the team relay sees metadata and forwards ciphertext. The host decrypts for inference. Restart rotates the host key; the key is not independently identity-verified. A compromised ONE web application or host is outside this transport protection. No prompts or answers are stored in the database; short-lived jobs and results live in memory. Local computation through the Frankfurt relay is not a fully local LAN deployment.
+
+### Test availability with a real response
+
+Under **Settings → AI → Share a local model**, each share shows **Host connected**, **Model available** and **Response confirmed** separately. The first two indicators use regular model host heartbeats. **Test availability** sends one fixed short message through the same encrypted queue as a normal text request, without page content, files, credentials or Atlas calls.
+
+The test may load the model and waits behind current work. It ends after at most 90 seconds including queue time; **Cancel test** stops it earlier. Success shows the time checked and total duration including queue time. After a minute, a host restart or offline status, the confirmation is no longer current. The test changes no sharing permissions and never falls back to a cloud provider. It verifies the text channel, not coding tools, model quality or the Atlas connection.
+
+### Small demo comparison with Copilot
+Use the synthetic participant demo containing intentionally broken C++ and TypeScript validation:
+
+```sh
+node /path/one-worker.mjs compare-demo --repo /path/ONE-Demo --output /path/comparison/report.json --model atlas-flow:latest --copilot-model auto
+```
+
+This command uses local Ollama and your signed-in Copilot CLI directly, with identical inputs, a 4,096-token output budget and unchanged tests. No customer data or model shell tools are used. Reports retain prompt/test hashes, actual model where reported, elapsed time, usage and real test results. `auto` is not a fixed model; pin an available Copilot model for repeatability. Testing the shared transport additionally requires a run through the workspace queue. Two small tasks do not establish full merge or general model quality, Angular build/browser behavior or customer-network access. Subscription quota and electricity are not reported as free.
+
+## Decision questions and rule checks before starting
+ONE should first consult permitted task sources, Atlas requirements/documented decisions and relevant repository rules. Different versions or scopes do not automatically conflict. Unknown authority stays unknown; a newer date does not override a product requirement.
+
+Only an answer that changes required behaviour, permitted access or a required check belongs in blocking questions. A **decision question** names two options, a concrete input with different expected outcomes and the affected acceptance check. Reuse documented human answers. Example: “Response at 20 seconds: A times out after 10 seconds, B waits until 30 seconds. Which applies? Check: timeout boundary fixture.”
+
+The shared `check_finding` / `one_task_check_finding` tools optionally accept `context` (each source's declared version, scope and authority) and `decisionPin` (question, example, two options with expected outcomes, check and blocking flag). They check quotations from actual current-run read receipts. Context and authority are declarations; meaning and the product decision remain unverified. A supported question draft is not a confirmed decision. Record the actual human answer with its source in Atlas and acceptance criteria. The shared text-only model channel does not itself provide these tools.
+
+## Evidence for the same code candidate
+Worker **1.33.0** adds SHA-256 fingerprints before and after tests, file count, Node version and worker version. The fingerprint covers HEAD, names, executable bits and contents of tracked files and nonignored untracked files. This catches edits inside already-dirty files. Lockfiles are included; installed dependencies and external services are outside this observation.
+
+Guided acceptance requires a stable fingerprint from final QA. Legacy receipts, unknown candidates, changes during checks or failed configured challenges cannot be offset by scores or a success narrative. Update the worker and rerun final QA. Changed sources/tasks in ONE invalidate stored acceptance. Later external code changes are not continuously monitored: rerun QA after changing code.
+
+Limits: 25,000 files, 128 MiB per file, 512 MiB total and bounded read time. Ignored build outputs are excluded. Unreadable files, submodules or exceeded bounds yield **unknown**, not partial success. Two observations are not an atomic file lock or an OS sandbox.
+
+## A fresh challenge after review
+The protected worker setup page exposes **Counterexample challenge · optional** for each repository. Configure an owner-maintained check, preferably with verification logic outside the editable worktree. The `worker.json` equivalent is:
+
+```json
+{"challengeCommand": ["node", "../verification/counterexamples.mjs"]}
+```
+
+Final QA runs existing tests, review, then this command once against the same observed candidate. The command must not change Git-visible files. A mutation or unavailable command remains a blocker; a real test failure returns to implementation only within the already approved repair budget. Existing check scripts are protected during automatic repair. With no command, evidence explicitly says **not_configured**. Finding fresh boundary cases remains a source-grounded working method; ONE does not claim automatically generated independent coverage. Deliberately retain useful regression tests in the project afterwards.
+
+## Reusable procedures and effort
+After human acceptance, task guidance offers **Draft a reusable procedure**. Describe applicability/recall trigger, short steps and limitations. Only **Save reviewed procedure in memory** creates a Procedure in One memory. It retains the task and evidence identifier, rather than a copied complete solution. Recheck current sources and tests on reuse. One successful task does not establish transfer; validate the method on another real task. This action does not itself write to Atlas or expand approvals.
+
+New workers record executor, requested model when known, elapsed time, reported turns and known costs per stage. These appear in the evidence packet. Copilot additionally retains actual model/token receipts. Missing usage/cost stays unknown. Compare the same task, candidate and checks. Add a specialist only for a concrete unresolved risk: more agents do not automatically improve quality.
+
+## Atlas Flow and MCP across text workflows
+
+Worker 1.34.0 adds tool-capable local Ollama models to page questions, structured text actions, the AI terminal and browser agents. Set an agent override in **Agents → Edit → Model** or a workflow default in **Settings → AI → This device**. Models without verified function support remain text-only. This does not add image recognition.
+
+**Set up Atlas:** Add and test your personal connection under **Settings → AI → MCP servers**. Permit MCP for **Local · Ollama** in your personal data rules. Your own paired worker is required for remote MCP calls. Also select Atlas and the necessary tools in each agent. Sharing a model never shares another person's Atlas account.
+
+The harness discovers relevant tools, reads sources and stages changes for acceptance. ONE enforces scope; the team decides. Repeated identical calls stop, missing sources and context limits stay visible, and no cloud-AI fallback happens silently.
+
+Before every local model round, ONE checks the serialized UTF-8 input budget including tool definitions and an answer reserve. When necessary, older tool results become explicitly marked excerpts first. The task, system rules, tool arguments and saved run history stay intact. Omitted facts must not be invented; retrieve a narrower source when needed. If the unchanged task itself cannot fit, ONE stops before the next inference request: start a fresh task or select a smaller source passage. It never evades the boundary by silently switching to cloud AI.
+
+With a shared model, the host performs inference. ONE tools execute in your browser; Atlas MCP uses your personal worker. The host receives approved context and tool results, never tokens. Private pages, mail and personal memory are not shared automatically. Moving the model host to a controlled VM later keeps this separation and does not require publicly exposing Ollama.
+
+## Check Atlas answers against actual results
+
+Atlas calls in the AI terminal, page questions and browser agents provide a collapsed **Actual Atlas result** receipt. It uses tool-response metadata: returned references, IDs, list lengths, reported status and operation type. Document bodies and model claims cannot create this metadata. An accepted write is not proof of task completion; a queued flow has not completed execution. A failed read does not establish an empty database.
+
+ONE checks recognizable reference, count and status claims against these receipts. A detected contradiction permits at most one additional correction within the allowed budget, without tools or repeated writes. If the contradiction persists, ONE displays a summary assembled from actual tool metadata. Contradictory structured results are withheld instead of passing unchecked fields downstream. The additional model request can incur usage. Claude with MCP buffers answer text until this check; tool progress remains visible.
+
+For ONE-mediated Atlas calls from **Copilot and local models**, reference-based individual mutations such as `atlas_update` or `atlas_comment` require a target previously observed in a successful response from the same connection. Otherwise ONE does not execute the write and requests a read first. After successful `atlas_create` or `atlas_update` returning exactly one reference, ONE reads that target back once if `atlas_get` is already permitted. It compares the requested title, text and field values. Uncomparable changes stay unchecked; differing or unavailable sources remain visible. The write is never automatically replayed.
+
+**Limits:** This is a bounded check of known metadata and wording, not a complete semantic truth verifier. Sources can be outdated or factually wrong. Native external Claude MCP calls receive answer validation and result receipts; this ONE check does not intercept their execution or automatically read them back. Administrative bulk changes and product decisions still require targeted evidence and human acceptance. Existing permissions, data rules and project boundaries remain authoritative.
+
+## Include specific repository files
+**Repo files** opens the shared picker in task fields, the AI terminal and the page AI menu. **/files** also opens it; **@src/** or **@README.md** searches a path. Existing @mentions of ONE pages remain available.
+
+Connect your own worker, version **1.35.0** or newer, and register the repository there. Select a repository, local worktree and up to eight files. Click a filename to preview its text excerpt, branch, line range and content hash. Discovery and preview do not send anything to a model. Hidden files, credentials, generated directories and symlinks are excluded; binary files and files above 200 KB cannot be read. Limited searches and excerpts are labelled.
+
+Tasks store **path references only**. Every run reads the files again from that stage’s actual worktree, for Claude, Copilot, Codex and the other coding executors. A preview does not freeze an old revision. References to another repository stop the run. Terminal requests load selected excerpts at start and enforce file and model destination rules. Selecting files from the page AI menu prepares the request in the terminal; **Start** sends it.

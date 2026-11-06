@@ -29,7 +29,7 @@ import { AutofillHost } from './autofill'
 import { CreatePropertyHost } from './create/CreatePropertyDialog'
 import { CsvIntakeHost } from './create/CsvIntake'
 import { TurnOffHost } from './toolbar/StructurePanels'
-import { useDbReadOnly } from './readonly'
+import { useDbReadOnly, TranslationReadOnly, useDatabaseTranslated } from './readonly'
 import { resetSessionQuery, setViewQuery, useSessionOverlay, withOverlay } from './model/lock'
 import { VIEW_REQUEST } from './model/outside'
 import { createTypedRow } from './model/recordTypes'
@@ -49,6 +49,7 @@ export interface DatabaseViewProps {
 
 export function DatabaseView({ databaseId, inline, viewId }: DatabaseViewProps) {
   const t = useT()
+  const translated = useDatabaseTranslated(databaseId)
   const db = useDatabase(databaseId)
   const page = usePage(databaseId)
   if (!db || !page || page.trashed)
@@ -57,7 +58,7 @@ export function DatabaseView({ databaseId, inline, viewId }: DatabaseViewProps) 
         <span className="label">{page?.trashed ? t('database.missing.trashed') : t('database.missing.gone')}</span>
       </div>
     )
-  return <DatabaseRoot key={db.id} db={db} page={page} inline={!!inline} viewId={viewId} />
+  return <TranslationReadOnly.Provider value={translated}><DatabaseRoot key={db.id} db={db} page={page} inline={!!inline} viewId={viewId} /></TranslationReadOnly.Provider>
 }
 
 function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; inline: boolean; viewId?: ID }) {
@@ -267,7 +268,7 @@ function DatabaseBody({
           data-locked={m.locked || undefined}
           aria-label={page.title || t('common.untitled')}
         >
-          {inline && <InlineHeader page={page} readOnly={m.readOnly} />}
+          {inline && <InlineHeader page={m.dbPage} readOnly={m.readOnly} />}
           <div className="db-bar">
             <ViewTabs m={m} onSelect={setActiveId} />
             <Toolbar m={m} onNew={onNew} setSearch={setSearch} compact={inline} selection={selection} onView={setActiveId} />

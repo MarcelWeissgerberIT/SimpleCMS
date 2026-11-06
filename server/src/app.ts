@@ -1,3 +1,5 @@
+import {programRoutes} from './routes/programs.ts'
+import {centralAIRoutes} from './routes/central-ai.ts'
 import { Hono, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HTTPException } from 'hono/http-exception'
@@ -6,6 +8,8 @@ import { AgentService } from './agents/service.ts'
 import { hookRoutes } from './api/hooks.ts'
 import { WorkspaceModel } from './api/model.ts'
 import { apiRoutes } from './api/v1.ts'
+import { sharedModelRoutes } from './coding/shared-models.ts'
+import { atlasMcpRoutes } from './coding/atlas-mcp.ts'
 import { codingRoutes, codingWorkerRoutes } from './coding/routes.ts'
 import type { AppEnv, Services } from './context.ts'
 import { MIN_CLIENT_SCHEMA } from './collab/schema-gate.ts'
@@ -13,15 +17,20 @@ import { ApiError, notFound } from './errors.ts'
 import { csrfGuard, securityHeaders } from './http/security.ts'
 import { mountStatic } from './http/static.ts'
 import { MCP_PATH, mcpRoutes } from './mcp/index.ts'
+import { testAccessRoutes, guardTestAccess } from './routes/testAccess.ts'
+import { welcomeRoutes } from './routes/welcome.ts'
+import { readinessRoutes } from './routes/readiness.ts'
 import { authRoutes } from './routes/auth.ts'
 import { documentRoutes } from './routes/documents.ts'
 import { fileRoutes } from './routes/files.ts'
 import { mediaFetchRoutes } from './routes/mediaFetch.ts'
+import { sourceFetchRoutes } from './routes/sourceFetch.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes, sessionRoutes } from './routes/me.ts'
 import { serverRoutes, signupRoutes } from './routes/server.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
+import { checkoutRoutes } from './routes/checkout.ts'
 import { MCP_SERVER_SUPPORTS } from '../../src/shared/mcp/contract.ts'
 
 const JSON_LIMIT = 256 * 1024
@@ -72,21 +81,30 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['ai', 'governor', 'signoffs', MCP_SERVER_SUPPORTS],
+      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'central-ai:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
     }),
   )
 
+  app.route('/api', testAccessRoutes(s))
   app.route('/api/auth', authRoutes(s))
   app.route('/api/me', meRoutes(s))
   app.route('/api/session', sessionRoutes(s))
   app.route('/api/workspaces', workspaceRoutes(s))
+  app.route('/api/workspaces', welcomeRoutes(s))
+  app.route('/api/workspaces', readinessRoutes(s))
+  app.route('/api/workspaces', programRoutes(s))
+  app.route('/api/workspaces', centralAIRoutes(s))
+  app.route('/api/workspaces', checkoutRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', mediaFetchRoutes(s))
+  app.route('/api/workspaces', sourceFetchRoutes(s))
   app.route('/api/workspaces', documentRoutes(s))
   app.route('/api/workspaces', integrationRoutes(s, model))
   app.route('/api/workspaces', agentRoutes(s, model, agents))
   app.route('/api/workspaces', codingRoutes(s))
+  app.route('/api/workspaces', atlasMcpRoutes(s))
   app.route('/api/coding', codingWorkerRoutes(s))
+  app.route('/api', sharedModelRoutes(s))
   app.route('/api/invites', inviteRoutes(s))
   app.route('/api/signup', signupRoutes(s))
   app.route('/api/server', serverRoutes(s))
@@ -133,12 +151,17 @@ export const redactPath = (path: string) =>
 /** Resolves the session cookie on every API request and slides its expiry (not on the public API). */
 function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    const token = s.sessions.readCookie(c)
+    const auth = token ? s.sessions.resolve(token) : null
+    if (auth?.testAccess) {
+      c.set('auth', auth)
+      const response = guardTestAccess(c, auth.testAccess)
+      return response ?? next()
+    }
     if (c.req.path.startsWith(PUBLIC_API)) {
       c.set('auth', null)
       return next()
     }
-    const token = s.sessions.readCookie(c)
-    const auth = token ? s.sessions.resolve(token) : null
     c.set('auth', auth)
     if (token && !auth) s.sessions.clearCookie(c)
     if (token && auth && s.sessions.touch(auth.session)) s.sessions.setCookie(c, token)
@@ -154,5 +177,11 @@ function jsonLimit(): MiddlewareHandler<AppEnv> {
       throw new ApiError(413, 'payload_too_large', 'Request body too large')
     },
   })
-  return (c, next) => (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
+  // Full source evidence is larger than model context; restricted further to the designated audit lead.
+  const auditLimit = bodyLimit({ maxSize: 16 * 1024 * 1024 })
+  const checkoutLimit = bodyLimit({ maxSize: 16 * 1024 * 1024 })
+  // Transient personal Atlas attachment transport: never persisted in ONE.
+  const atlasLimit = bodyLimit({ maxSize: 1024 * 1024 })
+  const centralLimit = bodyLimit({ maxSize: 32 * 1024 * 1024 })
+  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/model-audit$/.test(c.req.path) ? auditLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/programs\/runs$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/central-ai\/messages$/.test(c.req.path) ? centralLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/atlas-mcp$/.test(c.req.path) ? atlasLimit(c,next) : c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
 }

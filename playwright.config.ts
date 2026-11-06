@@ -17,7 +17,7 @@ import { defineConfig, devices } from '@playwright/test'
  *   E2E_PORT=4306 npx playwright test tests/e2e/shell.spec.ts
  */
 const PORT = Number(process.env.E2E_PORT) || 4180
-const BASE_PATH = '/SimpleCMS/'
+const BASE_PATH = process.env.E2E_ROOT === '1' ? '/' : '/SimpleCMS/'
 const OUT_DIR = `node_modules/.cache/e2e-dist-${PORT}`
 
 const build = process.env.E2E_SKIP_BUILD ? '' : `npx vite build --outDir ${OUT_DIR} --emptyOutDir --logLevel error && `

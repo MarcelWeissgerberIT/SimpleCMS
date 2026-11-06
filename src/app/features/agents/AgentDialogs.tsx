@@ -1,3 +1,4 @@
+import { AgentReportDialog } from './AgentReportDialog'
 /**
  * Custom agents — the dialogs AgentDialogsHost renders over any route (a lazy chunk: MirrorSetup and the AgentEditor
  * load with it, never at boot). The Patchbay's setup lamps open them (plan §1.11, §6 U2) without leaving #/patchbay:
@@ -11,6 +12,7 @@
  * gives it back), then `req.after(outcome)` runs: the Patchbay moves focus on to the next lamp's key after a create or
  * a save. Nothing here writes but the dialogs themselves (createMirror / reuseMirror / upsertAgent, their own writers).
  */
+import { AgentRunDialog } from './AgentRunDialog'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useWorkspace } from '../../store/store'
 import { matchingServers } from '../../store/integrations'
@@ -194,5 +196,7 @@ function EditorDialog({ request }: { request: Extract<AgentDialogRequest, { kind
 }
 
 export default function AgentDialogs({ request }: { request: AgentDialogRequest }) {
+  if (request.kind === 'agentReport') return <AgentReportDialog key={request.seq} request={request} />
+  if (request.kind === 'agentRun') return <AgentRunDialog key={request.seq} request={request} />
   return request.kind === 'mirrorSetup' ? <MirrorSetupDialog key={request.seq} request={request} /> : <EditorDialog key={request.seq} request={request} />
 }

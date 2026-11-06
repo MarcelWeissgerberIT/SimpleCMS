@@ -1,3 +1,4 @@
+import { fmtUsd } from '../../lib/money'
 /**
  * #/coding — the pipelines: the worker's state (LED, name, repos, today's cost, what runs), the tasks that
  * wait for the person (gates, questions, failures — of every pipeline), the switch Coding · Business analysis ·
@@ -37,7 +38,7 @@ function WorkerPlate() {
   const lang = useLang()
   const s = useCoding()
   const pages = useWorkspace((x) => x.pages)
-  const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
+  const money = (n: number) => fmtUsd(n, lang)
   const connected = s.enabled && s.conn === 'connected'
   // not connected, or no repos ticked yet: the three steps instead
   if (!connected || !s.worker?.repos.length)

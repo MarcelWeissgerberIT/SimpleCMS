@@ -1,3 +1,4 @@
+import { displayCurrency } from '../../../lib/money'
 /**
  * 01 CONSUMERS · TODAY (Regler § 10.1): one row per source of today's spend on this device — the AI terminal, the AI
  * menu & Transform, each agent, autofill per database, mail, the Outbox, scripts, ⌘K, help … — with its count, the model
@@ -62,7 +63,7 @@ export function Consumers({ consumers, held, world, total, budget, loading }: { 
               {budget !== null ? t('features.governor.cons.h.share') : t('features.governor.cons.h.shareToday')}
             </span>
             <span className="label gv-cons__r" role="columnheader">
-              {t('features.governor.cons.h.usd')}
+              {displayCurrency()}
             </span>
             <span className="label" role="columnheader">
               {t('features.governor.cons.h.may')}

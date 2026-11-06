@@ -1,3 +1,5 @@
+import { sanitizeLocalization } from './localization'
+import { registerMoneyDisplay } from '../lib/money'
 /**
  * Central workspace store (zustand + immer). All persistent data lives here.
  * UI-only, non-persistent state lives in ./ui.ts.
@@ -777,7 +779,7 @@ export const useWorkspace = create<WorkspaceState>()(
     updatePage: (id, patch) => {
       const pages = get().pages
       const p = pages[id]
-      if (p) set({ pages: withPage(pages, { ...p, ...patch, updatedAt: now() }) })
+      if (p) set({ pages: withPage(pages, { ...p, ...patch, ...('localization' in patch ? { localization: sanitizeLocalization(patch.localization) } : {}), updatedAt: now() }) })
     },
 
     updatePageSettings: (id, patch) =>
@@ -1173,6 +1175,7 @@ export const useWorkspace = create<WorkspaceState>()(
       let p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
       // MCP server tokens likewise: markers only in the list (secrets.ts)
       if ('mcpServers' in p) p = { ...p, mcpServers: mcpServersValue(p.mcpServers, get().settings.mcpServers, get().epoch) }
+      if ('workspaceMcpServers' in p) p = { ...p, workspaceMcpServers: mcpServersValue(p.workspaceMcpServers, get().settings.workspaceMcpServers, get().epoch) }
       // the other providers' keys likewise: markers only in settings.aiKeys (secrets.ts)
       if ('aiKeys' in p) p = { ...p, aiKeys: aiKeysValue(p.aiKeys, get().settings.aiKeys, get().epoch) }
       set((s) => {
@@ -1589,3 +1592,5 @@ export function getWorkspaceSnapshot(): Workspace {
     ...(s.fuseSignoffs ? { fuseSignoffs: s.fuseSignoffs } : {}),
   }
 }
+
+registerMoneyDisplay(() => useWorkspace.getState().settings.costDisplay)

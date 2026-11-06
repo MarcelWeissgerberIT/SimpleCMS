@@ -21,6 +21,25 @@
   min-width: 0;
   overflow: hidden;
 }
+.tb-nav-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: none;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.tb-nav-back:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.tb-nav-back:active:not(:disabled) { transform: translateY(1px); }
+.tb-nav-back:disabled { opacity: .4; cursor: default; }
 .tb-crumbs > .tb-crumbs__list,
 .tb-crumbs > .tb-crumb {
   min-width: 0;
@@ -317,4 +336,31 @@ button.tb-crumb:hover {
   .tb-led[data-status='saving'] .led {
     animation: none;
   }
+}
+
+/* Install stays in the toolbar even when the browser offers instructions instead of a prompt. */
+.tb-install {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tb-install:hover { background: var(--signal-wash-strong); }
+.tb-install[data-compact] { width: 30px; padding: 0; }
+.tb-install[data-compact] span { display: none; }
+
+/* Hide before React subscribes too: an installed ONE window may report fullscreen. */
+@media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui), (display-mode: window-controls-overlay) {
+  .tb-install { display: none; }
 }

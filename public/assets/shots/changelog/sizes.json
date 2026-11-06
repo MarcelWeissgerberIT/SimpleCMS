@@ -3,9 +3,25 @@
     1440,
     1082
   ],
+  "agent-assignments.webp": [
+    1440,
+    900
+  ],
+  "agent-catalog.webp": [
+    1440,
+    900
+  ],
+  "agent-page-activity.webp": [
+    1440,
+    900
+  ],
   "agent-precheck.webp": [
     1440,
     653
+  ],
+  "agent-tools.webp": [
+    1440,
+    900
   ],
   "agent-trust.webp": [
     1440,
@@ -27,6 +43,22 @@
     1440,
     900
   ],
+  "analysis-source-check.webp": [
+    1440,
+    900
+  ],
+  "annunciator-panel.webp": [
+    1440,
+    833
+  ],
+  "atlas-connection-stability.webp": [
+    1440,
+    578
+  ],
+  "atlas-mock-block.webp": [
+    1440,
+    1029
+  ],
   "block-select.webp": [
     1440,
     608
@@ -47,6 +79,22 @@
     1440,
     1261
   ],
+  "code-analysis.webp": [
+    1440,
+    900
+  ],
+  "code-changes.webp": [
+    1440,
+    1250
+  ],
+  "coding-agent-labels.webp": [
+    1440,
+    900
+  ],
+  "coding-harness.webp": [
+    1440,
+    900
+  ],
   "coding-live.webp": [
     1440,
     477
@@ -58,6 +106,26 @@
   "coding-setup.webp": [
     1440,
     1072
+  ],
+  "compiled-inspection.webp": [
+    1440,
+    900
+  ],
+  "compiled-programs.webp": [
+    1440,
+    900
+  ],
+  "copilot-media.webp": [
+    1440,
+    900
+  ],
+  "copilot-options.png": [
+    758,
+    484
+  ],
+  "copilot-workspace.webp": [
+    1440,
+    900
   ],
   "custom-agents.webp": [
     1440,
@@ -71,9 +139,17 @@
     1440,
     1885
   ],
+  "desktop-install.webp": [
+    1440,
+    900
+  ],
   "diagram-viewer.webp": [
     1440,
     900
+  ],
+  "euro-costs.webp": [
+    1440,
+    1072
   ],
   "explain-code.webp": [
     1440,
@@ -99,9 +175,17 @@
     1440,
     900
   ],
+  "frankfurt-costs.webp": [
+    1440,
+    900
+  ],
   "free-board.webp": [
     1440,
     694
+  ],
+  "free-design-mocks.webp": [
+    760,
+    544
   ],
   "glass-switches.webp": [
     1440,
@@ -119,6 +203,14 @@
     1440,
     947
   ],
+  "guided-orders.png": [
+    726,
+    318
+  ],
+  "hand-drawn.webp": [
+    1440,
+    1110
+  ],
   "help-centre.webp": [
     1440,
     900
@@ -134,6 +226,10 @@
   "legacy-modernise.webp": [
     1440,
     1913
+  ],
+  "local-workspaces.webp": [
+    1440,
+    900
   ],
   "look.webp": [
     1440,
@@ -167,7 +263,15 @@
     1440,
     900
   ],
+  "memory-start.webp": [
+    1440,
+    900
+  ],
   "memory.webp": [
+    1440,
+    900
+  ],
+  "minimax-coding.webp": [
     1440,
     900
   ],
@@ -182,6 +286,18 @@
   "models.webp": [
     1440,
     1027
+  ],
+  "navigation-back.webp": [
+    1440,
+    640
+  ],
+  "ollama-cloud.webp": [
+    1440,
+    900
+  ],
+  "ollama-global-settings.webp": [
+    1440,
+    1072
   ],
   "one-picker.webp": [
     1440,
@@ -219,6 +335,10 @@
     1440,
     1019
   ],
+  "provider-model-picker.webp": [
+    1440,
+    900
+  ],
   "quick-capture.webp": [
     1440,
     900
@@ -228,6 +348,10 @@
     900
   ],
   "regler.webp": [
+    1440,
+    900
+  ],
+  "request-models.webp": [
     1440,
     900
   ],
@@ -242,6 +366,10 @@
   "search.webp": [
     1440,
     650
+  ],
+  "setup-buttons.webp": [
+    1440,
+    900
   ],
   "ship-log.webp": [
     1440,
@@ -262,6 +390,10 @@
   "switches.webp": [
     1440,
     435
+  ],
+  "table-cells.webp": [
+    1440,
+    900
   ],
   "task-mcp.webp": [
     1440,
@@ -291,6 +423,18 @@
     1440,
     1368
   ],
+  "ui-studio-evidence.webp": [
+    1440,
+    900
+  ],
+  "welcome-atlas.webp": [
+    1440,
+    900
+  ],
+  "welcome-link-token.webp": [
+    1440,
+    900
+  ],
   "work-orders.webp": [
     1440,
     1445
@@ -302,6 +446,18 @@
   "worker-windows.webp": [
     1440,
     1265
+  ],
+  "worker-workspaces.webp": [
+    1440,
+    1072
+  ],
+  "workshop-evidence.png": [
+    726,
+    537
+  ],
+  "workspace-checkout.webp": [
+    1440,
+    928
   ],
   "workspace-settings.webp": [
     1440,

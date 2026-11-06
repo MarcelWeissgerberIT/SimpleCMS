@@ -10,7 +10,7 @@ import { useMemo, type MouseEvent } from 'react'
 import { CornerDownRight, FileText } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { MAX_REFS, nextPlan, refPagesOf, type RefPlan } from './refs'
 import { useTaskLocal } from './local'
@@ -27,9 +27,10 @@ function peek(e: MouseEvent<HTMLAnchorElement>, id: ID) {
   useUI.getState().openPeek(id)
 }
 
-export function RefsLine({ taskId, draft = '', ask = null }: { taskId: ID; draft?: string; ask?: 'answer' | 'note' | null }) {
+export function RefsLine({ taskId, draft = '', ask = null, oneModel = false }: { taskId: ID; draft?: string; ask?: 'answer' | 'note' | null; oneModel?: boolean }) {
   const t = useT()
   const pages = useWorkspace((s) => s.pages)
+  const de = useLang() === 'de'
   const local = useTaskLocal(taskId)
   const view = useMemo(() => {
     // as the worker's next hand-out picks them: this stage's answers and rework note first, the version's pages only
@@ -62,7 +63,7 @@ export function RefsLine({ taskId, draft = '', ask = null }: { taskId: ID; draft
           ))}
         </span>
       ) : (
-        <span className="ctk-hint">{t('features.coding.refs.none')}</span>
+        <span className="ctk-hint">{oneModel ? (de ? 'Verknüpfe Quellen mit @ oder einem One-Link in der Aufgabe.' : 'Link sources with @ or a One link in the task.') : t('features.coding.refs.none')}</span>
       )}
       {view.left.length > 0 && (
         <span className="ctk-refs__left" data-testid="coding-refs-left">

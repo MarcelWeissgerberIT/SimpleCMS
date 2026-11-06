@@ -13,6 +13,7 @@ import { PRESETS, SHARED_CLASSES, presetOf, type PresetId } from '@/shared/ai/po
 import { providerInfo } from '@/shared/ai/providers'
 import { useT } from '../../../i18n'
 import { CodePlate } from '../setup/ProviderPlate'
+import './data-rules.css'
 
 export interface DataRulesProps {
   providers: readonly ProviderId[]
@@ -31,7 +32,7 @@ const PRESET_IDS: readonly PresetId[] = ['all', 'work', 'marked']
 export function DataRules({ providers, allow, narrow, lockOf, onAllow, onNarrow }: DataRulesProps) {
   const t = useT()
   return (
-    <div className="drules" role="table" aria-label={t('features.ai.prov.rules.q')} data-testid="data-rules">
+    <div className="drules" role="table" aria-label={t('features.ai.prov.rules.q')} data-testid="data-rules" data-single={providers.length === 1 || undefined}>
       <div className="drules__row drules__row--head" role="row" style={{ ['--cols' as string]: providers.length }}>
         <span className="drules__q label" role="columnheader">
           {t('features.ai.prov.rules.q')}

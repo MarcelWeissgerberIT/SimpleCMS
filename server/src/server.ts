@@ -27,6 +27,9 @@ export interface RunningServer {
 /** Wires everything together on one HTTP server: REST + static via Hono, Yjs via /collab upgrades. */
 export async function startServer(config: Config, log: Logger): Promise<RunningServer> {
   const db = openDb(join(config.dataDir, 'one.sqlite'))
+  // A process restart cannot prove whether an in-flight central call was billed. Keep the reservation.
+  db.run("UPDATE central_ai_requests SET state='uncertain',finished_at=? WHERE state='running'",Date.now())
+  db.run('UPDATE central_ai_requests SET sealed_audit=NULL WHERE sealed_audit IS NOT NULL AND created_at<?',Date.now()-30*86400000)
   // encryption at rest: DATA_KEY must open this database's workspace keys, else refuse to start (exit 78)
   const keyring = new Keyring(db, config.dataKey)
   try {

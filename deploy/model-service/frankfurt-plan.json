@@ -1,0 +1,153 @@
+{
+  "project": "one-cms-510718",
+  "instance": "atlas-flow-frankfurt-week",
+  "zone": "europe-west3-b",
+  "machineType": "n1-highmem-4",
+  "gpu": {
+    "type": "nvidia-tesla-t4",
+    "count": 1,
+    "vramGiB": 16
+  },
+  "bootDisk": {
+    "type": "pd-balanced",
+    "sizeGiB": 80
+  },
+  "provisioning": "STANDARD",
+  "firstRun": {
+    "maxRunDuration": "4h",
+    "terminationAction": "STOP"
+  },
+  "model": {
+    "name": "atlas-flow:latest",
+    "base": "qwen3-coder:30b",
+    "parameters": "30.5B / 3B active",
+    "quantization": "Q4_K_M",
+    "weightBytes": 18556717117,
+    "contextTokens": 32768,
+    "maxOutputTokens": 4096,
+    "parallel": 1,
+    "maxQueue": 12
+  },
+  "service": {
+    "publicBaseUrl": "https://onecms.eh-atlas.com/model/v1",
+    "gatewayPort": 8081,
+    "ollamaBind": "127.0.0.1:11434",
+    "auth": "per-client revocable bearer keys; SHA256 hashes at rest",
+    "gatewayIngress": "ONE proxy internal IPv4 only",
+    "sshIngress": "IAP only",
+    "vmServiceAccount": null,
+    "promptLogging": false,
+    "externalProviderFallback": false,
+    "privateIPv4": "10.38.0.11"
+  },
+  "one": {
+    "workspaces": [
+      "Analytik Jena · CNSx",
+      "Analytik Jena · FeliX"
+    ],
+    "hostMode": "standalone one-host.ts; inference polling only",
+    "workspaceIsolation": "separate worker credentials and model shares",
+    "repositoriesOnModelHost": false,
+    "atlasCredentialsOnModelHost": false
+  },
+  "estimate": {
+    "currency": "EUR",
+    "asOf": "2026-11-01",
+    "source": "Google Cloud Billing Catalog, Frankfurt on-demand EUR SKUs",
+    "gpuPerHour": 0.360799999,
+    "cpuPerCoreHour": 0.035842399,
+    "ramPerGiBHour": 0.004803039,
+    "computePerHour": 0.629048609,
+    "diskPerMonth": 8.448,
+    "compute730Hours": 459.20548457,
+    "continuousTotalApproxPerMonth": 471,
+    "firstFourHoursCompute": 3.126566764,
+    "excludes": [
+      "tax",
+      "data egress"
+    ],
+    "notes": "Original four-hour L4 trial cost recorded separately. Weekly replacement uses N1 predefined CPU/RAM and T4 Frankfurt EUR SKUs effective 2026-10-31. Disk, snapshots and IPv4 remain separate; no commitment or scheduled restart. Warm T4 measurement used a cached prompt and is not a latency guarantee.",
+    "weekCompute": 105.680166312
+  },
+  "weekTest": {
+    "authorizedOn": "2026-11-01",
+    "maxRunDuration": "7d",
+    "terminationAction": "STOP",
+    "computeEstimateEUR": 105.68,
+    "scope": [
+      "Analytik Jena · CNSx",
+      "Analytik Jena · FeliX"
+    ],
+    "startStatus": "verified: public API and both encrypted ONE shares, including tool follow-up",
+    "startedUTC": "2026-11-01T06:16:28.560Z",
+    "automaticStopUTC": "2026-11-08T06:16:28.560Z",
+    "reasonForHardwareChange": "No L4 capacity available in Frankfurt zones a/b; zone c does not offer G2."
+  },
+  "auditPlan": {
+    "status": "proposed-not-enabled",
+    "fullTextReaders": "Marcel Weissgerber only, as test lead; no team/admin role inheritance",
+    "records": [
+      "task/run correlation id",
+      "workspace",
+      "requesting user id",
+      "requested and served model",
+      "original user request",
+      "final model answer",
+      "tool names/status/duration with source references",
+      "queue, time to first response, total duration",
+      "input/output tokens when reported",
+      "error category and request id",
+      "human quality rating and correction note"
+    ],
+    "exclude": [
+      "authorization headers",
+      "API keys",
+      "Atlas tokens",
+      "cookies",
+      "complete raw MCP payloads by default",
+      "unrequested repository files"
+    ],
+    "storage": "workspace-separated encrypted store on ONE server, separate from operational logs; no readable content in cloud logs",
+    "access": "authenticated dedicated test-lead-only endpoint, membership and workspace scope checked server-side on every read/export",
+    "export": "redacted JSONL for analysis and CSV/XLSX summary; a multi-round task remains one trace",
+    "retentionProposal": "delete text payloads after 30 days; keep aggregate metrics without text; requires choosing retention before activation",
+    "quality": [
+      "helpful",
+      "needs correction",
+      "wrong or unsupported",
+      "wrong project/tenant",
+      "no source",
+      "privacy/security issue"
+    ],
+    "cost": "VM runtime separately; API token price zero does not mean hardware is free",
+    "participantNotice": "visible test-log notice before first request, no extra modal per run"
+  },
+  "originalInstance": {
+    "name": "atlas-flow-frankfurt",
+    "machineType": "g2-custom-4-32768",
+    "gpu": {
+      "type": "nvidia-l4",
+      "count": 1,
+      "vramGiB": 24
+    },
+    "status": "retired; recoverable from snapshot",
+    "recoverySnapshot": "atlas-flow-week-20261101"
+  },
+  "ramGiB": 26,
+  "measurements": {
+    "warmT4": {
+      "outputTokens": 74,
+      "outputTokensPerSecond": 19.92,
+      "promptTokens": 931,
+      "promptSeconds": 0.06,
+      "totalSeconds": 3.79,
+      "promptCached": true
+    },
+    "coldT4": {
+      "outputTokens": 87,
+      "outputTokensPerSecond": 7.17,
+      "totalSeconds": 78.97,
+      "loadSeconds": 30.11
+    }
+  }
+}

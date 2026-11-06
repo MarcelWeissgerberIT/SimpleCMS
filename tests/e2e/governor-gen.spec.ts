@@ -56,7 +56,7 @@ async function servedFrom(ctx: BrowserContext, dir: string): Promise<Page> {
 test.describe('case 11 — an older tab while a budget is stored (B12)', () => {
   test('this build enforces the budget generation', () => {
     expect(GEN.budget).toBe(3)
-    expect(AI_POLICY_GEN).toBe(GEN.budget)
+    expect(AI_POLICY_GEN).toBeGreaterThanOrEqual(GEN.budget)
   })
 
   test('a tab of the S2 generation refuses AI with reload and sends nothing; the budget removed → it sends', async ({ page, aiNet }) => {

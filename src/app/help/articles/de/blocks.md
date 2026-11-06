@@ -15,6 +15,8 @@ Ein Mermaid-Diagramm musst du nicht tippen: Markiere eine Liste von Schritten �
 
 Zu breit für die Seite? **Groß öffnen** — die ↗-Taste am Schaubild, sein Blockmenü oder ein Doppelklick — zeigt es über den ganzen Bildschirm, mit Zoom, Verschieben und Minikarte ([Diagramme](help:charts)).
 
+Für Skizzen-Diagramme und Illustrationen gibt es `/handdrawn` → **Handgezeichnet**. Diagramme bleiben bearbeitbar; Illustrationen nutzen einen verbundenen Bilddienst. Beides lässt sich als Cover übernehmen ([Handgezeichnet](help:hand-drawn)).
+
 ## Markdown-Kürzel
 Am Zeilenanfang tippen:
 - `# `, `## `, `### ` — Überschriften
@@ -22,8 +24,14 @@ Am Zeilenanfang tippen:
 - `> ` — Zitat, `>> ` — Aufklappliste, `!> ` — Hinweisbox
 - ```` ``` ```` — Codeblock, `$$ ` — Formel, `---` — Trennlinie
 
-**Codeblöcke** nummerieren ihre Zeilen ab vier Zeilen und lassen jede Zeile in einer Reihe (lange Zeilen scrollen); die Tasten in ihrer Leiste schalten Zeilennummern und **Zeilen umbrechen** für diesen Block auf diesem Gerät, **Kopieren** kopiert den Code, und ein JSON-Block sagt, ob er gültig ist — oder wo der erste Fehler steckt. ⌘/Strg+A im Block markiert zuerst seinen Code. *One Script* ist eine der Sprachen.
+**Codeblöcke** nummerieren ihre Zeilen ab vier Zeilen und lassen jede Zeile in einer Reihe (lange Zeilen scrollen); die Tasten in ihrer Leiste schalten Zeilennummern und **Zeilen umbrechen** für diesen Block auf diesem Gerät, **Kopieren** kopiert den Code, und ein JSON-Block sagt, ob er gültig ist — oder wo der erste Fehler steckt. <kbd>Mod+A</kbd> im Block markiert zuerst seinen Code. *One Script* ist eine der Sprachen.
 
 Markierter Text zeigt die Werkzeugleiste: fett, kursiv, unterstrichen, durchgestrichen, Code, Link, Farbe, **KI fragen** und **Kommentieren**.
 
 > Ein eingefügter Link lässt sich als Link behalten oder in ein Lesezeichen, eine Einbettung oder einen Player verwandeln.
+
+## Einrichtungs- und Download-Buttons
+
+Ein Button kann **Worker einrichten / herunterladen** öffnen. Er öffnet deine persönlichen Coding-Worker-Einstellungen; der Download dort koppelt den Worker mit deinem Konto und aktuellen Workspace. Der Button selbst erzeugt keinen Token und startet keinen Auftrag. Codeblöcke haben eine Taste **Kopieren**, die den Befehl kopiert, ohne ihn auszuführen.
+
+Auf einer übersetzten Live-Seite können berechtigte Mitglieder Navigation und Worker-Einrichtung nutzen. Buttons, die Inhalte ändern, bleiben in dieser Übersetzungsansicht deaktiviert. Gesperrte Seiten, reine Gast-Lesezugänge und statische Freigaben erhalten keine neuen Aktionen.

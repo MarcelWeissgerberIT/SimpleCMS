@@ -1,3 +1,11 @@
+import type { SourceRef } from '@/shared/ai/types'
+import { policyKnown } from '@/shared/ai/policy'
+import { codingProvider, providersForSources, hasFlowLimits } from '@/shared/ai/dataFlow'
+import { readCopilotReceipt } from '@/shared/copilot'
+import { captureReadiness, noteReadiness } from '../../cloud'
+import { personalConnectionsForTask, personalSelection } from '../secrets/store'
+import { taskAtlasConnection, taskAtlasSelection, taskAtlasGrantCurrent } from '../secrets/deviceTask'
+import { codingAgentOf, codingAgentProperty, agentProperty } from './agent'
 /**
  * Coding pipeline — the task operations on the workspace (store actions only):
  *  - for the worker: pickNext (choose + claim: Worker + Claimed at), heartbeat, finishStage (cost, branch,
@@ -26,6 +34,7 @@ import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { currentLang, t } from '../../i18n'
 import { CLAIM_STALE_MS, MCP_SERVER_NAME, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type ShipRecord, type StageOutcome, type TaskPayload, type WorkerInfo } from './protocol'
+import { readStageRun } from '@/shared/coding/evidence'
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
@@ -259,6 +268,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     if (owner && owner !== workerName && Date.now() - claimedAt(row.properties[props.claimed ?? '']) < CLAIM_STALE_MS) continue
     await loadTask(row.id)
     const local = taskLocal(row.id)
+    if (local.execution === 'one') continue
     let stage = stageOfRow(pipeline, props, row)
     if (!stage) continue
     const go = (st: ResolvedStage) => st.auto || !!local.runNow
@@ -289,8 +299,47 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     }
     // a stage an older worker would misread (it ran unknown kinds as git stages, it would ignore the model): not for
     // this worker — the task says why
-    const model = modelFor(stage, local)
-    if (stageNeeds({ ...stage, model }).some((need) => !caps.has(need))) {
+    const agent = codingAgentOf(db, row)
+    const orderIds = props.order ? row.properties[props.order] : null
+    let quality: TaskPayload['quality']
+    let qualityInputs: Record<ID, string> = {}
+    if (Array.isArray(orderIds) && typeof orderIds[0] === 'string') {
+      const record = await (await import('./orders/records')).loadOrderRecord(orderIds[0])
+      if (record && record !== 'unreadable') {
+        const step = record.chain?.steps.find(s => s.id === row.id)
+        if (step?.delivery) {
+          const review = step.kind === 'qa' && !!record.chain?.steps.some(s => s.kind === 'coding')
+          quality = { review, requirements: step.delivery.requirements.map(r => `${r.id}: ${r.text}`), acceptance: step.delivery.acceptance }
+          if (review) {
+            const { taskEvidenceFp } = await import('./orders/guidedAcceptance')
+            qualityInputs = Object.fromEntries(await Promise.all(record.chain!.steps.filter(s => s.kind === 'coding').map(async s => [s.id, await taskEvidenceFp(ws().pages[s.id])])) )
+          }
+          if (review && record.chain?.repair) {
+            quality.repair = record.chain.repair
+            quality.packages = record.chain.steps.filter(s => s.kind === 'coding' && s.n < step.n).map(s => ({ id: s.id, title: ws().pages[s.id]?.title ?? 'Coding', requirements: s.delivery?.requirements.map(r => r.id) ?? [] }))
+            if (record.chain.budgetUsd !== undefined) quality.remainingUsd = Math.max(0, record.chain.budgetUsd - record.chain.steps.reduce((n,s) => n + (taskLocal(s.id).spentUsd ?? 0), 0))
+          }
+        }
+      }
+    }
+    if (quality && (!caps.has('delivery-qa') || (quality.repair && !caps.has('harness-quality')))) { skip(); await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false }); continue }
+    if (!agent) { skip(); await patchTask(row.id, { state: 'failed', error: t('features.coding.agent.unknown'), runNow: false }); continue }
+    const flowSources: SourceRef[] = [row.id, ...refIdsOf(row)].map(page => ({ page }))
+    const selectedRepoFiles = taskText(row.id, [...(local.answers ?? []).map(a=>a.a), ...(local.rework?.text ? [local.rework.text] : [])]).includes('one-repo://')
+    if(selectedRepoFiles) flowSources.push({file:'upload'})
+    if(selectedRepoFiles&&!caps.has('repo-files')) { skip(); await patchTask(row.id,{state:'failed',error:OLD_WORKER(),runNow:false});continue }
+    const restrictions = [...(s.ai?.policy?.restricted ?? []), ...(s.settings.ai?.restricted ?? [])]
+    const bounded = hasFlowLimits(s.ai?.dataFlow) || restrictions.length > 0
+    const providers = providersForSources(s.ai?.dataFlow, flowSources, s, restrictions)
+    const destination = codingProvider(agent)
+    if (!policyKnown(s.ai, s.settings.ai) || (bounded && (!caps.has('data-flow') || (claudeRuns(stage.kind) && (!destination || !providers.includes(destination)))))) {
+      skip(); await patchTask(row.id, { state: 'failed', error: t('features.ai.flow.blocked'), runNow: false }); continue
+    }
+    const dataFlow = bounded ? { ...s.ai?.dataFlow, providers } : undefined
+    const model = agent === 'claude' ? modelFor(stage, local) : null
+    const copilot = agent === 'copilot' && claudeRuns(stage.kind) ? local.copilot ?? local.copilotRole ?? {} : undefined
+    const copilotSource = local.copilot ? local.copilot.model ? 'task' : 'worker' : local.copilotRole?.model ? 'role' : 'worker'
+    if (stageNeeds({ ...stage, model, agent }).some((need) => !caps.has(need))) {
       skip()
       if (local.error !== OLD_WORKER()) await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false })
       continue
@@ -304,7 +353,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     const fresh = ws().pages[row.id]
     // a custom agent writing right now: its stamp (and with it the wait for Confirm) comes only when its batch is
     // written — no task is handed out in between (the stamp race, Prüfaufträge B2)
-    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db || isAgentWriting() || isParkedStep(row.id)) {
+    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db || isAgentWriting() || isParkedStep(row.id) || taskLocal(row.id).execution === 'one') {
       skip()
       continue
     }
@@ -313,6 +362,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       set(row.id, props.worker, workerName)
       set(row.id, props.claimed, nowValue())
     })
+    const claimed=ws().pages[row.id]
     const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
     // the turn: this stage's answers and rework note — their pages go first (coding/refs.ts); older ones after the task's
     const { turn, older } = splitTurn(local, stage.id)
@@ -321,12 +371,29 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     // Continue after the step limit (worker 1.11.0 'continue'): this run goes on from the worktree — only once, only
     // for the stage that stopped there, only to a worker that knows it
     const resume = local.resume && local.stepLimit && local.stepLimit.stageId === stage.id && caps.has('continue') ? { turns: local.stepLimit.turns, max: local.stepLimit.max } : null
-    await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false })
+    let personalMcp: TaskPayload['personalMcp']
+    if (['plan', 'implement', 'doc'].includes(stage.kind) && (personalSelection(row.id).length || taskAtlasSelection(row.id))) {
+      try {
+        if (!caps.has('personal-secrets') || (!['claude','copilot'].includes(agent) && !caps.has('source-review'))) throw new Error('Meine Secrets benötigen für diesen Coding-Agenten Worker 1.28.0 oder neuer. / My secrets require worker 1.28.0 or newer for this coding agent.')
+        const provider=codingProvider(agent)
+        if(!provider)throw new Error('Unknown coding provider.')
+        personalMcp = [...personalConnectionsForTask(row.id),...await taskAtlasConnection(row.id,provider)]
+        if(new Set(personalMcp.map(s=>s.name)).size!==personalMcp.length)throw new Error('Duplicate personal MCP name; select only one Atlas connection.')
+        if(ws().pages[row.id]!==claimed||ws().databases[dbId]!==db||!(await isTrusted(row.id))||ws().pages[row.id]!==claimed||!taskAtlasGrantCurrent(row.id)||isAgentWriting()){skip();continue}
+      } catch (e) {
+        skip();await patchTask(row.id, { state: 'failed', error: e instanceof Error ? e.message : 'Unlock My secrets.', runNow: false });continue
+      }
+    }
+    await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false, qualityReview: quality?.review === true, qualityInputs, ...(quality?.review || stage.kind === 'implement' ? { deliveryQa: null } : {}) })
     return {
       id: row.id,
+      ...(dataFlow ? { dataFlow } : {}),
+      ...(personalMcp?.length ? { personalMcp } : {}),
+      agent,
+      ...(quality ? { quality } : {}),
       title: fresh.title.trim() || t('common.untitled'),
       repo,
-      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stageSteps(stage), gitAction: stage.gitAction ?? null, model },
+      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stageSteps(stage), gitAction: stage.gitAction ?? null, model, ...(copilot ? { copilot, copilotSource } : {}) },
       // the task, then the pages it refers to (@ mentions, links — also in answers and rework notes, this turn's first)
       // and the pages linked in those, as read-only text
       text: withRefs,
@@ -358,10 +425,12 @@ export function heartbeat(taskIds: ID[], workerName: string): void {
 const KIND_ICON: Record<string, string> = { implement: 'asset:code', git: 'asset:publish', test: 'asset:counter', plan: 'asset:notepad' }
 
 /** The worker's outcome of a stage: into the row, the page, this device's log — and on to the next stage. */
-export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome): Promise<void> {
+export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome, validate?: () => void): Promise<void> {
   const ctx = taskContext(taskId)
   if (!ctx) return
+  const readiness = captureReadiness()
   await loadTask(taskId)
+  validate?.()
   const { props, pipeline, row } = ctx
   const stage = pipeline.find((s) => s.id === stageId) ?? null
   // the worker's stage run (store/writer.ts): everything it writes, the follow-ups it starts included — the run the
@@ -371,7 +440,11 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   noteRun(w)
   const stillThere = !!stage && ctx.stage?.id === stage.id
   const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId, resume: false, stepLimit: null }
+  const runEvidence=readStageRun(outcome.runEvidence)
+  if(runEvidence)patch.stageRuns=[...(local.stageRuns??[]),{run:local.run??`receipt-${runEvidence.startedAt}`,stageId,stage:stage?.name??stageId,status:outcome.status,receipt:runEvidence}].slice(-40)
   // worker 1.11.0: the stage's permission requests (the panel's summary line) — the newest run's only
+  const receipts = (Array.isArray(outcome.copilotReceipts) ? outcome.copilotReceipts : []).slice(0, 8).map(readCopilotReceipt).filter((r): r is NonNullable<typeof r> => !!r)
+  if (receipts.length) patch.copilotRuns = [...(local.copilotRuns ?? []), ...receipts.map((receipt,i) => ({ run:local.run ?? `receipt-${Date.now()}`, stageId, stage:receipt.stageKind==='implement'&&stage?.kind==='doc'?t('features.coding.copilotOptions.repair'):stage?.name ?? stageId, status:receipt.status ?? outcome.status, ...(outcome.branch ? {branch:outcome.branch} : {}), ...(outcome.test && i===receipts.length-1 ? {test:{ok:outcome.test.ok,code:outcome.test.code,skipped:outcome.test.skipped}} : {}), receipt }))].slice(-40)
   const perms = outcome.permissions
   const count = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.min(Math.round(n), 100_000) : 0)
   patch.permissions = perms && typeof perms === 'object' ? { stageId, asked: count(perms.asked), allowed: count(perms.allowed), refused: count(perms.refused) } : null
@@ -391,8 +464,20 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     if (next) patch.url = next
   } else if (outcome.url) patch.url = outcome.url
   if (outcome.test) patch.test = outcome.test
+  if (local.qualityReview && local.stageId === stageId) {
+    patch.qualityReview = false
+    patch.deliveryQa = stillThere && stage?.kind === 'doc' && outcome.status === 'ok' && outcome.test?.ok === true && outcome.test.code === 0 && !outcome.test.skipped && outcome.branch && outcome.branch === text(row.properties[props.branch ?? '']).trim() && local.run
+      ? { run: local.run, at: Date.now(), branch: outcome.branch, inputs: local.qualityInputs ?? {} } : null
+  }
+  if(stillThere&&outcome.status==='ok'&&stage?.kind==='test'&&outcome.test?.ok===true&&outcome.test.code===0&&!outcome.test.skipped)noteReadiness(readiness,{signal:'repo'})
+  if(stillThere&&outcome.status==='ok'&&codingAgentOf(ctx.db,row)==='copilot'&&['implement','doc','plan'].includes(stage?.kind??''))noteReadiness(readiness,{signal:'copilot'})
   // QA: the test cases of a document stage become rows of the Test cases database (the JSON leaves the page)
   let doc = outcome.plan ?? null
+  if (Array.isArray(outcome.repairs) && outcome.repairs.length) {
+    const labels = currentLang() === 'de' ? ['QA-Reparatur', 'Pakete', 'Ergebnis'] : ['QA repair', 'Packages', 'Outcome']
+    const repairs = outcome.repairs.slice(0, 2).filter(r => r && [1, 2].includes(r.attempt) && Array.isArray(r.packageIds) && typeof r.finding === 'string' && typeof r.outcome === 'string').map(r => `### ${labels[0]} ${r.attempt}\n${labels[1]}: ${r.packageIds.filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id)).slice(0, 8).map(id => `[#/p/${id}](#/p/${id})`).join(', ')}\n${r.finding.slice(0, 2000)}\n${labels[2]}: ${r.outcome.slice(0, 2000)}`).join('\n\n')
+    doc = [doc, repairs].filter(Boolean).join('\n\n')
+  }
   let cases: TestCase[] = []
   const output = stage?.kind === 'doc' ? stage.output : undefined
   if (doc && output === 'testcases') {
@@ -413,7 +498,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     }
   }
   const tree = doc && output === 'pages' ? splitSections(doc) : null
-  if (outcome.plan) patch.plan = doc ?? outcome.plan
+  if (doc) patch.plan = doc
   if (doc && output === 'review') patch.review = { text: doc.slice(0, 60_000), at: Date.now() }
   if (outcome.summary && stage?.kind === 'implement') patch.summary = outcome.summary
 
@@ -485,8 +570,10 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   }
 
   let wrote = false
+  validate?.()
   await keepTrust([taskId], () =>
     aiWrite(() => {
+      validate?.()
       if (outcome.cost && outcome.cost > 0) {
         const prev = typeof row.properties[props.cost ?? ''] === 'number' ? (row.properties[props.cost!] as number) : 0
         set(taskId, props.cost, Math.round((prev + outcome.cost) * 100) / 100)
@@ -847,6 +934,11 @@ const PANEL: Writer = { kind: 'you', via: 'ui' }
 /** The worker's run of a stage on a task (store/writer.ts): coding:<task>:<run> — one run id per stage execution. */
 const codingWriter = (task: ID, run: string): Writer => ({ kind: 'coding', task, run })
 
+function nudgeTask(taskId: ID) {
+  if (taskLocal(taskId).execution === 'one') void import('./oneAnalysis').then(m => m.runOneAnalysis(taskId))
+  else nudge()
+}
+
 /** Approve at a gate: on to the next stage. */
 export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void> {
   const ctx = taskContext(taskId)
@@ -865,7 +957,7 @@ export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void>
     await spawnFollowUps(taskId, opts.writer ?? PANEL)
     chainHook(taskId)
   }
-  nudge()
+  nudgeTask(taskId)
 }
 
 /** Rework with instructions: back to the stage that made it (plan / implement), the note into the page. */
@@ -886,7 +978,7 @@ export async function reworkTask(taskId: ID, note: string, opts: ActOpts = {}): 
     opts.writer ?? PANEL,
   )
   await patchTask(taskId, { state: 'idle', error: null, rework: { stageId: back.id, text }, runNow: !back.auto })
-  nudge()
+  nudgeTask(taskId)
 }
 
 /** Answer Claude's question: the Q + A into the page, the stage runs again. */
@@ -900,14 +992,19 @@ export async function answerTask(taskId: ID, answer: string, opts: ActOpts = {})
   if (opts.confirm !== false) await trustTask(taskId)
   await keepTrust([taskId], () => aiWrite(() => appendNote(taskId, 'asset:microphone', 'blue', `${t('features.coding.page.answer')} · ${stamp()}`, `**${t('features.coding.page.q')}** ${q}\n\n**${t('features.coding.page.a')}** ${a}`)), opts.writer ?? PANEL)
   await patchTask(taskId, { state: 'idle', question: null, answers: [...(local.answers ?? []), { q, a, stageId: ctx.stage.id }], runNow: true })
-  nudge()
+  nudgeTask(taskId)
 }
 
 /** Run now / Retry: the worker takes the task in its stage once, also when the stage is not automatic. */
 export async function runTaskNow(taskId: ID, opts: ActOpts = {}): Promise<void> {
   if (opts.confirm !== false) await trustTask(taskId)
+  if (taskLocal(taskId).execution === 'one') {
+    const { runOneAnalysis } = await import('./oneAnalysis')
+    void runOneAnalysis(taskId, true)
+    return
+  }
   await patchTask(taskId, { state: 'idle', error: null, runNow: true, resume: false })
-  nudge()
+  nudgeTask(taskId)
 }
 
 /**
@@ -977,6 +1074,8 @@ export function moveTask(taskId: ID, stageId: ID): void {
 }
 
 export interface NewTask {
+  copilotRole?: import('@/shared/copilot').CopilotChoice
+  agent?: TaskPayload['agent']
   title: string
   repo: string | null
   goal: string
@@ -1057,7 +1156,7 @@ export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 
 export async function createTask(input: NewTask, writer: Writer = PANEL): Promise<ID> {
   const id = withWriter(writer, () => createTaskRow(input))
   await trustTask(id)
-  await patchTask(id, { approvals: defaultApprovals() })
+  await patchTask(id, { approvals: defaultApprovals(), ...(input.copilotRole ? { copilotRole: input.copilotRole } : {}) })
   nudge()
   return id
 }
@@ -1071,6 +1170,17 @@ function createTaskRow(input: NewTask): ID {
   const pipeline = readPipeline(db)
   const start = startStageOf(pipeline, !!input.repo, input.start)
   const properties: Record<ID, PropertyValue> = {}
+  if (input.agent) {
+    let property = codingAgentProperty(db)
+    if (!property && db.locked) throw new Error(t('features.coding.order.settings.locked'))
+    if (!property) { property = agentProperty(); ws().addProperty(dbId, property) }
+    if (!property.options?.some(o => o.id === `coding_agent_${input.agent}`)) {
+      if (db.locked) throw new Error(t('features.coding.agent.locked'))
+      const added = agentProperty().options!.find(o => o.id === `coding_agent_${input.agent}`)!
+      ws().updateProperty(dbId, property.id, { options: [...(property.options ?? []), added] })
+    }
+    properties[property.id] = `coding_agent_${input.agent}`
+  }
   const repoOpt = input.repo ? optionByName(db, props.repo, input.repo) : null
   if (props.repo && repoOpt) properties[props.repo] = repoOpt
   if (props.stage && start) properties[props.stage] = start.id
@@ -1371,6 +1481,7 @@ export async function setTaskModel(taskId: ID, model: string | null): Promise<vo
 // added stay — P1 invariant 5; a follow-up's copied tasks are new tasks)
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   ;(window as unknown as { __oneCodingWrites?: unknown }).__oneCodingWrites = {
+    next: pickNext,
     create: (title: string, kind: PipelineKind = 'coding', repo: string | null = null) => createTask({ title, repo, goal: 'A goal.', criteria: [], priority: 'medium', branch: '', start: false, kind }),
     // work orders B3: the parked-start guard over these task ids (null: none) · the chain roles on a project
     parked: (ids: ID[] | null) => setParkedGuard(ids ? (id) => ids.includes(id) : null),

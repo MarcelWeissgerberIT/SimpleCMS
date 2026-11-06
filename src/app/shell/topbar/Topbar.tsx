@@ -1,9 +1,10 @@
+import { InstallTopbarButton } from '../capture/Install.tsx'
 import { useState } from 'react'
 import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MessageSquare, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CalendarRange, CircleSlash, Inbox, Bell, Bot, SquareCode, Compass, GitBranch, Blocks, Send, type LucideIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { useBreadcrumbs, usePage } from '../../store/selectors'
-import type { Route } from '../../lib/router'
+import { useDisplayBreadcrumbs, usePage } from '../../store/selectors'
+import { goBack, useCanGoBack, type Route } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
 import { Tooltip } from '../../ui/Tooltip'
 import { Led, shortcutLabel } from '../../ui/controls'
@@ -17,6 +18,7 @@ import { revealMain, useStageView } from '../lib/stage'
 import { PageMenu } from './PageMenu'
 import { PresenceStack } from '../cloud/Presence'
 import { useCloudReadout, ViewOnlyTag } from '../cloud/Sync'
+import { CheckoutMode } from '../cloud/Checkout'
 import { useReadOnly } from '../cloud/state'
 import { MasterCautionKey, PatchbayReturnChip } from '../../features'
 import { toggleStar } from '../lib/favorites'
@@ -25,6 +27,7 @@ import './topbar.css'
 export function Topbar({ route }: { route: Route }) {
   const t = useT()
   const mobile = useIsMobile()
+  const canGoBack = useCanGoBack()
   const collapsed = useWorkspace((s) => s.settings.sidebarCollapsed)
   // with stacked panes open, the bar acts on the column you are working in
   const paneId = useStageView((s) => s.activePaneId)
@@ -49,6 +52,12 @@ export function Topbar({ route }: { route: Route }) {
           </Tooltip>
         )
       )}
+      <Tooltip label={t('shell.topbar.back')}>
+        <button type="button" className="tb-nav-back" aria-label={t('shell.topbar.back')} disabled={!canGoBack} onClick={goBack}>
+          <ArrowLeft size={16} strokeWidth={1.7} aria-hidden />
+          {!mobile && <span>{t('shell.topbar.back')}</span>}
+        </button>
+      </Tooltip>
       {paneId && mainFolded && (
         <Tooltip label={t('shell.topbar.backToMain')}>
           <button type="button" className="tb-back" onClick={revealMain}>
@@ -66,11 +75,13 @@ export function Topbar({ route }: { route: Route }) {
         {page ? <Crumbs page={page} compact={mobile} /> : <RouteCrumb route={route} />}
       </nav>
       <div className="tb-right">
+        <InstallTopbarButton compact={mobile} />
         {/* the Patchbay's way back to its setup: only while a setup step left #/patchbay — never shed */}
         <PatchbayReturnChip />
         {/* Preflight: MASTER CAUTION on every route (nothing while Preflight is off) */}
         <MasterCautionKey />
         <PresenceStack pageId={route.name === 'page' ? route.id : null} max={mobile ? 2 : 4} />
+        <CheckoutMode />
         <ViewOnlyTag />
         <SaveLed />
         {page && !page.trashed && <PageActions page={page} mobile={mobile} />}
@@ -84,6 +95,7 @@ function RouteCrumb({ route }: { route: Route }) {
   // routes rendered outside the workspace (share, forms …) never reach this crumb
   const map: Partial<Record<Route['name'], readonly [LucideIcon, string]>> = {
     home: [Home, t('shell.nav.home')],
+    'personal-guides': [Home, t('shell.nav.personalGuides')],
     graph: [Waypoints, t('shell.nav.graph')],
     journal: [CalendarDays, t('shell.nav.today')],
     agenda: [CalendarRange, t('shell.nav.agenda')],
@@ -110,7 +122,7 @@ function RouteCrumb({ route }: { route: Route }) {
 
 function Crumbs({ page, compact }: { page: Page; compact: boolean }) {
   const t = useT()
-  const chain = useBreadcrumbs(page.id)
+  const chain = useDisplayBreadcrumbs(page.id)
   const menu = useMenu()
   const readOnly = useReadOnly()
   const items = compact ? chain.slice(-1) : chain

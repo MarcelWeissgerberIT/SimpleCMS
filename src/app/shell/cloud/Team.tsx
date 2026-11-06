@@ -12,6 +12,7 @@ import { errorText } from './errors'
 import { Avatar } from './Avatar'
 import { ApiSection } from './ApiSection'
 import { Invites } from './Invites'
+import { WelcomeEditor } from './Welcome'
 import { canAdmin, roleLabel, useWorkspaceTitle } from './state'
 import './cloud.css'
 
@@ -111,9 +112,10 @@ export function TeamInvites({ team }: { team: TeamData }) {
   const t = useT()
   // opened from the Share dialog / the workspace menu: go straight to the invite form
   const [wantInviteForm] = useState(() => consumeInviteSettingsRequest())
+  const welcome = useCloud(s=>s.supports?.includes('welcome:1'))
   if (!team.wsId) return null
   if (!team.admin) return <p className="tm-empty">{t('shell.cloud.team.adminOnly')}</p>
-  return <Invites wsId={team.wsId} invites={team.invites} setInvites={team.setInvites} reload={team.reload} focusForm={wantInviteForm && (team.members !== null || team.loadError !== null)} />
+  return <><Invites wsId={team.wsId} invites={team.invites} setInvites={team.setInvites} reload={team.reload} focusForm={wantInviteForm && (team.members !== null || team.loadError !== null)} />{welcome&&<WelcomeEditor key={team.wsId} wsId={team.wsId}/>}</>
 }
 
 export { ApiSection as TeamApi }
@@ -273,16 +275,17 @@ function Members({
     }
   }
 
-  const changeRole = (m: Member, role: Role) =>
+  const guests = useCloud(s=>s.supports?.includes('guests:1'))
+  const changeRole = (m: Member, role: Role, guest = false) =>
     run(m.user.id, async () => {
-      await cloudApi.setMemberRole(wsId, m.user.id, role)
+      await cloudApi.setMemberRole(wsId, m.user.id, role, ...(guests ? [guest] as const : []))
       if (role === 'owner') {
         // the old owner becomes an admin (docs/CLOUD.md)
-        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role } : x.role === 'owner' ? { ...x, role: 'admin' } : x))))
+        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role, guest } : x.role === 'owner' ? { ...x, role: 'admin' } : x))))
         toast({ message: t('shell.cloud.team.transferred', { name: nameOf(m) }), kind: 'success' })
       } else {
-        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role } : x))))
-        toast({ message: t('shell.cloud.team.roleChanged', { name: nameOf(m), role: roleLabel(t, role) }), kind: 'success' })
+        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role, guest } : x))))
+        toast({ message: t('shell.cloud.team.roleChanged', { name: nameOf(m), role: roleLabel(t, role, guest) }), kind: 'success' })
       }
     })
 
@@ -326,18 +329,25 @@ function Members({
                 )}
               </span>
               {aside?.(m.user.id)}
+              {m.participationUntil && <span className="tm-row__meta">{lang === 'de' ? 'Mitmachrechte bis ' : 'Participation until '}{new Date(m.participationUntil).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB')}{lang === 'de' ? ' · danach Gast, nur lesen' : ' · then guest, read only'}</span>}
             </div>
             <div className="tm-row__ctl">
+              {editable && m.guest && <button className="btn btn--sm" disabled={busy} onClick={() => void run(m.user.id, async () => {
+                const end = new Date(); end.setDate(end.getDate() + 1); end.setHours(23,59,59,999)
+                await cloudApi.cloudRequest('PUT', `api/workspaces/${encodeURIComponent(wsId)}/guest-participation`, { emails: [m.user.email], expiresAt: m.participationUntil ? null : end.getTime() })
+                setMembers(await cloudApi.listMembers(wsId))
+              })}>{m.participationUntil ? (lang === 'de' ? 'Mitmachrechte beenden' : 'End participation') : (lang === 'de' ? 'Mitmachen bis morgen · Worker & Aufgaben' : 'Participate until tomorrow · worker & tasks')}</button>}
               {editable ? (
                 <select
                   className="input"
-                  value={m.role}
+                  value={m.guest?'guest':m.role}
                   aria-label={t('shell.cloud.team.roleOf', { name })}
                   disabled={busy}
                   onChange={(e) => {
-                    const role = e.target.value as Role
+                    const access = e.target.value
+                    const role = access === 'guest' ? 'viewer' : access as Role
                     if (role === 'owner') setPending({ kind: 'transfer', userId: m.user.id })
-                    else void changeRole(m, role)
+                    else void changeRole(m, role, access==='guest')
                   }}
                 >
                   {(['admin', 'member', 'viewer'] as Role[]).map((r) => (
@@ -345,11 +355,12 @@ function Members({
                       {roleLabel(t, r)}
                     </option>
                   ))}
+                  {guests && <option value="guest">{roleLabel(t,'viewer',true)}</option>}
                   {myRole === 'owner' && <option value="owner">{t('shell.cloud.team.transfer')}</option>}
                 </select>
               ) : (
                 <span className="cl-role" data-role={m.role}>
-                  {roleLabel(t, m.role)}
+                  {roleLabel(t, m.role, !!m.guest)}
                 </span>
               )}
               {editable && (

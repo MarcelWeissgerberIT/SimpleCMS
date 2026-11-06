@@ -9,6 +9,15 @@ summary: Space on an empty line, or Ask AI on a selection — the AI writes, edi
 ---
 The menu starts with the prompt: ask in your own words and press <kbd>Enter</kbd>. Below it, the actions used most for what you opened it on — text, several blocks, an image, a file or an empty line; **Translate**, **Transform into…** and **More…** open a submenu (<kbd>→</kbd>, back with <kbd>←</kbd> or <kbd>Backspace</kbd>). **More…** holds everything else. Typing searches every action, wherever it sits.
 
+## Fill existing table cells — with any supported text model
+Click inside a normal page table, including one inside a workshop plate, then choose **Fill existing cells with AI** (the sparkle key in the table toolbar). Choose the exact cells, or **Select empty cells**, and enter the task with its source notes. The provider and model controls apply to this request only. This works with configured Claude, OpenRouter, Local Ollama (including a shared workspace model), Ollama Cloud, MiniMax, Codex and Copilot text routes; the route must allow this page’s data.
+
+**Propose values** sends the current table values and the chosen cell addresses. Other page text stays here unless you enable **Include the page context approved for AI**; context marks still apply. This action attaches no MCP tools, memory or web research. Paste the relevant Atlas excerpt as source notes when needed. The model is asked to leave unsupported facts open; check its suggestions against the sources yourself.
+
+Nothing is written until you review **Before → Suggestion** per cell, select changes and press **Apply selected changes**. ONE applies literal text to those existing cells, preserving the table structure, merged cells, cell and paragraph attributes, the surrounding plate, and all other inputs. A version is saved first; one undo restores the batch. If a target or table structure changed meanwhile, the proposal is refused. Concurrent changes in other cells are retained.
+
+Up to 30 text cells per request, 4,000 characters per value and 18,000 characters of combined prompt data. Cells with embedded images, mentions, tasks or other rich blocks stay manual. Formatting within the replaced value may be replaced by plain text. This action is for **page tables**, not spreadsheet formulas or database properties. Tool-capable Claude, Copilot and local-model agents additionally use `read_tables` → `update_table_cells`; existing-cell edits still wait for review. A text-only shared model supports this cell action. A host with verified function support also offers the browser agent and personal MCP route; see [AI providers](help:ai-providers).
+
 ## Which AI answers
 The menu runs on the provider your rules pick for writing — Claude, or an OpenRouter model if you set it up ([AI providers](help:ai-providers)). The label under the prompt names it; click it (or <kbd>Tab</kbd> to it) to pick another model for this request. Data the rules keep from that provider never goes out — the menu says so and offers **Change rule**.
 
@@ -100,6 +109,16 @@ Entries marked **LOCAL** never leave the device. The file goes to Anthropic only
 A request keeps going when you close the panel, click in the sidebar or open another page — only **Stop** and **Discard** end it. The page shows it at its foot (**AI · Writing…**, then **AI result ready · View**), the sidebar marks the page with a dot, and a toast with **Open** tells you when a result is ready elsewhere. If the text changed meanwhile, One finds it again; when it is gone, **Replace** is off and **Insert below** goes to the end of the page. Results wait on this device (also after a reload) until you accept or discard them — for 7 days at most, never synced.
 
 ## ⌘K, then ?
-Type `?` in the command palette to ask Claude about the open page. Append the answer to the page, make it a new page, or copy it.
+Type `?` in the command palette to ask the selected model about the open page. Append the answer to the page, make it a new page, or copy it.
 
-> Requests go from your browser to Anthropic with your key. MCP servers you added can join free-form requests — see [MCP servers](help:mcp-servers).
+> Requests go from your browser to the selected provider with your key. MCP servers can join supported free-form requests through Claude — see [MCP servers](help:mcp-servers).
+
+## Choose provider before model
+
+The AI menu, palette questions (**Mod+K → ?**) and **Help → Ask** show a separate provider control before the model. Choosing an available provider selects its first usable route for this request and opens that provider’s model list. Choose a specific model there. The ordinary model button or **Alt+M** searches across providers; **Models from provider** narrows the list. Choosing sends no request and changes no default. **Default on this device** restores the configured route; the explicit default buttons still save device rules. Missing keys, data rules and required capabilities can disable a provider or model. With a connected worker version 1.21 or newer, local Ollama models, Ollama Cloud, MiniMax and Codex also support text requests here. Load models and explicitly configure data rules in **Settings → AI → Models on the worker**. Credentials remain on the worker. Images, PDFs and structured tool runs still require a capable model; Coding keeps its own agent selection.
+
+A provider explicitly chosen for a request is never silently replaced by another provider. If an action needs capabilities that this route does not support, One stops and lets you choose a suitable model.
+
+## Costs in euros
+
+Choose USD or EUR under **Settings → AI → Cost display**. On your click, One loads the [ECB reference rate](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html) and shows its date; a manual rate is also supported. Conversion is for orientation, excluding tax and bank fees. Ledgers, budget limits and price inputs stay USD. Display applies to every metered provider, including coding. Missing prices stay unknown; Ollama Cloud and Codex subscriptions are not free individual requests. Local API inference costs zero, excluding electricity and hardware.

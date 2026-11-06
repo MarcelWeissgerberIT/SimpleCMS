@@ -104,7 +104,8 @@ export function fileRoutes(s: Services) {
     if (!row || (row.private_to !== null && row.private_to !== auth.user.id)) throw notFound('file_not_found', 'File not found')
     const etag = `"${row.sha256}"`
     const headers: Record<string, string> = {
-      'Cache-Control': 'private, max-age=31536000, immutable',
+      'Cache-Control': auth.testAccess ? 'no-store' : 'private, max-age=31536000, immutable',
+      Vary: 'Cookie',
       ETag: etag,
       'X-Content-Type-Options': 'nosniff',
       'Cross-Origin-Resource-Policy': 'same-origin',

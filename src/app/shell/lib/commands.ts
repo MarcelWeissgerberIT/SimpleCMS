@@ -114,6 +114,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'agent', group: 'claude', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
     // the Regler: usage, the red line, consumers and receipts of this device (#/regler)
     { id: 'regler', group: 'workspace', label: t('features.governor.cmd'), icon: CircleGauge, keywords: t('features.governor.cmdKeywords'), run: () => openRegler() },
+    { id: 'compiled-programs', group: 'workspace', label: t('features.ai.program.database'), icon: Table2, keywords: 'kompilate kompilierte aufträge compiled programs database replay restart wiederholen datenbank meine privat', run: () => { closeMobileSidebar(); navigate({name:'programs'}) } },
     // the flight recorder: always there (viewers read the tape too)
     { id: 'rewind', group: 'workspace', label: t('features.recorder.cmd'), icon: Rewind, shortcut: REWIND_SHORTCUT, keywords: t('features.recorder.cmdKeywords'), run: () => { closeMobileSidebar(); openRecorder() } },
     { id: 'discover', group: 'start', label: t('shell.discover.cmd'), icon: Compass, keywords: 'discover features overview what can one do capabilities getting started entdecken funktionen überblick was kann einstieg', run: () => { closeMobileSidebar(); navigate('#/discover') } },

@@ -704,6 +704,6 @@ export function seedWorkspace(lang: Lang): void {
   order.forEach((id, idx) => s.updatePage(id, { order: idx + 1 }))
   s.toggleFavorite(welcome)
   s.toggleFavorite(projects)
-  s.updateSettings({ startPageId: welcome, userName: '' })
+  s.updateSettings({ startPageId: welcome })
   void me
 }

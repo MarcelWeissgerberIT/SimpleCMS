@@ -93,7 +93,7 @@ export interface AgentAIFields {
   routeSig?: string
 }
 
-const ROUTE_KEY_RE = /^(anthropic|openai|openrouter):(.+)$/
+const ROUTE_KEY_RE = /^(anthropic|openai|openrouter|local|ollama|minimax|codex|copilot):(.+)$/
 const SIG_RE = /^[A-Za-z0-9:_-]{1,128}$/
 
 /** Is this a 'p:m' of a stored provider with a valid model id? */

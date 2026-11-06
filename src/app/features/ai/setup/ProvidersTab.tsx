@@ -1,3 +1,6 @@
+import {CentralAICard} from './CentralAISettings'
+import {centralAI,centralKeyReady,centralModelAllowed} from '../core/centralAI'
+import { DataFlowSettings } from '../data-flow/DataFlowSettings'
 /**
  * Settings › AI (this device, UX § 5.7): "Set up AI …"; compact provider plates (state, key marker, the free check —
  * no text sent —, Change key, Remove … with its impact list; OpenRouter: its key's limit from /key, "Set a limit ↗",
@@ -9,10 +12,10 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
-import type { FeatureClass, MemberClass, ProviderId, RouteRule } from '@/shared/ai/types'
+import type { FeatureClass, MemberClass, ProviderId, Route, RouteRule } from '@/shared/ai/types'
 import { presetOf } from '@/shared/ai/policy'
 import { MODELS } from '@/shared/ai/models'
-import { PROVIDER_ORDER, PROVIDERS, providerInfo } from '@/shared/ai/providers'
+import { PROVIDER_ORDER, PROVIDERS, providerInfo, isWorkerProvider } from '@/shared/ai/providers'
 import { JEV_ROUTER, JEV_TIERS } from '@/shared/ai/jev'
 import { OWNER } from '@/shared/ai/owner'
 import { routeKey } from '@/shared/ai/route'
@@ -28,6 +31,7 @@ import { routable } from '../core/routable'
 import { labelFor } from '../core/registry'
 import { McpServers } from '../mcp-servers/McpServers'
 import { LocalCoder } from '../local-coder/LocalCoder'
+import { OllamaCloudSettings } from '../../coding'
 import { MemorySettings } from '../memory'
 import { ledgerTotals, type LedgerTotal } from '../../governor'
 import { DeviceBrake } from '../../governor/ui/DeviceBrake'
@@ -40,6 +44,10 @@ import { helpFor } from './errors'
 import { Rich } from './AINeedsSetup'
 import { GateSetting } from '../decide/ui/GateRow'
 import { isJevModel } from '@/shared/ai/jev'
+import { WorkerModelsSettings } from './WorkerModelsSettings'
+import { listedWorkerModelRows, workerModelInfo, useWorkerModels } from '../core/workerModels'
+import { FrankfurtModelCard } from './FrankfurtModelCard'
+import { CostSettings } from './CostSettings'
 import './plates.css'
 import './settings.css'
 
@@ -65,7 +73,8 @@ const ROWS: Array<{ id: string; classes: FeatureClass[] }> = [
   { id: 'agents', classes: ['agents'] },
   { id: 'scripts', classes: ['scripts'] },
   { id: 'help', classes: ['help'] },
-  { id: 'mcp', classes: ['mcp-setup', 'generate'] },
+  { id: 'mcp', classes: ['mcp-setup'] },
+  { id: 'media', classes: ['generate'] },
 ]
 // 'review' is a slice of its own (S6); 'gate' (slice SJ) has its own row below: Jev versions only, starts off
 
@@ -100,10 +109,15 @@ export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memo
           {t('features.ai.prov.tab.setup')}
         </button>
       </div>
+      <CentralAICard />
+      <FrankfurtModelCard />
+      <CostSettings />
       <Plates />
-      <LocalCoder />
+      <OllamaCloudSettings />
+      <WorkerModelsSettings />
       <DeviceRows />
       <DataLines />
+      <section className="aip__section"><DataFlowSettings /></section>
       <OwnData />
       <Usage />
       <div ref={limitRef} data-section="limit" tabIndex={-1} aria-label={t('features.governor.device.title')}>
@@ -139,7 +153,7 @@ function Plates() {
   const list = settings.ai?.models ?? NO_ROWS
   return (
     <section className="aip__plates" aria-label={t('features.ai.prov.tab.providers')}>
-      {PLATE_ORDER.map((p) => {
+      {PLATE_ORDER.filter(p=>p!=='anthropic'||!centralAI()?.assigned).map((p) => {
         const has = hasKeyIn(settings, p)
         const c = checks[p]
         const state = plateState(p, { hasKey: has, picked: false, check: c, empty: receivesNothing(p, wsAI, settings.ai) })
@@ -237,20 +251,30 @@ function Plates() {
           </ProviderPlate>
         )
       })}
+      <LocalCoder />
     </section>
   )
 }
 
-/** The routes a device row may pick: Claude's models (a key here), the OpenRouter list and the Jev Router (a key here). */
-function routeOptions(t: ReturnType<typeof useT>, classes: FeatureClass[]): Array<{ value: string; label: string; rule: RouteRule }> {
+/** Device defaults use the same compact worker catalog as the request picker. */
+function routeOptions(t: ReturnType<typeof useT>, classes: FeatureClass[], current?: Route): Array<{ value: string; label: string; rule: RouteRule }> {
   const s = useWorkspace.getState().settings
   const out: Array<{ value: string; label: string; rule: RouteRule }> = []
-  if (hasKeyIn(s, 'anthropic')) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) out.push({ value: routeKey(m.route), label: m.label, rule: [{ p: 'anthropic', m: m.route.m }] })
+  if (centralKeyReady(hasKeyIn(s, 'anthropic'))) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable && centralModelAllowed(m.route.m)) out.push({ value: routeKey(m.route), label: m.label, rule: [{ p: 'anthropic', m: m.route.m }] })
   if (hasKeyIn(s, 'openrouter') && classes.every((c) => routable('openrouter', c))) {
     const list = s.ai?.models ?? []
     for (const r of list) out.push({ value: `openrouter:${r.m}`, label: labelFor({ p: 'openrouter', m: r.m }), rule: [{ p: 'openrouter', m: r.m }] })
     if (OWNER.jevRouter && list.length >= 2)
       for (const tier of JEV_TIERS) out.push({ value: `openrouter:${JEV_ROUTER}#${tier}`, label: t('features.ai.jev.router.row', { tier: t(`features.ai.jev.router.tier.${tier}`) }), rule: [{ p: 'openrouter', m: JEV_ROUTER, effort: tier }] })
+  }
+  const preferred = current ?? s.ai?.routes?.[classes[0]!]?.[0] ?? s.ai?.default?.[0]
+  for (const m of listedWorkerModelRows(preferred)) if (classes.every(c => routable(m.route.p, c))) {
+    out.push({ value: routeKey(m.route), label: labelFor(m.route), rule: [m.route] })
+  }
+  // Keep an older saved profile visible as the current value, without advertising
+  // all retired aliases again or rewriting the person's configuration.
+  if (preferred && isWorkerProvider(preferred.p) && workerModelInfo(preferred) && classes.every(c => routable(preferred.p, c)) && !out.some(o => o.value === routeKey(preferred))) {
+    out.push({ value: routeKey(preferred), label: labelFor(preferred), rule: [preferred] })
   }
   return out
 }
@@ -259,11 +283,12 @@ const valueOf = (rule: RouteRule | undefined | null): string => (rule?.[0] ? `${
 
 function DeviceRows() {
   const t = useT()
+  useWorkerModels()
   const device = useWorkspace((s) => s.settings.ai)
   // the options follow the keys and the list of this device
   useWorkspace((s) => [s.settings.aiApiKey, s.settings.aiKeys?.openrouter ?? '', s.settings.ai?.models?.length ?? 0].join('|'))
   const orKey = useWorkspace((s) => hasKeyIn(s.settings, 'openrouter'))
-  const def = routeOptions(t, ['write'])
+  const def = routeOptions(t, ['write'], device?.default?.[0])
   const set = (classes: FeatureClass[], v: string, opts: Array<{ value: string; rule: RouteRule }>) => {
     const rule = v ? (opts.find((o) => o.value === v)?.rule ?? null) : null
     for (const c of classes) setDeviceRule(c, rule)
@@ -295,7 +320,7 @@ function DeviceRows() {
         {ROWS.map((row) => {
           const opts = routeOptions(t, row.classes)
           const later = orKey && !row.classes.every((c) => routable('openrouter', c))
-          const label = row.id === 'ask' ? t('features.ai.prov.tab.ask') : row.id === 'mcp' ? t('features.ai.prov.tab.mcpRow') : t(`features.ai.prov.class.${row.id}`)
+          const label = row.id === 'ask' ? t('features.ai.prov.tab.ask') : row.id === 'mcp' ? t('features.ai.prov.tab.mcpRow') : row.id === 'media' ? t('features.ai.prov.tab.mediaRow') : t(`features.ai.prov.class.${row.id}`)
           return (
             <label key={row.id} className="aip__row" data-row={row.id}>
               <span className="aip__work">
@@ -384,7 +409,7 @@ function Usage() {
       alive = false
     }
   }, [])
-  const usd = (r?: LedgerTotal) => fmtUsd(r?.usd ?? 0, lang)
+  const usd = (r?: LedgerTotal) => r?.unpriced ? `${r.requests > r.unpriced ? fmtUsd(r.usd, lang) + ' + ' : ''}${t('features.ai.receipt.unknown')}` : fmtUsd(r?.usd ?? 0, lang)
   return (
     <section className="aip__usage" aria-labelledby="aip-usage" data-testid="settings-usage">
       <h4 className="aip__h" id="aip-usage">
@@ -411,9 +436,9 @@ function McpProviders() {
   return (
     <p className="aip__mcp" data-testid="mcp-providers">
       <span className="label">{t('features.ai.prov.mcp.label')}</span>
-      {PLATE_ORDER.map((p) => (
+      {[...PLATE_ORDER, 'copilot' as const, 'local' as const].map((p) => (
         <span key={p} className="aip__mcpcell">
-          <b>{providerInfo(p).name}</b> {p === 'anthropic' ? t('features.ai.prov.mcp.yes', { company: providerInfo(p).company }) : p === 'openai' ? t('features.ai.prov.mcp.notYet') : t('features.ai.prov.chip.why.mcp')}
+          <b>{providerInfo(p).name}</b> {p === 'anthropic' ? t('features.ai.prov.mcp.yes', { company: providerInfo(p).company }) : ['copilot','local'].includes(p) ? t('features.ai.prov.mcp.worker') : p === 'openai' ? t('features.ai.prov.mcp.notYet') : t('features.ai.prov.chip.why.mcp')}
         </span>
       ))}
     </p>

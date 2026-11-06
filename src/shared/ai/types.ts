@@ -6,7 +6,7 @@
 import type { AIErrorCode } from './errors.ts'
 
 /** Stored anywhere (routes, rules, the ledger). */
-export type ProviderId = 'anthropic' | 'openai' | 'openrouter'
+export type ProviderId = 'anthropic' | 'openai' | 'openrouter' | 'local' | 'ollama' | 'minimax' | 'codex' | 'copilot'
 /** Runtime only — 'demo' (canned answers) is never stored; sanitizers refuse it. */
 export type RuntimeProviderId = ProviderId | 'demo'
 export type Effort = 'low' | 'medium' | 'high'
@@ -147,6 +147,7 @@ export interface Usage {
 
 export interface StepNote {
   k:
+    | 'data-flow'
     | 'capability'
     | 'policy'
     | 'nokey'
@@ -186,6 +187,7 @@ export type CostSource = 'reported' | 'table' | 'catalogue' | 'estimate' | 'none
 
 /** One response, metered (per device + member, never synced). Ids and numbers only — never page text. */
 export interface LedgerEntry {
+  quantum?: import('../quandprofile/runtime').QuantumProof
   id: string
   at: number
   scope: string
@@ -243,6 +245,12 @@ export interface Restriction {
 
 /** Workspace.ai — synced; team: meta map `workspace`, key `ai`, written by owners / admins only (server guard). */
 export interface WorkspaceAI {
+  /** Optional team landing and credential-free connection template. Each member supplies their own token. */
+  onboarding?: { startPageId: string; mcpUrl: string; mcpName: string; project: string; tenant?: string; skipIntro: boolean }
+  /** Shared inference can receive individually opted-in member context; absent retains the legacy restriction. */
+  sharedMemberContext?: boolean
+  /** Optional explicit destinations; absent: existing rules, with quiet local hints. */
+  dataFlow?: import('./dataFlow.ts').DataFlowRules
   /** the lowest build generation that enforces every stored rule */
   gen?: number
   policy?: {
@@ -268,6 +276,8 @@ export interface ShortlistRow {
 
 /** settings.ai — this device (team: this member on this device); never in defaultSettings(). */
 export interface DeviceAI {
+  /** Personal hint preference; never loosens a workspace destination rule. */
+  dataFlowHints?: boolean
   routes?: Partial<Record<FeatureClass, RouteRule>>
   default?: RouteRule
   fallbackForChosen?: boolean

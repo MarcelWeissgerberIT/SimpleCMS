@@ -16,6 +16,22 @@ One tab (browser) ──ws://127.0.0.1:47322──▶ one-worker.mjs ──▶ g
 Paths and commands never leave your machine. One learns repo **names**, base branches, branch names, git status,
 diffs, logs, test output and cost — nothing else. One can never send a command: only task data and fixed git verbs.
 
+## Managed installation (1.32+)
+
+Existing connections migrate with the plain public installer and `node one-worker-installer.mjs install --from <existing-paired-worker.mjs> [--config <existing-worker.json>]`. The legacy file is read as data: only its validated literal JSON preset line is accepted, never eval/import. Old no-space/semicolon formatting is accepted. No token creation, browser key rotation or account switch is involved. ONE offers this as **Keep the existing connection** while a non-managed worker is connected.
+
+`node <paired-download.mjs> install` installs into `installed-worker` beside the existing configuration, with a private `current.json`, private paired release files, a token-free `start.cjs`, and a workspace-named `.command` (macOS/Linux) or `.cmd` (Windows) starter. A Desktop copy is created only when writable. No root/admin rights, login service or repository/config migration is needed. Windows restricts the installation ACL to the current user and SYSTEM; Unix directories/files use 0700/0600. Use `--no-shortcut` to omit the Desktop copy.
+
+Start using the generated shortcut or `node <installation>/start.cjs`. Commands: `setup`, `status`, `update`, `cancel`, `rollback`. Keep the terminal open. The starter remembers the Node executable used for installation; if that Node installation is removed, reinstall with the new Node executable. Downloads from 1.32+ redirect to an existing installation only when their pairing matches; older pre-1.32 downloads must be retired manually. Re-pairing uses an explicitly stopped worker and `install --replace-pairing`; it clears the previous-release pointer to avoid restoring another account identity.
+
+The supervisor takes an exclusive per-profile lock, owns exactly one worker child and authenticates management over a random loopback port with a private 256-bit control key. A duplicate starter opens the existing setup page. Stale PID files are never used to kill a process; a stale lock is reclaimed only when its process no longer exists. An incomplete lock fails closed. Nothing is exposed on LAN interfaces.
+
+Updates fetch the adjacent `one-worker.release.json` and bundle from the original, pinned HTTPS ONE origin (development: loopback only), no redirects, credentials or worker tokens. Size, SHA-256, bundle marker/version and syntax are checked. The checksum ensures artifact consistency over TLS; this is not an independent code-signing authority. The existing validated preset is injected into the new private release. Updates cannot change identity, configuration path or host flags. No automatic downgrade, update trigger from model tools or task-triggered software execution is provided.
+
+A pending update drains all granted workspaces, in-flight polls, coding/git/text requests, shared model work, imports and setup writes, including result acknowledgments. Permission answers, stop and continuation of an existing ZIP upload remain available. Cancel resumes the old worker. On idle, the supervisor shuts down the old child, starts the candidate and commits the release pointer only after its local listener is ready. Startup failure restores the previous release. A subsequent fatal token revocation is not retried in a restart loop. Rollback affects the executable only, not user configuration/workspace data.
+
+UI: Settings → Coding worker → Fixed installation. Update and New pairing / another device are distinct. Existing pre-1.32 workers need a one-time current download, finish/stop, install and restart. OS behavior is covered by the existing Linux/macOS/Windows CI matrix; local macOS validation does not substitute for a customer Windows end-to-end run.
+
 ## Set up — three steps
 
 **Runs on** macOS, Linux and Windows 10 / 11 (natively from worker 1.9.0 — § Windows); WSL2 works too.
@@ -1463,8 +1479,8 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   restart the worker.
 - **This stage needs a newer coding worker** (or *A newer worker is on the site* on #/coding) — the worker running
   was downloaded before One could hand out this kind of stage (document stages of Business analysis / QA, Static
-  analysis, Post review, Merge, a stage with a model — worker 1.5 or newer). **Download again** (#/coding, or Settings → Coding worker), stop the old worker
-  (Ctrl+C), start the new file — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
+  analysis, Post review, Merge, a stage with a model — worker 1.5 or newer). **Update** in the Fixed installation panel. Pre-1.32 workers need one current download, then finish tasks, stop the old worker
+  (Ctrl+C), install and use the fixed starter instead of repeatedly starting downloaded copies — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
 - **Claude Code was not found** — install it and sign in once interactively, then **Retry** on the task: the worker
   looks for Claude Code again — on the `PATH` it started with and in its native installer's folder
   (`%USERPROFILE%\.local\bin`, `~/.local/bin`) —, and its setup page notices a new install within seconds; no restart
@@ -1516,8 +1532,16 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   over. Download again (and start only the newest file), or ask the workspace admin.
 - **Cloud: tasks do not start** — tasks run only while a One tab of this device is open (any page of the
   workspace). A tab opened in the background waits until you look at it.
-- **Cloud: certificate errors** — a private CA: `NODE_EXTRA_CA_CERTS=/path/ca.pem node one-worker-cloud.mjs`.
-  An outbound HTTPS proxy is not supported: the worker needs a direct connection to the server.
+- **Cloud / Atlas: certificate errors** — worker 1.34.3 automatically includes the operating system's trusted
+  CAs on supported Node.js 22/24 runtimes, keeping the public CAs and existing explicit extra CAs. This also
+  reaches Node child processes. If the company CA is not in the OS store, open the worker's protected local
+  setup page (Change repositories), expand **Company network · TLS certificates**, choose a PEM `.crt`/`.pem`,
+  check its SHA-256 fingerprint with IT and confirm trust. The bundle stays next to this worker profile on
+  the computer, outside the repository, workspace, exports and team server. Finish work, fully stop and
+  restart through the existing starter; no pairing or system-wide certificate change is required. Removal
+  also needs a full restart. Never disable TLS verification or import a private key. The owner-supplied public EH-RootCA03 is offered only for the paired E+H workshop profile, with its checked
+  SHA-256 fingerprint, preview, explicit confirmation and download. It is never automatically trusted.
+  Certificates from repositories, model responses and shared workspace content are never implicitly trusted.
 - **Cloud: the worker logs "has no worker relay"** — the server is older or runs with
   `CODING_RELAY=off`; a self-hosted proxy must pass WebSocket upgrades on `/coding/…` (docs/SELF_HOSTING.md).
 - Logs go to stderr (`ONE_WORKER_QUIET=1` silences them). Chrome logs refused connection attempts in the console
@@ -1526,3 +1550,136 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
 The worker's code: [`mcp/src/worker`](../mcp/src/worker) (bundled with the bridge by `npm run build:mcp` to
 `public/mcp/one-worker.mjs`, committed; `npm --prefix mcp test` runs its tests against temp repos, a local bare remote
 and a fake `CLAUDE_BIN`).
+
+
+## MiniMax coding engine (worker 1.18.0)
+
+The `minimax` agent uses `MiniMax-M3.1-Flash` at the fixed MiniMax HTTPS API endpoint. It runs in the same isolated worktree through `runLocal`'s provider-neutral inference contract: host file policy, configured checks, One task MCP, selected external MCP servers, Atlas shadow-memory scoping, operation journal and bounded-progress checks all remain in the harness. Planning/document stages stay read-only. Quality stages use `finish_task`; the combined-branch QA stage still runs configured tests in the host. No Claude or Codex CLI is required for this adapter.
+
+The worker's loopback setup page stores `minimax.json` beside its config, atomically with mode 0600 on macOS/Linux. The API key never enters the One protocol, workspace, model prompt or MCP child environment. `MINIMAX_API_KEY` in the worker environment overrides the file. Setup responses only return configuration status; saving sends no inference request. Setup's existing Host, Origin and per-start token checks cover the new `POST /setup/api/minimax` route. Changing settings while tasks are active is refused.
+
+Defaults: 131,072 context tokens, high effort, 16,384 output tokens including thinking. Setup also offers 65,536 / 262,144 / 1,000,000 context tokens and low / medium / high / xhigh / max effort. Memory and compaction remain enabled at every size. Selected prompts, code and tool results go to MiniMax's cloud API.
+
+Assistant `reasoning_content`, tool-call IDs and complete assistant/tool groups are preserved across turns. Truncated, malformed, unknown or duplicate tool calls are rejected before any tool in that response executes. Provider requests do not automatically retry. Published token prices (2026-10-19) produce task/day cost estimates, with cached input discounted and thinking counted as output. Before sending, a conservative input/output reservation must fit the remaining budget; uncertain transport outcomes retain that upper estimate. Dollar figures are estimates rather than billing receipts.
+
+Opt-in synthetic smoke comparison, after key setup:
+
+```sh
+node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1
+node one-worker.mjs benchmark --agent local --limit 3
+```
+
+These cases create isolated temporary files, pin the acceptance tests and remove the fixtures afterwards. No real project data or Atlas connection is used by this benchmark. Offline adapter tests also cover the actual One task MCP and an Atlas MCP fixture. Neither fixture tests nor this small benchmark establish frontier-model quality; compare real work packages separately.
+
+## Ollama Cloud
+
+Worker 1.19.0 adds `agent:ollama`, separate from `agent:local`. Choose **Ollama Cloud** per task or delivery role, then open its local setup from One. The password field saves a private `ollama-cloud.json` beside `worker.json` (0600 on macOS/Linux); `OLLAMA_API_KEY` may override it. Blank input keeps the stored key. Remove deletes the file, not an environment override or the provider-side key. Keys never enter One workspace state.
+
+Use a tool-capable API model name from [Ollama cloud models](https://ollama.com/search?c=cloud); initial model: `minimax-m3.1-flash`. Context is a harness budget, not an extension of a model’s supported context. Direct inference uses only `https://ollama.com/v1/chat/completions` with bearer authentication and redirects disabled. No local Ollama daemon is required. Saving does not call the provider; the explicit connection test sends a fixed small prompt.
+
+Selected context and tool results leave this computer. Ollama subscription quotas apply: USD usage is unknown, not zero, so worker dollar budgets cannot meter this tariff. Stage step caps, task permissions, memory, Atlas/MCP scope and host verification remain in force. There is no automatic retry or fallback to a different provider.
+
+
+## Device worker workspace contexts (1.22)
+
+A local paired download is the device host. Its original workspace keeps its existing config and state. Additional workspaces require an explicit hello enrollment (`authorizeWorkspace`: a one-use HMAC-SHA256 proof signed with the host owner key over `[nonce, workspace id, fresh target pair]`; the original key never leaves the browser during enrollment). Origin/Host/subprotocol checks run before enrollment. Refusal carries the public owner workspace id and a target-bound nonce valid for two minutes; at most 128 challenges are retained. Proofs cannot replay or authorize another workspace or pairing key. Knowing a workspace id or a target grant never grants access to another workspace. Cloud relay downloads and unpaired worker.json instances keep their single-workspace behavior.
+
+`worker-workspaces.json` beside worker.json is private device state (0600 where supported), bounded to 32 additional grants and tied to the hash of the owner pairing key. A rotated original download invalidates the grants. The setup page lists names/ids without keys and can revoke a grant, closing that context and stopping its jobs without deleting saved work.
+
+One host WebSocketServer routes the validated hello into an isolated virtual Worker/WorkerLink. Contexts never take over another workspace’s tab, pending requests, events or buffered outcomes. Task MCP uses the same host port and routes each unguessable run token to its owning context. A shared reservation covers polling and manual git operations; repository locks and concurrency apply across all contexts. Daily cost limits use aggregate device spending including archived/revoked contexts, while context status reports its own spending. Revocation or owner-key rotation cannot reset already incurred daily spending.
+
+Additional state, QA journals, memory and scratch live below `workspaces/<sha256(workspace id)[0:24]>/`. Worktree roots and generated branch prefixes are scoped too. Model and MCP credentials always resolve from the original worker.json directory, never the runtime directory. Local task memory includes the workspace id in its scope. Repositories and personal model/MCP settings are shared device configuration; One workspace exports do not contain these grants or keys. A tab must stay available for its own context’s task reads/permissions; completed work buffers only in that context until reconnect.
+
+
+## GitHub Copilot (worker 1.24.0)
+
+Choose `copilot` per coding task or delivery role. Install GitHub Copilot CLI >=1.0.102 on the worker computer and use
+`copilot login` with the participant’s own entitled account. Copilot CLI/model availability and enterprise policy
+are checked on that computer; an editor subscription alone is insufficient. The local setup page saves only a model
+ID (`copilot.json`, 0600), lists available models on explicit Check (no model inference), and supports `auto`.
+`ONE_COPILOT_MODEL` overrides the file; `COPILOT_BIN` locates a CLI outside PATH. Credentials stay in the CLI’s own
+login or supported environment, never One workspace state.
+
+The adapter uses the official SDK stream protocol (`vscode-jsonrpc` framing) with a short-lived CLI process and session
+per inference round. Native tools, discovery, hooks, skills, cross-session store and remote export are off. The model
+returns a bounded JSON function-call envelope; the existing One harness alone reads/edits source, executes configured
+checks, bounds context/memory and MCP calls. No arbitrary shell, commits or pushes are exposed. Personal Atlas tools
+use the task proxy and exact selected allow-list, with read-only stages restricted at the proxy. No Claude installation
+is required when using those selected personal connections. The checkout can remain on internal Git; selected context
+still travels to the Copilot service. Worker 1.25.0 also registers Copilot in the shared AI route system; coding engine choices remain independent.
+
+Copilot subscription usage has no USD receipt; do not invent a zero price or claim dollar budgets meter this tariff.
+Step/time bounds and verification remain in force. `agent:copilot` prevents older workers from taking the task.
+Protocol and transport reference: https://github.com/github/copilot-sdk/tree/main/nodejs/src
+CLI reference: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+
+
+Copilot workspace provider (`copilot-chat`, policy generation `GEN.copilot`): text/JSON requests use the authenticated
+worker link and SDK transport with native CLI tools off. The worker compiles JSON schemas using the existing MCP SDK
+validator; it never executes model-returned browser functions. Browser loops stage scoped One changes via the existing
+StageApi and stop on repetition, tool/round/time/context bounds. The model-mcp operation only accepts explicit public
+HTTPS connection descriptors, no processes or extra headers; exact allow/deny lists and input schemas are enforced
+again at the worker before a call. Selected MCP credentials remain on that path and are redacted from results.
+The team relay carries these frames end-to-end encrypted. Disconnect/Stop abort both inference and MCP requests.
+Worker 1.26.0 adds `copilot-media`: only account-advertised vision models receive selected images as SDK blob
+attachments (no filesystem paths, URLs, argv payloads or prompt-embedded base64). The browser validates capability
+metadata; the worker independently checks fresh account capabilities, MIME signatures, canonical base64, count and
+size (four images / 3 MiB total at most; stricter model limits win). Each image reserves 4096 context tokens.
+PDF text is extracted in the browser using the existing PDF.js worker (no document scripts, system fonts or OCR), bounded to
+100 pages / 120000 characters. Scans and clipped documents fail before inference. The UI and prompt explicitly
+disclose that figures/layout are omitted. Images and PDF text also work in the terminal/browser-agent converter.
+Native PDF visual inspection, media generation, Jev decision models and browser-free server agents remain unsupported.
+`auto` is sent explicitly to the CLI rather than accidentally using a configured native default. The account model
+catalog is authoritative, including Free accounts with only `auto`; do not invent extra model IDs or subscription prices.
+
+## Source review and active knowledge (worker 1.28.0)
+The harness opens access to permitted context and tools; it is not a domain decision-maker. A shared review rule is
+injected into browser/terminal agents, server agents, the work-order planner and every worker coding prompt. Models
+actively analyse inconsistencies, group related findings and propose next steps. Product decisions and acceptance stay
+with people. Existing read-only, staged-change, hand-only-property and permission boundaries remain authoritative.
+
+`check_finding` checks exact quotations against bounded observations of `read_page` / `read_file`. Native coding clients
+use the task-scoped read-only MCP tools `one_task_source` and `one_task_check_finding`. The worker checks relative paths
+with LocalFiles' existing traversal/symlink/credential restrictions. Task reads and non-credential personal MCP outputs
+also receive receipts. Each receipt names its `checkWith` tool. No arbitrary URL is fetched; model notes and memory
+recalls cannot mint source evidence. Receipts are ephemeral and limited to 24 excerpts. Unknown receipts, unmatched
+quotations and duplicated identical citations cannot support a pair. The result always leaves semantic conflict
+unverified and team decision open: a quotation is neither current source authority nor proof of a contradiction.
+Instructions require this check, but free-form reports are not a schema-enforced guarantee of truthful model claims.
+
+The common local coding adapter also offers `memory_knowledge`: source-backed findings, constraints, open questions
+and references to documented human decisions, each with a recall trigger. The host checks the source quotation before
+recording the note. Notes never become new approvals. Local checkpoints persist before an immediate authorized private
+Atlas checkpoint attempt. Duplicate knowledge is not saved twice; at most three Atlas checkpoint writes occur per run.
+Failures stop further automatic sync attempts and retain local state; missing permission/connection or a write limit is
+reported as ATLAS PENDING. Atlas summaries are bounded; full local notes remain addressable. Read-only stages do not
+write Atlas. Native CLI and browser/server agents use explicitly granted Atlas tools under the same knowledge policy;
+they do not acquire the local adapter's automatic checkpoint transport. Existing workers need updating and a new run.
+
+### Workspace local model sharing (worker 1.29.0)
+`model-share-status` / `model-share-config` travel only over the owner's existing private paired link. A cloud worker can offer one installed **local** model to its token-bound workspace. `SharedModelHost` polls outbound HTTPS; no LAN Ollama listener is opened. The server derives workspace and owner from the worker token. Configuration is metadata-only in migration 16; owner/admin revoke is durable and heartbeat cannot re-enable it. Revoked/replaced worker tokens and lost memberships fail closed. A second workspace needs a separately paired host/explicit grant.
+
+`GET /api/workspaces/:id/model-shares` lists admitted shares for member+ callers (viewers/guests excluded). Text-only routes use reserved `local:one-shared/<worker-id>` ids. Member POST queues AES-GCM ciphertext with a fresh RSA-OAEP-wrapped per-request key; AAD binds workspace host id and random job UUID. RSA private key is process-local, rotates at restart. Team server distributes public keys and web application, so this is relay-content confidentiality, not protection from a compromised server/application or host. `POST /api/coding/shared-model/poll` authenticates the hosting worker bearer token, no browser Origin accepted, and claims one FIFO job at a time. It cannot invoke existing task, shell or MCP verbs. The selected local model is checked again before inference; cloud aliases are rejected.
+
+Capacity: 12 active jobs per share, 2 per member/workspace, 500 retained jobs total, 30 submissions/member/minute. 22 KB plain input, 4,096 output tokens, 8 min wait / 3 min host inference; 4 min server execution deadline. Heartbeat lease 15s. No retry/fallback. Server sweeps every 30s; payloads/results are memory-only and removed on completion consumption, cancellation or 2 min after terminal state. Reconnect with another process key invalidates queued/in-flight ciphertext. A restart or deployment can lose the ephemeral queue, which is reported as failure rather than silently re-executed. Polling detects cancellation and aborts active inference. Existing personal tasks take priority before another shared job starts. Sleep/offline makes the route unavailable.
+
+`compare-demo` repairs two bounded synthetic demo source files using identical plain-text prompts. Default transport is local Ollama plus personally authenticated Copilot CLI. Existing source/tests are read from the specified local demo checkout (report records HEAD); modifications in that checkout are part of the input hashes. Generated replacements go only to temporary exercise folders, never the original repo; tests are unchanged. This is not an OS sandbox or full agent benchmark. `DemoCompletion` callbacks permit the same comparison through the shared queue. No Atlas/customer project mutation is needed.
+
+For a dedicated host with no repository access, run the paired cloud download with `--model-host`. This runtime mode discards configured repositories, opens no repository setup and performs no home-folder scan. Shared model configuration remains available through the owner’s private paired connection.
+
+### Guided personal first start
+Pages with a valid `settings.firstStart` display a five-step first start: paired worker (at least 1.34.3), prompt-free Copilot CLI/model discovery, personal Atlas identity + configured record read, a worker-reported repository, and a suggested BA task. Each step has an explicit diagnostic action. Navigation and selected IDs are device-local and scoped to account/workspace. Read proofs are memory-only, expire after 15 minutes and bind to connection, worker and relevant policy state; changing account, workspace or connection requires a new check. No onboarding success is inferred from a model statement.
+
+The final action creates a private `spec` project and task through the normal pipeline API, with a manual `doc` read stage, a mandatory human gate, and a nonautomatic done stage. No implementation, git stage or follow-up exists. Creation waits for the cloud binding's private-page reflection before selecting the project, preventing fallback to another pipeline. Preparation sends no model request. The separate start press grants the selected personal Atlas read connection to this task in the current session and uses the existing worker/harness/run receipts. A report is ready only with a successful Copilot stage receipt and actual document output. Product acceptance stays on the task page. Reference content remains available in the collapsed guide.
+
+## Document analysis directly in One (2026-11-06)
+
+Business-analysis and QA document pipelines without a local repository can select **One model · no worker** in the task panel. Choose an available API model there and press **Run now**. The browser reads the task and its permitted linked pages, can use the personally configured Atlas read tools, and saves each stage document through the normal task history. Gate approval/rework and automatic subsequent document stages use the same execution mode. Keep the tab open while the run executes.
+
+This mode permits only queue/document/gate/done pipelines; local analysis commands, repository edits, builds, tests, Git operations and story-project generation continue to require the worker. Document test-case output describes tests; it does not execute them or establish delivery QA evidence. Pipeline step limits, model data rules, context marks, personal MCP access and existing gate settings still apply. Run state and the execution/model selection are device-local; saved stage documents sync with the task.
+
+A task lock prevents duplicate starts in this browser; the shared task claim is renewed during model execution. Stop, workspace changes, edited tasks/sources, missing task reads and incomplete responses do not advance the stage. Available partial text remains in the device log for review. The ordinary worker execution remains selectable and excludes tasks explicitly assigned to the One model.
+
+Document stages bind a host-owned `document` source policy: an actual current source read is mandatory, and the caller additionally requires a complete task-page read. A configured Atlas connection remains available but does not by itself require a fresh external read in every stage. The compiler field `requires_atlas_sources` is optional; absent preserves the previous Atlas requirement for other task kinds and saved contracts. Explicit review-profile source bindings remain enforced. The stage log names observed One pages and counts actual Atlas reads; these observations are not inferred from model prose. A failed specification can be retried without repeating the completed analysis.
+
+Source snapshots compare schema-normalized content identities, so editor-assigned block IDs cannot invalidate an unchanged source. Titles, content, source visibility and non-claim task fields remain bound.

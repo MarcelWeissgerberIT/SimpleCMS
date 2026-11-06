@@ -1,3 +1,4 @@
+import { useContentLanguage } from '../../lib/contentLanguage'
 /**
  * ⌘K's find mode: the query, its chips (complete filters), the filtered pages, the search hits and the
  * suggestions for the token being typed. The work per key is a filter pass over the search index's
@@ -58,7 +59,8 @@ export function useFind(initial: string): Find {
   const lang = useWorkspace((s) => s.settings.language)
   // one "now" per opening: date filters and the formula cache stay put while typing
   const [now] = useState(() => Date.now())
-  const index = useMemo(() => buildIndex(pages), [pages])
+  const { lang: contentLang } = useContentLanguage()
+  const index = useMemo(() => buildIndex(pages, contentLang), [pages, contentLang])
   const fx = useMemo(() => filterIndexOf(index.pages, databases), [index, databases])
   const env = useMemo(() => filterEnv({ pages, databases, people, lang, agents }, now), [pages, databases, people, lang, agents, now])
   const vocab = useMemo<QueryVocab>(() => ({ isProp: (k) => propsForKey(fx, k).length > 0 }), [fx])

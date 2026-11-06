@@ -699,6 +699,31 @@ test.describe('the work order plate (B8)', () => {
     await page.keyboard.press('Escape')
     await expect(plate.getByTestId('order-lamp-context')).not.toContainText('wissensbasis')
   })
+  test('QA repair opt-in is stored, explained and fits both themes on desktop and phone', async ({ page }) => {
+    await mockClaudeScript(page.context(), [], { fallback: answer({ plan: noContext() }) })
+    const { row, db } = await setup(page)
+    await gotoPage(page, row)
+    await page.getByTestId('order-plate').getByTestId('order-settings-key').first().click()
+    const pop = page.getByTestId('order-settings')
+    const repairs = pop.getByTestId('order-settings-repairs')
+    await expect(repairs).toHaveValue('0')
+    await pop.getByTestId('order-settings-agent-coding').selectOption('local')
+    await repairs.selectOption('2')
+    await expect.poll(() => wsEval(page, (s, id) => s.databases[id].orders.qaRepairs, db)).toBe(2)
+    await expect(pop).toContainText('same branch')
+    for (const [width, height] of [[1440, 900], [390, 844]]) {
+      await page.setViewportSize({ width, height })
+      for (const theme of ['light', 'dark']) {
+        await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+        await repairs.scrollIntoViewIfNeeded()
+        await page.screenshot({ path: test.info().outputPath(`harness-${width}-${theme}.png`), animations: 'disabled' })
+        expect(await repairs.evaluate(el => el.getBoundingClientRect().right <= window.innerWidth)).toBe(true)
+      }
+    }
+    await repairs.selectOption('0')
+    await expect.poll(() => wsEval(page, (s, id) => s.databases[id].orders.qaRepairs ?? 0, db)).toBe(0)
+  })
+
 })
 
 /* ------------------------------------------------------------------ Node cases */

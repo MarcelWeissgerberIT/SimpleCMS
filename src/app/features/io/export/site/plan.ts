@@ -78,8 +78,8 @@ const FILE_REF = /onefile:[0-9a-z]+/g
 const ASSET_SRC = /"src":"(assets\/[\w./-]+)"/g
 const CALLOUT_ASSET = /"icon":"asset:([\w-]{1,64})"/g
 
-/** JSON.stringify replacer that leaves out button actions. */
-export const withoutActions = (key: string, value: unknown) => (key === 'actions' ? undefined : value)
+/** Public-site data never includes button actions or private drawing provenance / references. */
+export const withoutActions = (key: string, value: unknown) => (key === 'actions' || key === 'drawing' ? undefined : value)
 
 /** Every media source a page uses: content images/files, cover, icon, files properties. */
 function mediaOf(p: Page): string[] {

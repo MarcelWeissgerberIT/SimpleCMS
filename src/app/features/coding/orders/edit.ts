@@ -19,7 +19,8 @@ import { pipelineLine } from '../stages'
 import { readPlan, orderPlanHash, type PlanReadCtx, type ResolvedStep } from './plan'
 import { planKeyHits } from './keys'
 import { requestFacts } from './facts'
-import { BUDGET_RANGE } from './config'
+import { BUDGET_RANGE, readOrderConfig, orderExecution } from './config'
+import { DELIVERY_LIMITS, remapDependencies } from './delivery'
 import { loadOrderRecord, patchOrderRecord } from './records'
 import { PLAN_LIMITS, type OrderDraft, type OrderKind, type OrderPlanV1, type OrderRecord, type OrderStepPlan } from './types'
 
@@ -67,11 +68,12 @@ function readCtx(rowId: ID, draft: OrderDraft): PlanReadCtx {
 async function hashOf(rowId: ID, plan: OrderPlanV1): Promise<string | null> {
   const kinds = requestFacts(rowId).kinds
   const approvals = defaultApprovals()
+  const config = readOrderConfig(useWorkspace.getState().databases[useWorkspace.getState().pages[rowId]?.databaseId ?? ''])
   const resolved: ResolvedStep[] = []
   for (const st of plan.steps) {
     const p = kinds.find((k) => k.kind === st.kind)
     if (!p) return null
-    resolved.push({ project: p.project, park: pipelineLine(p.pipeline, !!st.repo, false, approvals), start: pipelineLine(p.pipeline, !!st.repo, true, approvals) })
+      resolved.push({ ...orderExecution(config.kind === 'ok' ? config.config : null, st.kind), project: p.project, park: pipelineLine(p.pipeline, !!st.repo, false, approvals), start: pipelineLine(p.pipeline, !!st.repo, true, approvals) })
   }
   return orderPlanHash(plan, resolved, approvals)
 }
@@ -85,7 +87,7 @@ function checkStep(step: OrderStepPlan, plan: OrderPlanV1, ctx: PlanReadCtx): Ed
   if (step.criteria.length > PLAN_LIMITS.criteria) return { why: 'criteriaMany' }
   if (step.criteria.some((c) => c.length > PLAN_LIMITS.criterion)) return { why: 'criterionLong' }
   if (!ctx.kinds.includes(step.kind)) return { why: 'kind' }
-  if (plan.steps.filter((s) => s.kind === 'coding').length > PLAN_LIMITS.codingSteps) return { why: 'codingMany' }
+  if (plan.steps.filter((s) => s.kind === 'coding').length > (plan.delivery ? DELIVERY_LIMITS.codingSteps : PLAN_LIMITS.codingSteps)) return { why: 'codingMany' }
   const repo = step.repo ? ctx.repos.find((r) => r.name === step.repo) : undefined
   if (step.repo && !repo) return { why: 'repo' }
   if (step.branch) {
@@ -126,6 +128,13 @@ async function draftNow(rowId: ID): Promise<OrderDraft | null> {
   return rec?.state === 'draft' && rec.draft?.plan.steps.length ? rec.draft : null
 }
 
+/** Working defaults are part of the exact plan that will be confirmed, not a separate hidden prompt. */
+export async function editAssumptions(rowId: ID, assumptions: string[]): Promise<EditOutcome> {
+  const before = await draftNow(rowId)
+  if (!before) return { ok: false, why: 'state' }
+  return writePlan(rowId, before, { ...before.plan, assumptions })
+}
+
 /** E: step `index` (0-based) changed as the person typed it. */
 export async function editStep(rowId: ID, index: number, patch: StepPatch): Promise<EditOutcome> {
   const before = await draftNow(rowId)
@@ -154,7 +163,8 @@ export async function removeStep(rowId: ID, index: number): Promise<EditOutcome>
   const before = await draftNow(rowId)
   if (!before || !before.plan.steps[index]) return { ok: false, why: 'state' }
   if (before.plan.steps.length < 2) return { ok: false, why: 'last' }
-  return writePlan(rowId, before, { ...before.plan, steps: before.plan.steps.filter((_s, i) => i !== index) })
+  const steps = before.plan.steps.filter((_s, i) => i !== index)
+  return writePlan(rowId, before, { ...before.plan, steps: remapDependencies(before.plan.steps, steps) })
 }
 
 /** Alt+↑ / Alt+↓: step `index` one place earlier (-1) or later (+1). */
@@ -165,7 +175,7 @@ export async function moveStep(rowId: ID, index: number, by: -1 | 1): Promise<Ed
   const steps = [...before.plan.steps]
   const [moved] = steps.splice(index, 1)
   steps.splice(to, 0, moved!)
-  return writePlan(rowId, before, { ...before.plan, steps })
+  return writePlan(rowId, before, { ...before.plan, steps: remapDependencies(before.plan.steps, steps) })
 }
 
 /**

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import { Client, mailbox, signIn, startServer, type TestServer } from './helpers.ts'
+import { MIN_CLIENT_SCHEMA } from '../src/collab/schema-gate.ts'
 
 let server: TestServer
 before(async () => {
@@ -187,7 +188,7 @@ describe('server basics', () => {
     assert.equal(config.dev_mode, true)
     assert.match(config.source_url, /^https:\/\//)
     // the schema gate's minimum (docs/CLOUD.md § Schema gate): the app creates tasks only when it is ≥ 1
-    assert.equal(config.schema_min, 1)
+    assert.equal(config.schema_min, MIN_CLIENT_SCHEMA)
   })
 })
 

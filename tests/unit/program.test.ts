@@ -1,0 +1,56 @@
+import {test} from 'node:test'
+import assert from 'node:assert/strict'
+import {compileProgram,readProgram,draftWorkflow,workflowTarget,workflowStep,bindInputs,resolveExpr,draftProgram,validateValue,type ProgramSpec} from '../../src/shared/quandprofile/program.ts'
+const spec=():ProgramSpec=>({protocol:'one.program.v1',goal:'Read the selected source. No writes.',parameters:{ref:{schema:{type:'integer',minimum:1}}},steps:[{id:'read',kind:'tool',server:'atlas',endpoint:'https://atlas.example/mcp',tool:'atlas_get',schema:{type:'object',properties:{ref:{type:'integer'}},required:['ref'],additionalProperties:false},effect:'read',args:{object:{ref:{input:'ref'}}}},{id:'decision',kind:'decision',question:'Which audience?',neededFor:'Draft output'},{id:'answer',kind:'generate',instruction:'Use fresh evidence only',context:{object:{source:{result:'read',path:[]},audience:{result:'decision',path:[]}}}}],output:{result:'answer',path:[]}})
+test('canonical executable is stable across object order, reload and new run inputs',()=>{const p=spec(),a=compileProgram(p),b=compileProgram(JSON.parse(JSON.stringify(p)));assert.equal(a.hash,b.hash);assert.equal(compileProgram({...p,goal:p.goal,parameters:{...p.parameters}}).hash,a.hash);assert.deepEqual(readProgram(a),p);const first=bindInputs(p,{ref:42}),second=bindInputs(p,{ref:43});assert.equal(a.hash,b.hash);const step=p.steps[0];assert(step.kind==='tool');assert.deepEqual(resolveExpr(step.args,first,{}),{ref:42});assert.deepEqual(resolveExpr(step.args,second,{}),{ref:43});assert.notEqual(compileProgram({...p,goal:'Another goal'}).hash,a.hash)})
+test('artifact tampering, unsupported version, future result, prototype and unknown effect fail closed',()=>{const a=compileProgram(spec());assert.throws(()=>readProgram({...a,hash:'0'.repeat(64)}),/integrity/);assert.throws(()=>readProgram({...a,compiler:'v2' as any}),/version/);assert.throws(()=>compileProgram({...spec(),output:{result:'future',path:[]}}),/binding/);assert.throws(()=>compileProgram(JSON.parse('{"__proto__":1}')),/unsafe key/);assert.throws(()=>compileProgram({...spec(),steps:[{...spec().steps[0],effect:'arbitrary'}]}),/tool/);assert.throws(()=>resolveExpr({result:'read',path:['constructor']},{},{read:{}}),/path/);assert.throws(()=>compileProgram({...spec(),steps:[...spec().steps,...spec().steps]}),/duplicate/)})
+test('all inputs and structured results enforce schemas before dispatch',()=>{assert.throws(()=>bindInputs(spec(),{}),/missing/);assert.throws(()=>bindInputs(spec(),{ref:0}),/range/);assert.throws(()=>bindInputs(spec(),{ref:'42'}),/expected/);assert.throws(()=>bindInputs(spec(),{ref:42,grant:true}),/unknown/);assert.throws(()=>validateValue({a:1,b:2},{type:'object',properties:{a:{type:'string'}},additionalProperties:false}));assert.throws(()=>validateValue({},{$ref:'unknown'}),/unsupported/);assert.doesNotThrow(()=>validateValue(null,{anyOf:[{type:'string'},{type:'null'}]}));assert.throws(()=>validateValue(1,{oneOf:[{type:'number'},{type:'integer'}]}))})
+test('capture saves tool topology but no results, decisions, approvals or generated write payload defaults',()=>{const p=draftProgram('Read and stage a summary',[{kind:'tool',tool:'read_page',schema:{type:'object'},effect:'read',args:{id:'page'}},{kind:'decision',question:'Which audience?',neededFor:'Draft summary'},{kind:'tool',tool:'append_to_page',schema:{type:'object'},effect:'stage',args:{id:'page',markdown:'OLD GENERATED ANSWER'}},{kind:'tool',tool:'read_page',schema:{type:'object'},effect:'read',args:{id:'old-created-page'}}]);const text=compileProgram(p).canonical;assert(!text.includes('OLD GENERATED ANSWER'));assert(!text.includes('old-created-page'));assert(!('default'in p.parameters.args_3));assert(!('default'in p.parameters.args_4));assert.deepEqual(p.parameters.args_1.default,{id:'page'});assert.equal(p.steps[1].kind,'decision');assert.throws(()=>draftProgram('Text only',[]),/no captured/)})
+
+
+test('Atlas record schemas validate propertyNames, including nested optional field maps, without discarding restrictions',()=>{
+ const schema={type:'object',properties:{fields:{type:'object',propertyNames:{type:'string',pattern:'^[a-z_]+$',maxLength:30},additionalProperties:{type:'string'}}},additionalProperties:false}
+ assert.doesNotThrow(()=>validateValue({},schema))
+ assert.doesNotThrow(()=>validateValue({fields:{source_url:'https://example.org'}},schema))
+ assert.throws(()=>validateValue({fields:{'unsafe-name':'x'}},schema),/property name: pattern/)
+ assert.throws(()=>validateValue({fields:{valid:42}},schema),/expected string/)
+ assert.doesNotThrow(()=>validateValue({},{type:'object',propertyNames:false}))
+ assert.throws(()=>validateValue({any:1},{type:'object',propertyNames:false}),/forbidden/)
+ assert.doesNotThrow(()=>validateValue({any:1},{type:'object',propertyNames:true}))
+ assert.throws(()=>validateValue({},{type:'object',propertyNames:{not:{type:'string'}}}),/unsupported/)
+ assert.throws(()=>validateValue({},{type:'object',propertyNames:'ignored'}),/propertyNames schema/)
+})
+
+
+test('fixed program context removes only the complete generic planning guide and preserves custom role constraints',async()=>{
+ const {fixedProgramInstructions}=await import('../../src/shared/quandprofile/program.ts')
+ const guide='HOST INTERACTIVE GUIDE '+'.'.repeat(2000),custom='CUSTOM: tenant A only; preserve exact originals; never approve a decision.'
+ const input=custom+'\n'+guide+'\nCUSTOM: this role remains read-only.'
+ const output=fixedProgramInstructions(input,[guide,'short custom fragment'])
+ assert(output.includes(custom));assert(output.includes('CUSTOM: this role remains read-only.'));assert(!output.includes(guide));assert(output.includes('Generation has no tools.'));assert(fixedProgramInstructions('short custom fragment', ['short custom fragment']).includes('short custom fragment'))
+})
+
+
+test('an explicit MCP decoder exposes fresh JSON fields and keeps host proof separate; malformed data cannot become a result',async()=>{
+ const {decodeMcpProgramResult}=await import('../../src/shared/quandprofile/program.ts')
+ const value={content:[{type:'text',text:JSON.stringify({item:{ref:42,body:'Actual body'}})}],oneObservedFacts:{refs:[42]}}
+ assert.deepEqual(decodeMcpProgramResult(value),{source:{item:{ref:42,body:'Actual body'}},oneObservedFacts:{refs:[42]},oneSourceLinks:null})
+ for(const bad of [{content:[{type:'text',text:'not JSON'}]},{isError:true,content:[{type:'text',text:'{}'}]},{content:[{type:'image',data:'x'}]}])assert.throws(()=>decodeMcpProgramResult(bad))
+})
+
+
+test('fresh BA, PO, PM and mock recipes keep source bindings without old results or approvals',()=>{
+ for(const mode of ['ba','po','pm','mock'] as const){
+  const goal=mode==='pm'?'/pm 42 Read current sources':mode==='mock'?'/mock 42 design 43':'/'+mode+' inspect requirements'
+  const p=draftWorkflow(goal,mode,mode==='ba'||mode==='po'?'original-page':null,[{name:'atlas',endpoint:'https://atlas.example/mcp'}]),c=compileProgram(p)
+  assert.equal(readProgram(c).steps.length,1);assert.equal(workflowStep(p)?.mode,mode)
+  assert.equal(workflowTarget(p,{}),mode==='ba'||mode==='po'?'original-page':null)
+  assert.equal(workflowTarget(p,{page_id:'new-page'}),'new-page');assert.equal(compileProgram(p).hash,c.hash)
+  assert(!c.canonical.includes('approval'));assert(!c.canonical.includes('answer'))
+ }
+ assert.throws(()=>workflowTarget(draftWorkflow('/ba inspect','ba',null,[]),{}),/selected source/)
+ assert.throws(()=>compileProgram(draftWorkflow('/po inspect','ba','p',[])),/mode differs/)
+ const p=draftWorkflow('/pm 42 inspect','pm',null,[])
+ assert.throws(()=>compileProgram({...p,steps:[...p.steps,{id:'extra',kind:'generate',instruction:'Reuse old result',context:{literal:'old'}}]}),/workflow/)
+ assert.throws(()=>compileProgram(draftWorkflow('/pm 42 inspect','pm',null,[{name:'atlas',endpoint:'https://atlas.example/mcp?token=bad'}])),/unsafe/)
+})

@@ -1,0 +1,6 @@
+import {test} from 'node:test'
+import assert from 'node:assert/strict'
+import {mcpArgumentsWithinLimit} from '../../src/shared/mcp/attachment.ts'
+test('ordinary MCP tools retain their original argument bound',()=>{assert(mcpArgumentsWithinLimit('atlas_search',{q:'a'.repeat(100)}));assert(!mcpArgumentsWithinLimit('atlas_search',{q:'a'.repeat(25000)}))})
+test('only a bounded, exact record attachment can carry larger generated mock bytes',()=>{const good={ref:12,filename:'mock.png',mime:'image/png',contentBase64:'AAAA'.repeat(20000)};assert(mcpArgumentsWithinLimit('atlas_attach',good));for(const patch of [{ref:0},{ref:'12'},{filename:'../mock.png'},{contentBase64:'A'.repeat(850001)},{mime:'application/javascript'},{text:'also text'},{project:'different'}])assert(!mcpArgumentsWithinLimit('atlas_attach',{...good,...patch}));assert(!mcpArgumentsWithinLimit('atlas_update',good))})
+test('large text mocks use text and only HTML or JSON',()=>{const good={ref:12,filename:'mock.html',mime:'text/html',text:'x'.repeat(30000)};assert(mcpArgumentsWithinLimit('atlas_attach',good));assert(!mcpArgumentsWithinLimit('atlas_attach',{...good,mime:'text/javascript'}));assert(!mcpArgumentsWithinLimit('atlas_attach',{...good,text:'😀'.repeat(160000)}))})

@@ -24,3 +24,7 @@ Neu hier? **Die 3-Minuten-Tour** führt in acht Schritten durch die echte Oberfl
 <kbd>Mod+,</kbd> öffnet die **Einstellungen** (auch im Workspace-Menü oben in der Seitenleiste): dein Name, die Sprache (English oder Deutsch), das Design — hell (Paper), dunkel (Carbon) oder System —, die **Schriftgröße** der ganzen App (**Darstellung**: Standard, M, L oder XL, auf diesem Gerät) und die Farbe der **Schalter-LEDs**, dein Claude-Schlüssel und deine Daten.
 
 > Dein Workspace liegt nur in diesem Browser. Exportiere ab und zu ein Backup: **Workspace-Einstellungen → Daten → Workspace exportieren**.
+
+## Zur vorherigen Ansicht zurück
+
+Mit **Zurück** oben links gehst du durch besuchte Seiten und Bereiche zurück, auch Agenten, Coding und Schaltplan. Auf dem Handy erscheint ein Pfeil nach links. Die Taste ist deaktiviert, solange es in diesem Tab keinen vorherigen One-Schritt gibt. Neuladen erhält die verfügbaren Schritte; Zurück und Vorwärts des Browsers funktionieren weiterhin. Die separate Taste **Zurück zur Hauptseite** klappt bei gestapelten Seitenspalten die Hauptspalte wieder auf.

@@ -1,3 +1,6 @@
+import type { RepoFilesRequest, RepoFilesResult } from '../../../shared/repo-files'
+import { hasFlowLimits, modelDestinationAllowed, mcpDestinationAllowed } from '@/shared/ai/dataFlow'
+import type { WorkerModel, WorkerTextRequest, WorkerTextResult, WorkerMcpRequest } from '@/shared/ai/worker'
 /**
  * Coding pipeline — the tab side of the worker link (features/coding/protocol.ts).
  *
@@ -22,6 +25,7 @@
  *    does not take the worker over; a tab another tab or device took the worker from takes it back once that tab
  *    lets it go (the server lists it online without a tab); tasks run only while such a tab is connected.
  */
+import { codingAgentName } from './agent'
 import { useWorkspace, pageChanges } from '../../store/store'
 import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
@@ -56,7 +60,7 @@ import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
 import { browserOs, workerOldOnWindows } from './winWorker'
 import type { SessionKey } from './relayBox'
-import { CloudError, useCloud } from '../../cloud'
+import { CloudError, cloudRequest, useCloud, captureReadiness, noteReadiness, noteAtlasRead } from '../../cloud'
 import { SYSTEM, withWriter, type Writer } from '../../store/writer'
 import { localNetworkStatus } from '../../lib/localNetwork'
 import { notifyAway } from './notify'
@@ -79,7 +83,7 @@ function tellAsk(taskId: string, ask: PermissionAsk) {
   told.add(ask.id)
   if (told.size > 200) told.delete(told.values().next().value as string)
   const title = useWorkspace.getState().pages[taskId]?.title.trim() || t('common.untitled')
-  notifyAway(taskId, t('features.coding.notify.permission', { title, tool: ask.tool }))
+  notifyAway(taskId, t('features.coding.notify.permission', { title, tool: ask.tool, agent: codingAgentName(taskId) }))
 }
 
 /**
@@ -204,8 +208,9 @@ let fastUntil = 0
  * A worker was downloaded for `workspaceId` (download.ts): keep its pairing secret (replacing the last one),
  * switch the link on and look for it often for ten minutes. A connected worker stays connected.
  */
-export function pairDownloaded(workspaceId: string, secret: string) {
+export function pairDownloaded(workspaceId: string, secret: string, connectNow = true) {
   patchSettings({ enabled: true, pairs: { ...get().pairs, [workspaceId]: { secret, at: Date.now() } } })
+  if (!connectNow || currentWorkspace()?.id !== workspaceId) return
   fastUntil = Date.now() + 10 * 60_000
   if (get().conn === 'connected') return
   disconnect(false)
@@ -277,6 +282,12 @@ function rejectPending() {
   pending.clear()
 }
 
+/** Cloud-first AJ onboarding has no local-worker prerequisite; do not probe a worker from another workspace. */
+export function workerOptionalHere(): boolean {
+  const ws=currentWorkspace(),s=get()
+  return !!useWorkspace.getState().ai?.onboarding && !!ws && !s.pairs[ws.id] && !s.cloudPairs[ws.id] && viaFor(ws)!=='cloud'
+}
+
 function schedule() {
   window.clearTimeout(retryTimer)
   if (!get().enabled || link) return
@@ -297,6 +308,7 @@ function connect(keepRefused = false) {
     return schedule()
   }
   lastWs = self.id
+  if (workerOptionalHere()) { set({conn:'off',refused:null,blocked:null,lna:null}); return }
   if (viaFor(self) === 'cloud') {
     // what the browser said about the Local link does not hold for the team server's
     if (get().blocked || get().lna) set({ blocked: null, lna: null })
@@ -516,7 +528,9 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       if (!mine()) return
       if (msg.type === 'refused') {
         refused = true
-        set({ refused: msg.reason === 'unbound' || msg.reason === 'pair' ? msg.reason : 'workspace', refusedPaired: msg.paired === true })
+        set({ refused: msg.reason === 'unbound' || msg.reason === 'pair' ? msg.reason : 'workspace', refusedPaired: msg.paired === true, refusedWorkspaceGrant: msg.workspaceGrant === true,
+          refusedWorkspaceOwner: typeof msg.workspaceOwner === 'string' ? msg.workspaceOwner.slice(0, 120) : null,
+          refusedWorkspaceNonce: typeof msg.workspaceNonce === 'string' ? msg.workspaceNonce.slice(0, 43) : null })
         return
       }
       void receive(msg)
@@ -618,6 +632,7 @@ async function receive(msg: WorkerMessage) {
       failingSince = 0
       wasCurrent = true
       const { type: _type, ...info } = msg
+      const readiness = captureReadiness();if(link?.via==='local')noteReadiness(readiness,{signal:'worker'});if(readiness)void import('../../cloud/api').then(({request})=>{const current=captureReadiness();if(current?.workspace===readiness.workspace&&current?.user===readiness.user)return request('POST',`api/workspaces/${readiness.workspace}/readiness`,{signal:'sync'})}).catch(()=>{})
       setBusy(info.busy, { conn: 'connected', refused: null, refusedPaired: false, pendingHere: false, worker: info, spentToday: info.spentToday ?? 0 })
       // the worker's repos as Repo options: upkeep, nobody's change (flight recorder)
       withWriter(SYSTEM('maintenance'), () => {
@@ -984,6 +999,11 @@ export function startCoding() {
     else if (!link && now && now.id !== lastWs && get().conn !== 'connecting') reconnect()
   }
   useWorkspace.subscribe((s, prev) => {
+    const boundary = (x: typeof s) => JSON.stringify([x.ai?.dataFlow?.providers, x.ai?.dataFlow?.mcpOrigins, x.ai?.policy?.restricted, x.settings.ai?.restricted])
+    if (s.epoch === prev.epoch && boundary(s) !== boundary(prev) && get().conn === 'connected') {
+      for (const busy of get().busy) void stopTask(busy.taskId).catch(() => {})
+      nudgeWorker()
+    }
     if (s.epoch !== prev.epoch || s.ready !== prev.ready) onWorkspace()
     // tasks changed (a new task, a stage moved): the worker may have work
     if (get().conn !== 'connected' || s.pages === prev.pages) return
@@ -1047,4 +1067,71 @@ export function startCoding() {
     // a page may only close with 1000 or 3000–4999 (1001 throws)
     link?.close(1000, 'tab closed')
   })
+}
+
+/** Plain inference uses the same paired link, independent of coding jobs; no repo or tool access. */
+export async function requestTextModels(): Promise<WorkerModel[]> {
+  const result = await request({ op: 'text-models' } as never, 45000)
+  return Array.isArray(result) ? result : []
+}
+export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortSignal): Promise<WorkerTextResult> {
+  if (!modelDestinationAllowed(body.provider, useWorkspace.getState().ai?.dataFlow)) throw new Error('Model destination is excluded by the workspace data-flow rule.')
+  const workspace = useWorkspace.getState()
+  if ((hasFlowLimits(workspace.ai?.dataFlow) || workspace.ai?.policy?.restricted?.length || workspace.settings.ai?.restricted?.length) && !get().can?.includes('data-flow')) throw new Error('Update the coding worker to use explicit data-route boundaries.')
+  signal?.throwIfAborted()
+  const readiness = captureReadiness()
+  const requestId = crypto.randomUUID()
+  const stop = () => { void request({ op: 'text-stop', requestId } as never, 5000).catch(() => {}) }
+  signal?.addEventListener('abort', stop, { once: true })
+  try {
+    const result = await request({ op: 'text-request', requestId, request: body } as never, 190000) as WorkerTextResult
+    if(body.provider==='copilot'&&typeof result?.text==='string'&&result.text.trim()&&!signal?.aborted)noteReadiness(readiness,{signal:'copilot'})
+    return result
+  } finally { signal?.removeEventListener('abort', stop) }
+}
+
+export function cloudAtlasMcpReady(servers: readonly {name:string;url:string}[]): boolean {
+  const cloud=useCloud.getState(),setup=useWorkspace.getState().ai?.onboarding
+  return cloud.active.kind==='cloud' && !!cloud.supports?.includes('atlas-mcp:1') && !!setup && setup.mcpUrl==='https://aj-atlas.com/api/atlas/mcp' && servers.length===1 && servers.every(s=>s.url===setup.mcpUrl&&s.name===setup.mcpName)
+}
+
+export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSignal): Promise<unknown> {
+  if (body.servers.some(s => !mcpDestinationAllowed(s.url, useWorkspace.getState().ai?.dataFlow))) throw new Error('MCP destination is excluded by the workspace data-flow rule.')
+  signal?.throwIfAborted()
+  const readiness = captureReadiness()
+  const cloud = useCloud.getState(), setup = useWorkspace.getState().ai?.onboarding
+  if (cloud.active.kind === 'cloud' && setup && cloudAtlasMcpReady(body.servers)) {
+    const result = await cloudRequest<{result?:string}>('POST',`api/workspaces/${cloud.active.id}/atlas-mcp`,body,{signal})
+    if(body.action==='call'&&!signal?.aborted)noteAtlasRead(readiness,setup.mcpUrl,body.name,result?.result)
+    return result
+  }
+  const requestId = crypto.randomUUID()
+  const stop = () => { void request({ op: 'text-stop', requestId } as never, 5000).catch(() => {}) }
+  signal?.addEventListener('abort', stop, { once: true })
+  try {
+    const result = await request({ op: 'model-mcp', requestId, request: body } as never, 190000) as {result?:string}
+    if(body.action==='call'&&!signal?.aborted)noteAtlasRead(readiness,body.servers.find(s=>s.name===body.server)?.url,body.name,result?.result)
+    return result
+  }
+  finally { signal?.removeEventListener('abort', stop) }
+}
+
+/** Configure only this member’s paired cloud worker, never someone else’s model host. */
+export const modelShareStatus = () => request({op:"model-share-status"} as never, 15000)
+export const configureModelShare = (choice:{model:string;label:string;enabled:boolean}) => request({op:"model-share-config",choice} as never, 45000)
+
+
+export interface ManagedWorkerStatus { path?: string; installed: boolean; version: string; previous: string | null; phase: string; error?: string; available?: string }
+export async function manageWorker(action: 'status' | 'update' | 'rollback' | 'cancel'): Promise<ManagedWorkerStatus> {
+  return await request({ op: 'worker-manage', action } as never, 50_000) as ManagedWorkerStatus
+}
+
+/** File reads always use this person's paired channel, never the shared model host. */
+export async function requestRepoFiles(body: RepoFilesRequest): Promise<RepoFilesResult> {
+  if (!get().can?.includes('repo-files')) throw new Error('Update and connect your own worker to browse repository files.')
+  const channel=link, scope=currentWorkspace()?.id, user=useCloud.getState().user?.id
+  const result=await request({op:'repo-files',request:body} as never,30000) as RepoFilesResult
+  if (channel!==link || scope!==currentWorkspace()?.id || user!==useCloud.getState().user?.id) throw new Error('The workspace or worker changed. Select the files again.')
+  if (result?.repo!==body.repo || typeof result.branch!=='string' || (body.action==='read' && (!result.file || result.file.path!==body.path))) throw new Error('Invalid repository file response.')
+  return result
 }

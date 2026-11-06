@@ -55,7 +55,7 @@ import { pipelineLine, pipelineNeedsRepo, runsFrom, startStageOf } from '../stag
 import { taskRefPlan } from '../refs'
 import { defaultApprovals } from '../state'
 import { notifyAway } from '../notify'
-import { orderConfigUsable, readOrderConfig } from './config'
+import { orderConfigUsable, readOrderConfig, orderExecution } from './config'
 import { orderStatusProps } from './status'
 import { requestFacts, type KindProject } from './facts'
 import { checkPreconditions, wordChars, type PlannerBlock } from './preconditions'
@@ -63,7 +63,7 @@ import { plannerPrompt, plannerSystem, repairPrompt, PLAN_SCHEMA, type PlannerDo
 import { orderPlanHash, readPlan, type PlanReadCtx, type ResolvedStep } from './plan'
 import { serverSkip } from './tools'
 import { serverReads } from './serverTools'
-import { emptyFold, foldCalls, type CallFold } from './calls'
+import { foldHostCalls, emptyFold, foldCalls, type CallFold } from './calls'
 import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
 import { pageShown, requestFp, requestNow, shownFp, textFp } from './fingerprint'
 import { loadRowOutside, outsideOf } from './rowWriters'
@@ -461,7 +461,7 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
       onMcpActivity: (a) => {
         if (!server.name) return
         seen.attached = [...a.attached]
-        seen.fold = foldCalls(seen.fold, a.blocks, server.name)
+        seen.fold = a.calls?foldHostCalls(seen.fold,a.calls,server.name):foldCalls(seen.fold, a.blocks, server.name)
         patchRun(rowId, run, { calls: seen.fold.calls })
       },
     })
@@ -513,7 +513,8 @@ async function writeDraft(
 ): Promise<PlanOutcome> {
   const resolved: ResolvedStep[] = plan.steps.map((step) => {
     const p = projects.find((x) => x.kind === step.kind)!
-    return { project: p.project, park: pipelineLine(p.pipeline, !!step.repo, false, approvals), start: pipelineLine(p.pipeline, !!step.repo, true, approvals) }
+    const config = readOrderConfig(ws().databases[ws().pages[rowId]?.databaseId ?? ''])
+      return { ...orderExecution(config.kind === 'ok' ? config.config : null, step.kind), project: p.project, park: pipelineLine(p.pipeline, !!step.repo, false, approvals), start: pipelineLine(p.pipeline, !!step.repo, true, approvals) }
   })
   const hash = await orderPlanHash(plan, resolved, approvals)
   const draft: OrderDraft = {

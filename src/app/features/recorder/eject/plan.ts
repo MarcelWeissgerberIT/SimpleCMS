@@ -39,7 +39,7 @@ export type EjectRefusal =
   | { key: 'orderBusy' }
 
 /** R3 ejects in the local workspace only (team ejects come later; the store's guard says the same). */
-export const canEject = (scope: Scope): boolean => scope === 'local:local' && rewindAllowed()
+export const canEject = (scope: Scope): boolean => scope.startsWith('local:') && rewindAllowed()
 
 /** Above this many places an eject is refused (the reading lists the first 2,000 — design C27). */
 export const EJECT_MAX = LIST_PLACES

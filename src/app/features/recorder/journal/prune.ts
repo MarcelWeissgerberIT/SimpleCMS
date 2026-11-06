@@ -17,7 +17,7 @@ export async function scopesOnDevice(j?: Journal): Promise<Scope[]> {
   const keys = await jj.keys({ store: 'kv', lo: '', hi: HI })
   const out = new Set<Scope>()
   for (const k of keys) {
-    const m = /^(local:local|cloud:[A-Za-z0-9_-]{1,64}(?::u:[A-Za-z0-9_-]{1,64})?)\|/.exec(k)
+    const m = /^(local:[A-Za-z0-9_-]{1,64}|cloud:[A-Za-z0-9_-]{1,64}(?::u:[A-Za-z0-9_-]{1,64})?)\|/.exec(k)
     if (m) out.add(m[1] as Scope)
   }
   return [...out]

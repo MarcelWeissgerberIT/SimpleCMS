@@ -13,7 +13,7 @@ import './codeword.css'
 /** "→ KB" for each server the text addresses by codeword (nothing without one). */
 export function CodewordChip({ text }: { text: string }) {
   const t = useT()
-  const raw = useWorkspace((s) => s.settings.mcpServers)
+  const raw = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const servers = useMemo(() => readServers({ mcpServers: raw }), [raw])
   const hit = useMemo(() => parseCodewords(text, servers).servers, [text, servers])
   if (!hit.length) return null

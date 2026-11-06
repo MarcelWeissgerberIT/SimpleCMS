@@ -1,3 +1,4 @@
+import { CopilotChoiceFields } from '../CopilotOptions'
 /**
  * The work orders' settings (spec §1.1 "Prüfaufträge-Einstellungen", `resizable="orders"`): a popover from the plate's ⚙
  * and from Settings › Coding worker § Work orders. Everything is written with saveOrderConfig (the only writer of
@@ -24,7 +25,8 @@ import { fmtAmount, parseAmount } from '../../../lib/money'
 import { activeWorkspace, useCloud } from '../../../cloud'
 import { HelpLink } from '../../../help'
 import { pipelineDbIdsOf } from '../schema'
-import { ORDER_KINDS, readOrderConfig } from './config'
+import { CODING_AGENTS, type CodingAgent } from '../protocol'
+import { ORDER_KINDS, readOrderConfig, orderAgent } from './config'
 import { saveOrderConfig } from './db'
 import { serverRows } from './serverTools'
 import type { OrderConfig, OrderKind } from './types'
@@ -40,7 +42,7 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
   const uid = useId()
   const db = useWorkspace((s) => s.databases[dbId])
   // the server list follows this device's settings (a test elsewhere, a server switched off)
-  useWorkspace((s) => s.settings.mcpServers)
+  useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   useWorkspace((s) => s.integrations)
   const viewer = useCloud((s) => s.readOnly)
   const read = readOrderConfig(db)
@@ -122,6 +124,23 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
       </fieldset>
       <fieldset className="ors__group" disabled={disabled}>
         <legend className="label">{t('features.coding.pipe.label')}</legend>
+        <p className="orc-line orc-line--quiet">{t(`${O}.settings.agentsHint`)}</p>
+        <div className="ors__projects">
+          {ORDER_KINDS.map(kind => <div className="ors__project" key={kind}>
+            <label htmlFor={`${uid}-agent-${kind}`}>{t(`features.coding.pipe.${kind}`)}</label>
+            <select id={`${uid}-agent-${kind}`} className="input" data-testid={`order-settings-agent-${kind}`} value={config ? orderAgent(config, kind) ?? 'claude' : 'claude'} onChange={e => save(c => ({ ...c, agents: { ...c.agents, [kind]: e.target.value as CodingAgent } }))}>
+              {CODING_AGENTS.map(agent => <option key={agent} value={agent}>{t(`features.coding.agent.${agent}`)}</option>)}
+            </select>
+            {config && orderAgent(config,kind) === 'copilot' && <CopilotChoiceFields id={`role-${kind}`} value={config.copilot?.[kind] ?? {}} onChange={choice=>save(c=>({...c,copilot:{...c.copilot,[kind]:choice}}))} />}
+          </div>)}
+        </div>
+        <label className="ors__project"><span>{t(`${O}.settings.repairs`)}</span>
+          <select className="input" data-testid="order-settings-repairs" value={config?.qaRepairs ?? 0} onChange={e => save(c => { const { qaRepairs: _, ...rest } = c; const n = Number(e.target.value); return n ? { ...rest, qaRepairs: n as 1 | 2 } : rest })}>
+            <option value={0}>{t(`${O}.settings.repairsOff`)}</option><option value={1}>1</option><option value={2}>2</option>
+          </select>
+        </label>
+        <p className="orc-line orc-line--quiet">{t(`${O}.settings.repairsHint`)}</p>
+        <HelpLink id="coding-harness" />
         <div className="ors__kinds">
           {ORDER_KINDS.map((k: OrderKind) => {
             const on = !!config?.kinds.includes(k)

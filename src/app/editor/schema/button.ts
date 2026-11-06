@@ -29,9 +29,11 @@ export type ButtonAction =
   | { id: string; type: 'open'; url: string; pageId: string | null }
   | { id: string; type: 'message'; text: string }
   | { id: string; type: 'run_script'; scriptId: string | null }
+  | { id: string; type: 'worker_setup' }
+  | { id: string; type: 'ai_task'; prompt: string; sourcePageId?: string }
 
 export type ButtonActionType = ButtonAction['type']
-export const ACTION_TYPES: ButtonActionType[] = ['insert_blocks', 'add_page', 'edit_properties', 'webhook', 'open', 'message', 'run_script']
+export const ACTION_TYPES: ButtonActionType[] = ['insert_blocks', 'add_page', 'edit_properties', 'webhook', 'open', 'message', 'run_script', 'worker_setup', 'ai_task']
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const strOrNull = (v: unknown) => (typeof v === 'string' && v ? v : null)
@@ -90,6 +92,12 @@ export function normalizeActions(raw: unknown, opts: { freshIds?: boolean } = {}
       case 'run_script':
         out.push({ id, type: 'run_script', scriptId: typeof a.scriptId === 'string' && /^[\w-]{1,64}$/.test(a.scriptId) ? a.scriptId : null })
         break
+      case 'ai_task':
+        out.push({ id, type: 'ai_task', prompt: str(a.prompt).slice(0, 8000),...(typeof a.sourcePageId==='string'&&/^[A-Za-z0-9_-]{1,64}$/.test(a.sourcePageId)?{sourcePageId:a.sourcePageId}:{}) })
+        break
+      case 'worker_setup':
+        out.push({ id, type: 'worker_setup' })
+        break
     }
   }
   return out
@@ -113,6 +121,10 @@ export function newAction(type: ButtonActionType): ButtonAction {
       return { id, type, text: '' }
     case 'run_script':
       return { id, type, scriptId: null }
+    case 'ai_task':
+      return { id, type, prompt: '' }
+    case 'worker_setup':
+      return { id, type }
   }
 }
 
@@ -171,11 +183,17 @@ function parseActionsAttr(el: HTMLElement): ButtonAction[] {
 
 /**
  * The same doc without button actions (webhook URLs, database ids …): for anything that leaves
- * the workspace — HTML export, share links. Returns the input when there is no button inside.
+ * the workspace — HTML export, share links. Drawing briefs and source references stay here too.
+ * Returns the input when nothing private needs stripping.
  */
 export function stripButtonActions(doc: JSONContent): JSONContent {
   const walk = (n: JSONContent): JSONContent => {
     let out = n
+    // This is also the share-link boundary: a portrait reference and the generation brief stay in the workspace.
+    if ((n.type === 'image' || n.type === 'mermaid') && n.attrs?.drawing) {
+      const { drawing: _drawing, ...attrs } = n.attrs
+      out = { ...out, attrs }
+    }
     if (n.type === 'button' && Array.isArray(n.attrs?.actions) && n.attrs.actions.length) out = { ...n, attrs: { ...n.attrs, actions: [] } }
     if (out.content) {
       const kids = out.content.map(walk)

@@ -1,3 +1,19 @@
+import {mockIntent,MOCK_WORKSPACE_SYSTEM} from '@/shared/ai/designMock'
+import {mcpWorkScope,readMcpWork,saveMcpWork,deleteMcpWork} from '../core/localMcpWork'
+import {validTaskRecovery,recoveryTask,type TaskRecovery} from '@/shared/ai/taskRecovery'
+import {McpResultSession} from '@/shared/mcp/results'
+import {openSkills} from '../skills/dialog'
+import {contextCheckpoint} from './checkpoint'
+import {skillLibraryQuery,pinSkillRequest} from '@/shared/ai/skills'
+import {readProgram,workflowTarget} from '@/shared/quandprofile/program'
+import {taskProgramDraft} from '../core/taskContract'
+import {programScope,archiveProgram,saveProgramRun} from '../programs/storage'
+import {terminalRun} from '../programs/terminalRun'
+import type {ProgramRun} from '@/shared/quandprofile/program'
+import {openPrograms} from '../programs/dialog'
+import type {ProgramInvocation} from '../programs/runner'
+import { repoFileRefs, repoFileContext } from '@/shared/repo-files'
+import { requestRepoFiles } from '../../coding/service'
 /**
  * AI terminal (workspace agent) — session actions: run a task or a /command, stop it, review
  * staged changes (apply / discard), undo an applied batch, start over. The API conversation lives
@@ -12,6 +28,7 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError } from '../client'
 import { precheck } from '../core/gate'
+import {refreshCentralAI} from '../core/centralAI'
 import { appliedOf } from '../core/shape'
 import { mayReceive } from '../core/status'
 import { looksLikeKey, scrubSecrets } from '@/shared/ai/keys'
@@ -27,7 +44,7 @@ import { unlocked } from '../../agents/integrations/status'
 import { initialAgentState, openAgent, patchConnect, pushEcho, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type HaltView, type MemCard, type MemItem } from './state'
 import { clearHistory, loadHistory, pushHistory } from './history'
 import { parseCommand, parseCommandText } from './commands'
-import { MAX_TOOL_CALLS, TERMINAL_TOOLS, type AgentTool, type ReadLimit, type StageApi } from './tools'
+import { MAX_TOOL_CALLS, TERMINAL_TOOLS, ToolInputError, type AgentTool, type ReadLimit, type StageApi } from './tools'
 import { CODING_RULES, CODING_TOOLS, guardPipelineRows } from './coding'
 import { connectCommand } from './connect'
 import { hasPipelines, isPipelineKind, useCoding, type PipelineKind } from '../../coding'
@@ -50,14 +67,19 @@ import type { SavedMedia } from '../media/types'
 import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
 import { isSettled, onSettled } from '../../recorder/settled'
 import { addToLines, tapSignal } from '../core/meter'
-import type { LedgerEntry, Usage } from '@/shared/ai/types'
+import type { LedgerEntry, ProviderId, Usage } from '@/shared/ai/types'
 import { stepText } from '../Receipt'
+import {oneOnlyTask} from '@/shared/ai/oneTask'
+import {cancelAtlasTransferChoice} from './AtlasTransferChoice'
 
 const set = useAgent.setState
 const get = useAgent.getState
 
 /** The API conversation of this session (append-only). */
+const mcpResults = new McpResultSession()
 let history: BetaMessageParam[] = []
+/** A provider change starts fresh model context; proposals and the visible log stay available. */
+let historyProvider: ProviderId | null = null
 /** change statuses Claude has been told about (to report what the user did in between) */
 let reported: Record<string, StagedChange['status']> = {}
 let controller: AbortController | null = null
@@ -84,8 +106,10 @@ let epoch = 0
 let convId = newId()
 /** each task's ledger source in this conversation (its memory proposal request is the task's too) */
 const taskSources = new Map<number, string>()
+const pendingReceipts=new Map<number,{run:ProgramRun;scope:ReturnType<typeof programScope>}>()
+export async function retryTurnReceipt(n:number){const item=pendingReceipts.get(n);if(!item)return;const current=()=>pendingReceipts.get(n)===item&&item.scope.key===programScope().key;try{await saveProgramRun(item.run,item.scope);if(current()){pendingReceipts.delete(n);patchTurn(n,{receipt:'saved'})}}catch{if(current())patchTurn(n,{receipt:'failed'})}}
 /** what a task went with (the conversation before it, its references and mentions) — "Run the task again" */
-const turnSnap = new Map<number, { before: BetaMessageParam[]; refs: TermRef[]; mentions: TermMention[] }>()
+const turnSnap = new Map<number, { before: BetaMessageParam[]; provider: ProviderId | null; refs: TermRef[]; mentions: TermMention[] }>()
 /** this conversation's applied writes of pipeline tasks (fingerprint before → after): a task action staged before them still applies */
 const sigSteps = new Map<ID, Array<[string, string]>>()
 /** the running proposal request (after a task) */
@@ -253,7 +277,7 @@ export function terminalReadLimit(id: ID): ReadLimit | null {
 /** "· 3 blocks" / "· nothing" after a page title (chip, log line) — '' for the whole page. */
 export function contextSuffix(pageId: ID): string {
   const m = pageContextMarks(pageId)
-  if (m.mode === 'page') return ''
+  if (m.mode === 'page') return get().pageTree===pageId?t('features.agent.ctx.mode.tree'):''
   if (m.mode === 'marked' && m.blocks) return tn('features.agent.ctx.mode.marked', m.blocks)
   return t('features.agent.ctx.mode.none')
 }
@@ -276,6 +300,7 @@ function context(refs: TermRef[], mentions: TermMention[]): string {
   const open = openId ? s.pages[openId] : undefined
   if (open) {
     lines.push(`Open page: ${q(open.title.trim() || 'Untitled')} (id: ${open.id})`)
+    if(get().pageTree===open.id)lines.push('Selected ONE source scope: this page and its subpages. Read the root with read_page, follow the actual returned child IDs and read relevant descendants before preparing the requested result. Respect every page’s context restrictions and normal access checks. This is source context, not a request to send every page to an external tool or change every record. Resolve target links and the requested content from these sources; ask if several targets or interpretations remain.')
     const lim = terminalReadLimit(open.id)
     if (lim?.mode === 'marked') lines.push(`The person limited what you may read on the open page: only the ${lim.blocks} block${lim.blocks === 1 ? '' : 's'} they marked (read_page returns just those). Writing to it works as usual.`)
     else if (lim) lines.push(`The person excluded the open page's content: you may not read it (read_page withholds it). Writing to it works as usual.`)
@@ -374,7 +399,25 @@ export function continuable(): AgentTurn | null {
 export function continueTask(): Promise<void> {
   const prev = continuable()
   if (!prev || get().status === 'running') return Promise.resolve()
+  if((prev.program||prev.contract?.program)){openPrograms();return Promise.resolve()}
   return runTask(prev.task, { history: false, continues: prev.continues ?? prev.n })
+}
+
+export const activeRecoveryKey=()=> 'terminal-recovery:'+convId
+export async function resumeSavedWork(scope:string,key:string){
+ if(get().status==='running'||scope!==mcpWorkScope())return
+ const saved=await readMcpWork<TaskRecovery>(scope,key)
+ if(scope!==mcpWorkScope()||!validTaskRecovery(saved))return
+ return runTask(recoveryTask(saved),{history:false,noMemory:true,again:{refs:[],mentions:[]},compact:scrubSecrets(saved.checkpoint)})
+}
+
+/** Fresh, read-only recovery after a context/output limit; existing proposals and receipts remain intact. */
+export function continueWithCompactContext():Promise<void>{
+ const prev=get().turns.at(-1)
+ if(!prev||get().status==='running'||prev.program||prev.contract?.program||!(prev.status==='limit'||prev.status==='error'&&['context','max_tokens'].includes(prev.error?.code??'')))return Promise.resolve()
+ const snap=turnSnap.get(prev.continues??prev.n)
+ const task=pinSkillRequest(prev.task,prev.contract?.skills??[])+'\n\nNur lesen. Keine externen Änderungen und keine Ausführung. Setze die Analyse anhand aktueller Quellen fort und benenne noch notwendige Aktionen.'
+ return runTask(task,{history:false,noMemory:true,compact:scrubSecrets(contextCheckpoint(get().turns,get().steps,get().changes)),...(snap?{again:{refs:snap.refs,mentions:snap.mentions}}:{})})
 }
 
 /**
@@ -382,23 +425,52 @@ export function continueTask(): Promise<void> {
  * (/no-memory <task>); `history: false` when the prompt went into the history already; `continues`:
  * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
-export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] } } = {}): Promise<void> {
-  const task = (raw ?? get().draft).trim()
+export async function runTask(raw?: string, opts: { compact?: string; noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
+  let task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
+  // Tool choice and missing targets are resolved by the model from the bound context.
+  // A codeword selects a connection, never a fixed Atlas workflow or function.
   const n = get().turns.length + 1
   const prevTurn = opts.continues ? get().turns[get().turns.length - 1] : undefined
+  let runProvider: ProviderId | null = null
+  let runModel = ''
+  let providerChangeNoted = false
+  let receiptSaved=false
   const ac = new AbortController()
   controller = ac
   setStopHandler(() => ac.abort())
   // /new while this task runs: what it still reports (usage, steps, notes, its end) belongs to the old conversation
   const myEpoch = epoch
+  const mockWorkspaceEpoch = useWorkspace.getState().epoch ?? 'local'
   const here = () => epoch === myEpoch
   if (opts.history !== false) pushHistory(task)
   // the chips go along with this task: references, the mentions still in the text, the open page (a continuation: none again)
   // "Run the task again" (after a sign-in): the references and mentions the task had; the chips stay for the next one
-  const refs = prevTurn ? [] : opts.again ? opts.again.refs : get().refs
-  const mentions = prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
-  const pageId = contextPageId()
+  const refs = opts.program || prevTurn ? [] : opts.again ? opts.again.refs : get().refs
+  const mentions = opts.program || prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
+  const programSpec=opts.program?readProgram(opts.program.saved.compiled):null
+  const pageId = programSpec?workflowTarget(programSpec,opts.program!.inputs)??(programSpec.steps.some(s=>s.kind==='workflow')?null:contextPageId()):contextPageId()
+  const archiveScope=programScope()
+  const recoveryScope=mcpWorkScope(),recoveryKey=activeRecoveryKey()
+  let recoveryQueue=Promise.resolve(),recoveryWarned=false,recoveryWriting=false,pendingRecovery:TaskRecovery|null=null
+  const saveRecovery=()=>{
+   if(!here()||opts.program)return
+   const turn=get().turns.find(t=>t.n===n)
+   if(!turn||turn.error?.code==='key_in_text')return
+   const value:TaskRecovery={v:1,task:scrubSecrets(task),checkpoint:scrubSecrets(contextCheckpoint(get().turns,get().steps,get().changes)),at:Date.now(),status:turn.status,page:pageId}
+   pendingRecovery=value
+   if(recoveryWriting)return
+   recoveryWriting=true
+   recoveryQueue=Promise.resolve().then(async()=>{
+    try{while(pendingRecovery){
+     const latest=pendingRecovery;pendingRecovery=null
+     if(!here()||recoveryScope!==mcpWorkScope())break
+     const ok=validTaskRecovery(latest)&&await saveMcpWork(recoveryScope,recoveryKey,latest).catch(()=>false)
+     if(!ok&&!recoveryWarned&&here()){recoveryWarned=true;note(t('features.agent.recovery.failed'))}
+     if(ok)window.dispatchEvent(new Event('one-mcp-work-changed'))
+    }}finally{recoveryWriting=false}
+   })
+  }
   const suffix = pageId ? contextSuffix(pageId) : ''
   const ctx: TurnContext = {
     refs: refs.length,
@@ -407,10 +479,15 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   }
   // the One memory: the memories that fit this task go along (/no-memory: none; a continuation: they went along already)
   // the One memory goes along only where the route may receive it (D-S2-29; the terminal runs on Claude in S2)
-  const mem = prevTurn || !mayReceive('terminal.task', 'memory') ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
+  const mem = opts.program || prevTurn || !mayReceive('terminal.task', 'memory', get().route) ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
-  const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
-  const prepared = prepareTask(task)
+  const contextText=context(refs,mentions)+(opts.compact?'\n'+opts.compact:'')
+  const text = mem.block ? `${contextText}\n\n${mem.block}` : contextText
+  const prepared = opts.program?{setup:currentSetup(),prompt:task,memTools:false,codingTools:hasPipelines()||useCoding.getState().enabled,upsert:unlocked('upsert'),taskRules:canCreateItems()}:prepareTask(task)
+  // ONE-only work must not attach remote schemas, credentials, instructions or old Atlas history.
+  const oneOnly = oneOnlyTask(task)
+  if(oneOnly){prepared.setup={servers:[],instructions:''};prepared.codingTools=false}
+  if(opts.program){const names=new Set(programSpec!.steps.flatMap(s=>s.kind==='tool'&&s.server?[s.server]:s.kind==='workflow'?s.connections.map(c=>c.name):[]));prepared.setup={...prepared.setup,servers:prepared.setup.servers.filter(s=>names.has(s.name))}}
   const { setup, memTools: withMemTools, codingTools: withCoding, upsert: withUpsert } = prepared
   const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
   set((s) => ({
@@ -425,7 +502,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     mentions: prevTurn || opts.again ? s.mentions : [],
     memOffNext: prevTurn ? s.memOffNext : false,
     // a key typed into the task is never shown again (the gate refuses it below)
-    turns: [...s.turns, { n, task: looksLikeKey(task) ? scrubSecrets(task) : task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
+    turns: [...s.turns, { n, ...(opts.program?{program:{id:opts.program.saved.id,version:opts.program.saved.version,hash:opts.program.saved.compiled.hash}}:{}), task: looksLikeKey(task) ? scrubSecrets(task) : task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
   }))
 
   let answer = ''
@@ -448,6 +525,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
 
   // an MCP call of this task ran: the retry without a refusing server would run it again — never
   let sawMcp = false
+  const failedMcp=new Set<string>()
   /** this task's ledger source (features/governor: an allowance E holds for the task, today) — a Continue is the same task */
   const taskSource = `terminal:${convId}:${opts.continues ?? n}`
   taskSources.set(n, taskSource)
@@ -465,7 +543,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       return id
     },
     toolEnd(id, o) {
-      if (here()) patchStep(id, { state: o.state, result: o.summary || undefined, changeId: o.changeId, ms: o.ms })
+      if (here()) {patchStep(id, { state: o.state, result: o.summary || undefined, changeId: o.changeId, ms: o.ms });saveRecovery()}
     },
     note,
     text(delta) {
@@ -482,7 +560,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       if (kind === 'note') note(text)
       else {
         answer = answer ? `${answer}\n\n${text}` : text
-        patchTurn(n, { answer })
+        patchTurn(n, { answer });saveRecovery()
       }
     },
     usage(u, entry) {
@@ -501,11 +579,12 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       countUsage(entry ?? null, u)
     },
     history(messages) {
-      if (here()) history = messages
+      if (here()) { history = messages; historyProvider = runProvider }
     },
     limit() {
       note(t('features.agent.limitNote'))
     },
+    mock(artifact){if(here()&&mockWorkspaceEpoch===(useWorkspace.getState().epoch??'local')){const turn=get().turns.find(t=>t.n===n);patchTurn(n,{mocks:[...(turn?.mocks??[]),artifact],mockWorkspaceEpoch})}},
     media(items) {
       if (!here()) return
       // the cards under this task: saving stages "insert media" on the page it worked on
@@ -516,13 +595,19 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       if (!here()) return Promise.resolve('stop')
       return waitAtLine(n, h, wait, () => taskUsd, ac.signal)
     },
+    contract(report) { if(here()){patchTurn(n,{contract:report});saveRecovery()} },
     mcp(call) {
+      if(call.contract){if(here())patchTurn(n,{contract:call.contract});return}
       sawMcp = true
+      const key=JSON.stringify([call.server,call.tool])
+      if(call.state==='err'&&!call.notExecuted)failedMcp.add(key)
+      if(call.state==='ok')failedMcp.delete(key)
       if (!here()) return
       const step = get().steps.find((x) => x.mcp?.id === call.id)
-      const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error }
+      const mcp = { display:call.display, id: call.id, server: call.server, tool: call.tool, error: call.error, notExecuted:call.notExecuted, receipt:call.receipt }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
-      else set((s) => ({ steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'mcp', arg: call.arg, state: call.state, startedAt: Date.now(), mcp }] }))
+      else set((s) => ({ calls: s.calls + (call.skipped ? 0 : 1), steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'mcp', arg: call.arg, state: call.state, startedAt: Date.now(), mcp }] }))
+      saveRecovery()
     },
   }
 
@@ -541,61 +626,95 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       live: '',
       steps: s.steps.map((x) => (x.state === 'run' ? { ...x, state: 'err' } : x)),
     }))
-    patchTurn(n, { status, endedAt: Date.now(), answer, ...(error ? { error } : {}) })
+    patchTurn(n, { status, endedAt: Date.now(), answer, ...(error ? { error } : {}) });saveRecovery()
     if (!get().open && status !== 'stopped') notifyHidden(status)
     // the One memory: the request goes into the memory log; proposals for what is worth keeping
     const staged = turnChanges(n)
     const result = status === 'done' || status === 'limit' ? (staged.length ? tn('features.memory.result.changes', staged.length) : t('features.memory.result.answer')) : t(status === 'stopped' ? 'features.memory.result.stopped' : 'features.memory.result.failed')
     // a task refused for a key in its text was never sent: no row (the key would be its name)
     if (error?.code !== 'key_in_text') noteUse(answer, mem.use, { task, where: { kind: 'terminal' }, pageId, result })
-    if (status === 'done' && proposalsOn() && !trivialTask(task, staged.length)) void proposeFor(n, task, answer, mem.use?.items.map((x) => x.text) ?? [])
+    if (!opts.program && status === 'done' && proposalsOn() && !trivialTask(task, staged.length)) void proposeFor(n, task, answer, mem.use?.items.map((x) => x.text) ?? [])
   }
 
   // servers addressed by a codeword always join; the others are left out while they reject their token here
   const forced = codewordsIn(task, setup.servers)?.forced ?? []
   const before = history
+  const beforeProvider = historyProvider
   // every task, a Continue too: "Run the task again" after a sign-in sends it once more from here
-  turnSnap.set(n, { before, refs, mentions })
-  const tooling = terminalSetup(withCoding, withMemTools, withUpsert, prepared.taskRules)
+  turnSnap.set(n, { before, provider: beforeProvider, refs, mentions })
   // team: the member list (owners by email) before the first request — the staging tools never wait for it
   await warmMembers()
   // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
-  const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id }))]
+  const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id })), ...(task.includes('one-repo://') ? [{file:'upload' as const}] : [])]
   const attempt = async () => {
     answered = 0
+    // Prepared task buttons may start before the status poll has returned on a member's new device.
+    // Resolve only public central metadata first; never ask them to copy the owner's API key.
+    await refreshCentralAI()
+    if(ac.signal.aborted||!here())throw new AIError('aborted')
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
-    const pre = precheck({ purpose: 'terminal.task', sources, typed: task })
+    const pre = precheck({ purpose: 'terminal.task', route: get().route, sources, typed: task,...(opts.compact?{carries:['private' as const]}:{}) })
+    if (opts.continues && historyProvider && historyProvider !== pre.route?.p) throw new AIError('capability', t('features.agent.err.providerChanged'))
+    if(opts.compact&&pre.sees!=='all')throw new AIError('policy','private')
+    runProvider = pre.route?.p ?? null
+    runModel = pre.route?.m ?? ''
+    if (history.length && historyProvider !== runProvider && !providerChangeNoted) {
+      note(t('features.agent.providerFresh'))
+      providerChangeNoted = true
+    }
+    const activeHistory = !opts.compact && !opts.program && !oneOnly && historyProvider === runProvider ? history : []
+    const tooling = terminalSetup(withCoding, withMemTools && pre.allows('memory'), withUpsert, prepared.taskRules)
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')
+    const addressedMcp=forced.length>0||setup.servers.some(s=>[s.name,s.codeword].filter(Boolean).some(name=>new RegExp('(?:^|[^a-z0-9_-])'+name!.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?:$|[^a-z0-9_-])','i').test(task)))||(/\batlas[_\s]+(?:whoami|get|search|context)\b/i.test(task)&&setup.servers.some(s=>/^https:\/\/(?:eh|aj)-atlas\.com\//.test(s.url)))
+    // An explicitly requested source must not silently become a page-only answer.
+    if(!mcpOk&&addressedMcp&&pre.route)throw new AIError('policy','mcp-required',undefined,undefined,[{kind:'step',step:'data',provider:pre.route.p,data:'mcp'}])
     if (!mcpOk) for (const name of mcpNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.policy', { server: name }))
     const mcp = setup.servers.length && mcpOk ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)
     for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
     // servers left out because they rejected their token: the terminal offers a sign-in under the task
     if (left.length && here()) patchTurn(n, { signIn: [...new Set([...(get().turns.find((x) => x.n === n)?.signIn ?? []), ...left])] })
+    let repoText = ''
+    const selectedFiles = repoFileRefs(task)
+    if (selectedFiles.length && !pre.allows('files')) throw new AIError('policy', 'Repository files are excluded for this model.')
+    for (const ref of selectedFiles) {
+      ac.signal.throwIfAborted()
+      const result=await requestRepoFiles({repo:ref.repo,path:ref.path,branch:ref.branch,action:'read'})
+      if (!here()) throw new Error('The conversation changed. Select the files again.')
+      repoText += repoFileContext(result)
+      if (repoText.length>80000) throw new Error('Select fewer files: excerpts exceed 80,000 characters.')
+      note(`Repository: ${result.repo} · ${result.branch} · ${ref.path} · SHA256 ${result.file!.revision.slice(0,12)}`)
+    }
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
-    const withImages = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
+    const withImages = await withRefImages(taskMessage(activeHistory, prompt, text + repoText), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
-    return runAgent({
+    const execute=opts.program?(await import('../programs/runner')).runCompiledProgram:runAgent
+    return execute({
       purpose: 'terminal.task',
+      privateContext:!!opts.compact,
+      readOnly:!!opts.compact,
+      targetPage: pageId,
+      route: pre.route,
       sources,
       typed: task,
-      history,
+      history: activeHistory,
       user,
       stage,
       signal: ac.signal,
       hooks,
       mcp,
+      mcpResults,
       readLimit: terminalReadLimit,
       // the tool reads are built for the route (run.ts); references were read before the route was known — with them a
       // route that does not see everything is refused (the gate's backstop)
       applied: refs.length ? null : appliedOf(pre),
       // the coding pipelines' and the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
       tools: tooling.tools,
-      system: tooling.system,
+      system: mockIntent(task)&&!opts.program ? MOCK_WORKSPACE_SYSTEM : tooling.system,
       run: { source: taskSource },
-    })
+    }, opts.program!)
   }
   try {
     let end: Awaited<ReturnType<typeof attempt>>
@@ -607,7 +726,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
         // the Regler refused the task's first request at the red line (nothing was sent): the halt card — E allows
         // +1 $ for this task and sends it, Mod+. ends the task (another model: the head's model key, then run it again)
         // (only when nothing of this attempt was answered: the task is then still as it was before it)
-        const halt = e instanceof AIError && e.code === 'budget' && !answered && !ac.signal.aborted && here() ? firstHalt(e) : null
+        const halt = !opts.program && e instanceof AIError && e.code === 'budget' && !answered && !ac.signal.aborted && here() ? firstHalt(e) : null
         if (halt) {
           const choice = await untilStopped(waitAtLine(n, halt, { label: e instanceof AIError ? (e.label ?? '') : '', provider: 'anthropic', refresh: async () => null }, () => taskUsd, ac.signal), ac.signal)
           if (choice !== 'allow' || ac.signal.aborted) throw new AIError('aborted')
@@ -615,22 +734,42 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
           continue
         }
         // a server this task did not address rejected its token: once more without it (the conversation as before)
-        if (!(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || sawMcp || ac.signal.aborted) throw e
+        if (opts.program || !(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || sawMcp || ac.signal.aborted) throw e
         history = before
+        historyProvider = beforeProvider
         end = await attempt()
         break
       }
     }
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
-    else finish(end === 'limit' ? 'limit' : 'done')
+    else if(end==='done'&&failedMcp.size)finish('error',{code:'mcp',message:t('features.agent.err.mcpIncomplete')})
+    else {
+      finish(end === 'limit' ? 'limit' : 'done')
+      if(!opts.program&&end==='done'&&here()){
+        const report=get().turns.find(x=>x.n===n)?.contract
+        if(report&&!report.compiled.contract.authenticate&&['ready','accepted'].includes(report.phase)){
+          let spec:ReturnType<typeof taskProgramDraft>|undefined
+          try{spec=taskProgramDraft(report.id)}catch{ /* Not every conversation contains an executable source-backed task. */ }
+          if(spec)try{await archiveProgram(report.id,spec,answer,{provider:runProvider??'',model:runModel},archiveScope,get().turns.find(x=>x.n===n)?.startedAt,report);receiptSaved=true;if(here()){patchTurn(n,{receipt:'saved'});note(t('features.ai.program.autoSaved'))}}catch{/* A private terminal-only receipt is still saved below. */}
+        }
+      }
+    }
   } catch (e) {
-    const err = e instanceof AIError ? e : new AIError('unknown', e instanceof Error ? e.message : String(e))
+    const detail=e instanceof AIError?e.detail:e instanceof Error?e.message:String(e)
+    const missingSources=detail?.startsWith('Compiled result check blocked:')&&detail.includes('task_sources_observed')
+    const err = missingSources?new AIError('bad_request',t('features.ai.transfer.sourcesMissing')):detail?.startsWith('Typed AI check blocked:')||e instanceof ToolInputError?new AIError('bad_request',detail):e instanceof AIError ? e : new AIError('unknown',detail)
     if (err.code === 'aborted') finish('stopped')
     // a server that rejected its token: named, so the terminal can offer to sign in to it
-    else finish('error', { code: err.code, message: err.message, ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
+    else finish('error', { code: err.code, message: err.message, ...(err.detail?.startsWith('features.ai.central.')?{centralLog:true}:{}), ...(err.code === 'mcp_auth' && err.server ? { server: err.server } : {}) })
     // a key in the task: the text goes back into the prompt to be fixed (never into the history)
     if (err.code === 'key_in_text' && here() && !get().draft.trim()) set({ draft: task })
   } finally {
+    await recoveryQueue
+    const ended=here()?get().turns.find(turn=>turn.n===n):undefined
+    if(!opts.program&&!receiptSaved&&ended&&ended.status!=='running'&&ended.error?.code!=='key_in_text'){
+      pendingReceipts.set(n,{run:terminalRun(ended,get().steps,{provider:runProvider??'',model:runModel}),scope:archiveScope})
+      await retryTurnReceipt(n)
+    }
     // a card still open (the task ended another way): its wait ends as a stop — the card and the governor's mark go
     if (get().halt?.n === n) {
       const fn = haltAnswer
@@ -738,6 +877,8 @@ export function answerAsk(id: string, yes: boolean) {
 export async function submitPrompt(raw?: string): Promise<void> {
   const input = (raw ?? get().draft).trim()
   if (!input) return
+  const skillQuery=skillLibraryQuery(input)
+  if(skillQuery!==null){pushHistory(input);set({draft:''});openSkills(skill=>set(s=>({draft:s.draft.trimEnd()+' $'+skill.spec.name+'@'+skill.version,focusTick:s.focusTick+1})),skillQuery);return}
   // a question waits for y / n: the answer goes there (never into the prompt history); anything else drops it
   const asking = openAsk()
   if (asking) {
@@ -759,6 +900,7 @@ export async function submitPrompt(raw?: string): Promise<void> {
     if (withText.id === 'remember') return rememberText(input, withText.text)
     if (withText.id === 'example') return exampleDialog(input, withText.text)
     if (get().status === 'running') return info(input, 'features.agent.echo.wait')
+    if(withText.id === 'ba' || withText.id === 'po' || withText.id === 'mock') return runTask('/'+withText.id+' '+withText.text, { history: false })
     return runTask(withText.text, { noMemory: true, history: false })
   }
   const cmd = parseCommand(input)
@@ -768,6 +910,11 @@ export async function submitPrompt(raw?: string): Promise<void> {
   const running = get().status === 'running'
   const pending = get().changes.filter((c) => c.status === 'pending' || c.status === 'failed').length
   switch (cmd) {
+    case 'ba':
+    case 'po':
+    case 'mock':
+      if(running) return info(input, 'features.agent.echo.wait')
+      return runTask('/'+cmd, { history: false })
     case 'new':
       newTask()
       return
@@ -815,6 +962,9 @@ export async function submitPrompt(raw?: string): Promise<void> {
       echo(input, 'ask', { key: `features.agent.echo.clearHistory.ask.${count === 1 ? 'one' : 'other'}`, vars: { count }, ask: { what: 'clearhistory', state: 'open' } })
       return
     }
+    case 'programs':
+      openPrograms()
+      return
     case 'help':
       echo(input, 'help')
       return
@@ -905,10 +1055,15 @@ export function pickRedo(input: string) {
 
 /** Forget the session: conversation, steps and every proposal that was not applied. */
 export function newTask() {
+  void deleteMcpWork(mcpWorkScope(),activeRecoveryKey()).catch(()=>{})
+  mcpResults.clear()
+  pendingReceipts.clear()
+  cancelAtlasTransferChoice()
   controller?.abort()
   controller = null
   setStopHandler(null)
   history = []
+  historyProvider = null
   forgetStagedIds()
   itemSession = newItemSession('terminal')
   reported = {}
@@ -1340,8 +1495,10 @@ export function rerunAfterSignIn(entryId: string): void {
   const turn = get().turns.find((x) => x.n === c.retry!.n)
   const snap = turnSnap.get(c.retry.n)
   if (!turn || !snap) return
+  if((turn.program||turn.contract?.program)){openPrograms();return}
   patchConnect(entryId, { retried: true })
   history = snap.before
+  historyProvider = snap.provider
   // a Continue goes on again (the same task, a fresh budget, what is staged); a task runs with the chips it had
   void runTask(turn.task, turn.continues ? { history: false, continues: turn.continues } : { history: false, again: { refs: snap.refs, mentions: snap.mentions } })
 }

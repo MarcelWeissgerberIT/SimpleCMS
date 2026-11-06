@@ -1,3 +1,5 @@
+import { useCloud } from '../../cloud'
+import { useBlockAuthors } from '../../editor/authors/preference'
 import type { ReactNode } from 'react'
 import { BookMarked, BookmarkPlus, ClipboardCheck, ClipboardCopy, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap, Rewind, Star, StarOff } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -13,7 +15,7 @@ import { fmtNumber, fmtRelative, plural, wordCount } from '../lib/format'
 import { useKbdHint } from '../lib/hooks'
 import { useReadOnly } from '../cloud/state'
 import { SwitchFace } from '../../ui/controls'
-import { openRecorder, REWIND_SHORTCUT, canSendToOrders, sendToOrders, sendToOrdersWithNote, useCoding } from '../../features'
+import { openAgentRun, openRecorder, REWIND_SHORTCUT, canSendToOrders, sendToOrders, sendToOrdersWithNote, useCoding } from '../../features'
 
 const FONTS: Array<{ id: PageFont; key: string }> = [
   { id: 'sans', key: 'shell.font.default' },
@@ -24,6 +26,8 @@ const FONTS: Array<{ id: PageFont; key: string }> = [
 export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor: HTMLElement | null; onClose: () => void; mobile: boolean }) {
   const t = useT()
   const lang = useLang()
+  const blockAuthors = useBlockAuthors()
+  const cloud = useCloud(s => s.active.kind === 'cloud' && !!s.supports?.includes('block-authors:1'))
   const focus = useUI((s) => s.focusMode)
   const kbd = useKbdHint()
   const ws = useWorkspace.getState()
@@ -80,9 +84,12 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
 
   const entries: MenuEntry[] = [
     ...look,
+    ...only(edit&&!isDb,[{label:lang==='de'?'Als Quelle nach Atlas übergeben…':'Hand source to Atlas…',icon:<Share2 size={15}/>,onSelect:()=>ui.openModal({type:'sourceAtlas',pageId:page.id})}]),
+    ...(cloud && !isDb && !page.private ? [{ kind: 'custom' as const, render: () => <div className="pm-toggles"><ToggleRow seed="blockAuthors" label={t('shell.blockAuthors.toggle')} checked={blockAuthors.enabled} onChange={blockAuthors.set} /></div> }] : []),
     { kind: 'separator' },
     { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(page.id) },
+    ...only(edit && !inTemplate(ws.pages, page.id), [{ label: t('features.agents.invoke.onPage'), icon: <Zap size={15} />, onSelect: () => openAgentRun({ pageId: page.id }) }]),
     // work orders: only while Coding is on here (features/coding/orders) — never for viewers
     ...only(sendable, [
       { label: t('features.coding.order.cmd.send'), icon: <ClipboardCheck size={15} />, onSelect: () => void sendToOrders(page.id) },

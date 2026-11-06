@@ -1,3 +1,17 @@
+import {requestedSkills} from '../skills/storage'
+import {SkillError,type Skill} from '@/shared/ai/skills'
+import {centralAI,centralKeyReady,centralModelAllowed} from './centralAI'
+import { workspaceDeviceAI } from '../../../store/ai'
+import {checkProviderQuantum} from './quandprofile'
+import type {QuantumProof} from '@/shared/quandprofile/runtime'
+import { isTestAccess } from '../../../cloud/testScope'
+import { flowAllows, flowPageVisible, flowRestrictions, assertModelFlow, flowSignature } from './dataFlow'
+import { inferencePlace } from '@/shared/ai/dataFlow'
+import { SHARED_PREFIX } from '@/shared/ai/shared-model'
+import { sharedModels } from './sharedModels'
+import { flowChoices } from './flowChoices'
+import { workerProviderReady, workerModelRows } from './workerModels'
+import { isWorkerProvider } from '@/shared/ai/providers'
 /**
  * prepare(): the single choke point in front of every AI request, before any data is loaded or sent.
  *
@@ -235,6 +249,9 @@ export interface RoundCtx extends LoopRound {
 export type StartCheck = StartVerdict & { line?: { spent: number; limit: number }; label?: string; checks?: number }
 
 export interface Prepared {
+  /** Host snapshot of explicitly selected instruction skills; no tools or permissions added. */
+  skills?: Skill[]
+  quantum?: QuantumProof
   purpose: PurposeId
   cls: FeatureClass
   /** the route the request goes to (null: demo — canned answers, nothing sent) */
@@ -350,7 +367,7 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
         const pick = o.pick ? cfg.onlyServer(o.pick.server, o.pick.reads) : null
         if (o.pick && !pick) return { ok: false, code: 'contract', detail: `no enabled server ${o.pick.server}` }
         const mcp = o.mcp === false ? false : (o.mcp ?? (pick ? ('fixed' as const) : (false as const)))
-        const base = { purpose: o.purpose, sources: o.sources ?? ([] as SourceRef[]), system: 'Answer briefly.', prompt: o.prompt, mcp, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
+        const base = { purpose: o.purpose, typed:o.prompt, sources: o.sources ?? ([] as SourceRef[]), system: 'Answer briefly.', prompt: o.prompt, mcp, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
         try {
           const text = o.structured ? await m.completeStructured({ ...base, ...(pick ?? {}), schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } }) : await m.streamCompletion(base)
           return { ok: true, text }
@@ -366,7 +383,7 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     // can a build of generation `gen` enforce the stored rules? (an older tab, simulated)
     policyKnownAt: (gen: number) => {
       const st = useWorkspace.getState()
-      return policyKnown(st.ai, st.settings.ai, gen)
+      return policyKnown(st.ai, workspaceDeviceAI(st), gen)
     },
   }
 }
@@ -419,6 +436,7 @@ function hold(p: Prepared, usd: number): void {
  */
 export async function beforeRound(r: LoopRound, o: { dry?: boolean } = {}): Promise<RoundVerdict> {
   const p = r.prepared
+  assertPreparedFlow(p)
   const route = p.route
   const v = route && brake.round ? await brake.round({ ...r, route, price: priceOf(route, p.pool), hints: wireHintsFor(route, modelInfo(route, p.pool)), candidates: () => haltCandidates(p) }) : null
   if (!v) return { go: true, reserve: p.reservation?.usd ?? 0, band: null }
@@ -481,6 +499,7 @@ export function prepare(input: PrepareInput): Prepared {
   if (strict() && !input.size) throw new Error(`[governor] prepare without a size (${String(input.purpose)}) — every request names its prompt and answer budget`)
   const p = gate(input, true)
   inputs.set(p, input)
+  flowVersions.set(p, flowSignature())
   return p
 }
 
@@ -512,6 +531,15 @@ function retried(input: PrepareInput): PrepareInput {
 
 /** The input each prepared request came from (reprepare). */
 const inputs = new WeakMap<Prepared, PrepareInput>()
+/** Host access only: source pointers and the caller's trusted typed instruction, never model/source text. */
+export const taskInputOf=(p:Prepared)=>{const i=inputs.get(p);return {typed:typeof i?.typed==='string'?i.typed:Array.isArray(i?.typed)?i.typed.filter(v=>typeof v==='string').join('\n'):'',sources:i?.sources??[]}}
+const flowVersions = new WeakMap<Prepared, string>()
+
+export function assertPreparedFlow(p: Prepared): void {
+  if (flowVersions.has(p) && flowVersions.get(p) !== flowSignature()) throw new AIError('policy', 'destination')
+  if (p.route) assertModelFlow(p.route.p, inputs.get(p)?.sources ?? [])
+  if(p.route)p.quantum=checkProviderQuantum(p.route.p,p.route.m,p.classes.filter(c=>p.allows(c)),p.purpose)
+}
 
 /**
  * The same request again on another route (the halt card's H — a cheaper model of the same provider): the old
@@ -539,11 +567,11 @@ function world(): RouteWorld {
   const s = useWorkspace.getState()
   return {
     ws: s.ai,
-    device: s.settings.ai,
+    device: workspaceDeviceAI(s),
     aiModel: s.settings.aiModel,
     // Claude's marker is settings.aiApiKey; the others' are settings.aiKeys (store/secrets.ts)
-    hasKey: (p) => (p === 'anthropic' ? !!s.settings.aiApiKey.trim() : hasAIKey(p)),
-    info: (route, pool) => modelInfo(route, pool),
+    hasKey: (p) => isWorkerProvider(p) ? workerProviderReady(p) : p === 'anthropic' ? centralKeyReady(!!s.settings.aiApiKey.trim()) : hasAIKey(p),
+    info: (route, pool) => route.p==='anthropic'&&!centralModelAllowed(route.m)?null:modelInfo(route, pool),
     shortlist: shortlist().map((r) => r.m),
   }
 }
@@ -629,18 +657,22 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   checkContract(input)
   const s = useWorkspace.getState()
   // 0 · rules this build does not know
-  if (!policyKnown(s.ai, s.settings.ai, buildGen())) throw new AIError('reload')
+  if (!policyKnown(s.ai, workspaceDeviceAI(s), buildGen())) throw new AIError('reload')
   // 1 · a key typed into a request
   if (typedTexts(input.typed).some(looksLikeKey)) throw new AIError('key_in_text')
   // 2 · AUS
-  if (offHook()) throw new AIError('off')
+  if (isTestAccess() || offHook()) throw new AIError('off')
   // 3 · what the request carries: needs ∪ carries ∪ the sources' classes (one classOfPage memo per request)
   const purpose = purposeOf(input.purpose)
   const w = sourceWorld()
+  let skills:Skill[]=[]
+  try{skills=requestedSkills(typedTexts(input.typed).join("\n"))}catch(e){if(e instanceof SkillError)throw new AIError('bad_request','features.ai.skills.error.'+e.code);throw e}
   const classes = requestClasses(input, w)
+  if(skills.length)classes.add('private')
   // 4 · the route
   const caps = [...new Set([...purpose.caps, ...(input.needs ?? [])])]
   const res = resolveFor(purpose.cls, { chip: input.route, model: input.model, decider: input.decider, caps, classes: [...classes] })
+  if(!res.ok&&res.code==='no_key'&&centralAI()?.assigned&&(res.none||res.route.p==='anthropic'))throw new AIError('unavailable',centralAI()?.id?'features.ai.central.inactive':'features.ai.central.unreachable')
   // a decision nobody chose a Vorprüfer for: nothing is sent (never demo, never Claude)
   if (!res.ok && res.none && res.code === 'no_route') throw new AIError('no_route', 'gate', undefined, undefined, [{ kind: 'step', step: 'models', provider: 'openrouter' }])
   if (!res.ok && res.none) {
@@ -649,13 +681,17 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   }
   if (!res.ok) throw new AIError(res.code, res.detail, undefined, labelFor(res.route), res.fixes)
   const route = res.route
+  assertModelFlow(route.p, input.sources)
   const pool = res.pool
   const label = labelFor(route, pool)
-  const sees = seesEverything(route.p, s.ai, s.settings.ai) ? 'all' : 'filtered'
-  const redact = redactionFor(route.p, s.ai, s.settings.ai)
-  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => !allowedFor(route.p, c, s.ai, s.settings.ai))
-  const visible = (id: ID): boolean => !hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c))
-  const allows = (c: DataClass): boolean => allowedFor(route.p, c, s.ai, s.settings.ai)
+  const shared = route.p === 'local' && route.m.startsWith(SHARED_PREFIX)
+  const sees = !shared && !flowRestrictions().length && seesEverything(route.p, s.ai, workspaceDeviceAI(s)) ? 'all' : 'filtered'
+  const redact = redactionFor(route.p, s.ai, workspaceDeviceAI(s))
+  const hiddenForShare = (c: DataClass) => shared && !s.ai?.sharedMemberContext && MEMBER_CLASSES.some(m => m === c) && !(c === 'mcp' && res.info.caps.mcp)
+  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => hiddenForShare(c) || !allowedFor(route.p, c, s.ai, workspaceDeviceAI(s)))
+  const visible = (id: ID): boolean => flowPageVisible(route.p, id) && (!hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c)))
+  const allows = (c: DataClass): boolean => !hiddenForShare(c) && allowedFor(route.p, c, s.ai, workspaceDeviceAI(s))
+  if(skills.length&&sees!=='all')throw new AIError('policy','private',undefined,label,[{kind:'step',step:'data',provider:route.p,data:'private'}])
   // 5 · the backstop (D-S2-5): text built without the route's redaction / filter never goes to a route that may not see it
   const concerned = held || backstopToo ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
   if (concerned) throw new AIError('policy', concerned, undefined, label, [{ kind: 'step', step: 'data', provider: route.p, data: concerned }])
@@ -663,7 +699,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   //     priced per request reserves its stated bound (never 0). Money only in prepare (held: it reserves, may cap a text
   //     answer, may refuse 'budget'); precheck only peeks. No line set: the identity (today's bytes).
   const known = res.info.caps
-  const size = input.size
+  const size = input.size?{...input.size,promptChars:input.size.promptChars+(skills.length?JSON.stringify(skills).length+1000:0)}:undefined
   const price = route.p === 'anthropic' ? undefined : priceFor(route, pool)
   const visibleOut = size ? (typeof size.maxTokens === 'function' ? size.maxTokens(known) : size.maxTokens) : 0
   const bandOut = size ? Math.min(visibleOut, size.bandOut ?? visibleOut) : 0
@@ -672,6 +708,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: bandOut }, Date.now(), price, known, hints) : null
   const run = runOf(input)
   const ctx: BrakeCtx = {
+    ...(skills.length?{skills}:{}),
     purpose: input.purpose,
     cls: purpose.cls,
     route,
@@ -683,7 +720,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     run,
     chip: !!input.route && (input.pinned ?? 'person') === 'person',
     // MCP joins Claude routes that may receive it only (client.ts attachMcp)
-    mcp: input.mcp && route.p === 'anthropic' && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [], ...(input.mcp.rounds ? { rounds: input.mcp.rounds } : {}) } : { servers: 0, toolChars: [] },
+    mcp: input.mcp && ['anthropic', 'copilot', 'local'].includes(route.p) && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [], ...(input.mcp.rounds ? { rounds: input.mcp.rounds } : {}) } : { servers: 0, toolChars: [] },
     price: price !== undefined ? price : priceRow(route),
     ...(hints ? { hints } : {}),
     label,
@@ -708,6 +745,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     }
   } else hint = brake.peek?.(ctx) ?? null
   return {
+    ...(skills.length?{skills}:{}),
     purpose: input.purpose,
     cls: purpose.cls,
     route,
@@ -715,7 +753,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     model: route.m,
     caps: known,
     classes: [...classes],
-    steps,
+    steps: [...steps, { k: 'data-flow', code: inferencePlace(route.p, route.m) }],
     reservation: held ? reserve(usd, run.source) : null,
     ...(capped !== undefined ? { maxTokens: capped } : {}),
     ...(braked !== undefined ? { band: braked } : {}),
@@ -742,12 +780,12 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
  * request (a cost band, a PDF's pages). A refused rule still names its first pin; no rule and no key: Claude with this
  * device's model (what a key would give, as before).
  */
-export function routeFor(purposeId: PurposeId, o: { route?: Route | null } = {}): { route: Route; pool?: string[]; label: string } {
+export function routeFor(purposeId: PurposeId, o: { route?: Route | null } = {}): { route: Route; pool?: string[]; label: string; level: Level; available:boolean } {
   const purpose = purposeOf(purposeId)
   const res = resolveFor(purpose.cls, { chip: o.route, caps: purpose.caps, classes: [...purpose.needs] })
-  if (res.ok) return { route: res.route, ...(res.pool ? { pool: res.pool } : {}), label: labelFor(res.route, res.pool) }
+  if (res.ok) return { route: res.route, ...(res.pool ? { pool: res.pool } : {}), label: labelFor(res.route, res.pool),level:res.level,available:true }
   const route = !res.none ? res.route : legacyRule(useWorkspace.getState().settings.aiModel, true)[0]!
-  return { route, label: labelFor(route) }
+  return { route, label: labelFor(route),level:res.none?'legacy':res.level,available:false }
 }
 
 /**
@@ -764,6 +802,8 @@ export function deciderRoute(decider?: Route | null): { route: Route | null; lev
 }
 
 export interface AIStatus {
+  /** An explicit request pick is possible even when no default provider has a key. */
+  selectable?: boolean
   /** a request would go out (or get a demo answer) */
   ready: boolean
   /** the route it would take (null: none — see `reason`, or demo) */
@@ -780,7 +820,7 @@ export interface AIStatus {
 /** Can a request of this purpose go out on this device now, and where to? (no sources: the purpose's needs only) */
 export function aiStatus(purposeId: PurposeId): AIStatus {
   const s = useWorkspace.getState()
-  if (!policyKnown(s.ai, s.settings.ai, buildGen())) return { ready: false, route: null, demo: false, reason: 'reload' }
+  if (!policyKnown(s.ai, workspaceDeviceAI(s), buildGen())) return { ready: false, route: null, demo: false, reason: 'reload' }
   if (offHook()) return { ready: false, route: null, demo: false, reason: 'off' }
   const purpose = purposeOf(purposeId)
   const res = resolveFor(purpose.cls, { caps: purpose.caps, classes: [...purpose.needs] })
@@ -791,7 +831,8 @@ export function aiStatus(purposeId: PurposeId): AIStatus {
     // a key for another provider that does not take this kind of work (yet): set up Claude for it
     const other = (['openai', 'openrouter'] as const).filter((p) => hasAIKey(p))
     const route = other.length && other.every((p) => !routable(p, purpose.cls))
-    return { ready: false, route: null, demo: false, reason: route ? 'route' : 'no_key', fix: { kind: 'step', step: 'key', provider: 'anthropic' } }
+    const selectable = workerModelRows().some(m => routable(m.route.p, purpose.cls) && purpose.caps.every(n => canDo(m.caps, n)))
+    return { selectable, ready: false, route: null, demo: false, reason: route ? 'route' : 'no_key', fix: { kind: 'step', step: 'key', provider: 'anthropic' } }
   }
   const reason = res.code === 'policy' || res.code === 'capability' || res.code === 'model_gone' || res.code === 'no_key' ? res.code : 'no_key'
   return { ready: false, route: res.route, demo: false, reason, ...(res.fixes[0] ? { fix: res.fixes[0] } : {}) }
@@ -844,6 +885,7 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   const caps = [...new Set([...purpose.caps, ...(o.needs ?? [])])]
   const w = world()
   const check = (route: Route): Pick<RouteChoice, 'ok' | 'why' | 'pool'> => {
+    if (!flowAllows(route.p, o.sources ?? [])) return { ok: false, why: { code: 'policy', detail: 'destination' } }
     if (!routable(route.p, purpose.cls)) return { ok: false, why: { code: 'later' } }
     const res = resolveRoute({ cls: purpose.cls, chip: route, caps, classes }, w)
     if (res.ok) return res.level === 'chip' ? { ok: true, ...(res.pool ? { pool: res.pool } : {}) } : { ok: false, why: { code: 'later' } }
@@ -864,14 +906,15 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   }
   // the route without a chip
   const nowRes = resolveFor(purpose.cls, { caps, classes })
-  const now = nowRes.ok ? nowRes.route : null
+  const now = nowRes.ok && flowAllows(nowRes.route.p, o.sources ?? []) ? nowRes.route : null
   if (now) add({ ...row(now, 'now'), ok: true, ...(nowRes.ok && nowRes.pool ? { pool: nowRes.pool } : {}) })
   // this kind of work's rule (the device's, else the workspace's)
-  const rule = s.settings.ai?.routes?.[purpose.cls] ?? s.ai?.routes?.[purpose.cls] ?? []
+  const rule = workspaceDeviceAI(s)?.routes?.[purpose.cls] ?? s.ai?.routes?.[purpose.cls] ?? []
   for (const pin of rule) if (!isJevRouter(pin.m)) add(row(pin, 'rule'))
   // Claude's models (a key here)
-  const claudeKey = !!s.settings.aiApiKey.trim()
-  if (claudeKey) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) add(row({ p: 'anthropic', m: m.route.m }, 'models'))
+  const claudeKey = centralKeyReady(!!s.settings.aiApiKey.trim())
+  if (claudeKey) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable && centralModelAllowed(m.route.m)) add(row({ p: 'anthropic', m: m.route.m }, 'models'))
+  for (const choice of flowChoices(workerModelRows().map(model => row(model.route, 'models')), sharedModels(), now)) add(choice)
   // the OpenRouter shortlist (a key here)
   const orKey = hasAIKey('openrouter')
   const list = shortlist()

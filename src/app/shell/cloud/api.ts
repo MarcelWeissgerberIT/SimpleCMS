@@ -140,6 +140,7 @@ export const listMcpCalls = async (wsId: string) =>
 export const restoreMcpCall = (wsId: string, callId: string, force = false) => cloudRequest<McpRestore>('POST', wsPath(wsId, `mcp-calls/${encodeURIComponent(callId)}/restore`), { force })
 
 export const cloudApi = {
+  cloudRequest,
   requestSignIn,
   signOut,
   updateProfile,

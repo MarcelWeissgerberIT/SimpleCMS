@@ -249,7 +249,7 @@ function runsOf(a: CustomAgent): RecipeSetup['runs'] {
     // a server agent outside a team workspace has no server runs to read
     if (a.runner === 'server' && !team) return UNREADABLE
     if (a.runner === 'server' && useServerAgents.getState().runsState[a.id] === 'unsupported') return UNREADABLE
-    const key = `${team ? active.id : 'local'}:${a.runner}:${a.id}`
+    const key = `${active.id}:${a.runner}:${a.id}`
     const r = reads.get(key)
     if (r?.busy) return null
     if (r && Date.now() - r.at < RETRY_MS) return UNREADABLE

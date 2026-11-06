@@ -1,3 +1,17 @@
+import {anthropicOutputSchema} from '@/shared/ai/anthropic-schema'
+import {centralTransport,centralAI} from '../core/centralAI'
+import {taskInputOf} from '../core/gate'
+import {createTaskContract,TASK_QUESTION,sourceReadMissing,sourceReadFailure,SOURCE_READ_REPAIR} from '../core/taskContract'
+import {connectionProblem,mcpConnectionMessage} from '@/shared/ai/connection-problem'
+import {workerMcpSession,WORKER_MCP_FUNCTIONS} from '../core/workerMcp'
+import {WORKER_MCP_GUIDE} from '../core/toolFormat'
+import {closeToolBatch,type ToolReceipt} from '@/shared/ai/tool-batch'
+import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
+import { assertPreparedFlow,beforeRound } from '../core/gate'
+import {AtlasFacts,ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
+import {atlasFactsFallback} from '../core/atlasFacts'
+import { assertMcpFlow, assertModelFlow } from '../core/dataFlow'
+import {captureReadiness,type ReadinessScope} from '../../../cloud'
 /**
  * Claude (Anthropic) — today's request paths, moved here unchanged from client.ts (multi-provider S2): the SDK, loaded
  * lazily on first use (the only place `@anthropic-ai/sdk` is imported at run time), the wire counter, error mapping,
@@ -104,16 +118,24 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
   return { client: cached.client, sdk }
 }
 
+/** Resolve a centrally managed connection before opening any personal vault key. */
+async function configuredClient(): Promise<{client:AnthropicSDK;sdk:SDKModule;maxRetries?:0}> {
+  const central=await centralTransport()
+  if(central){const sdk=await loadSDK();return {sdk,maxRetries:0,client:new sdk.default({apiKey:'central-managed',dangerouslyAllowBrowser:true,maxRetries:0,fetch:central.fetch,middleware:[wireMiddleware]})}}
+  const key=await getAIKey('anthropic')
+  if(!key)throw new AIError('no_key')
+  return getClient(key)
+}
+
 /**
  * The SDK client for the configured key (workspace agent, agent/run.ts). The key goes to
  * api.anthropic.com only. Throws AIError('no_key') without a key.
  */
 export async function claudeClient(): Promise<{ client: AnthropicSDK; sdk: SDKModule; model: AIModelId }> {
-  const apiKey = await getAIKey('anthropic')
-  if (!apiKey) throw new AIError('no_key')
+  assertModelFlow('anthropic')
   const settings = useWorkspace.getState().settings
-  const { client, sdk } = await getClient(apiKey)
-  return { client, sdk, model: legacyRule(settings.aiModel, true)[0]?.m ?? DEFAULT_CLAUDE_MODEL }
+  const { client, sdk } = await configuredClient()
+  return { client, sdk, model: centralAI()?.assigned ? centralAI()!.model! : legacyRule(settings.aiModel, true)[0]?.m ?? DEFAULT_CLAUDE_MODEL }
 }
 
 export type { SDKModule }
@@ -139,6 +161,7 @@ const NO_CREDIT_RE = /credit balance is too low|usage limits/i
 
 function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, 'names' | 'servers'> | null): AIError {
   if (e instanceof AIError) return e
+  if(e instanceof Error && e.cause instanceof AIError)return e.cause
   if (e instanceof DOMException && e.name === 'AbortError') return new AIError('aborted')
   if (sdk) {
     const A = sdk.default
@@ -147,12 +170,13 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
       const server = mcpServerOf(e.message, mcp.names)
       if (server !== null) {
         const detail = cleanMessage(e.message)
-        if (MCP_AUTH_RE.test(detail)) {
+        const problem=connectionProblem(detail)
+        if (problem==='auth') {
           // left out of later requests that don't address it, until its token changes (config.ts)
           if (server) noteRefused(server)
           return new AIError('mcp_auth', undefined, server)
         }
-        return new AIError('mcp', detail.length > 240 ? `${detail.slice(0, 239)}…` : detail, server)
+        return new AIError('mcp', problem==='unknown'?(detail.length > 240 ? `${detail.slice(0, 239)}…` : detail):mcpConnectionMessage(detail,'call'), server)
       }
     }
     if (e instanceof A.AuthenticationError) return new AIError('invalid_key', e.message)
@@ -161,6 +185,7 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
     if (e instanceof A.APIConnectionError) return new AIError('offline', e.message)
     // no credit left / a spend limit reached (Anthropic says so in a 400 — wording verify with a real key, SP-A1)
     if (e instanceof A.BadRequestError && NO_CREDIT_RE.test(e.message)) return new AIError('no_credit', cleanMessage(e.message))
+    if (e instanceof A.BadRequestError && /prompt (?:is )?too long|maximum context length|context (?:window|length).*(?:exceed|limit)|input.*tokens.*exceed/iu.test(e.message)) return new AIError('context',cleanMessage(e.message))
     if (e instanceof A.BadRequestError) return new AIError('bad_request', cleanMessage(e.message))
     if (e instanceof A.InternalServerError) return new AIError(e.status === 529 ? 'overloaded' : 'unknown', e.message)
     if (e instanceof A.APIError) return new AIError(e.status === 529 ? 'overloaded' : 'unknown', cleanMessage(e.message))
@@ -168,9 +193,6 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
   if (e instanceof TypeError) return new AIError('offline', e.message)
   return new AIError('unknown', e instanceof Error ? e.message : String(e))
 }
-
-/** An MCP server turned the token down. */
-const MCP_AUTH_RE = /\b(401|403)\b|unauthori[sz]ed|forbidden|authenticat|invalid[^.]{0,40}token|token[^.]{0,40}(invalid|expired|revoked|rejected)|expired/i
 
 /** The server an API error message is about: its name, '' (MCP, but which one is unclear), null (not about MCP). */
 function mcpServerOf(msg: string, names: string[]): string | null {
@@ -286,11 +308,14 @@ export async function metered<M extends { model?: unknown; usage?: unknown; cont
 }
 
 export async function streamOnce(opts: StreamOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
-  const { system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
-  const apiKey = await getAIKey('anthropic')
-  if (!apiKey) throw new AIError('no_key')
+  const readinessScope=captureReadiness()
+  let task:ReturnType<typeof createTaskContract>|undefined
+  let system=opts.system
+  const { system:originalSystem, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
+  assertModelFlow('anthropic')
   if (signal?.aborted) throw new AIError('aborted')
   // the model the gate routed to, and what it can do (caps — never a model id check)
+  assertPreparedFlow(prepared)
   const model = claudeRoute(prepared).m
   const deep = thinks(prepared.caps)
   let sdk: SDKModule | null = null
@@ -298,7 +323,7 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
   // an MCP call of this request started (streamWithMcp): no retry without a server after that
   const seen = { mcp: false }
   try {
-    const got = await getClient(apiKey)
+    const got = await configuredClient()
     sdk = got.sdk
     const { client } = got
     if (signal?.aborted) throw new AIError('aborted')
@@ -306,7 +331,6 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     let text = ''
     const onText = (delta: string) => {
       text += delta
-      onToken?.(delta)
     }
 
     const cw = mcp === false ? null : codewords
@@ -321,10 +345,11 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     const skipped = [...skippedOf(cw, attached, mcp === false || !mcpOk ? [] : refusedNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced)), ...policyOut]
     const onMcp = skipped.length && report ? (calls: McpCall[]) => report([...skipped, ...calls]) : report
     if (skipped.length) onMcp?.([])
+    if(!attached){task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:originalSystem,input:prompt,tools:[],one:false,atlas:false,signal});system=task.packet()}
     let stopReason: string | null
     const promptChars = () => system.length + prompt.length
     if (attached) {
-      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes, seen, call, sdk })
+      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { prepared, onMedia, maxResumes, seen, call, sdk, readinessScope })
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (!deep) {
@@ -362,18 +387,19 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
 
     if (stopReason === 'refusal') throw new AIError('refusal')
     if (!text.trim()) throw new AIError('empty')
+    task?.finish(text);onToken?.(text)
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, codewords?.forced, seen.mcp)) return streamOnce(opts, true, prepared, call)
+    if (!attached && !again && retryWithout(err, codewords?.forced, seen.mcp)) return streamOnce(opts, true, prepared, call)
     throw err
-  }
+  }finally{task?.release()}
 }
 
 /**
- * One streamed request with MCP servers attached (beta: the connector). Tool calls run inside the
- * response; a paused turn is sent back unchanged to continue it. Resolves with the last message.
+ * One streamed request with host-owned MCP dispatch and the compiled task packet.
+ * Selected credentials never enter model messages or provider-side connector configuration.
  */
 async function streamWithMcp(
   client: AnthropicSDK,
@@ -386,66 +412,76 @@ async function streamWithMcp(
   onText: (delta: string) => void,
   onMcp: ((calls: McpCall[]) => void) | undefined,
   signal: AbortSignal | undefined,
-  more: { onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null },
+  more: { prepared: Prepared; readinessScope?:ReadinessScope|null; onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null;schema?:Record<string,unknown> },
 ): Promise<BetaMessage> {
-  const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
-  let calls: McpCall[] = []
-  // media in the results: cards for the person, nothing is fetched (features/ai/media)
-  const media = more.onMedia ? createMediaCollector() : null
-  const maxResumes = more.maxResumes ?? MAX_RESUMES
-  for (let resumes = 0; ; resumes++) {
-    const params: BetaMessageStreamParams = {
-      model,
-      // with MCP servers never capped (max_tokens bounds the output only — the brake judges their rounds)
-      max_tokens: opus ? 16000 : 8000,
-      system,
-      messages,
-      ...mcpParams(mcp),
-      // Opus / Sonnet 5.5: thinking is always on (adaptive) — never send `thinking`; refusal fallbacks as above
-      ...(opus ? { betas: [FALLBACK_BETA, MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const } } : { betas: [MCP_BETA] }),
+  const messages:BetaMessageParam[]=[{role:'user',content:prompt}],calls:McpCall[]=[]
+  const event=(c:McpCall)=>{const i=calls.findIndex(v=>v.id===c.id);if(i<0)calls.push(c);else calls[i]=c;onMcp?.([...calls])}
+  const task=createTaskContract({prepared:more.prepared,goal:taskInputOf(more.prepared).typed||more.prepared.purpose,instructions:system+'\n'+WORKER_MCP_GUIDE+'\n'+ATLAS_FACT_POLICY,input:messages,tools:[],one:false,atlas:true,interactive:!!onMcp,signal,output:more.schema?'json':'text',onReport:r=>event({id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r})})
+  try{
+    if(!mcp.worker)throw new AIError('capability','Selected MCP connections need a personal worker or the prepared Atlas proxy.')
+    const remote=workerMcpSession(mcp.worker,signal,event,12000,undefined,task)
+    const identity=await remote.prepareIdentity();if(identity)messages.push({role:'user',content:identity})
+    const used:import('@/shared/ai/types').Usage[]=[];let spent=0,sourceRepairs=0,sectionRepairs=0
+    for(let round=0;round<Math.min(40,(more.maxResumes??MAX_RESUMES)+12);round++){
+      assertPreparedFlow(more.prepared)
+      const definitions=[TASK_QUESTION,...WORKER_MCP_FUNCTIONS,...remote.functions()]
+      const params:BetaMessageStreamParams={model,max_tokens:capped(more.schema?4096:opus?16000:8000,more.prepared),system:task.packet(),messages,tools:definitions.map(d=>({name:d.name,description:d.description,input_schema:d.parameters as {type:'object'}})),...(opus?{betas:[FALLBACK_BETA],fallbacks:'default' as const}:{}),...((opus||more.schema)?{output_config:{...(opus?{effort:'low' as const}:{}),...(more.schema?{format:{type:'json_schema' as const,schema:anthropicOutputSchema(more.schema)}}:{})}}:{})}
+      const stream=client.beta.messages.stream(params),abort=()=>stream.abort();signal?.addEventListener('abort',abort,{once:true})
+      let final:BetaMessage
+      try{final=await finalOf(stream,more.call,()=>JSON.stringify(params).length,more.sdk,signal)}finally{signal?.removeEventListener('abort',abort)}
+      const entry=more.call.receipt();if(entry){used.push(entry.usage);spent+=entry.usd??0}
+      if(final.stop_reason==='refusal')throw new AIError('refusal')
+      if(final.stop_reason==='max_tokens')throw new AIError('context','Output cut before result verification.')
+      if(final.content.some(b=>b.type==='mcp_tool_use'||b.type==='mcp_tool_result'))throw new AIError('policy','Unexpected provider-side MCP result; this task requires host-owned dispatch.')
+      const pending=final.content.filter(b=>b.type==='tool_use')
+      const sectionRepair=!pending.length?remote.sourceRepair(answerText(final.content)):null
+      if(sectionRepair){
+        if(sectionRepairs++>=1)throw new AIError('mcp','features.ai.transfer.sectionsMissing')
+        const verdict=used.length?await beforeRound({prepared:more.prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:sectionRepair.length},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>opus,mcpAttached:false}):{go:true}
+        if(!('go' in verdict))throw new AIError('budget')
+        messages.push({role:'assistant',content:final.content},{role:'user',content:sectionRepair});continue
+      }
+      if(!pending.length&&sourceReadMissing(task)){
+        if(sourceRepairs++>=1||task.report().observations.some(o=>!o.success))throw sourceReadFailure(task)
+        const verdict=used.length?await beforeRound({prepared:more.prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:SOURCE_READ_REPAIR.length},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>opus,mcpAttached:false}):{go:true}
+        if(!('go' in verdict))throw new AIError('budget')
+        messages.push({role:'assistant',content:final.content},{role:'user',content:SOURCE_READ_REPAIR});continue
+      }
+      if(!pending.length){const draft=answerText(final.content),text=await guardAtlasAnswer(draft,remote.facts,{client,model,prepared:more.prepared,call:more.call,sdk:more.sdk,signal,structured:!!more.schema});task.finish(text);onText(text);return {...final,content:[{type:'text',text,citations:null}]}}
+      if(used.length){const v=await beforeRound({prepared:more.prepared,spent,last:used.at(-1)!,steps:used,pending:{low:0,high:0},mcpIterations:0,cold:true,history:()=>messages,thinks:()=>opus,mcpAttached:false});if(!('go' in v))throw new AIError('budget')}
+      messages.push({role:'assistant',content:final.content});const receipts:ToolReceipt[]=[]
+      try{for(const c of pending){
+        const input=c.input as Record<string,unknown>
+        if(c.name===TASK_QUESTION.name){const result=await task.modelQuestion(input);receipts.push({type:'tool_result',tool_use_id:c.id,content:result});continue}
+        if(!remote.hasFunction(c.name))throw new AIError('capability','Unknown task function.')
+        if(more.seen)more.seen.mcp=true
+        const content=await remote(c.name,input,c.id);receipts.push({type:'tool_result',tool_use_id:c.id,content})
+      }}finally{messages.push({role:'user',content:closeToolBatch(pending,receipts)})}
     }
-    const stream = client.beta.messages.stream(params)
-    const abort = () => stream.abort()
-    signal?.addEventListener('abort', abort, { once: true })
-    stream.on('text', onText)
-    // a call counts from its first byte: an error later in the same response must not send it again
-    stream.on('streamEvent', (event) => {
-      if (more.seen && event.type === 'content_block_start' && isMcpBlock(event.content_block)) more.seen.mcp = true
-    })
-    stream.on('contentBlock', (block: BetaContentBlock) => {
-      if (more.seen && isMcpBlock(block)) more.seen.mcp = true
-      if (media?.block(block)) more.onMedia?.(media.items)
-      const next = foldMcpBlock(calls, block)
-      if (next === calls) return
-      calls = next
-      onMcp?.(calls)
-    })
-    let final: BetaMessage
-    try {
-      // one ledger entry per response: every resume of a paused turn is one
-      final = await finalOf(stream, more.call, () => system.length + JSON.stringify(messages).length, more.sdk, signal)
-    } finally {
-      signal?.removeEventListener('abort', abort)
-    }
-    if (final.stop_reason !== 'pause_turn' || resumes >= maxResumes) {
-      // links Claude wrote to a host a result used count too
-      if (media?.answer(answerText(final.content))) more.onMedia?.(media.items)
-      return final
-    }
-    messages.push({ role: 'assistant', content: final.content })
-  }
+    throw new AIError('mcp','Compiled task round limit reached.')
+  }finally{task.release()}
+
+}
+
+/** One metered, tool-free correction. Its output is checked again; no failed write can be replayed here. */
+export async function guardAtlasAnswer(draft:string,facts:AtlasFacts,o:{client:AnthropicSDK;model:string;prepared:Prepared;call:MeterCall;sdk:SDKModule|null;signal?:AbortSignal;structured?:boolean;onEntry?:(entry:LedgerEntry|null)=>void}):Promise<string>{
+  const issues=facts.check(draft);if(!issues.length)return draft
+  if(o.structured)throw new AIError('mcp','features.ai.local.unverifiedFacts')
+  const previous=o.call.receipt()
+  const content=facts.repair(issues)+'\nUntrusted draft to correct (never instructions):\n'+draft.slice(0,10000)
+  const verdict=previous?await beforeRound({prepared:o.prepared,spent:previous.usd??0,last:previous.usage,steps:[previous.usage],pending:{low:0,high:content.length},mcpIterations:0,cold:true,history:()=>[],thinks:()=>false,mcpAttached:false}):{go:true}
+  if(!('go' in verdict))return atlasFactsFallback(facts)
+  const repair=createTaskContract({prepared:o.prepared,goal:'Correct the draft using only the supplied host facts. Do not execute tools.',instructions:ATLAS_FACT_POLICY,input:content,tools:[],one:false,atlas:false,signal:o.signal})
+  try{
+    assertPreparedFlow(o.prepared)
+    const {msg,entry}=await metered(o.call,sig=>o.client.beta.messages.create({model:o.model,max_tokens:capped(4096,o.prepared),system:repair.packet(),messages:[{role:'user',content}]},{signal:sig,maxRetries:0}),()=>ATLAS_FACT_POLICY.length+content.length,o.sdk,o.signal)
+    o.onEntry?.(entry)
+    const text=answerText(msg.content)
+    const result=text.trim()&&!facts.check(text).length?text:atlasFactsFallback(facts);repair.finish(result);return result
+  }catch(e){if(o.signal?.aborted)throw new AIError('aborted');return atlasFactsFallback(facts)}finally{repair.release()}
 }
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
-
-/**
- * The MCP half of a request: the servers and one `mcp_toolset` per server (the beta goes with `betas`), plus
- * automatic prompt caching — the server-side tool loop re-reads system + tool listings + results on every step,
- * and a paused turn sends them again.
- */
-function mcpParams(mcp: McpAttachment) {
-  return { mcp_servers: mcp.servers, tools: mcp.toolsets, cache_control: { type: 'ephemeral' as const } }
-}
 
 /** The answer of a response: the text after its last MCP tool call (all text when it made none). */
 function answerText(content: BetaContentBlock[]): string {
@@ -465,13 +501,16 @@ const usageOfEntry = (e: LedgerEntry | null): StructuredUsage | null =>
   e ? { p: e.served.p, model: e.served.model, input: e.usage.input, output: e.usage.output, cacheRead: e.usage.cacheRead, cacheWrite: e.usage.cacheWrite + e.usage.cacheWrite1h, usd: e.usd } : null
 
 export async function structuredOnce(opts: StructuredOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
-  const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage, setup, allow } = opts
+  const readinessScope=captureReadiness()
+  let task:ReturnType<typeof createTaskContract>|undefined
+  let system=opts.system
+  const { system:originalSystem, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage, setup, allow } = opts
   // servers forced in whatever their scope (the work-order planner's pick); none when `mcp: false`
   const forced = mcp === false ? [] : [...(opts.forced ?? [])]
-  const apiKey = await getAIKey('anthropic')
-  if (!apiKey) throw new AIError('no_key')
+  assertModelFlow('anthropic')
   if (signal?.aborted) throw new AIError('aborted')
   // the model the gate routed to, and what it can do (caps — never a model id check)
+  assertPreparedFlow(prepared)
   const model = claudeRoute(prepared).m
   const opus = thinks(prepared.caps)
   const used = (e: LedgerEntry | null) => {
@@ -483,12 +522,13 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
   // a paused turn made MCP calls: no retry without a server after that
   let sawMcp = false
   try {
-    const got = await getClient(apiKey)
+    const got = await configuredClient()
     sdk = got.sdk
     const { client } = got
     if (signal?.aborted) throw new AIError('aborted')
     const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content: prompt }]
-    const format = { type: 'json_schema' as const, schema }
+    const format = { type: 'json_schema' as const, schema: anthropicOutputSchema(schema) }
+    const requestRetries=got.maxRetries??maxRetries
     const promptChars = () => system.length + prompt.length
     let stopReason: string | null
     let blocks: Array<{ type: string; text?: string }>
@@ -500,45 +540,12 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     if (attached && !prepared.classes.includes('mcp')) prepared.classes.push('mcp')
     // the caller's call list: who joined (none: [])
     opts.onMcpActivity?.({ attached: attached?.names ?? [], blocks: [] })
+    if(!attached){task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:originalSystem,input:prompt,tools:[],one:false,atlas:false,signal,output:'json'});system=task.packet()}
     if (attached) {
-      // with MCP servers ("All AI calls"): the beta request, a paused turn resumed; the answer is the text after the last tool call
-      const turn: BetaMessageParam[] = [{ role: 'user', content: prompt }]
-      let msg: BetaMessage
-      for (let resumes = 0; ; resumes++) {
-        const mcp = attached
-        // one ledger entry per response: every resume of a paused turn is one
-        const got = await metered(
-          call,
-          (sig) =>
-            client.beta.messages.create(
-              {
-                model,
-                max_tokens: capped(maxTokens, prepared),
-                system: `${system}\n\n${mcp.system}`,
-                messages: turn,
-                ...mcpParams(mcp),
-                ...(opus ? { betas: [FALLBACK_BETA, MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const, format } } : { betas: [MCP_BETA], output_config: { format } }),
-              },
-              { signal: sig, maxRetries },
-            ),
-          // the system prompt, the servers' part and the turn so far (it holds the prompt)
-          () => system.length + mcp.system.length + JSON.stringify(turn).length,
-          sdk,
-          signal,
-        )
-        msg = got.msg
-        used(got.entry)
-        if (msg.content.some(isMcpBlock)) {
-          sawMcp = true
-          opts.onMcpActivity?.({ attached: mcp.names, blocks: msg.content.filter(isMcpBlock) as unknown as Array<Record<string, unknown>> })
-        }
-        if (msg.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) break
-        turn.push({ role: 'assistant', content: msg.content })
-      }
-      stopReason = msg.stop_reason
-      blocks = [{ type: 'text', text: answerText(msg.content) }]
+      const msg=await streamWithMcp(client,model,opus,system+'\n'+attached.system,prompt,attached,()=>{},calls=>{sawMcp ||= calls.some(c=>!c.contract&&c.tool!=='one_mcp_search');opts.onMcpActivity?.({attached:attached!.names,blocks:[],calls})},signal,{prepared,call,sdk,schema})
+      const receipt=call.receipt();if(receipt)onUsage?.({p:'anthropic',model,input:receipt.usage.input,output:receipt.usage.output,cacheRead:receipt.usage.cacheRead,cacheWrite:receipt.usage.cacheWrite+receipt.usage.cacheWrite1h,usd:receipt.usd??0});stopReason=msg.stop_reason;blocks=msg.content
     } else if (!opus) {
-      const { msg, entry } = await metered(call, (sig) => client.messages.create({ model, max_tokens: capped(maxTokens, prepared), system, messages, output_config: { format } }, { signal: sig, maxRetries }), promptChars, sdk, signal)
+      const { msg, entry } = await metered(call, (sig) => client.messages.create({ model, max_tokens: capped(maxTokens, prepared), system, messages, output_config: { format } }, { signal: sig, maxRetries:requestRetries }), promptChars, sdk, signal)
       used(entry)
       stopReason = msg.stop_reason
       blocks = msg.content
@@ -550,7 +557,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
         (sig) =>
           client.beta.messages.create(
             { model, max_tokens: capped(maxTokens, prepared), betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', output_config: { effort: 'low', format }, system, messages },
-            { signal: sig, maxRetries },
+            { signal: sig, maxRetries:requestRetries },
           ),
         promptChars,
         sdk,
@@ -566,11 +573,12 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
       .map((b) => b.text ?? '')
       .join('')
     if (!text.trim()) throw new AIError('empty')
+    task?.finish(text)
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, forced, sawMcp)) return structuredOnce(opts, true, prepared, call)
+    if (!attached && !again && retryWithout(err, forced, sawMcp)) return structuredOnce(opts, true, prepared, call)
     throw err
-  }
+  }finally{task?.release()}
 }

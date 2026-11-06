@@ -164,7 +164,8 @@ test.describe('team cloud UI', () => {
     expect(invite.status).toBe(201)
     await openWorkspace(page, wsId, 'Acme Presence')
     await page.locator('aside.sb .sb-newpage').click()
-    await page.keyboard.type('Standup')
+    await page.locator('#main .pv-title').fill('Standup')
+    await expect(page.locator('#main .pv-title')).toHaveValue('Standup')
     await expect.poll(() => page.evaluate(() => location.hash)).toMatch(/^#\/p\//)
     const pageHash = await page.evaluate(() => location.hash)
 

@@ -126,7 +126,7 @@ export function propByRef(db: Database | undefined, ref: string, roles: Record<s
 export function useRoutesFor(dbId: ID | null | undefined): ResolvedRoute[] {
   const lang = useLang()
   const profiles = useWorkspace((s) => s.integrations)
-  const servers = useWorkspace((s) => s.settings.mcpServers)
+  const servers = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const agents = useWorkspace((s) => s.agents)
   const db = useWorkspace((s) => (dbId ? s.databases[dbId] : undefined))
   return useMemo(() => (dbId ? routesFor(dbId, lang) : []), [dbId, lang, profiles, servers, agents, db]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -136,6 +136,6 @@ export function useRoutesFor(dbId: ID | null | undefined): ResolvedRoute[] {
 export function useListRoutes(): ResolvedRoute[] {
   const lang = useLang()
   const profiles = useWorkspace((s) => s.integrations)
-  const servers = useWorkspace((s) => s.settings.mcpServers)
+  const servers = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   return useMemo(() => listRoutes(lang), [lang, profiles, servers]) // eslint-disable-line react-hooks/exhaustive-deps
 }

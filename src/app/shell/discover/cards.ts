@@ -4,7 +4,7 @@
  * help article. Texts: shell.discover.card.<id>.title / .what / .how (EN + DE).
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bot, Command, Inbox, Mail, MessageSquareText, Plug, RefreshCw, Rewind, Shapes, Share2, Sheet, SquareCode, SquareSlash, SquareTerminal, Table2, Upload, Workflow, Search, Clock3 } from 'lucide-react'
+import { Bot, ListTree, Inbox, Mail, MessageSquareText, Plug, RefreshCw, Rewind, Shapes, Share2, Sheet, SquareCode, SquareSlash, SquareTerminal, Table2, Upload, Workflow, Search, Clock3 } from 'lucide-react'
 import type { ChangelogTry } from '../../help'
 
 export type DiscoverGroupId = 'write' | 'organise' | 'claude' | 'automate' | 'share' | 'capture'
@@ -34,7 +34,7 @@ export const DISCOVER_GROUPS: Array<{ id: DiscoverGroupId; cards: DiscoverCard[]
     cards: [
       { id: 'database', icon: Table2, try: 'database', help: 'views' },
       { id: 'palette', icon: Search, keys: ['Mod+K'], try: 'palette', help: 'command-palette' },
-      { id: 'commands', icon: Command, try: 'commands', help: 'database-commands' },
+      { id: 'commands', icon: ListTree, try: 'commands', help: 'database-commands' },
     ],
   },
   {

@@ -46,3 +46,15 @@ One read-only overview of what runs or is built to be reused: the coding worker 
 
 ## Danger zone
 Local workspace: **Reset workspace** erases it on this device and starts fresh — export a backup first. Team workspace: the owner deletes it for everyone (type its name to confirm); everyone else **leaves** it. Removing a team workspace's copy from this browser is a device matter: **Settings → Data**.
+
+## Multiple local workspaces
+
+The **workspace menu** at the top left lists local workspaces and your team workspaces. **New local workspace…** creates an empty workspace or opens a preconfigured **workspace package**. Each local workspace has separate pages, databases, attachments, agents, scripts, building blocks, appearance, AI rules and budgets. One saves current work before switching. Two windows can keep different workspaces open.
+
+Personal preferences and AI/MCP keys stay on this device. Those personal preferences remain available across local workspaces; page targets, mail destinations, sync targets, histories and approvals belong to their workspace. Existing team connections and their private device preferences are not changed. Worker pairings remain bound to their existing workspace identity; another workspace does not gain access automatically.
+
+**Workspace settings → Data → Export workspace package** creates a reusable file of workspace content and referenced attachments. It contains no device preferences, keys, configured connections, Private team pages or granted authorizations. Agents and automations arrive paused, recurring templates without an active schedule; webhook destinations are removed. Open it through **New local workspace… → Optional: workspace package**. This creates another workspace and replaces none of your existing ones. Ordinary full backups remain separate.
+
+For live collaboration choose **New team workspace…** and copy the open local workspace into it. The local original stays available; the team copy receives workspace content without personal connections and with automations paused. The team server provides joint editing, roles and invitations. A file package is a copy, not ongoing synchronization. Team workspaces need a configured team server; the static version links to the server setup guide.
+
+**Reset workspace** clears only the selected local workspace. Other workspaces and personal preferences/connections remain intact. A full device reset already queued by an earlier version still finishes under its original rules.

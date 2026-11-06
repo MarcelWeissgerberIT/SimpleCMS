@@ -1,3 +1,4 @@
+import { isTestAccess } from '../../cloud/testScope'
 import { useEffect, useId, useRef, useState } from 'react'
 import { AlertTriangle, ArrowRight, CornerDownLeft, HardDrive } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
@@ -24,6 +25,16 @@ export function useSignInFlow(invite?: string, signup?: string, domains?: string
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
+  const pending = useRef<AbortController | null>(null)
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      pending.current?.abort()
+    }
+  }, [])
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -32,6 +43,7 @@ export function useSignInFlow(invite?: string, signup?: string, domains?: string
   }, [cooldown])
 
   const send = async (again: boolean) => {
+    if (pending.current || (again && cooldown > 0)) return
     const address = email.trim()
     if (!EMAIL_RE.test(address)) {
       setError(t('shell.cloud.signin.invalid'))
@@ -41,24 +53,39 @@ export function useSignInFlow(invite?: string, signup?: string, domains?: string
       setError(t('shell.cloud.signin.wrongDomain', { domains: domains.map((d) => `@${d}`).join(', ') }))
       return
     }
+    const controller = new AbortController()
+    pending.current = controller
+    let timedOut = false
+    const slow = window.setTimeout(() => setNotice(t('shell.cloud.signin.slow')), 5000)
+    const timeout = window.setTimeout(() => { timedOut = true; controller.abort() }, 30_000)
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      await cloudApi.requestSignIn(address, { invite, lang, ...(signup ? { signup } : {}) })
+      await cloudApi.requestSignIn(address, { invite, lang, ...(signup ? { signup } : {}), signal: controller.signal })
+      if (!mounted.current || controller.signal.aborted) return
+      setEmail(address)
+      setNotice(null)
       setPhase('sent')
       setCooldown(COOLDOWN_S)
       if (again) setNotice(t('shell.cloud.inbox.resent'))
     } catch (e) {
-      setError(errorText(e, t))
+      if (mounted.current) {
+        setNotice(null)
+        setError(timedOut ? t('shell.cloud.signin.timeout') : errorText(e, t))
+      }
     } finally {
-      setBusy(false)
+      window.clearTimeout(slow)
+      window.clearTimeout(timeout)
+      pending.current = null
+      if (mounted.current) setBusy(false)
     }
   }
 
   return {
     email,
     setEmail: (v: string) => {
+      if (pending.current) return
       setEmail(v)
       if (error) setError(null)
     },
@@ -70,6 +97,7 @@ export function useSignInFlow(invite?: string, signup?: string, domains?: string
     submit: () => void send(false),
     resend: () => void send(true),
     reset: () => {
+      if (pending.current) return
       setPhase('form')
       setError(null)
       setNotice(null)
@@ -83,6 +111,7 @@ export function SignInForm({ flow, autoFocus = true }: { flow: SignInFlow; autoF
   return (
     <form
       className="cl-form"
+      aria-busy={flow.busy}
       noValidate
       onSubmit={(e) => {
         e.preventDefault()
@@ -104,6 +133,7 @@ export function SignInForm({ flow, autoFocus = true }: { flow: SignInFlow; autoF
           autoFocus={autoFocus}
           placeholder={t('shell.cloud.signin.emailPh')}
           value={flow.email}
+          readOnly={flow.busy}
           onChange={(e) => flow.setEmail(e.target.value)}
           aria-invalid={flow.error ? true : undefined}
           aria-describedby={flow.error ? `${id}-err` : undefined}
@@ -114,6 +144,7 @@ export function SignInForm({ flow, autoFocus = true }: { flow: SignInFlow; autoF
           {!flow.busy && <CornerDownLeft size={14} aria-hidden />}
         </button>
       </div>
+      {flow.notice && <p className="cl-note" role="status">{flow.notice}</p>}
       {flow.error && (
         <p className="cl-err" id={`${id}-err`} role="alert">
           <AlertTriangle size={13} aria-hidden />
@@ -146,7 +177,7 @@ export function CheckInbox({ flow }: { flow: SignInFlow }) {
             t('shell.cloud.inbox.resend')
           )}
         </button>
-        <button type="button" className="btn btn--ghost btn--lg" onClick={flow.reset}>
+        <button type="button" className="btn btn--ghost btn--lg" disabled={flow.busy} onClick={flow.reset}>
           {t('shell.cloud.inbox.other')}
         </button>
       </div>
@@ -205,6 +236,7 @@ export function SignInScreen() {
 /** "Use this browser's local workspace instead" — always there, never a dead end. */
 export function LocalEscape() {
   const t = useT()
+  if (isTestAccess()) return null
   return (
     <div className="cl-escape">
       <button type="button" className="cl-escape__btn" onClick={() => cloudApi.switchWorkspace({ kind: 'local', id: 'local' })}>

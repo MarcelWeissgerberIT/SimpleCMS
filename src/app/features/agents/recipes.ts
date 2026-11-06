@@ -5,7 +5,7 @@
  * or detected by its name: which server is the knowledge base, the person picks in the editor.
  * Mirror recipes are not built in: an active integration profile brings them (integrations/, MirrorSetup.tsx).
  */
-import type { CustomAgent, Database, ID, PageIcon } from '../../store/types'
+import type { AgentCategory, CustomAgent, Database, ID, PageIcon } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { inTemplate } from '../../store/selectors'
 import { localTimeZone, DEFAULT_RUN_USD } from '../../store/agents'
@@ -13,13 +13,20 @@ import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { readServers } from '../ai/mcp-servers/config'
 
-export type RecipeId = 'mail' | 'weekly' | 'forms' | 'kb' | 'blank'
-export const RECIPES: Array<{ id: RecipeId; icon: PageIcon; code: string }> = [
-  { id: 'mail', icon: { type: 'lucide', value: 'Mail', color: 'orange' }, code: 'AG-M' },
-  { id: 'weekly', icon: { type: 'lucide', value: 'ClipboardList', color: 'blue' }, code: 'AG-W' },
-  { id: 'forms', icon: { type: 'lucide', value: 'ListChecks', color: 'green' }, code: 'AG-F' },
-  { id: 'kb', icon: { type: 'lucide', value: 'Library', color: 'purple' }, code: 'AG-K' },
-  { id: 'blank', icon: { type: 'lucide', value: 'Cpu', color: 'gray' }, code: 'AG-0' },
+export type RecipeId = 'mail' | 'weekly' | 'forms' | 'kb' | 'ba' | 'code-review' | 'test-plan' | 'atlas-triage' | 'decision-log' | 'meeting' | 'document' | 'blank'
+export const RECIPES: Array<{ id: RecipeId; icon: PageIcon; code: string; category: AgentCategory; needs?: 'pages' | 'mcp' }> = [
+  { id: 'ba', category: 'planning', needs: 'pages', icon: { type: 'lucide', value: 'Workflow', color: 'orange' }, code: 'AG-BA' },
+  { id: 'weekly', category: 'planning', icon: { type: 'lucide', value: 'ClipboardList', color: 'blue' }, code: 'AG-W' },
+  { id: 'code-review', category: 'coding', needs: 'pages', icon: { type: 'lucide', value: 'Code2', color: 'orange' }, code: 'AG-CR' },
+  { id: 'test-plan', category: 'coding', needs: 'pages', icon: { type: 'lucide', value: 'ListChecks', color: 'green' }, code: 'AG-QA' },
+  { id: 'document', category: 'knowledge', needs: 'pages', icon: { type: 'lucide', value: 'FileText', color: 'blue' }, code: 'AG-D' },
+  { id: 'decision-log', category: 'knowledge', needs: 'pages', icon: { type: 'lucide', value: 'NotebookPen', color: 'brown' }, code: 'AG-E' },
+  { id: 'kb', category: 'knowledge', needs: 'mcp', icon: { type: 'lucide', value: 'Library', color: 'purple' }, code: 'AG-K' },
+  { id: 'mail', category: 'communication', icon: { type: 'lucide', value: 'Mail', color: 'orange' }, code: 'AG-M' },
+  { id: 'forms', category: 'communication', icon: { type: 'lucide', value: 'ListChecks', color: 'green' }, code: 'AG-F' },
+  { id: 'meeting', category: 'communication', needs: 'pages', icon: { type: 'lucide', value: 'MessageSquare', color: 'blue' }, code: 'AG-B' },
+  { id: 'atlas-triage', category: 'integrations', needs: 'mcp', icon: { type: 'lucide', value: 'Workflow', color: 'orange' }, code: 'AG-A' },
+  { id: 'blank', category: 'custom', icon: { type: 'lucide', value: 'Cpu', color: 'gray' }, code: 'AG-0' },
 ]
 
 function databases(): Array<{ id: ID; title: string; db: Database }> {
@@ -68,7 +75,7 @@ export function recipeDraft(id: RecipeId): CustomAgent {
   const base = blankAgent()
   const recipe = RECIPES.find((r) => r.id === id)!
   if (id === 'blank') return base
-  const draft: CustomAgent = { ...base, icon: recipe.icon, name: t(`features.agents.recipe.${id}.name`), instructions: t(`features.agents.recipe.${id}.instructions`) }
+  const draft: CustomAgent = { ...base, category: recipe.category, icon: recipe.icon, name: t(`features.agents.recipe.${id}.name`), instructions: t(`features.agents.recipe.${id}.instructions`) }
   const tz = localTimeZone()
   switch (id) {
     case 'mail': {
@@ -102,6 +109,12 @@ export function recipeDraft(id: RecipeId): CustomAgent {
       draft.write = 'stage'
       break
     }
+    default:
+      // Specialists start by hand with a report. Choosing a template never attaches an MCP server or starts work.
+      draft.scope = { everything: false, pages: [], databases: [] }
+      draft.write = 'none'
+      draft.output = { pageId: null, mode: 'append' }
+      break
   }
   return draft
 }

@@ -15,6 +15,8 @@ export interface CloudUser {
 }
 
 export interface CloudWorkspace {
+  /** Temporary guest participation; the server keeps and restores the viewer base role. */
+  participationUntil?: number
   id: string
   name: string
   icon: string | null
@@ -24,7 +26,7 @@ export interface CloudWorkspace {
 }
 
 /** Which workspace this browser tab shows. 'local' = the browser-only workspace. */
-export type WorkspaceRef = { kind: 'local'; id: 'local' } | { kind: 'cloud'; id: string }
+export type WorkspaceRef = { kind: 'local'; id: string } | { kind: 'cloud'; id: string }
 
 export type CloudStatus =
   | 'local' // the local workspace is active (cloud may or may not be available)
@@ -147,12 +149,15 @@ export const useCloudSync = create<CloudSyncState>(() => ({
 }))
 
 export interface Member {
+  participationUntil?: number
+  guest?: boolean
   user: CloudUser
   role: Role
   created_at: number
 }
 
 export interface Invite {
+  guest?: boolean
   id: string
   role: Role
   email: string | null
@@ -176,6 +181,7 @@ export interface Invite {
 
 /** Options of a new invite link (server defaults: single use, 7 days, any address). */
 export interface InviteOptions {
+  guest?: boolean
   /** 1–100 people (reusable links: member / viewer only). */
   maxUses?: number
   /** 1–30 days. */
@@ -192,6 +198,7 @@ export interface EmailInviteResult {
 }
 
 export interface InvitePreview {
+  guest?: boolean
   workspace: { name: string; icon?: unknown }
   role: Role
   /** Name (or address) of the person who invited. */

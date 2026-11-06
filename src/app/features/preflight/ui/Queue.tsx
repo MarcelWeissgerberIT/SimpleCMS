@@ -4,6 +4,7 @@
  * first, VON HAND next), ANGESTAUBT at the end, the bulk sheet ⇧A shows first, the key legend and a polite live region.
  * Keys only with focus inside this section (never while typing); Esc goes back to the lamp's cap.
  */
+import { SHIFT } from '../../../ui/controls'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Hand, Undo2 } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
@@ -287,7 +288,7 @@ function Legend() {
         {t('features.preflight.legend.diff')}
       </span>
       <span>
-        {k('⇧')}
+        {k(SHIFT)}
         {k('A')}
         {t('features.preflight.legend.allClean')}
       </span>

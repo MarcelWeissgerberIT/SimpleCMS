@@ -1,3 +1,5 @@
+import { isTestAccess } from '../cloud/testScope'
+import { ProgramsRoute } from '../features'
 import { Suspense } from 'react'
 import { useRoute, type Route } from '../lib/router'
 import { useWorkspace } from '../store/store'
@@ -17,6 +19,7 @@ import { Peek } from './stage/Peek'
 import { StatusBar } from './stage/StatusBar'
 import { Toasts } from './stage/Toasts'
 import { PageView } from './page/PageView'
+import { PersonalGuidesPage } from './cloud/PersonalGuides'
 import { Home } from './home/Home'
 import { Agenda } from './agenda/Agenda'
 import { Inbox } from './inbox/Inbox'
@@ -26,13 +29,15 @@ import { ModalHost } from './modals/ModalHost'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useBootRedirect, useDrawerAutoClose, useGlobalShortcuts, useLinkInterceptor, usePruneGoneViews, useRouteEffects } from './lib/global'
 import { useIsMobile } from './lib/hooks'
-import { useCloud } from '../cloud'
+import { useCloud, useReadinessSync } from '../cloud'
 import { installCloudDevHook } from './cloud/api'
 import { SignInScreen } from './cloud/SignIn'
 import { InviteScreen } from './cloud/InviteScreen'
 import { SignupScreen } from './cloud/SignupScreen'
 import { CloudDialogs } from './cloud/Dialogs'
+import { TestAccessBanner } from './cloud/TestAccess'
 import { CloudBanner } from './cloud/Sync'
+import { CheckoutBanner } from './cloud/Checkout'
 import { CaptureHost } from './capture/QuickCapture'
 import { Discover } from './discover/Discover'
 import { WorkspacePage } from './workspace/WorkspacePage'
@@ -44,13 +49,14 @@ installCloudDevHook()
 
 export function App() {
   useThemeAndLanguage()
+  useReadinessSync()
   const route = useRoute()
   const signedOut = useCloud((s) => s.status === 'signed-out')
   // the workspace look (Workspace → Look): share and form links keep One's standard look
-  const lookScope = useCloud((s) => (s.active.kind === 'cloud' ? s.active.id : 'local'))
+  const lookScope = useCloud((s) => (s.active.id))
   const look = useWorkspace((s) => s.look ?? null)
   const ready = useWorkspace((s) => s.ready)
-  useWorkspaceLook({ route: route.name, scope: lookScope, look, ready, persist: !signedOut })
+  useWorkspaceLook({ route: route.name, scope: lookScope, look, ready, persist: !signedOut && !isTestAccess() })
   if (route.name === 'share')
     return (
       <ErrorBoundary>
@@ -84,6 +90,7 @@ export function App() {
   if (signedOut)
     return (
       <ErrorBoundary>
+        <TestAccessBanner />
         <SignInScreen />
         <Toasts />
       </ErrorBoundary>
@@ -133,7 +140,9 @@ function Workspace({ route }: { route: Route }) {
       </a>
       <Sidebar />
       <div className="app-main">
+        <TestAccessBanner />
         <CloudBanner />
+        <CheckoutBanner />
         <Topbar route={route} />
         <ErrorBoundary inline>
           <Stage
@@ -181,6 +190,8 @@ function RouteView({ route }: { route: Route }) {
       return exists ? <PageView pageId={route.id} variant="main" /> : <MissingPage id={route.id} block={route.block} />
     case 'home':
       return <Home />
+    case 'personal-guides':
+      return <PersonalGuidesPage guideId={route.id} />
     case 'graph':
       return <GraphView />
     case 'agenda':
@@ -201,6 +212,8 @@ function RouteView({ route }: { route: Route }) {
       return <Discover />
     case 'regler':
       return <ReglerRoute />
+    case 'programs':
+      return <ProgramsRoute />
     case 'mcp':
       return <McpConnectionsRoute />
     case 'patchbay':
@@ -226,5 +239,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : route.name === 'patchbay' ? t('features.patchbay.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'programs' ? t('features.ai.program.database') : route.name === 'personal-guides' ? t('shell.nav.personalGuides') : route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : route.name === 'patchbay' ? t('features.patchbay.title') : t('shell.nav.home')}</span>
 }

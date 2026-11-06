@@ -1,3 +1,4 @@
+import { localChannel } from '../../lib/localWorkspace'
 /**
  * Version history. Page snapshots live in their own IndexedDB store
  * (one-history/snapshots), separate from the workspace blob:
@@ -78,8 +79,8 @@ function db(): UseStore | undefined {
 /** The version store (`one-history / snapshots`) — also holds the flight recorder's pins (history/pins.ts). */
 export const historyStore = (): UseStore | undefined => db()
 
-const idxKey = (pageId: ID) => `idx:${pageId}`
-const bodyKey = (id: ID) => `snap:${id}`
+const idxKey = (pageId: ID) => `${localChannel('idx')}:${pageId}`
+const bodyKey = (id: ID) => `${localChannel('snap')}:${id}`
 
 /* ---------------- change notifications ---------------- */
 

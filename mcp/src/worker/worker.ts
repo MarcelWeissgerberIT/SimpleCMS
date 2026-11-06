@@ -1,3 +1,16 @@
+import { repoFiles } from './repo-files.ts'
+import { manageInstalled } from './managed.ts'
+import { readDataFlow, codingProvider, modelDestinationAllowed, mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
+import { SharedModelHost } from './shared-model.ts'
+import { realpath } from 'node:fs/promises'
+import { ReviewSources } from '../../../src/shared/ai/review.ts'
+import { LocalFiles } from './local-files.ts'
+import { readCopilotChoice } from '../../../src/shared/copilot.ts'
+import { personalConnections, PersonalMcp } from './personal-mcp.ts'
+import { modelMcp } from './model-mcp.ts'
+import { textModels, textRequest } from './text-models.ts'
+import { readRepairPolicy } from '../../../src/shared/coding/repair.ts'
+import { isCodingAgent } from '../../../src/app/features/coding/protocol.ts'
 /**
  * one-worker — the loop. While a One tab of its workspace is connected, the worker asks for the next task
  * of its repos whose stage the worker takes (`next`: the tab picks by priority and age and claims it in the
@@ -56,7 +69,7 @@ import { Intake } from './intake.ts'
 import { checkRepo, cleanup, commentPr, commitAll, discard, headOf, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, sweepLeftovers, updateFromBase, webOf, worktreeOf, GitError } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv } from './gitenv.ts'
 import { pathId, rmRetry } from './paths.ts'
-import { WorkerLink } from './link.ts'
+import { WorkerLink, type LinkOptions } from './link.ts'
 import type { CloudFatal } from './cloud.ts'
 import { cloudOf } from './config.ts'
 import { relayUrl, workerOrigins } from './preset.ts'
@@ -67,6 +80,14 @@ import { cloneBase } from './clone.ts'
 import type { SetupLive } from './setup.ts'
 
 export interface WorkerOptions {
+  virtual?: boolean
+  routeLocal?: LinkOptions['routeLocal']
+  routeTask?: LinkOptions['onTask']
+  canGrantWorkspace?: boolean
+  workspaceChallenge?: LinkOptions['workspaceChallenge']
+  reserveWork?: (repos: string[]) => (() => void) | null
+  busyRepos?: () => ReadonlySet<string>
+  capacityChanged?: () => void
   config: WorkerConfig
   version: string
   /** the Claude Code CLI */
@@ -101,6 +122,9 @@ const BRANCHES_FIRST_MS = Number(process.env.ONE_WORKER_BRANCHES_MS) || 2000
 const lookAgainMs = () => Number(process.env.ONE_WORKER_LOOK_MS) || 5000
 
 interface Run {
+  sources?: ReviewSources
+
+  personal?: PersonalMcp
   task: TaskPayload
   repo: RepoConfig
   abort: AbortController
@@ -197,14 +221,37 @@ export function taskIds(raw: unknown): { id: string; stageId: string } | null {
 /** The tab's answer to `next`, checked field by field (One is trusted to pick, not to be well-formed). */
 export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
+  if (raw.agent !== undefined && !isCodingAgent(raw.agent)) return null
+  const dataFlow = readDataFlow(raw.dataFlow)
+  if (raw.dataFlow !== undefined && !dataFlow) return null
+  const personalMcp = personalConnections(raw.personalMcp)
+  if (!personalMcp) return null
   const s = raw.stage
+  if(s.copilot !== undefined && (raw.agent !== 'copilot' || !readCopilotChoice(s.copilot)))return null
+  if(s.copilotSource !== undefined && !['task','role','worker'].includes(String(s.copilotSource)))return null
   const kind = (STAGE_KINDS as readonly string[]).includes(String(s.kind)) ? (s.kind as TaskPayload['stage']['kind']) : null
+  if (personalMcp.length && !['plan', 'implement', 'doc'].includes(kind ?? '')) return null
   const id = str(raw.id, 64)
   if (!kind || !id || !/^[A-Za-z0-9_-]+$/.test(id) || typeof raw.repo !== 'string') return null
   const answers = Array.isArray(raw.answers) ? raw.answers.filter(isObj).slice(-20).map((a) => ({ q: str(a.q, 4000), a: str(a.a, 4000) })) : []
   const turns = Number(s.maxTurns)
+  let quality: TaskPayload['quality']
+  if (raw.quality !== undefined) {
+    const q = raw.quality
+    const texts = (v: unknown, max: number) => Array.isArray(v) && v.length >= 1 && v.length <= max && v.every(x => typeof x === 'string' && x.trim() && x.length <= 400)
+    if (!isObj(q) || typeof q.review !== 'boolean' || !texts(q.requirements, 16) || !texts(q.acceptance, 10)) return null
+    if (q.repair !== undefined && (!q.review || !readRepairPolicy(q.repair))) return null
+    if (q.packages !== undefined && (!Array.isArray(q.packages) || !q.packages.length || q.packages.length > 8 || q.packages.some((p: any) => !isObj(p) || typeof p.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(p.id) || typeof p.title !== 'string' || p.title.length > 200 || !texts(p.requirements,16)))) return null
+    if (q.repair && !q.packages) return null
+    if (q.remainingUsd !== undefined && (typeof q.remainingUsd !== 'number' || !Number.isFinite(q.remainingUsd) || q.remainingUsd < 0 || q.remainingUsd > 10000)) return null
+    quality = { ...(q.repair ? { repair: readRepairPolicy(q.repair)! } : {}), ...(q.packages ? { packages: q.packages as any } : {}), ...(q.remainingUsd !== undefined ? { remainingUsd: q.remainingUsd as number } : {}), review: q.review, requirements: q.requirements as string[], acceptance: q.acceptance as string[] }
+  }
   return {
     id,
+    ...(dataFlow ? { dataFlow } : {}),
+    ...(personalMcp.length ? { personalMcp } : {}),
+    ...(quality ? { quality } : {}),
+    ...(raw.agent ? { agent: raw.agent as TaskPayload['agent'] } : {}),
     title: oneLine(str(raw.title, 300)) || 'Untitled task',
     repo: raw.repo,
     stage: {
@@ -219,6 +266,8 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
       // a model name One picked (MODEL_NAME) — anything else is dropped (the repo's claude.model, else Claude Code's
       // default, runs instead); it reaches Claude Code only as the argument after --model
       model: cleanModel(s.model),
+      ...(s.copilot ? {copilot:readCopilotChoice(s.copilot)!} : {}),
+      ...(s.copilotSource ? {copilotSource:s.copilotSource as 'task'|'role'|'worker'} : {}),
     },
     text: str(raw.text, 200_000),
     rework: typeof raw.rework === 'string' && raw.rework.trim() ? raw.rework.slice(0, 40_000) : null,
@@ -267,16 +316,29 @@ export class Worker {
   /** outcomes One has not confirmed yet (retried on every connect) */
   private unsent = new Map<string, { taskId: string; stageId: string; outcome: StageOutcome }>()
   private stopped = false
+  private draining = false
+  private activeRequests = 0
+  isDraining() { return this.draining }
+  drain() { this.draining = true; this.sharedModels.drain() }
+  resume() { this.draining = false; this.sharedModels.resume(); this.tick() }
+  idle() { return !this.runs.size && !this.textRuns.size && !this.polling && !this.activeRequests && !this.intaker?.busy && !this.unsent.size && this.sharedModels.idle }
   /** local branch names per repo name (announced to One for the Branch picker; names only) */
   private branches = new Map<string, string[]>()
+
+  private sharedModels: SharedModelHost
 
   constructor(opts: WorkerOptions) {
     this.opts = opts
     this.bin = opts.bin
     this.config = opts.config
-    this.state = new WorkerState(opts.config.file)
+    this.state = new WorkerState(opts.config.file, opts.config.runtimeDir, opts.config.runtimeDir ? opts.config.workspace ?? undefined : undefined)
+    this.sharedModels = new SharedModelHost(this.config, () => this.runs.size > 0 || this.textRuns.size > 0, opts.log)
     const cloud = cloudOf(opts.config)
     this.link = new WorkerLink({
+      virtual: opts.virtual,
+      routeLocal: opts.routeLocal,
+      canGrantWorkspace: opts.canGrantWorkspace,
+      workspaceChallenge: opts.workspaceChallenge,
       port: opts.config.port,
       origins: workerOrigins(opts.config.preset, [process.env.ONE_ORIGINS ?? '', ...opts.config.origins], opts.log),
       workspace: opts.config.workspace,
@@ -301,14 +363,29 @@ export class Worker {
       },
       onDisconnect: () => {
         this.workspace = null
+        for (const controller of this.textRuns.values()) controller.abort()
         // a ZIP half-received from that tab will not be finished by it (a retry starts afresh, not "another import runs")
         this.intaker?.drop('One disconnected')
         this.checkAway()
       },
-      onRequest: (msg) => this.onRequest(msg),
+      onRequest: async (msg) => {
+        if (this.draining && !['worker-manage','stop','text-stop','permission','open-setup','intake-chunk','intake-end'].includes(msg.op)) throw new Error('Worker update is waiting for running work. New work is paused.')
+        this.activeRequests++
+        try { return await this.onRequest(msg) } finally { this.activeRequests-- }
+      },
       onNudge: () => this.tick(),
-      onTask: (token, tool, args) => this.onTask(token, tool, args),
+      onTask: (token, tool, args) => opts.routeTask ? opts.routeTask(token, tool, args) : this.onTask(token, tool, args),
     })
+  }
+
+  acceptLocal(socket: import('ws').WebSocket, hello: Extract<TabMessage, { type: 'hello' }>) { this.link.adopt(socket, hello) }
+  hasTaskToken(token: string) { return this.tokens.has(token) }
+  taskCall(token: string, tool: string, args: Record<string, unknown>) { return this.onTask(token, tool, args) }
+  runningCount() { return this.runs.size }
+  activeRepos() { return [...this.runs.values()].map(run => run.repo.name) }
+  cancelRuns() {
+    for (const controller of this.textRuns.values()) controller.abort()
+    for (const run of this.runs.values()) run.abort.abort()
   }
 
   info(): WorkerInfo {
@@ -325,6 +402,10 @@ export class Worker {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
+      managed: !this.opts.virtual && process.env.ONE_WORKER_MANAGED_CHILD === '1',
+      managedHost: !!this.opts.virtual && process.env.ONE_WORKER_MANAGED_CHILD === '1',
+      personalSecrets: true,
+      multiWorkspace: !!this.config.preset && !cloudOf(this.config),
       via: cloudOf(this.config) ? 'cloud' : 'local',
       mcp: this.config.mcpServers,
     }
@@ -350,7 +431,7 @@ export class Worker {
    */
   async reload(next: WorkerConfig): Promise<void> {
     const known = new Set(this.config.repos.map((r) => pathId(r.path)))
-    this.config = { ...next, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins }
+    this.config = { ...next, runtimeDir: this.config.runtimeDir, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins }
     // the person may have set their own core.sshCommand meanwhile
     forgetGitEnv()
     for (const repo of this.config.repos.filter((r) => !known.has(pathId(r.path)))) {
@@ -425,7 +506,7 @@ export class Worker {
     await Promise.race([this.refreshBranches(), new Promise((r) => (waited = setTimeout(r, BRANCHES_FIRST_MS)))])
     clearTimeout(waited)
     const up = await this.link.start()
-    if (up === 'listening') void this.checkRepos()
+    if (up === 'listening') { void this.checkRepos(); this.sharedModels.start() }
     if (up === 'listening') {
       const repos = `${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'}`
       if (this.link.via)
@@ -444,6 +525,9 @@ export class Worker {
    */
   async stop(): Promise<void> {
     this.stopped = true
+    this.sharedModels.stop()
+    this.cancelRuns()
+    for (const controller of this.textRuns.values()) controller.abort()
     if (this.poller) clearInterval(this.poller)
     if (this.beater) clearInterval(this.beater)
     const running = [...this.runs.values()]
@@ -459,15 +543,18 @@ export class Worker {
 
   /** Ask One for work (one request at a time; again right after, if asked meanwhile). */
   tick(): void {
-    if (this.stopped || !this.workspace) return
+    if (this.stopped || this.draining || !this.workspace || this.sharedModels.busy) return
     if (this.polling) {
       this.again = true
       return
     }
     const busyRepos = new Set([...this.runs.values()].map((r) => r.repo.name))
-    const free = this.config.repos.filter((r) => !busyRepos.has(r.name)).map((r) => r.name)
+    const occupied = this.opts.busyRepos?.()
+    const free = this.config.repos.filter((r) => !busyRepos.has(r.name) && !occupied?.has(r.name)).map((r) => r.name)
     // no free repo still leaves document stages of tasks without a repository
     if (this.runs.size >= this.config.parallel) return
+    const release = this.opts.reserveWork ? this.opts.reserveWork(free) : () => {}
+    if (!release) return
     this.polling = true
     this.again = false
     void this.link
@@ -475,6 +562,10 @@ export class Worker {
       .then((res) => {
         const raw = (res as NextResult | null)?.task
         const task = sanitizeTask(raw)
+        if (task?.repo && this.opts.busyRepos && !free.includes(task.repo)) {
+          void this.finish(task.id, task.stage.id, { status: 'refused', error: 'This repository was not offered for work in this workspace. Wait for its running work to finish.' })
+          return false
+        }
         if (task) this.begin(task)
         else if (raw) this.unreadable(raw)
         return !!task
@@ -484,6 +575,7 @@ export class Worker {
         return false
       })
       .then((got) => {
+        release()
         this.polling = false
         // more capacity (or a nudge came in): ask again
         if (got || this.again) setTimeout(() => this.tick(), 50)
@@ -508,6 +600,11 @@ export class Worker {
     if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) — One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`)
     if (!noRepo && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`)
     if (this.workspace?.kind === 'team' && !task.trusted) return refuse('the task is not confirmed on this device (team workspace)')
+    const destination = codingProvider(task.agent ?? 'claude')
+    if (task.dataFlow && (!destination || (['plan','implement','doc'].includes(task.stage.kind) && !modelDestinationAllowed(destination, task.dataFlow)))) return refuse('The task data-flow rule excludes this model destination.')
+    if (task.personalMcp?.some(m => !mcpDestinationAllowed(m.url, task.dataFlow))) return refuse('The task data-flow rule excludes a selected MCP destination.')
+    // Native CLI MCP and project startup settings cannot be constrained to an origin list here.
+    if (task.dataFlow?.mcpOrigins && ['claude','codex'].includes(task.agent ?? 'claude') && repo.claude.mcpServers.length && !task.personalMcp?.length) return refuse('Use explicitly selected personal MCP connections for this task’s MCP origin rule.')
     const token = randomBytes(24).toString('hex')
     // the task's scratch folder (worker 1.11.0): every Claude Code stage may keep temporary files there
     let scratch: string
@@ -519,11 +616,12 @@ export class Worker {
     const run: Run = { task, repo, abort: new AbortController(), token, question: null, since: Date.now(), scrub: repoScrubber({ ...repo, scratch }), scratch, cwd: null, asks: [], counts: { asked: 0, allowed: 0, refused: 0 } }
     // Stop: every request that waits for the person is refused at once
     run.abort.signal.addEventListener('abort', () => this.settleAll(run, 'stopped'), { once: true })
+    if (task.personalMcp?.length) run.personal = new PersonalMcp(task.personalMcp, task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan')
     this.runs.set(task.id, run)
     this.tokens.set(token, run)
     this.sendStatus()
     this.opts.log(`task ${task.id} "${task.title}" — ${task.stage.name} (${task.stage.kind}) in ${repo.name}`)
-    run.done = this.claudeForStage(task)
+    run.done = Promise.resolve().then(async () => { await run.personal?.connect(run.abort.signal);return this.claudeForStage(task) })
       .then((caps) =>
         runStage({
           repo,
@@ -532,7 +630,8 @@ export class Worker {
           team: this.workspace?.kind === 'team',
           caps,
           bin: this.bin,
-          taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
+          taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token, ONE_WORKER_PERSONAL_READ_ONLY: task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan' ? '1' : '0' } },
+          localMcpServers: this.config.mcpServers,
           signal: run.abort.signal,
           log: (line) => this.logLine(task.id, line),
           git: (g) => this.link.send({ type: 'event', taskId: task.id, kind: 'git', git: g }),
@@ -553,6 +652,8 @@ export class Worker {
       .then((outcome) => scrubOutcome(outcome, run.scrub))
       .then(async (outcome) => {
         this.tokens.delete(token)
+        await run.personal?.close()
+        delete task.personalMcp
         // Claude Code ended: nothing may wait for an answer any more
         this.settleAll(run, 'stopped')
         this.runs.delete(task.id)
@@ -561,6 +662,7 @@ export class Worker {
         this.sendStatus()
         void this.refreshBranches()
         this.tick()
+        this.opts.capacityChanged?.()
       })
   }
 
@@ -570,7 +672,7 @@ export class Worker {
    */
   private async claudeForStage(task: TaskPayload): Promise<ClaudeCaps> {
     const kind = task.stage.kind
-    if (this.caps.found || (kind !== 'plan' && kind !== 'implement' && kind !== 'doc')) return this.caps
+    if ((task.agent && task.agent !== 'claude') || this.caps.found || (kind !== 'plan' && kind !== 'implement' && kind !== 'doc')) return this.caps
     return this.lookForClaude()
   }
 
@@ -674,14 +776,36 @@ export class Worker {
 
   /* ------------------------------------------------------------------ the person's actions */
 
+  private textRuns = new Map<string, AbortController>()
+
   private async onRequest(msg: Extract<TabMessage, { type: 'req' }>): Promise<unknown> {
+    if (msg.op === 'worker-manage') { if (this.opts.virtual) throw new Error('Manage the worker from its owning workspace.'); if (!['status','update','rollback','cancel'].includes(msg.action)) throw new Error('Invalid worker management action.'); return manageInstalled(msg.action) }
+    if (msg.op === 'model-share-status') return this.sharedModels.status()
+    if (msg.op === 'model-share-config') return this.sharedModels.configure(msg.choice)
+    if (msg.op === 'repo-files') return repoFiles(this.config.repos, msg.request)
+    if (msg.op === 'text-models') return textModels(this.config.file)
+    if (msg.op === 'text-stop') { this.textRuns.get(msg.requestId)?.abort(); return { stopped: true } }
+    if (msg.op === 'text-request' || msg.op === 'model-mcp') {
+      if (this.sharedModels.busy) throw new Error('The shared local model is processing a request. Try again shortly.')
+      if (typeof msg.requestId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(msg.requestId) || this.textRuns.has(msg.requestId) || this.textRuns.size >= 2) throw new Error('Text request is busy or invalid.')
+      const abort = new AbortController()
+      this.textRuns.set(msg.requestId, abort)
+      const timer = setTimeout(() => abort.abort(), 180000)
+      try { return await (msg.op === 'model-mcp' ? modelMcp(msg.request, abort.signal) : textRequest(this.config.file, msg.request, abort.signal)) }
+      finally { clearTimeout(timer); this.textRuns.delete(msg.requestId) }
+    }
     if (msg.op === 'stop') {
       const run = this.runs.get(String(msg.taskId))
       if (!run) return { stopped: false }
       run.abort.abort()
       return { stopped: true }
     }
-    if (msg.op === 'git') return this.gitVerb(msg)
+    if (msg.op === 'git') {
+      if (this.opts.busyRepos?.().has(msg.repo)) throw new Error('This repository is busy in a workspace. Wait for its running work to finish.')
+      const release = this.opts.reserveWork ? this.opts.reserveWork([msg.repo]) : () => {}
+      if (!release) throw new Error('The device worker is busy. Retry after its current work finishes.')
+      try { return await this.gitVerb(msg) } finally { release(); this.opts.capacityChanged?.() }
+    }
     if (msg.op === 'permission') return this.answerAsk(msg)
     // "Change repositories": the page opens HERE; One gets only whether it opened — never its address or key
     if (msg.op === 'open-setup') return this.opts.setup ? this.opts.setup.open() : ({ opened: false, reason: 'off' } satisfies OpenSetupResult)
@@ -906,6 +1030,27 @@ export class Worker {
     const run = this.tokens.get(token)
     if (!run) return { ok: false, status: 403, error: 'This task run has ended — the task tools work only while the worker runs the task.' }
     const t = run.task
+    const sources = run.sources ??= new ReviewSources('one_task_check_finding')
+    if (tool === 'one_task_check_finding') {
+      try { return { ok: true, text: JSON.stringify(sources.check(args)) } }
+      catch { return { ok: false, status: 400, error: 'Use observed source receipts and exact quotations. A source check cannot grant approval.' } }
+    }
+    if (tool === 'one_task_source') {
+      if (!run.cwd) return { ok: false, status: 409, error: 'Task worktree is not ready.' }
+      try {
+        const result = await new LocalFiles(await realpath(run.cwd)).read(args.path, args.start_line, args.end_line)
+        return { ok: true, text: sources.observe(run.scrub.text(JSON.stringify(result)), `Worktree ${String(result.path)} lines ${result.start_line}-${result.end_line}; revision ${result.revision}`) }
+      } catch { return { ok: false, status: 400, error: 'Source unavailable in the permitted task worktree. Use a relative allowed source file and a valid line range.' } }
+    }
+    if (tool === 'one_task_mcp_search' || tool === 'one_task_mcp_call') {
+      if (!run.personal) return { ok: false, status: 403, error: 'No personal MCP connection was granted to this run in One.' }
+      try {
+        if (tool === 'one_task_mcp_search') return { ok: true, text: run.personal.client.redact(JSON.stringify(run.personal.client.search(args.query))) }
+        const result = await run.personal.client.call(args.server, args.name, args.arguments, run.abort.signal)
+        if (JSON.parse(result)?.isError === true || /token|secret|credential|password|oauth/i.test(String(args.name))) return { ok: true, text: result }
+        return { ok: true, text: sources.observe(result, `Personal MCP ${String(args.server)} / ${String(args.name)}; tool output snapshot, not verified record authority`) }
+      } catch { return { ok: false, status: 400, error: 'Personal MCP tool unavailable, refused or failed. Check the selected connection, tool allow-list and stage permissions.' } }
+    }
     if (tool === 'one_task_read') {
       // data between markers with a fresh code (the text cannot close its block early), like the prompt
       const code = markerCode()
@@ -917,7 +1062,7 @@ export class Worker {
       ]
       if (t.rework) parts.push('', ...dataBlock('REWORK', t.rework.trim(), code))
       if (t.answers.length) parts.push('', ...dataBlock('ANSWERS', t.answers.map((a) => `Q: ${a.q}\nA: ${a.a}\n`).join('\n'), code))
-      return { ok: true, text: parts.join('\n') }
+      return { ok: true, text: sources.observe(parts.join('\n'), `One task ${t.id}; current task payload`) }
     }
     if (tool === 'one_task_note') {
       const text = typeof args.text === 'string' ? args.text.trim().slice(0, 2000) : ''

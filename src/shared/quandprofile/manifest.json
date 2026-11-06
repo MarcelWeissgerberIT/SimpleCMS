@@ -1,0 +1,18 @@
+{
+  "abi": 1,
+  "sourceHash": "9c5c889335a91cdfc9705765ac0343473ee5cf5133cdc8abcf8d7860215ad86c",
+  "wasmHash": "0ee2be8fae64c854e1f4676473597a06e9259a7917bbc04e70bd78ad9196993a",
+  "sources": {
+    "Cargo.lock": "af39a675f089effd3138eb1d766fd48ff056e23e501c5b14b3c27d2508deed93",
+    "Cargo.toml": "1a8b78ded1fb4b9dc8f052f38eee0a8bbbc20835b0ac3d692f4a1a83885029f1",
+    "quantum-catalog.json": "edd1049f66a1a514920123c5cb960f68920782e55e4266b6d9116e82ab813866",
+    "src/adapters.rs": "d4470852ea7865f5b1fdf8e139bddb0ca92c8ba4b2f8bdc33e8ddf204da72455",
+    "src/catalog.rs": "14ac67c1113b1fc9ee95076dafe3def5ef7fd870bc8ffb6a9a1ea48dc0b0d701",
+    "src/integration.rs": "393363e6bc4bdb9114787903492c6316393b5cc5de9dd8024f47d21c5d70ba1e",
+    "src/lib.rs": "1594d7e4d1c87654691cf5b44a5981bbfdc4ac6996024c174c6fd421ae77834f",
+    "src/main.rs": "3256cc33d158ed379c26af4287acc56226dbd3f81841969de7f9117aa5611484",
+    "src/task.rs": "bff9b28bacb991d7f8cbe68f77a4f9895b17acdcbcde867a52ab2a84edbe701c",
+    "src/typed_ai.rs": "7ea9675137ab370b4b7d282773e0442f6147facaba92ea5e338740a50eaab7e6",
+    "src/wasm.rs": "c1731915d42d764c0069c5195cb0c9afd851b7312a851af26f1543b5953d564d"
+  }
+}

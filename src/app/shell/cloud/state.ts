@@ -9,7 +9,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { Translate } from '@/shared/i18n'
 
-export type CloudDialog = 'new-workspace' | 'sign-in' | 'sign-out'
+export type CloudDialog = 'new-workspace' | 'new-local-workspace' | 'sign-in' | 'sign-out' | 'checkout' | 'checkout-merge'
 
 export const useCloudUI = create<{ dialog: CloudDialog | null }>(() => ({ dialog: null }))
 
@@ -39,8 +39,8 @@ export function useWorkspaceTitle(): string {
   return cloudName ?? (localName || 'One')
 }
 
-export function roleLabel(t: Translate, role: Role | null | undefined): string {
-  return role ? t(`shell.cloud.role.${role}`) : ''
+export function roleLabel(t: Translate, role: Role | null | undefined, guest = false): string {
+  return guest ? t('shell.cloud.role.guest') : role ? t(`shell.cloud.role.${role}`) : ''
 }
 
 export const canAdmin = (role: Role | null | undefined) => role === 'owner' || role === 'admin'

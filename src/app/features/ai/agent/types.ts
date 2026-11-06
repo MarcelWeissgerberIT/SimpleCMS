@@ -15,8 +15,12 @@ import type { ModelLine } from '../core/meter'
 import type { JevCheck } from '@/shared/ai/decide'
 
 export type ToolName =
+  | 'read_design_source'
+  | 'create_design_mock'
+  | 'check_finding'
   | 'search_pages'
   | 'read_page'
+  | 'read_requested_source'
   | 'list_databases'
   | 'query_database'
   | 'get_current_page'
@@ -26,6 +30,10 @@ export type ToolName =
   | 'append_to_page'
   /** changes existing content, block by block (staged one change per edit, kind 'edit') */
   | 'edit_page'
+  | 'read_page_files'
+  | 'create_spreadsheet'
+  | 'read_tables'
+  | 'update_table_cells'
   | 'create_row'
   | 'update_row'
   /** rows found by their key (store/keys.ts): one staged create_row / update_row (rename, append) per row, in one call */
@@ -64,7 +72,7 @@ export interface AgentStep {
   kind: 'tool' | 'note' | 'mcp'
   tool?: ToolName
   /** kind 'mcp': the call (server, tool name, the error text of a failed call) */
-  mcp?: { id: string; server: string; tool: string; error?: string }
+  mcp?: { display?:import('@/shared/mcp/activityDisplay').McpDisplay; id: string; server: string; tool: string; error?: string; notExecuted?:boolean; receipt?: import('@/shared/mcp/facts').AtlasReceipt }
   /** what the tool was asked for (a query, a page title …) */
   arg?: string
   /** readout after the call: "4 results", "staged #2" */
@@ -235,6 +243,8 @@ export interface StagedChange {
   beforeTitle?: string
   /** create_page / create_row: content · append: what gets added · edit: the new blocks (none for a delete) */
   markdown?: string
+  /** A calculated spreadsheet appended through the usual review/apply/undo path. */
+  spreadsheet?: import('../../sheets').SpreadsheetAttrs
   /** edit (edit_page): which blocks, as they were when staged; one change per edit, each applied or discarded on its own */
   edit?: BlockEdit
   props?: PropChange[]
@@ -332,6 +342,14 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  /** Explicit human copy of this answer into the ONE review; not an Atlas synchronization. */
+  answerPageChange?: string
+  receipt?:'saved'|'failed'
+  /** Prevent a block from adopting a result produced in another workspace. */
+  mockWorkspaceEpoch?: string
+  mocks?:import('@/shared/ai/designMock').DesignMock[]
+  program?:{id:string;version:number;hash:string}
+  contract?:import('@/shared/quandprofile/task').TaskReport
   n: number
   task: string
   startedAt: number
@@ -346,7 +364,7 @@ export interface AgentTurn {
   /** "Continue" (/continue): this task picks up task n where it stopped at the tool-call limit (task = that task's text) */
   continues?: number
   /** server: the MCP server that rejected its token (mcp_auth) — the terminal offers to sign in to it */
-  error?: { code: AIErrorCode | 'max_tokens'; message: string; server?: string }
+  error?: { code: AIErrorCode | 'max_tokens'; message: string; server?: string; centralLog?:boolean }
   /** MCP servers this task left out because they rejected their token here (the terminal offers a sign-in) */
   signIn?: string[]
 }

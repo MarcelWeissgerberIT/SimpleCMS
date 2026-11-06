@@ -22,7 +22,7 @@ After connecting, choose:
 - **Labels** — e.g. Inbox; **Skip spam and trash**,
 - **Mails per run** and **When**: when One opens, every few minutes, or manually (**Sync now**).
 
-**Sync now** is also one of the Mails database's [commands](help:database-commands): the **⌘** key on its row in the sidebar, or ⌘K → *Mails: Sync now*.
+**Sync now** is also one of the Mails database's [commands](help:database-commands): the **Commands** key on its row in the sidebar, or ⌘K → *Mails: Sync now*.
 
 The first sync creates the **Mails** database: subject, from, to, date, labels, unread, attachments, a Gmail link — and the mail itself as the page. The Gmail LED in its header opens these settings. Remote images are blocked until you click **Load images**. Your edits to rows stay; a re-sync only updates Gmail's fields.
 

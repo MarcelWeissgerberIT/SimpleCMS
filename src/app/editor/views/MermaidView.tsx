@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
-import { Code, Eye, Maximize2, RotateCw } from 'lucide-react'
+import { Code, Eye, Maximize2, RotateCw, PenLine } from 'lucide-react'
+import { drawingSpec, plainDrawingCode, sketchCode } from '../handdrawn/model'
+import { openDrawing } from '../handdrawn/open'
 import { useT } from '../../i18n'
 import { leaveNodeView } from '../lib/blocks'
 import { useViewerAllowed, viewerAllowed } from '../../ui/viewer'
@@ -130,27 +132,30 @@ export function MermaidDiagram({ code, onOpen }: { code: string; onOpen?: (from:
 
 export function MermaidView({ node, updateAttributes, selected, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
-  const code = String(node.attrs.code ?? '')
+  const sketch = !!drawingSpec(node.attrs.drawing)
+  const code = sketch ? plainDrawingCode(String(node.attrs.code ?? '')) : String(node.attrs.code ?? '')
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(code)
   useEffect(() => setDraft(code), [code])
   useEffect(() => {
     if (!editing || draft === code) return
-    const id = window.setTimeout(() => updateAttributes({ code: draft }), 350)
+    const id = window.setTimeout(() => updateAttributes({ code: sketch ? sketchCode(draft) : draft }), 350)
     return () => window.clearTimeout(id)
   }, [draft, editing]) // eslint-disable-line react-hooks/exhaustive-deps
   const shown = editing ? draft : code
+  const rendered = sketch ? sketchCode(shown) : shown
   // no viewer from a slide or a popover's preview
   const allowed = useViewerAllowed(() => (editor.isDestroyed ? null : editor.view.dom))
   const open = (from?: HTMLElement | null) => {
-    if (shown.trim()) openMermaidViewer(shown, from)
+    if (shown.trim()) openMermaidViewer(rendered, from)
   }
 
   return (
     <NodeViewWrapper className={`mermaid-view${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}`} data-type="mermaid" contentEditable={false}>
       <div className="mermaid-view__bar">
-        <span className="label">{t('editor.mermaid.label')}</span>
+        <span className="label">{t(drawingSpec(node.attrs.drawing) ? 'editor.drawing.title' : 'editor.mermaid.label')}</span>
         <span className="mermaid-view__tools">
+          {editor.isEditable && drawingSpec(node.attrs.drawing) && <button type="button" className="btn btn--ghost btn--sm" onClick={() => openDrawing(editor, node.attrs.id, 'diagram')} data-testid="drawing-edit"><PenLine size={13} />{t('editor.drawing.edit')}</button>}
           {allowed && shown.trim() && (
             <button type="button" className="icon-btn icon-btn--sm mermaid-view__open" aria-label={t('ui.viewer.open')} title={t('ui.viewer.open')} aria-haspopup="dialog" data-testid="mermaid-open" onClick={(e) => open(e.currentTarget)}>
               <Maximize2 size={13} strokeWidth={1.75} aria-hidden />
@@ -183,7 +188,7 @@ export function MermaidView({ node, updateAttributes, selected, editor, getPos }
             onKeyDown={(e) => {
               if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
                 e.preventDefault()
-                updateAttributes({ code: draft })
+                updateAttributes({ code: sketch ? sketchCode(draft) : draft })
                 setEditing(false)
                 // back to the document (focus() alone would restore a stale caret)
                 leaveNodeView(editor, getPos(), e.key === 'Escape' ? 'escape' : 'enter')
@@ -198,7 +203,7 @@ export function MermaidView({ node, updateAttributes, selected, editor, getPos }
             }}
           />
         )}
-        <MermaidDiagram code={shown} onOpen={allowed ? open : undefined} />
+        <MermaidDiagram code={rendered} onOpen={allowed ? open : undefined} />
       </div>
     </NodeViewWrapper>
   )

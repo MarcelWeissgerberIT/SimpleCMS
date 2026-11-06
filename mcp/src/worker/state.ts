@@ -70,10 +70,15 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 export class WorkerState {
   readonly file: string
+  readonly configFile: string
+  readonly scope?: string
+  globalSpent?: () => number
   data: StateData
 
-  constructor(configFile: string) {
-    this.file = join(dirname(configFile), 'worker-state.json')
+  constructor(configFile: string, runtimeDir?: string, scope?: string) {
+    this.configFile = configFile
+    this.scope = scope
+    this.file = join(runtimeDir ?? dirname(configFile), 'worker-state.json')
     this.data = empty()
     try {
       if (existsSync(this.file)) {

@@ -109,9 +109,13 @@ export function summaryBlock(rowId: ID, run: string, results: readonly StepResul
 
 /** W: the summary into the request (see the head of this file). False: nothing written (gone, locked, a viewer). */
 export async function writeSummary(rowId: ID, chain: OrderChain): Promise<boolean> {
+  return writeOrderBlock(rowId, summaryBlock(rowId, chain.run, await stepResults(chain)))
+}
+
+/** One idempotent report block; respects the live editor, locking and cloud access. */
+export function writeOrderBlock(rowId: ID, block: JSONContent): boolean {
   const row = ws().pages[rowId]
   if (!row || row.trashed || row.settings?.locked || useCloud.getState().readOnly) return false
-  const block = summaryBlock(rowId, chain.run, await stepResults(chain))
   const id = String(block.attrs!.id)
   const editor = liveEditorOf(rowId)
   if (editor && !editor.isDestroyed && editor.isEditable) {

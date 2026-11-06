@@ -136,8 +136,8 @@
   flex: none;
   align-items: center;
   gap: 8px;
-  height: 34px;
-  padding: 0 6px 0 12px;
+  min-height: 34px;
+  padding: 4px 6px 4px 12px;
   border-bottom: 1px solid var(--rule);
   background: var(--surface);
   font-size: var(--text-2xs);
@@ -151,6 +151,21 @@
   font-size: inherit;
   font-weight: 650;
   color: var(--ink);
+}
+
+.term-head .route-controls { flex: 0 1 auto; min-width: 0; max-width: min(60%, 42rem); }
+.term-head .route-provider { min-width: 0; max-width: 7em; }
+.term-head .route-chip { min-width: 0; }
+/* Shared inference adds a queue readout. Let the header grow with its controls,
+   instead of centering a multi-line group outside a fixed-height strip. */
+.term-head .route-chip__queue { flex: 1 1 100%; white-space: normal; line-height: 1.4; color: var(--ink-2); }
+@container (max-width: 640px) {
+  .term-head { gap: 4px; flex-wrap: wrap; }
+  .term-head__sep, .term-head > .term-spacer { display: none; }
+  .term-head .route-controls { flex: 1 1 100%; max-width: none; order: 1; }
+  .term-head .route-provider { max-width: 5em; }
+  .term-head__title { letter-spacing: 0; }
+  .term-head__status { margin-left: auto; }
 }
 
 .term-head__sep {
@@ -1707,8 +1722,8 @@
   }
 
   .term-head {
-    height: 44px;
-    padding: env(safe-area-inset-top) 4px 0 14px;
+    min-height: 44px;
+    padding: calc(env(safe-area-inset-top) + 4px) 4px 4px 14px;
   }
 
   .term-key {
@@ -2526,3 +2541,38 @@
     font-size: calc(16px * var(--text-scale));
   }
 }
+
+.term-failure-dock{border-top:2px solid var(--signal);border-bottom:1px solid var(--rule);padding:var(--sp-3);background:var(--surface-2);color:var(--ink);max-height:min(260px,35dvh);overflow:auto;overflow-wrap:anywhere;flex-shrink:0}.term-failure-dock>strong{font:var(--text-xs) var(--font-mono);color:var(--signal)}.term-failure-dock .term-error{margin:var(--sp-2) 0;padding:var(--sp-2);border-left:0}.term-failure-dock p{margin:var(--sp-2) 0}.term-failure-dock__actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin:var(--sp-2) 0}.term-failure-dock>small{display:block;color:var(--ink-2);font-size:var(--text-xs)}
+
+.term-failure-dock .term-error p{max-height:6em;overflow:auto}
+
+.term-head{flex-wrap:wrap}.term-head .term-key--label{width:auto;flex:0 0 auto;padding:0 var(--sp-2);border:1px solid var(--rule);font:inherit;letter-spacing:inherit;white-space:nowrap}
+
+/* Explicit answer → ONE page, followed by the existing proposal review. */
+.term-answer-page { margin-top: 12px; }
+.term-answer-page .btn { white-space: normal; max-width: 100%; }
+.answer-page__field { display: grid; gap: 6px; margin: 16px 0; min-width: 0; }
+.answer-page__field input, .answer-page__field select { width: 100%; min-width: 0; }
+
+/* One quiet reminder beside the existing action; no popup, animation or focus change. */
+.term-answer-page__hint { display: flex; align-items: flex-start; gap: 12px; max-width: 68ch; margin-bottom: 8px; color: var(--ink-2); font-size: var(--text-xs); line-height: 1.5; }
+.term-answer-page__hint > span { flex: 1; min-width: 0; }
+.term-answer-page__dismiss { flex: 0 0 28px; min-height: 28px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; font-size: 18px; cursor: pointer; }
+.term-answer-page__dismiss:hover { background: var(--surface-2); color: var(--ink); }
+.term-answer-page__dismiss:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+.term-saved-work { margin: 12px 16px; padding: 12px; border: 1px solid var(--rule); overflow-wrap: anywhere; }
+.term-saved-work summary { cursor: pointer; }
+.term-saved-work > div { margin-block: 12px; }
+
+/* Keep the current observed action visible independently of the history scroll. */
+.term-activity {display:flex;gap:12px;flex:none;padding:8px 14px;border-bottom:1px solid var(--rule);border-left:3px solid var(--signal);font-size:calc(12px * var(--text-scale));max-height:140px;overflow:auto;}
+.term-activity__label {color:var(--signal-ink);white-space:nowrap;}
+.term-activity > div {min-width:0;overflow-wrap:anywhere;}
+.term-activity strong {font-weight:600;}
+.term-activity span:not(.term-activity__label) {color:var(--ink-2);}
+.term-step__description {white-space:normal;overflow-wrap:anywhere;}
+.term-step__technical {grid-column:2 / -1;min-width:0;color:var(--ink-3);font-size:calc(10px * var(--text-scale));}
+.term-step__technical summary {cursor:pointer;}
+.term-step__technical pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;margin:4px 0;}
+@media(max-width:640px){.term-activity{flex-direction:column;gap:3px;max-height:160px;}.term-step--mcp{grid-template-columns:14px minmax(0,1fr) auto;}.term-step--mcp .term-step__description{grid-column:2/-1;grid-row:2;}.term-step--mcp .term-step__res{grid-column:3;grid-row:1;}.term-step--mcp .term-step__chip{max-width:100%;}}

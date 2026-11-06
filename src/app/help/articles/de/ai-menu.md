@@ -9,6 +9,15 @@ summary: Leertaste in einer leeren Zeile, oder „KI fragen“ an einer Auswahl 
 ---
 Das Menü beginnt mit dem Eingabefeld: frag in eigenen Worten und drück <kbd>Enter</kbd>. Darunter die Aktionen, die du für das Geöffnete am häufigsten brauchst — Text, mehrere Blöcke, ein Bild, eine Datei oder eine leere Zeile; **Übersetzen**, **Verwandeln in …** und **Mehr…** öffnen ein Untermenü (<kbd>→</kbd>, zurück mit <kbd>←</kbd> oder <kbd>Rücktaste</kbd>). **Mehr…** hat alles Übrige. Tippen durchsucht jede Aktion, egal wo sie steht.
 
+## Vorhandene Tabellenzellen ausfüllen — mit jedem unterstützten Textmodell
+Klicke in eine normale Seitentabelle, auch innerhalb einer Workshop-Platte, und wähle **Vorhandene Zellen mit KI ausfüllen** (die Funkel-Taste in der Tabellenleiste). Wähle die genauen Zellen oder **Leere Zellen wählen** und beschreibe den Auftrag mit deinen Quellen-Notizen. Anbieter und Modell gelten nur für diese Anfrage. Das funktioniert mit eingerichteten Textkanälen für Claude, OpenRouter, Local Ollama (auch einem geteilten Workspace-Modell), Ollama Cloud, MiniMax, Codex und Copilot; der Kanal muss die Daten dieser Seite erhalten dürfen.
+
+**Werte vorschlagen** sendet die bisherigen Tabellenwerte und gewählten Zelladressen. Andere Seitentexte bleiben hier, außer du aktivierst **Für KI freigegebenen Seitenkontext hinzufügen**; Kontextmarkierungen gelten weiterhin. Diese Aktion hängt keine MCP-Werkzeuge, Erinnerungen oder Web-Recherche an. Füge bei Bedarf den relevanten Atlas-Auszug als Quellenmaterial ein. Das Modell soll unbelegte Fakten offenlassen; prüfe seine Vorschläge selbst an den Quellen.
+
+Erst nach **Vorher → Vorschlag**, Auswahl der Änderungen und **Gewählte Änderungen übernehmen** wird geschrieben. ONE setzt ausschließlich Textwerte in diese vorhandenen Zellen. Tabellenstruktur, verbundene Zellen, Zell- und Absatzattribute, umgebende Platte und alle anderen Eingaben bleiben erhalten. Vorher wird eine Version gesichert; ein Rückgängig nimmt den Stapel zurück. Wurde eine Zielzelle oder die Tabellenstruktur inzwischen geändert, wird der Vorschlag abgewiesen. Änderungen anderer Personen in anderen Zellen bleiben erhalten.
+
+Bis zu 30 Textzellen pro Anfrage, 4.000 Zeichen pro Wert und insgesamt 18.000 Zeichen an Anfragedaten. Zellen mit eingebetteten Bildern, Erwähnungen, Aufgaben oder anderen reichhaltigen Blöcken bleiben manuell. Formatierungen innerhalb des ersetzten Werts können durch Klartext ersetzt werden. Die Aktion gilt für **Seitentabellen**, nicht für Spreadsheet-Formeln oder Datenbankeigenschaften. Werkzeugfähige Claude-/Copilot-Agenten verwenden zusätzlich `read_tables` → `update_table_cells`; bestehende Zellen warten weiterhin auf Prüfung. Ein geteiltes Textmodell erhält diese Zellaktion ohne allgemeinen Agenten- oder MCP-Zugriff.
+
 ## Welche KI antwortet
 Das Menü läuft beim Anbieter, den deine Regeln fürs Schreiben wählen — Claude oder ein OpenRouter-Modell, wenn du es eingerichtet hast ([KI-Anbieter](help:ai-providers)). Die Marke unter der Eingabe nennt ihn; ein Klick darauf (oder <kbd>Tab</kbd>) wählt ein anderes Modell für diese Anfrage. Daten, die die Regeln von diesem Anbieter fernhalten, gehen nie hinaus — das Menü sagt es und bietet **Regel ändern**.
 
@@ -100,6 +109,16 @@ Mit **LOKAL** markierte Einträge verlassen das Gerät nie. Die Datei geht nur m
 Eine Anfrage läuft weiter, wenn du das Feld schließt, in die Seitenleiste klickst oder eine andere Seite öffnest — nur **Stopp** und **Verwerfen** beenden sie. Die Seite zeigt sie unten an (**KI · Schreibt…**, dann **KI-Ergebnis fertig · Ansehen**), die Seitenleiste markiert die Seite mit einem Punkt, und ein Hinweis mit **Öffnen** meldet ein fertiges Ergebnis auf einer anderen Seite. Hat sich der Text inzwischen geändert, findet One ihn wieder; ist er weg, ist **Auswahl ersetzen** aus und **Darunter einfügen** setzt ans Ende der Seite. Ergebnisse warten auf diesem Gerät (auch nach dem Neuladen), bis du sie übernimmst oder verwirfst — höchstens 7 Tage, nie synchronisiert.
 
 ## ⌘K, dann ?
-Tippe `?` in der Befehlspalette, um Claude zur geöffneten Seite zu fragen. Die Antwort an die Seite anhängen, als neue Seite anlegen oder kopieren.
+Tippe `?` in der Befehlspalette, um das gewählte Modell zur geöffneten Seite zu fragen. Die Antwort an die Seite anhängen, als neue Seite anlegen oder kopieren.
 
-> Anfragen gehen aus deinem Browser mit deinem Schlüssel an Anthropic. Hinzugefügte MCP-Server können bei freien Anfragen mitmachen — siehe [MCP-Server](help:mcp-servers).
+> Anfragen gehen aus deinem Browser mit deinem Schlüssel an den gewählten Anbieter. MCP-Server können bei unterstützten freien Anfragen über Claude mitmachen — siehe [MCP-Server](help:mcp-servers).
+
+## Anbieter vor dem Modell wählen
+
+Im KI-Menü, bei Fragen über **Mod+K → ?** und unter **Hilfe → Fragen** steht vor dem Modell eine eigene Anbieterauswahl. Ein verfügbarer Anbieter wählt den ersten nutzbaren Weg für diese Anfrage und öffnet die Modellliste dieses Anbieters. Dort das konkrete Modell wählen. Die normale Modelltaste oder **Alt+M** sucht über Anbieter hinweg; **Modelle des Anbieters** grenzt die Liste ein. Die Auswahl sendet keine Anfrage und ändert keinen Standard. **Standard auf diesem Gerät** kehrt zum eingestellten Weg zurück; nur die ausdrücklichen Standardtasten speichern eine Gerätevorgabe. Fehlende Schlüssel, Datenregeln und benötigte Fähigkeiten können Anbieter oder Modelle sperren. Zusätzlich stehen über einen verbundenen Worker ab 1.21 lokale Ollama-Modelle, Ollama Cloud, MiniMax und Codex für normale Textanfragen bereit. Unter **Einstellungen → KI → Modelle beim Worker** die Modellliste laden und Datenregeln ausdrücklich festlegen. Die Anfrage erhält nur ausgewählten Kontext; diese Textanfragen haben keine Projekt- oder MCP-Werkzeuge. Bilder, PDFs und strukturierte Werkzeugläufe bleiben auf passende Modelle begrenzt. Der Coding-Bereich hat weiterhin seine eigene Agentenauswahl.
+
+Ein ausdrücklich für die Anfrage gewählter Anbieter wird nicht still durch einen anderen ersetzt. Braucht die gewählte Aktion Fähigkeiten, die dieser Weg nicht unterstützt, stoppt One und du kannst ein passendes Modell wählen.
+
+## Kosten in Euro
+
+Unter **Einstellungen → KI → Kostenanzeige** USD oder EUR wählen. One lädt auf deinen Klick den [EZB-Referenzkurs](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html) und zeigt sein Datum; ein eigener Kurs ist ebenfalls möglich. Die Umrechnung ist eine Orientierung ohne Steuern oder Bankgebühren. Verbrauchsbuch, Budgetgrenzen und Preiseingaben bleiben USD. Die Anzeige gilt für alle erfassten Anbieter, auch Coding. Fehlende Preise bleiben unbekannt; Ollama-Cloud- und Codex-Tarife sind keine kostenlosen Einzelanfragen. Lokale API-Kosten sind null, Strom und Hardware sind nicht enthalten.

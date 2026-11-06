@@ -180,3 +180,29 @@ test('validation and invite rate limit', async () => {
   assert.equal(created, 50)
   assert.equal(limited?.status, 429)
 })
+
+
+test('workspace guest designation survives invitations, is viewer-only and is managed by admins', async () => {
+  const owner=await signIn(server,'guest-owner@example.test'),guest=await signIn(server,'guest-reader@example.test')
+  const ws=(await owner.post('/api/workspaces',{name:'Shared guest workspace'})).body.id
+  const path=`/api/workspaces/${ws}`,uid=(await guest.get('/api/me')).body.user.id
+  for(const role of ['member','admin']){
+    assert.equal((await owner.post(path+'/invites',{role,guest:true})).status,400)
+    assert.equal((await owner.post(path+'/invites/emails',{role,guest:true,emails:['guest-other@example.test']})).status,400)
+  }
+  const invite=await owner.post(path+'/invites',{role:'viewer',guest:true})
+  assert.equal(invite.status,201);assert.equal(invite.body.guest,true)
+  const token=tokenOf(invite.body.link)
+  assert.equal((await guest.get('/api/invites/'+token)).body.guest,true)
+  await guest.post('/api/invites/'+token+'/accept')
+  const membership=(await owner.get(path+'/members')).body.find((m:any)=>m.user.id===uid)
+  assert.equal(membership.guest,true);assert.equal(membership.role,'viewer')
+  assert.equal((await guest.get('/api/me')).body.workspaces.find((w:any)=>w.id===ws).role,'viewer')
+  assert.equal((await guest.patch(path+'/members/'+uid,{role:'member',guest:false})).status,403)
+  assert.equal((await owner.patch(path+'/members/'+uid,{role:'member',guest:true})).status,400)
+  assert.equal((await owner.patch(path+'/members/'+uid,{role:'viewer',guest:false})).body.guest,false)
+  assert.equal((await owner.patch(path+'/members/'+uid,{role:'viewer',guest:true})).body.guest,true)
+  assert.equal((await owner.patch(path+'/members/'+uid,{role:'member'})).body.guest,false)
+  assert.equal((await owner.patch(path+'/members/'+uid,{role:'viewer',guest:true})).status,200)
+  assert.equal((await owner.patch(path+'/members/'+uid,{role:'owner'})).body.guest,false)
+})

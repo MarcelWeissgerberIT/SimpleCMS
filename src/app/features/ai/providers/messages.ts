@@ -6,6 +6,12 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    "features.ai.copilot.mediaLimit": "Copilot accepts up to four images totaling 3 MiB. Send fewer or smaller images.",
+    "features.ai.copilot.pdfLimit": "This PDF exceeds Copilot’s text extraction limit. Select a smaller document or passage.",
+    "features.ai.copilot.pdfScan": "This PDF contains no readable text. Use a vision-capable provider for scanned pages.",
+    "features.ai.copilot.unsupportedPart": "This attachment is not supported by the Copilot transport.",
+    "features.ai.copilot.pdfTextOnly": "PDF text extracted locally · figures and layout are not sent",
+
     'features.ai.or.oauth.closing': 'Connected — this window closes.',
     'features.ai.or.oauth.handed': 'Handed back to One — this window closes.',
     'features.ai.or.oauth.orphan': 'This connection can’t be finished in this window. Go back to the tab where you pressed Connect and try again.',
@@ -32,6 +38,12 @@ export const messages: Messages = {
     'features.ai.or.err.invalid_key': 'OpenRouter does not accept the key it just made, so it was not kept.',
   },
   de: {
+    "features.ai.copilot.mediaLimit": "Copilot verarbeitet bis zu vier Bilder mit zusammen 3 MiB. Sende weniger oder kleinere Bilder.",
+    "features.ai.copilot.pdfLimit": "Diese PDF überschreitet die Grenze für Copilots Textextraktion. Wähle ein kleineres Dokument oder einen Ausschnitt.",
+    "features.ai.copilot.pdfScan": "Diese PDF enthält keinen lesbaren Text. Nutze für gescannte Seiten einen Anbieter mit Bildverständnis.",
+    "features.ai.copilot.unsupportedPart": "Dieser Anhang wird vom Copilot-Zugang nicht unterstützt.",
+    "features.ai.copilot.pdfTextOnly": "PDF-Text lokal ausgelesen · Abbildungen und Layout werden nicht gesendet",
+
     'features.ai.or.oauth.closing': 'Verbunden — dieses Fenster schließt sich.',
     'features.ai.or.oauth.handed': 'An One zurückgegeben — dieses Fenster schließt sich.',
     'features.ai.or.oauth.orphan': 'Diese Verbindung lässt sich in diesem Fenster nicht abschließen. Geh zurück in den Tab, in dem du „Verbinden“ gedrückt hast, und versuch es noch einmal.',

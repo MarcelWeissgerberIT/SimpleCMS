@@ -7,7 +7,7 @@ keywords: keys, keyboard, shortcut, hotkey, Tastenkürzel, Tastatur
 related: command-palette, blocks, block-handle, tasks
 summary: The keys worth learning first. The full list is on the Keys tab of the Help panel.
 ---
-Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete list: the **Keys** tab of the Help panel, or <kbd>Mod+/</kbd>.
+One detects your operating system automatically. Shortcuts in the app and help use Command/Option on macOS and Ctrl/Alt on Windows and Linux. Ctrl is labelled Strg on German keyboards. The complete list: the **Keys** tab of the Help panel, or <kbd>Mod+/</kbd>.
 
 ## Everywhere
 - <kbd>Mod+K</kbd> — search & commands

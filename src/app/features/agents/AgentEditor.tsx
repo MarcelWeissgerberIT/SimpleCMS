@@ -1,3 +1,7 @@
+import { useAIStatus } from '../ai/setup/AINeedsSetup'
+import { useWorkerModels, workerModelRows, listedWorkerModelRows } from '../ai/core/workerModels'
+import { routeFor } from '../ai/core/gate'
+import { readAgentRoute } from '@/shared/ai/route'
 /**
  * Custom agents — the editor (a dialog): job (name, icon, instructions + "Improve with Claude"),
  * trigger, access (scope, write mode, MCP servers), report page, engine (runner, model, effort,
@@ -11,8 +15,8 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { openAISettings } from '../ai/setup/openAISetup'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
-import { AGENT_LIMITS, localTimeZone, sameAgent } from '../../store/agents'
-import type { AgentTrigger, CustomAgent, ID, Page } from '../../store/types'
+import { AGENT_CATEGORIES, AGENT_LIMITS, localTimeZone, sameAgent } from '../../store/agents'
+import type { AgentCategory, AgentTrigger, CustomAgent, ID, Page } from '../../store/types'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
@@ -32,7 +36,6 @@ import { usdSignAfter } from '../../lib/money'
 import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
 import { useDismissMirrorToasts } from './mirrorToasts'
-import { useServerUnlocked, useUnlocked } from './integrations/status'
 // the Patchbay's one dependency-free module (plan §1.2): "On fuse F1 — show in the Patchbay" where the setting lives
 import { FuseHintLine, PatchbayAgentLink } from '../patchbay/hint'
 import './mirror.css'
@@ -41,6 +44,7 @@ import { CodeArea, lineColAt, lineStarts, markdownTokenizer, type CodeAreaHandle
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import { ReviewSection } from '../ai/decide/ui/ReviewSection'
 import { loadRuns, useAgentRuns } from './runs'
+import { AgentModelHint } from './ModelDefault'
 import './agents.css'
 
 type Errors = AgentSaveErrors
@@ -192,7 +196,11 @@ export function AgentEditor({
     return () => cancelAnimationFrame(raf)
   }, [section])
   useDismissMirrorToasts()
+  useWorkerModels()
   const [d, setD] = useState<CustomAgent>(initial)
+  const pins = readAgentRoute(d.route)
+  const workerPin = Array.isArray(pins) && ['copilot','local'].includes(pins[0]?.p ?? '') ? pins[0] : null
+  const subscription = d.runner === 'browser' && (workerPin?.p === 'copilot' || !d.model && !Array.isArray(pins) && routeFor('agents.run').route.p === 'copilot')
   // unsaved changes: the Patchbay's hint links say "save first" instead of leaving (they would drop the change)
   const dirty = !isNew && !sameAgent(d, initial)
   const [errors, setErrors] = useState<Errors>({})
@@ -327,6 +335,11 @@ export function AgentEditor({
               />
             </Field>
           </div>
+          <Field label={t('features.agents.category.label')} id={`${uid}-category`}>
+            <select id={`${uid}-category`} className="input" value={d.category ?? 'custom'} onChange={(e) => set({ category: e.target.value as AgentCategory })}>
+              {AGENT_CATEGORIES.map((c) => <option key={c} value={c}>{t(`features.agents.category.${c}`)}</option>)}
+            </select>
+          </Field>
           <Instructions value={d.instructions} onChange={(instructions) => set({ instructions })} error={errors.instructions} id={ids.instr} agent={d} />
         </Section>
 
@@ -403,14 +416,16 @@ export function AgentEditor({
           {inCloud && !serverOk && <p className="agx-note">{runtime && !runtime.available ? t('features.agents.server.off') : t('features.agents.runner.serverOff')}</p>}
           <div className="agx-grid2">
             <Field label={t('features.agents.ed.model')} id={`${uid}-model`}>
-              <select id={`${uid}-model`} className="input" value={d.model ?? ''} onChange={(e) => set({ model: e.target.value || null })}>
-                <option value="">{t('features.agents.ed.modelDefault')}</option>
+              <select id={`${uid}-model`} className="input" value={workerPin ? `${workerPin.p}:${workerPin.m}` : d.model ?? ''} onChange={(e) => { const worker = workerModelRows().find(m => ['copilot','local'].includes(m.route.p) && `${m.route.p}:${m.route.m}` === e.target.value); set(worker ? {route:[worker.route],model:null} : {route:null,model:e.target.value || null}) }}>
+                <option value="">{t(d.runner === 'server' ? 'features.agents.model.server' : 'features.agents.model.inherit')}</option>
                 {AI_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
                 ))}
+                {d.runner === 'browser' && (['copilot','local'] as const).map(p => <optgroup key={p} label={p === 'copilot' ? 'GitHub Copilot' : 'Atlas Flow · Ollama'}>{listedWorkerModelRows(workerPin).filter(m => m.route.p === p && m.caps.tools).map(m => <option key={m.route.m} value={`${p}:${m.route.m}`}>{m.label}</option>)}</optgroup>)}
               </select>
+              <AgentModelHint agent={d} />
             </Field>
             <Field label={t('features.agents.ed.effort')}>
               <Seg
@@ -427,7 +442,7 @@ export function AgentEditor({
             </Field>
           </div>
           <div className="agx-grid2">
-            <Field label={t('features.agents.ed.budget')} hint={t('features.agents.ed.budgetHint')} error={errors.budget} id={ids.budget}>
+            <Field label={t('features.agents.ed.budget')} hint={t(subscription ? 'features.coding.panel.copilotCostHint' : 'features.agents.ed.budgetHint')} error={errors.budget} id={ids.budget}>
               {/* the sign where the UI's language puts it: "$ 1.00" · "1,00 $" */}
               <div className="agx-money" data-after={usdSignAfter(lang) || undefined}>
                 <span className="agx-money__sign mono" aria-hidden>
@@ -436,6 +451,7 @@ export function AgentEditor({
                 {/* text, not type=number: the UI language's decimal mark (and a dot) — never a comma dropped silently */}
                 <input
                   id={ids.budget}
+                  disabled={subscription}
                   className="input mono"
                   type="text"
                   inputMode="decimal"
@@ -521,13 +537,15 @@ function IconButton({ icon, onPick }: { icon: CustomAgent['icon']; onPick: (icon
  */
 function Instructions({ value, onChange, error, id, agent }: { value: string; onChange: (v: string) => void; error?: string; id: string; agent: CustomAgent }) {
   const t = useT()
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
-  const servers = useWorkspace((s) => s.settings.mcpServers)
+  const hasKey = useAIStatus('write.instructions').ready
+  const servers = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const [busy, setBusy] = useState(false)
   const [prev, setPrev] = useState<string | null>(null)
   const [open, setOpen] = useState(() => openPlaceholders(value))
   const ac = useRef<AbortController | null>(null)
   const area = useRef<CodeAreaHandle>(null)
+  const toolMenu = useMenu()
+  const toolRange = useRef<[number, number]>([0, 0])
   useEffect(() => () => ac.current?.abort(), [])
   // a recipe's placeholders still in the text (mirror.ts): a key selects one, so typing replaces it
   const holes = placeholdersIn(value)
@@ -539,6 +557,12 @@ function Instructions({ value, onChange, error, id, agent }: { value: string; on
   }
   const { scope, write, mcpServers, mcpTools } = agent
   const tools = useMemo(() => instructionTools({ scope, write, mcpServers, mcpTools }, { mcpServers: servers }), [scope, write, mcpServers, mcpTools, servers])
+  const toolEntries: MenuEntry[] = [
+    ...([{ label: t('features.agents.ed.toolsOne'), names: tools.own }, { label: t('features.agents.ed.toolsMcp'), names: tools.mcp }].flatMap(({ label, names }): MenuEntry[] => names.length ? [
+      { kind: 'section', label },
+      ...names.map((name) => ({ label: name, onSelect: () => requestAnimationFrame(() => area.current?.insert(...toolRange.current, name)), disabled: value.length - (toolRange.current[1] - toolRange.current[0]) + name.length > AGENT_LIMITS.instructions })),
+    ] : [])),
+  ]
   const toolKey = [...tools.own, ...tools.mcp].join(' ')
   const tokenize = useMemo(() => markdownTokenizer({ tools: toolKey.split(' ').filter(Boolean) }), [toolKey])
   const improve = async () => {
@@ -644,11 +668,19 @@ function Instructions({ value, onChange, error, id, agent }: { value: string; on
           </button>
         )}
         <span className="agx-spacer" />
-        <span className="agx-legend" aria-hidden>
-          <span className="syn-tool">{t('features.agents.ed.legendTool')}</span>
-          <span className="syn-ph">[{t('features.agents.ed.legendPh')}]</span>
-        </span>
+        <button type="button" className="btn btn--sm" disabled={busy} onClick={(e) => {
+          if (!toolMenu.open) {
+            const el = area.current?.textarea
+            toolRange.current = [el?.selectionStart ?? value.length, el?.selectionEnd ?? value.length]
+          }
+          toolMenu.toggle(e)
+        }} aria-haspopup="menu" aria-expanded={toolMenu.open} data-testid="agx-insert-tool">
+          <Plus size={13} strokeWidth={1.75} aria-hidden /> {t('features.agents.ed.insertTool')}
+        </button>
+        <Menu {...toolMenu.props} entries={toolEntries} searchable searchPlaceholder={t('features.agents.ed.searchTools')} emptyLabel={t('features.agents.ed.toolsNoMatch')} width={350} />
+        <span className="agx-legend" aria-hidden><span className="syn-ph">[{t('features.agents.ed.legendPh')}]</span></span>
       </div>
+      <p className="agx-field__hint">{t('features.agents.ed.insertToolHint')}</p>
       {tools.mcp.length > 0 && <p className="agx-note">{t('features.agents.ed.toolsKnown', { own: tools.own.length, mcp: tools.mcp.length })}</p>}
     </Field>
   )
@@ -846,8 +878,8 @@ function ScopeFields({ d, set, error, titles }: { d: CustomAgent; set: (p: Parti
 
 /**
  * MCP servers by name: browser agents use Settings → AI, server agents the server's list. The tool allow-list
- * per server only while an active integration profile unlocks it (this device's servers; for a server agent also the
- * runtime's, by name / host) — without one, a list the agent already has stays applied and is shown read-only.
+ * per server is available for every connected server, independently of integration profiles. Stored lists remain
+ * enforced by the existing runner; choosing names in the instructions never changes those lists.
  */
 /**
  * The MCP servers it may call. A browser agent's ticked server that is switched off on this device, or not set up here
@@ -857,10 +889,7 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
   const t = useT()
   const settings = useWorkspace((s) => s.settings)
   const runtime = useServerAgents((s) => s.runtime)
-  const here = useUnlocked('toolAllowList')
-  const onServer = useServerUnlocked('toolAllowList')
   const profiles = useWorkspace((s) => s.integrations)
-  const allowList = here || (d.runner === 'server' && onServer)
   const local = readServers(settings)
   // the OUT tools of a server (send tools of the profiles matching it by name / host): off for every agent
   const outOf = (name: string): string[] => {
@@ -873,7 +902,6 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
   const off = (name: string) => d.runner !== 'server' && local.some((s) => s.name === name && !s.enabled)
   // the Patchbay's hint per server (§1.20): inside its tool list, beside its kept line, else under the list of servers
   const hint = (name: string) => (agentId ? <FuseHintLine kind="agentServer" id={`${agentId}:${name}`} onOpen={onLeave} held={held} /> : null)
-  const kept = (name: string) => !allowList && !!d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name)
   type Note = { name: string; kind: 'missing' | 'off' }
   const notes = d.runner === 'server' ? [] : d.mcpServers.flatMap((name): Note[] => (!names.includes(name) ? [{ name, kind: 'missing' }] : off(name) ? [{ name, kind: 'off' }] : []))
   return (
@@ -908,18 +936,8 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
         </p>
       ))}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
-      {!allowList && d.mcpServers.filter((name) => !kept(name)).map((name) => <span key={name}>{hint(name)}</span>)}
-      {d.mcpServers.filter(kept).map((name) => (
-        <div key={name}>
-          <p className="agx-tools-kept" data-testid="agx-tools-kept">
-            <span className="label">{name.toUpperCase()}</span>
-            <span>{t('features.agents.ed.toolsKept', { n: d.mcpTools![name].length })}</span>
-            {agentId && <PatchbayAgentLink agent={agentId} onOpen={onLeave} held={held} />}
-          </p>
-          {hint(name)}
-        </div>
-      ))}
-      {allowList && d.mcpServers.map((name) => (
+      {agentId && d.mcpServers.length > 0 && <PatchbayAgentLink agent={agentId} onOpen={onLeave} held={held} />}
+      {d.mcpServers.map((name) => (
         <McpToolList
           key={name}
           server={name}
@@ -949,6 +967,7 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
 function McpToolList({ server, tools, allow, out, hint: fuseHint, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; out: string[]; hint?: ReactNode; onChange: (list: string[] | undefined) => void }) {
   const t = useT()
   const id = useId()
+  const [query, setQuery] = useState('')
   const known = tools ?? []
   const shown = [...known, ...(allow ?? []).filter((x) => !known.includes(x))]
   const on = (tool: string) => allow === undefined || allow.includes(tool)
@@ -978,14 +997,18 @@ function McpToolList({ server, tools, allow, out, hint: fuseHint, onChange }: { 
               {t('features.agents.ed.toolsRead')}
             </button>
           )}
+          <button type="button" className="btn btn--sm" aria-pressed={allow?.length === 0} disabled={allow?.length === 0} onClick={() => onChange([])}>
+            {t('features.agents.ed.toolsOff')}
+          </button>
           <button type="button" className="btn btn--sm" aria-pressed={allow === undefined} onClick={() => onChange(undefined)} disabled={allow === undefined}>
             {t('features.agents.ed.toolsAll')}
           </button>
         </span>
       </div>
+      {shown.length > 8 && <input className="input" type="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t('features.agents.ed.searchToolsOf', { name: server.toUpperCase() })} placeholder={t('features.agents.ed.searchTools')} />}
       {shown.length > 0 && (
         <div className="agx-tools__list">
-          {shown.map((tool) => (
+          {shown.filter((tool) => tool.toLowerCase().includes(query.trim().toLowerCase())).map((tool) => (
             <label key={tool} className="agx-check agx-check--tool" data-missing={!known.includes(tool) || undefined} data-out={out.includes(tool) || undefined} title={out.includes(tool) ? t('features.agents.ed.toolOut') : undefined}>
               <input type="checkbox" checked={on(tool)} onChange={(e) => toggle(tool, e.target.checked)} />
               <span className="mono agx-tools__tool" title={tool}>

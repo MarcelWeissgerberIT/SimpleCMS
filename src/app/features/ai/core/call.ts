@@ -1,3 +1,7 @@
+import {createTaskContract} from './taskContract'
+import { assertPreparedFlow,taskInputOf } from './gate'
+import { isWorkerProvider } from '@/shared/ai/providers'
+import { sendWorkerText } from './workerModels'
 /**
  * sendNeutral(): one request to a provider on the neutral wire (multi-provider S2: OpenRouter one-shots), after the gate
  * prepared it — a lazy part of the AI path (the facades import it only for a non-Claude route):
@@ -98,6 +102,9 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   })
 
 export interface NeutralOpts {
+  audit?: import('./liveAudit').LiveAudit
+  mcp?: import('../mcp-servers/config').McpAttachment | null
+  onMcp?: (calls: import('../mcp-servers/activity').McpCall[]) => void
   signal?: AbortSignal
   /** each streamed text delta */
   onToken?: (delta: string) => void
@@ -109,8 +116,24 @@ export interface NeutralOpts {
 
 /** One request on the neutral wire → the whole turn (or an AIError). */
 export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
+  if(prepared.route?.p==='copilot'||prepared.route?.p==='local'&&prepared.caps?.tools)return (await import('./copilotCall')).sendCopilotCompletion(prepared,req,o)
+  const task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:req.system,input:req.messages,tools:[],one:false,atlas:false,signal:o.signal,output:req.output.kind==='json'?'json':'text',onReport:r=>o.onMcp?.([{id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r}])})
+  try{const turn=await sendPlainNeutral(prepared,{...req,system:task.packet()},{...o,onToken:undefined});const answer=turn.parts.filter(p=>p.type==='text').map(p=>p.text).join('\n');task.finish(answer);o.onToken?.(answer);return turn}finally{task.release()}
+}
+async function sendPlainNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
+  assertPreparedFlow(prepared)
   const route = prepared.route
   if (!route) throw new AIError('no_key')
+  if (route.p === 'copilot' || route.p === 'local' && prepared.caps?.tools) return (await import('./copilotCall')).sendCopilotCompletion(prepared, req, o)
+  if (isWorkerProvider(route.p)) {
+    if (req.kind !== 'chat' || req.output.kind !== 'text' || req.tools?.length || req.messages.some(m => m.parts.some(p => p.type !== 'text'))) throw new AIError('capability')
+    const result = await sendWorkerText(route, [{ role: 'system', content: req.system }, ...req.messages.map(m => ({ role: m.role, content: m.parts.map(p => p.type === 'text' ? p.text : '').join('\n') }))], Math.min(req.maxTokens, 16384), o.signal)
+    const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0, ...(route.p === 'local' ? { reportedUsd: 0 } : {}) } : null
+    const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: 'end', usage, served: result.model, streamedChars: result.text.length }
+    o.call.response(neutralResponse(turn, { price: priceFor(route), promptChars: o.promptChars }))
+    o.onToken?.(result.text)
+    return turn
+  }
   const key = await getAIKey(route.p)
   if (!key) throw new AIError('no_key')
   if (o.signal?.aborted) throw new AIError('aborted')
@@ -154,6 +177,7 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
   // who serves is checked as soon as the stream says it: an answer that will be refused never shows (D-S2-16)
   const early = (servedModel: string, up?: string) => checkServed({ served: servedModel, ...(up ? { upstream: up } : {}) }, { requested: route.m, router, pool: lists?.pool, upstreams: pins?.names, deny: upstream.deny, refused: (s) => refusedSlug(s) !== null }).problem
   for (;;) {
+    assertPreparedFlow(prepared)
     let content = false
     let served: string | null = null
     let blocked = false

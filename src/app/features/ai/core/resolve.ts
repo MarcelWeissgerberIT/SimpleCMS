@@ -1,7 +1,8 @@
+import { modelDestinationAllowed } from '@/shared/ai/dataFlow'
 /**
  * Which route a request takes (design § 8.1 / 8.2, the S2 subset) — pure over a RouteWorld, so the Node specs run it:
  *
- *   chip (this request only) → device.routes[cls] → workspace.routes[cls] → device.default → workspace.routes['*'] → legacy
+ *   chip (this request only) → own agent model (class agents) → device.routes[cls] → workspace.routes[cls] → device.default → workspace.routes['*'] → legacy
  *
  * The first level that has a rule wins (levels are never merged). A pin whose provider does not take the class yet
  * (routable.ts) is skipped; a rule left without pins is skipped to the next level (a step says so). The winning rule's
@@ -19,7 +20,8 @@
  */
 import type { AIErrorCode } from '@/shared/ai/errors'
 import type { Caps, DataClass, DeviceAI, FeatureClass, ModelInfo, Route, RouteRule, StepNote, WorkspaceAI } from '@/shared/ai/types'
-import { refusedClasses } from '@/shared/ai/policy'
+import { SHARED_PREFIX } from '@/shared/ai/shared-model'
+import { refusedClasses, MEMBER_CLASSES } from '@/shared/ai/policy'
 import { legacyRule, routeKey } from '@/shared/ai/route'
 import { refusedSlug } from '@/shared/ai/models'
 import { isJevModel, isJevRouter } from '@/shared/ai/jev'
@@ -49,7 +51,7 @@ export interface ResolveInput {
   forced?: { route: Route; pool?: readonly string[] } | null
   /** the route chip: this request only */
   chip?: Route | null
-  /** a model the call picks itself (a custom agent's own Claude model) — the legacy level's */
+  /** An own Claude model: class agents takes it before defaults; other classes use it at the legacy level. */
   model?: string | null
   /** class 'gate': the agent's own Vorprüfer (review v2 `decider`) — its level, before the device's rule */
   decider?: Route | null
@@ -107,6 +109,7 @@ function poolOk(m: string, input: ResolveInput, w: RouteWorld): boolean {
 /** Filters 1–4 for one pin. */
 function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?: readonly string[]): PinResult {
   const key = routeKey(route)
+  if (!modelDestinationAllowed(route.p, w.ws?.dataFlow)) return { ok: false, code: 'policy', detail: 'destination', step: { k: 'policy', from: key, code: 'destination' }, fix: { kind: 'step', step: 'data', provider: route.p } }
   // 1 · a key on this device
   if (!w.hasKey(route.p)) return { ok: false, code: 'no_key', step: { k: 'nokey', from: key }, fix: { kind: 'step', step: 'key', provider: route.p } }
   // 2 · known and not refused (+ the router's pool: filters 2–3 per shortlist model); the router writes text — never a
@@ -130,7 +133,7 @@ function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?
   const missing = input.caps.find((n) => !canDo(info.caps, n))
   if (missing) return { ok: false, code: 'capability', detail: missing, step: { k: 'capability', from: key, code: missing }, fix: missing === 'decisions' ? { kind: 'step', step: 'models', provider: 'openrouter' } : { kind: 'pick', need: missing } }
   // 4 · the data rule
-  const [refused] = refusedClasses(route.p, input.classes, w.ws, w.device)
+  const refused = (route.p === 'local' && route.m.startsWith(SHARED_PREFIX) && !w.ws?.sharedMemberContext ? input.classes.find(c => MEMBER_CLASSES.some(m => m === c && !(m === 'mcp' && info.caps.mcp))) : undefined) ?? refusedClasses(route.p, input.classes, w.ws, w.device)[0]
   if (refused) return { ok: false, code: 'policy', detail: refused, step: { k: 'policy', from: key, cls: refused }, fix: { kind: 'step', step: 'data', provider: route.p, data: refused } }
   return { ok: true, info, ...(pool ? { pool } : {}) }
 }
@@ -145,6 +148,7 @@ function levels(input: ResolveInput, w: RouteWorld): Array<[Level, RouteRule | n
     ]
   return [
     ['chip', input.chip ? [input.chip] : null],
+    ['agent', input.cls === 'agents' && input.model ? [{p:'anthropic',m:input.model}] : null],
     ['device', w.device?.routes?.[input.cls]],
     ['workspace', w.ws?.routes?.[input.cls]],
     ['default', w.device?.default],
@@ -168,6 +172,12 @@ function winning(rule: RouteRule, level: Level, input: ResolveInput, w: RouteWor
 export function resolveRoute(input: ResolveInput, w: RouteWorld): Resolved {
   const steps: StepNote[] = []
   if (input.forced) return winning([input.forced.route], 'forced', input, w, steps, input.forced.pool)
+  // A person's explicit pick must never fall through to a different provider when the action changes class.
+  // Stored defaults may still skip an unsupported class, as before.
+  if (input.cls !== 'gate' && input.chip && !routable(input.chip.p, input.cls)) {
+    steps.push({ k: 'capability', from: routeKey(input.chip), code: 'class' })
+    return { ok: false, code: 'capability', detail: input.cls, route: input.chip, level: 'chip', steps, fixes: [{ kind: 'step', step: 'models', provider: input.chip.p }] }
+  }
   for (const [level, rule] of levels(input, w)) {
     if (!rule?.length) continue
     const pins = rule.filter((r) => routable(r.p, input.cls))

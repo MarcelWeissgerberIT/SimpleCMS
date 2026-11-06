@@ -2,7 +2,7 @@
  * Integration profiles (Workspace → Integrations, features/agents/integrations, store/integrations.ts): a profile is
  * active on this device while one ENABLED MCP server meets every condition of its match (tools from the last
  * connection test, a name glob, a host glob); only then are the property menu's Key / Only by hand switches,
- * upsert_rows, the agent state, notify_me, the agent editor's tool list and the profile's recipes offered. Flags and
+ * upsert_rows, the agent state, notify_me, the profile's recipes offered; MCP tool lists are always editable. Flags and
  * allow-lists already set stay in force without one. Recipes are configuration (database, views, agent). The JSON
  * editor validates with line / column and JSON paths; profiles round-trip through export and import.
  * A mocked Claude API only — never api.anthropic.com; every MCP server is a fictional address nobody calls.
@@ -143,11 +143,11 @@ test.describe('Integration profiles', () => {
     expect(results).toContain('unique per row')
     expect(await wsEval(page, (s, a) => s.pages[a].properties['tk-notes'], t.a)).toBe('Call back first')
 
-    // the editor: no tool list, the kept one read-only
+    // MCP tool permissions remain editable without an integration profile.
     await page.getByRole('button', { name: 'Edit' }).click()
     const editor = page.locator('.agx-editor')
-    await expect(editor.getByRole('group', { name: 'Tools of TRACKER' })).toHaveCount(0)
-    await expect(editor.getByTestId('agx-tools-kept')).toContainText('1 allowed tools')
+    await expect(editor.getByRole('group', { name: 'Tools of TRACKER' })).toBeVisible()
+    await expect(editor.getByRole('checkbox', { name: 'list_items', exact: true })).toBeChecked()
     await page.keyboard.press('Escape')
 
     // the gallery: no mirror recipe
@@ -196,16 +196,16 @@ test.describe('Integration profiles', () => {
     expect(toolNames(m.bodies[1])).not.toContain('upsert_rows')
     expect(m.bodies[1].system).toContain('notify_me leaves the person a short note')
 
-    // the editor's tool list follows 'toolAllowList'
+    // Tool lists stay editable before and after a profile or connection changes.
     await page.getByRole('button', { name: 'Edit' }).click()
     const editor = page.locator('.agx-editor')
     await editor.getByRole('checkbox', { name: 'TRACKER' }).check()
-    await expect(editor.getByRole('group', { name: 'Tools of TRACKER' })).toHaveCount(0)
+    await expect(editor.getByRole('group', { name: 'Tools of TRACKER' })).toBeVisible()
     await addProfile(page, profileOf('keys-only', { name: 'tracker' }, ['toolAllowList']))
     await expect(editor.getByRole('group', { name: 'Tools of TRACKER' })).toBeVisible()
-    // the server switched off: locked again
+    // A switched-off server keeps its editable list; runs still leave the server out.
     await setServers(page, [{ ...TRACKER_SERVER, enabled: false }])
-    await expect(editor.getByRole('group', { name: 'Tools of TRACKER' })).toHaveCount(0)
+    await expect(editor.getByRole('group', { name: 'Tools of TRACKER' })).toBeVisible()
   })
 
   test('a profile’s recipe builds the database, its views and the agent from configuration', async ({ page }) => {

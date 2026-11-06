@@ -15,7 +15,8 @@
     if (hash.indexOf('#/s/') === 0 || hash.indexOf('#/f/') === 0) return
     var scope = 'local'
     var w = new URLSearchParams(location.search).get('w') || localStorage.getItem('one.cloud.active')
-    if (w && /^[A-Za-z0-9_-]{8,64}$/.test(w)) scope = w
+    if (w && /^local:[a-z0-9]{12}$/.test(w)) scope = w.slice(6)
+    else if (w && /^[A-Za-z0-9_-]{8,64}$/.test(w)) scope = w
     var cache = JSON.parse(localStorage.getItem('one.look') || 'null')
     var entry = cache && cache.ws && cache.ws[scope]
     if (!entry || entry.standard || !entry.paint) return

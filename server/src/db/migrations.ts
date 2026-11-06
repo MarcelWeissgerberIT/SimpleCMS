@@ -388,4 +388,159 @@ export const migrations: Migration[] = [
       CREATE INDEX mcp_preimages_recent ON mcp_preimages(workspace_id, created_at);
     `,
   },
+  {
+    version: 13,
+    name: 'personal client-encrypted secrets, isolated from workspace content',
+    sql: `
+      CREATE TABLE personal_vaults (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        envelope TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    version: 14,
+    name: 'private welcome drafts and recipient-bound Atlas onboarding',
+    sql: `
+      CREATE TABLE welcome_drafts (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        sealed TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(workspace_id,user_id)
+      );
+      CREATE TABLE welcome_access (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        target_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        email_hash TEXT NOT NULL,
+        sealed TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+      CREATE INDEX welcome_access_recipient ON welcome_access(target_workspace_id,email_hash);
+    `,
+  },
+  {
+    version: 15,
+    name: 'read-only guests in their shared workspace',
+    sql: `
+      ALTER TABLE members ADD COLUMN guest INTEGER NOT NULL DEFAULT 0 CHECK (guest IN (0,1) AND (guest = 0 OR role = 'viewer'));
+      ALTER TABLE invites ADD COLUMN guest INTEGER NOT NULL DEFAULT 0 CHECK (guest IN (0,1) AND (guest = 0 OR role = 'viewer'));
+    `,
+  },
+  {
+    version: 16,
+    name: 'explicit workspace model shares (no prompts or results)',
+    sql: `CREATE TABLE shared_models (
+      id TEXT PRIMARY KEY REFERENCES coding_workers(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      model TEXT NOT NULL, label TEXT NOT NULL,
+      enabled INTEGER NOT NULL CHECK(enabled IN (0,1))
+    ); CREATE INDEX shared_models_workspace ON shared_models(workspace_id);`,
+  },
+  {
+    version: 17,
+    name: 'bounded read-only access tests without participant impersonation',
+    sql: `ALTER TABLE sessions ADD COLUMN test_access INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE test_access_sessions (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+      source_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      target_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      target_name TEXT NOT NULL, target_email TEXT NOT NULL,
+      target_role TEXT NOT NULL, guest INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );`,
+  },
+  {
+    version: 18,
+    name: 'expiring guest workshop participation without changing base membership',
+    sql: `CREATE TABLE guest_participation (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      granted_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY(workspace_id,email)
+    );`,
+  },
+  {
+    version: 19,
+    name: 'encrypted recipient-only preparation guides',
+    sql: `CREATE TABLE IF NOT EXISTS personal_guides (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      email_hash TEXT NOT NULL,
+      sealed TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS personal_guides_recipient ON personal_guides(workspace_id,email_hash);`,
+  },
+  {
+    version: 20,
+    name: 'independent inference-only hosts without replacing personal coding workers',
+    sql: `ALTER TABLE coding_workers ADD COLUMN purpose TEXT NOT NULL DEFAULT 'coding' CHECK(purpose IN ('coding','model-host'));
+    DROP INDEX coding_workers_active;
+    DROP INDEX coding_workers_pending;
+    CREATE UNIQUE INDEX coding_workers_active ON coding_workers(workspace_id,user_id,purpose) WHERE revoked_at IS NULL AND activated_at IS NOT NULL;
+    CREATE UNIQUE INDEX coding_workers_pending ON coding_workers(workspace_id,user_id,purpose) WHERE revoked_at IS NULL AND activated_at IS NULL;`,
+  },
+  {
+    version:21,
+    name:'private immutable compiled task artifacts and run receipts',
+    sql:`CREATE TABLE task_programs (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      program_id TEXT NOT NULL, version INTEGER NOT NULL, hash TEXT NOT NULL, sealed TEXT NOT NULL, created_at INTEGER NOT NULL,
+      PRIMARY KEY(workspace_id,user_id,program_id,version)
+    );
+    CREATE TABLE task_program_runs (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      id TEXT NOT NULL, sealed TEXT NOT NULL, created_at INTEGER NOT NULL,
+      PRIMARY KEY(workspace_id,user_id,id)
+    );`,
+  },
+  {
+    version:22,
+    name:'central encrypted Claude service, explicit workspace bindings and durable spend reservations',
+    sql:`CREATE TABLE central_ai (
+      id TEXT PRIMARY KEY,anchor TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      owner TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,label TEXT NOT NULL,model TEXT NOT NULL,
+      sealed_key TEXT,verified_at INTEGER,enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN(0,1)),
+      budget_micro INTEGER CHECK(budget_micro IS NULL OR budget_micro>0),version INTEGER NOT NULL
+    );
+    CREATE TABLE central_ai_bindings (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      service_id TEXT NOT NULL REFERENCES central_ai(id) ON DELETE CASCADE
+    );
+    CREATE TABLE central_ai_requests (
+      id TEXT PRIMARY KEY,service_id TEXT NOT NULL REFERENCES central_ai(id) ON DELETE CASCADE,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,month TEXT NOT NULL,state TEXT NOT NULL,
+      cost_micro INTEGER NOT NULL DEFAULT 0,reserved_micro INTEGER NOT NULL DEFAULT 0,
+      input_tokens INTEGER,output_tokens INTEGER,sealed_audit TEXT,created_at INTEGER NOT NULL,finished_at INTEGER
+    );
+    CREATE INDEX central_ai_usage ON central_ai_requests(service_id,month);`,
+  },
+  {
+    version:23,
+    name:'explicit owner-assisted enrollment for new prepared accounts only',
+    sql:`ALTER TABLE login_tokens ADD COLUMN owner_activation INTEGER NOT NULL DEFAULT 0 CHECK(owner_activation IN(0,1));
+    CREATE TABLE owner_activations (
+      token_hash TEXT PRIMARY KEY REFERENCES login_tokens(token_hash) ON DELETE CASCADE,
+      actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('member','viewer')),
+      guest INTEGER NOT NULL CHECK(guest IN(0,1))
+    );`,
+  },
 ]

@@ -1,6 +1,6 @@
 /**
  * Overlay text editor that covers a cell (title, text, number, url, email, phone).
- * Enter commits (Shift+Enter = newline for text), Esc/outside click commit, Tab commits + moves.
+ * Enter commits (Shift+Enter = newline for text), Esc cancels, outside click commits, Tab commits + moves.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Popover } from '../../ui/Popover'
@@ -8,6 +8,7 @@ import type { PropertyDef } from '../../store/types'
 import { useLang, useT } from '../../i18n'
 import { parseNumberText } from '../model/format'
 import { useWorkspace } from '../../store/store'
+import {useValueSuggestions,ValueSuggestions,type ValueSuggestion} from '../../ui/ValueSuggestions'
 
 const currentLang = () => useWorkspace.getState().settings.language
 
@@ -21,6 +22,7 @@ export interface TextEditorProps {
   initialText?: string
   onCommit: (value: string | number | null, reason: DoneReason) => void
   minWidth?: number
+  suggestions?:readonly ValueSuggestion[]
 }
 
 /** Parse a typed / pasted number in the UI language (see parseNumberText). */
@@ -40,7 +42,7 @@ function numberDraft(v: number, percent: boolean, lang: string): string {
   return (lang === 'de' ? txt.replace('.', ',') : txt) + (percent ? '%' : '')
 }
 
-export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidth = 240 }: TextEditorProps) {
+export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidth = 240, suggestions=[] }: TextEditorProps) {
   const lang = useLang()
   const t = useT()
   const isNumber = prop.type === 'number'
@@ -53,10 +55,12 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
   textRef.current = text
   const done = useRef(false)
   const areaRef = useRef<HTMLTextAreaElement>(null)
+  const help=useValueSuggestions({value:text,options:suggestions,onChoose:value=>{textRef.current=value;setText(value);setInvalid(false)},label:prop.name})
   const rect = anchor.getBoundingClientRect()
 
   const commit = (reason: DoneReason) => {
     if (done.current) return
+    if (reason === 'escape') { done.current = true; onCommit(value, reason); return }
     const raw = textRef.current
     if (isNumber && isBadNumber(raw, lang)) {
       // Enter / Tab on garbage: stay open and say so; leaving (Esc / click away) keeps the old value
@@ -80,7 +84,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
     el.style.height = `${Math.min(320, Math.max(rect.height - 2, el.scrollHeight))}px`
   }, [text, rect.height])
 
-  const escRef = useEscapeFlag()
+  const escRef = useEscapeFlag(!help.open)
 
   useEffect(() => {
     const el = areaRef.current
@@ -102,8 +106,11 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
       style={{ width: Math.max(minWidth, rect.width) }}
       autoFocus={false}
     >
+      <div className="value-help" data-help={help.available||undefined}>
       <textarea
-        ref={areaRef}
+        {...help.attributes}
+        aria-label={prop.name}
+        ref={el=>{areaRef.current=el;help.field.current=el}}
         className={`db-textedit__area${isNumber ? ' is-number' : ''}${prop.type === 'title' ? ' is-title' : ''}`}
         value={text}
         rows={1}
@@ -116,6 +123,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
         }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return
+          if (help.key(e)) return
           if (e.key === 'Enter' && !(e.shiftKey && prop.type === 'text')) {
             e.preventDefault()
             commit('enter')
@@ -129,6 +137,8 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
           }
         }}
       />
+      <ValueSuggestions control={help} hint={t('database.text.suggestionsHelp')}/>
+      </div>
       {invalid && (
         <div className="db-textedit__err label" role="alert">
           {t('database.number.invalid')}
@@ -145,14 +155,16 @@ export function caretToEnd(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaEl
 }
 
 /** Popovers close on Escape before their content sees the key — remember that it was Escape. */
-export function useEscapeFlag() {
+export function useEscapeFlag(enabled = true) {
   const escRef = useRef(false)
   useEffect(() => {
+    escRef.current = false
+    if (!enabled) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') escRef.current = true
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [])
+  }, [enabled])
   return escRef
 }

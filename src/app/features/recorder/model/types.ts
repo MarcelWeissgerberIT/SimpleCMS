@@ -9,7 +9,7 @@ import type { Database, ID, Page, PropertyType, ViewType, ColorName, NumberForma
 import type { SnapshotPropDef } from '../../history/props'
 
 /** Whose journal: the local workspace, or a team workspace's copy on this device. */
-export type Scope = 'local:local' | `cloud:${string}`
+export type Scope = `local:${string}` | `cloud:${string}`
 
 /** A page or row · the schema of a database · a view. */
 export type PlaceKey = `p:${string}` | `s:${string}` | `v:${string}/${string}`

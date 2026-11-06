@@ -37,6 +37,7 @@ function inviteJson(i: InviteRow & { inviter_name?: string | null; inviter_email
   return {
     id: i.id,
     role: i.role,
+    guest: !!i.guest,
     email: i.email,
     created_at: iso(i.created_at),
     expires_at: iso(i.expires_at),
@@ -84,21 +85,55 @@ export function workspaceRoutes(s: Services) {
 
   // ── members ──────────────────────────────────────────────────────────
 
-  const memberJson = (m: { id: string; email: string; name: string | null; role: Role; member_since: number }) => ({
+  const memberJson = (m: { id: string; email: string; name: string | null; role: Role; guest: number; member_since: number }) => ({
     user: publicUser(m),
     role: m.role,
+    guest: !!m.guest,
     created_at: iso(m.member_since),
   })
 
   app.get('/:id/members', (c) => {
     const { workspace } = access(s, c, 'viewer')
-    return c.json(s.repo.members(workspace.id).map(memberJson))
+    return c.json(s.repo.members(workspace.id).map(m => ({ ...memberJson(m), participation_until: s.repo.guestParticipationUntil(workspace.id, m.id) ?? null })))
+  })
+
+  app.get('/:id/guest-participation', c => {
+    const { workspace } = access(s, c, 'admin')
+    return c.json(s.db.all<{ email: string; expires_at: number }>('SELECT email,expires_at FROM guest_participation WHERE workspace_id=? AND expires_at>?', workspace.id, Date.now()))
+  })
+
+  // Named existing guests or personal pending guest invitations only; no public/reusable elevation link.
+  app.put('/:id/guest-participation', async c => {
+    const { workspace, auth } = access(s, c, 'admin')
+    if (workspace.personal_of) throw badRequest('guest_workspace', 'Guest participation needs a team workspace')
+    const input = await body(c, z.object({ emails: z.array(z.email().max(254)).min(1).max(20), expiresAt: z.number().int().nullable() }).strict())
+    const now = Date.now(), emails = [...new Set(input.emails.map(normalizeEmail))]
+    if (input.expiresAt !== null && (input.expiresAt <= now || input.expiresAt > now + 7 * DAY)) throw badRequest('guest_expiry', 'Choose an expiry within the next seven days')
+    s.db.tx(() => {
+      for (const email of emails) {
+        const user = s.repo.userByEmail(email)
+        const member = user && s.repo.members(workspace.id).find(m => m.id === user.id)
+        const pending = s.db.get(`SELECT 1 FROM invites WHERE workspace_id=? AND email=? AND guest=1 AND role='viewer' AND expires_at>? AND uses<max_uses`, workspace.id, email, now)
+        if (input.expiresAt !== null && (member ? member.role !== 'viewer' || !member.guest : !pending)) throw badRequest('guest_only', 'Only named guests in this workspace may receive temporary participation')
+        if (input.expiresAt === null) s.db.run('DELETE FROM guest_participation WHERE workspace_id=? AND email=?', workspace.id, email)
+        else s.db.run('INSERT INTO guest_participation(workspace_id,email,expires_at,granted_by) VALUES(?,?,?,?) ON CONFLICT(workspace_id,email) DO UPDATE SET expires_at=excluded.expires_at,granted_by=excluded.granted_by', workspace.id, email, input.expiresAt, auth.user.id)
+      }
+    })
+    for (const email of emails) {
+      const user = s.repo.userByEmail(email)
+      if (!user) continue
+      s.collab.closeUser(user.id, workspace.id, 'role-changed')
+      if (input.expiresAt === null) s.coding.closeUser(user.id, workspace.id, 'role-changed')
+    }
+    s.log.info('guest participation changed', { workspace: workspace.id, actor: auth.user.id, count: emails.length, expires: input.expiresAt })
+    return c.json({ count: emails.length, expiresAt: input.expiresAt })
   })
 
   app.patch('/:id/members/:userId', async (c) => {
     const { workspace, role: actorRole, auth } = access(s, c, 'admin')
     const userId = c.req.param('userId')
-    const { role } = await body(c, z.object({ role: roleSchema }))
+    const { role, guest } = await body(c, z.object({ role: roleSchema, guest: z.boolean().optional() }))
+    if (guest && role !== 'viewer') throw badRequest('guest_readonly', 'Guests must have viewer access')
     const current = idSchema.safeParse(userId).success ? s.repo.memberRole(workspace.id, userId) : undefined
     if (!current) throw notFound('member_not_found', 'This person is not a member')
 
@@ -106,14 +141,15 @@ export function workspaceRoutes(s: Services) {
       if (actorRole !== 'owner') throw forbidden('owner_only', 'Only the owner can hand over ownership')
       if (userId !== auth.user.id) {
         s.repo.transferOwnership(workspace.id, userId)
-        // the new owner's sockets reconnect with the new role (a viewer's were read-only; the app refreshes its
-        // role on 'role-changed': owner-only parts, the workspace look); the old owner stays admin
+        // Both people reconnect with their current roles. Otherwise the old owner's first subsequent
+        // edit would be rejected by beforeHandleMessage rather than refreshing their role immediately.
         s.collab.closeUser(userId, workspace.id, 'role-changed')
+        s.collab.closeUser(auth.user.id, workspace.id, 'role-changed')
         s.log.info('ownership transferred', { workspace: workspace.id, from: auth.user.id, to: userId })
       }
-    } else if (role !== current) {
+    } else if (role !== current || guest !== undefined) {
       if (current === 'owner') throw conflict('owner_must_transfer', 'Transfer ownership to someone else first')
-      s.repo.setRole(workspace.id, userId, role)
+      s.repo.setRole(workspace.id, userId, role, guest ?? (role === 'viewer' && !!s.repo.members(workspace.id).find(m=>m.id===userId)?.guest))
       // every role means something on the socket now: a viewer's is read-only, only owners' and admins' may
       // change the workspace look — reconnect so the new role applies (the app refreshes its role on 'role-changed')
       s.collab.closeUser(userId, workspace.id, 'role-changed')
@@ -151,7 +187,10 @@ export function workspaceRoutes(s: Services) {
 
   const inviteSchema = z.object({
     role: inviteRoleSchema.default('member'),
+    guest: z.boolean().default(false),
     email: z.email().max(254).optional(),
+    /** Explicit copy-link preparation; still address-bound, never an authentication token. */
+    send_email:z.boolean().optional(),
     lang: langSchema.optional(),
     max_uses: usesSchema.optional(),
     expires_in_days: daysSchema.optional(),
@@ -174,6 +213,7 @@ export function workspaceRoutes(s: Services) {
   app.post('/:id/invites', async (c) => {
     const { workspace, auth } = access(s, c, 'admin')
     const input = await body(c, inviteSchema)
+    if (input.guest && input.role !== 'viewer') throw badRequest('guest_readonly', 'Guests must have viewer access')
     const maxUses = input.max_uses ?? 1
     const domains = domainsOrThrow(input.domains)
     // an address-bound invite is for that one person; a reusable link never makes admins
@@ -185,13 +225,13 @@ export function workspaceRoutes(s: Services) {
       if (existing && s.repo.memberRole(workspace.id, existing.id)) throw conflict('already_member', 'This person is already a member')
     }
     const days = input.expires_in_days ?? 7
-    const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, email: input.email ?? null, createdBy: auth.user.id, maxUses, ttl: days * DAY, domains })
+    const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, guest: input.guest, email: input.email ?? null, createdBy: auth.user.id, maxUses, ttl: days * DAY, domains })
     const link = inviteLink(token)
 
     let emailSent: boolean | undefined
-    if (row.email) {
+    if (row.email&&input.send_email!==false) {
       const lang = pickLang(input.lang, c.req.header('accept-language'))
-      emailSent = await mailInvite(row.email, { link, workspace: workspace.name, inviter: auth.user.name || auth.user.email, role: row.role, days, lang })
+      emailSent = await mailInvite(row.email, { link, workspace: workspace.name, inviter: auth.user.name || auth.user.email, role: row.guest ? 'guest' : row.role, days, lang })
     }
     if (maxUses > 1) s.log.info('reusable invite created', { workspace: workspace.id, invite: row.id, user: auth.user.id, max_uses: maxUses })
     return c.json({ ...inviteJson(row), link, ...(emailSent === undefined ? {} : { email_sent: emailSent }) }, 201)
@@ -209,10 +249,12 @@ export function workspaceRoutes(s: Services) {
       z.object({
         emails: z.array(z.string().max(320)).min(1).max(INVITE_EMAILS_MAX),
         role: inviteRoleSchema.default('member'),
+        guest: z.boolean().default(false),
         expires_in_days: daysSchema.optional(),
         lang: langSchema.optional(),
       }),
     )
+    if (input.guest && input.role !== 'viewer') throw badRequest('guest_readonly', 'Guests must have viewer access')
     const addresses = [...new Set(input.emails.map(normalizeEmail).filter(Boolean))]
     const valid = addresses.filter((a) => z.email().max(254).safeParse(a).success)
     const toInvite = valid.filter((a) => {
@@ -229,9 +271,9 @@ export function workspaceRoutes(s: Services) {
       addresses.map(async (email): Promise<Result> => {
         if (!valid.includes(email)) return { email, status: 'invalid' }
         if (!toInvite.includes(email)) return { email, status: 'already_member' }
-        const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, email, createdBy: auth.user.id, ttl: days * DAY })
+        const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, guest: input.guest, email, createdBy: auth.user.id, ttl: days * DAY })
         const link = inviteLink(token)
-        const sent = await mailInvite(email, { link, workspace: workspace.name, inviter, role: row.role, days, lang })
+        const sent = await mailInvite(email, { link, workspace: workspace.name, inviter, role: row.guest ? 'guest' : row.role, days, lang })
         return { email, status: sent ? 'sent' : 'failed', id: row.id, link, expires_at: iso(row.expires_at) }
       }),
     )

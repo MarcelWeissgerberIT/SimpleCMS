@@ -29,6 +29,7 @@ import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
 import { HelpLink } from '../../help'
 import './settings.css'
+import { PersonalSecrets } from '../../features/secrets/PersonalSecrets'
 import { StandardHereField, useLookScope } from '../workspace/Look'
 
 /**
@@ -37,8 +38,8 @@ import { StandardHereField, useLookScope } from '../workspace/Look'
  * automation, backup / export / import, leaving or deleting it — is on the workspace page (#/workspace,
  * shell/workspace), linked at the top of the rail.
  */
-export type SettingsTab = 'general' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mail' | 'mcp' | 'coding' | 'shortcuts' | 'about'
-const BASE_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'mail', 'mcp', 'coding', 'shortcuts', 'about']
+export type SettingsTab = 'general' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mail' | 'mcp' | 'coding' | 'secrets' | 'shortcuts' | 'about'
+const BASE_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'mail', 'mcp', 'coding', 'secrets', 'shortcuts', 'about']
 /** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after General. */
 const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => (admin ? [tabs[0], 'server', ...tabs.slice(1)] : tabs)
 
@@ -51,15 +52,17 @@ export function SettingsModal({ initialTab, section, server, add, onClose }: { i
     openWorkspaceSettings('people')
   }, [team, onClose])
   if (team) return null
-  return <Settings initialTab={initialTab} section={section} server={server} add={add} onClose={onClose} />
+  return <Settings key={initialTab} initialTab={initialTab} section={section} server={server} add={add} onClose={onClose} />
 }
 
 function Settings({ initialTab, section, server, add, onClose }: { initialTab?: SettingsTab; section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean; onClose: () => void }) {
   const t = useT()
+  const lang = useLang()
   const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
   const TABS = withServer(BASE_TABS, serverAdmin)
   const [tab, setTab] = useState<SettingsTab>(() => {
-    const asked = initialTab ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null) ?? (consumeMailSettingsRequest() ? 'mail' : null) ?? (consumeCodingSettingsRequest() ? 'coding' : null)
+    const codingAsked = consumeCodingSettingsRequest()
+    const asked = initialTab ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null) ?? (consumeMailSettingsRequest() ? 'mail' : null) ?? (codingAsked ? 'coding' : null)
     return asked && TABS.includes(asked) ? asked : 'general'
   })
   const idx = TABS.indexOf(tab)
@@ -132,7 +135,7 @@ function Settings({ initialTab, section, server, add, onClose }: { initialTab?: 
                 }}
               >
                 <span className="st__tab-n">{String(i + 1).padStart(2, '0')}</span>
-                <span>{t(`shell.settings.tab.${id}`)}</span>
+                <span>{id === 'secrets' ? (lang === 'de' ? 'Meine Secrets' : 'My secrets') : t(`shell.settings.tab.${id}`)}</span>
               </button>
             ))}
           </div>
@@ -140,7 +143,7 @@ function Settings({ initialTab, section, server, add, onClose }: { initialTab?: 
         <section className="st__main" role="tabpanel" id={`${uid}-panel`} aria-labelledby={`${uid}-tab-${tab}`}>
           <header className="st__head">
             <span className="label">
-              § {String(idx + 1).padStart(2, '0')} — {t(`shell.settings.tab.${tab}`)}
+              § {String(idx + 1).padStart(2, '0')} — {tab === 'secrets' ? (lang === 'de' ? 'Meine Secrets' : 'My secrets') : t(`shell.settings.tab.${tab}`)}
             </span>
             <button type="button" className="icon-btn modal__close" onClick={onClose} aria-label={t('common.close')}>
               <X size={16} />
@@ -162,6 +165,7 @@ function Settings({ initialTab, section, server, add, onClose }: { initialTab?: 
             {tab === 'mcp' && <McpTab />}
             {tab === 'mcp' && <ServerAgentsSettings />}
             {tab === 'coding' && <CodingWorkerTab />}
+            {tab === 'secrets' && <PersonalSecrets />}
             {tab === 'shortcuts' && <ShortcutList />}
             {tab === 'about' && <AboutTab />}
           </div>
@@ -511,4 +515,3 @@ function AboutTab() {
     </div>
   )
 }
-

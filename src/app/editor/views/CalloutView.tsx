@@ -5,6 +5,7 @@ import { IconPicker } from '../../ui/IconPicker'
 import { resolveAssetUrl } from '../../lib/files'
 import { COLOR_NAMES, type ColorName } from '../../store/types'
 import { useT } from '../../i18n'
+import { Screws } from '../../ui/controls'
 
 export function CalloutIcon({ icon }: { icon: unknown }) {
   if (typeof icon === 'string' && icon.startsWith('asset:'))
@@ -17,8 +18,12 @@ export function CalloutView({ node, updateAttributes, editor }: ReactNodeViewPro
   const t = useT()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const color = (node.attrs.color as ColorName) || 'gray'
+  // A single toggle inside a neutral callout forms a compact, collapsible plate.
+  // Keep ordinary callouts and coloured notices in their existing presentation.
+  const plate = (color === 'gray' || color === 'default') && node.childCount === 1 && node.firstChild?.type.name === 'details'
   return (
-    <NodeViewWrapper className={`callout callout--${color}`} data-type="callout" data-color={color}>
+    <NodeViewWrapper className={`callout callout--${color}${plate ? ' screw-plate callout--folded' : ''}`} data-type="callout" data-color={color}>
+      {plate && <Screws seed={String(node.attrs.id ?? '')} />}
       <button
         type="button"
         className="callout__icon"

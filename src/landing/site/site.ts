@@ -23,6 +23,7 @@ import { bindTour, renderTour } from './sections/tour'
 import { bindSavings, renderSavings } from './sections/savings'
 import { renderTopbar } from './sections/topbar'
 import { esc, prefersReducedMotion } from './util'
+import { bindInstall, renderInstall } from './install'
 
 export interface SiteHandle {
   /** Called when the smash starts: get the site ready to be revealed (scroll to top, pre-entrance state). */
@@ -83,11 +84,13 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
       </main>
       ${renderFooter(c)}
       ${lightboxHtml(c.t('fig.close'))}
-      ${renderTour(c)}`
+      ${renderTour(c)}
+      ${renderInstall(c)}`
     bindFrames(root)
     bindFrameTabs(root)
     cleanups.push(bindLightbox(root))
     cleanups.push(bindTour(root))
+    cleanups.push(bindInstall(root))
     bindSavings(root, c, { onReprint: reprint, rollNumber })
     void loadFeatureIcons(root)
     bindChrome()

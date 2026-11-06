@@ -1,3 +1,5 @@
+import { managedCommand, managedChild, profileDir, redirectInstalled, importWorkerPreset } from './managed.ts'
+import { compareDemo } from './demo-compare.ts'
 /**
  * one-worker — runs coding tasks from One with Claude Code on this computer (git worktrees, branches,
  * tests, pull requests). Bundled to public/mcp/one-worker.mjs (mcp/build.mjs). Docs: docs/CODING.md.
@@ -19,7 +21,8 @@
  * (~/.config/one/cloud/<workspace>/), and stops with exit code 2 when the server lets it go for good (token
  * revoked or replaced, member removed) — a service manager should not restart it then (RestartPreventExitStatus=2).
  *
- * Environment: CLAUDE_BIN (the Claude Code CLI, default "claude"), ONE_WORKER_PORT, ONE_ORIGINS,
+ * --model-host: cloud model host only; no repository setup, scanning or coding repositories.
+Environment: CLAUDE_BIN (the Claude Code CLI, default "claude"), ONE_WORKER_PORT, ONE_ORIGINS,
  * ONE_WORKER_BROWSER (a program that opens the setup page, "none" = never), ONE_WORKER_QUIET=1. Logs go to
  * stderr.
  */
@@ -35,10 +38,16 @@ import { TRUST } from './run.ts'
 import { STOP_HARD_MS, Worker } from './worker.ts'
 import { serveTaskMcp } from './taskmcp.ts'
 import { filePreset } from './preset.ts'
+import { evaluateHarness } from './harness-eval.ts'
+import { localBenchmark } from './local-benchmark.ts'
 import { SetupServer } from './setup.ts'
 import { factsOf, findRepos, shortPath } from './scan.ts'
 import { terminalChecklist } from './checklist.ts'
 import { pathId, samePath } from './paths.ts'
+import { WorkerWorkspaces } from './workspaces.ts'
+import { configureCertificates } from './certificates.ts'
+
+let workspaceHost: WorkerWorkspaces | null = null
 
 declare const __VERSION__: string
 const VERSION = typeof __VERSION__ === 'string' ? __VERSION__ : 'dev'
@@ -59,8 +68,9 @@ const value = (name: string): string | null => {
   const i = argv.indexOf(name)
   return i >= 0 && argv[i + 1] && !argv[i + 1]!.startsWith('--') ? argv[i + 1]! : null
 }
-const command = argv.find((a) => !a.startsWith('-') && argv[argv.indexOf(a) - 1] !== '--config' && argv[argv.indexOf(a) - 1] !== '--workspace') ?? 'run'
-const { preset, problem: presetProblem } = filePreset()
+const command = argv.find((a) => !a.startsWith('-') && argv[argv.indexOf(a) - 1] !== '--config' && argv[argv.indexOf(a) - 1] !== '--workspace' && argv[argv.indexOf(a) - 1] !== '--from') ?? 'run'
+const fromFile = command === 'install' ? value('--from') : null
+const { preset, problem: presetProblem } = fromFile ? { preset: importWorkerPreset(resolve(fromFile)), problem: null } : filePreset()
 const cloud = preset?.cloud ? { origin: preset.origin, host: new URL(preset.origin).host } : null
 // a cloud worker keeps its own folder: a local worker (and cloud workers of other workspaces) run beside it
 const configFile = resolve(value('--config') ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()))
@@ -90,7 +100,9 @@ if (flag('--version') || flag('-v')) {
 }
 
 if (flag('--help') || flag('-h')) {
-  process.stdout.write(`one-worker ${VERSION} — coding tasks from One, run by Claude Code on this computer
+  process.stdout.write(`one-worker ${VERSION} — compare-demo --repo /path/to/demo --output /path/to/report.json
+one-worker ${VERSION} — evaluate --limit 3 --repeats 1 --cases module-integration,resume-package
+Coding tasks from One, run by Claude Code on this computer
 ${
   cloud
     ? `\nThis CLOUD worker was downloaded for the workspace "${preset!.name}" (${preset!.workspace}). It connects out to
@@ -105,12 +117,19 @@ Exit code 2: the server let this file go for good (token revoked or replaced, me
 }
   node one-worker.mjs                         run — keep it running while One should hand out work. The first
                                               start finds your git repos and opens a page to tick them.
+  node one-worker.mjs install --from <old>    preserve the JSON pairing of an existing download (never executes it)
+  node one-worker.mjs install                 install a fixed, workspace-named starter (Desktop when writable)
+  node <installation>/start.cjs update        update code without replacing pairing; waits for running work
+  node <installation>/start.cjs rollback      return to the preceding release after current work
   node one-worker.mjs setup                   run and open that page again (change the repos)
   node one-worker.mjs check                   check the config, the repos and Claude Code
+  node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1
+                                              opt-in synthetic model test; cloud API costs up to the USD budget
   node one-worker.mjs init --workspace <id>   (by hand) write ${defaultConfigFile()}
 
 Options: --config <file> (or ONE_WORKER_CONFIG), --no-browser (no setup page: pick the repos in this
 terminal), --force (init: replace the file), --help, --version
+--model-host: cloud model host only; no repository setup, scanning or coding repositories.
 Environment: CLAUDE_BIN (default "claude"), ONE_WORKER_PORT (default ${preset?.port ?? WORKER_DEFAULT_PORT}), ONE_ORIGINS, ONE_WORKER_BROWSER, ONE_WORKER_QUIET=1
 Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs its Git Bash)' : ''}, the Claude Code CLI (signed in). Docs: docs/CODING.md
 `)
@@ -118,7 +137,36 @@ Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs 
 }
 
 async function main() {
+  if (await configureCertificates(configFile, self, argv)) return
+  const managed = { dir: profileDir(configFile), file: self, config: configFile, preset, version: VERSION, args: ['--no-browser', '--model-host'].filter(flag) }
+  if (command === 'install' || ['managed-start','managed-setup','managed-status','managed-update','managed-rollback','managed-cancel'].includes(command)) return managedCommand(managed, command)
+  if ((command === 'run' || command === 'setup') && await redirectInstalled(managed, command === 'setup')) return
+
+  if (command === 'compare-demo') {
+    const repo = value('--repo'), output = value('--output')
+    if (!repo || !output) throw new Error('Use compare-demo --repo /path/to/synthetic-demo --output /path/to/report.json [--model atlas-flow:latest] [--copilot-model auto]')
+    const report = await compareDemo({repo,output,model:value('--model')??undefined,copilotModel:value('--copilot-model')??undefined,config:configFile,progress:line=>process.stderr.write(line+'\n')})
+    process.stdout.write(JSON.stringify(report,null,2)+'\n')
+    process.exitCode = report.results.every((r:{passed:boolean})=>r.passed) ? 0 : 1
+    return
+  }
+  if (command === 'evaluate') {
+    const report = await evaluateHarness({ limit: Number(value('--limit') ?? 3), repeats: Number(value('--repeats') ?? 1), ...(value('--cases') ? { cases: value('--cases')!.split(',') } : {}), onCase: (id, ok) => process.stderr.write(`${id}: ${ok ? 'PASS' : 'FAIL'}\n`) })
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+    process.exitCode = report.passed === report.total ? 0 : 1
+    return
+  }
   if (command === 'task-mcp') return serveTaskMcp(VERSION)
+  if (command === 'benchmark') {
+    const agent = value('--agent') ?? 'local'
+    const limit = Number(value('--limit') ?? 3)
+    const budgetUsd = Number(value('--budget') ?? 1)
+    if (!['local', 'minimax'].includes(agent) || !Number.isInteger(limit) || limit < 1 || limit > 10 || !Number.isFinite(budgetUsd) || budgetUsd < 0.01 || budgetUsd > 25) throw new Error('Use --agent local|minimax, --limit 1…10 and --budget 0.01…25 (USD).')
+    const report = await localBenchmark(limit, { agent: agent as 'local' | 'minimax', configFile, budgetUsd })
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+    process.exitCode = report.passed === report.total ? 0 : 1
+    return
+  }
 
   if (command === 'init') {
     try {
@@ -140,7 +188,9 @@ async function main() {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\nOr download the worker from One (Settings → Coding worker): that file comes ready-paired and asks for your repos itself.\n`)
     process.exit(1)
   }
-  const config = withPreset(loaded.config, preset)
+  const configured = withPreset(loaded.config, preset)
+  if (flag('--model-host') && !cloud) throw new Error('--model-host requires a cloud worker downloaded for the target workspace.')
+  const config = flag('--model-host') ? { ...configured, repos: [] } : configured
   for (const p of loaded.problems) log(`config: ${p}`)
   for (const n of loaded.notes ?? []) log(`config: ${n}`)
 
@@ -202,9 +252,10 @@ async function main() {
 
   // the setup page lives on the worker's own port; --no-browser: none (the terminal asks instead)
   let worker: Worker | null = null
-  const setup = flag('--no-browser')
+  const setup = flag('--no-browser') || flag('--model-host')
     ? null
     : new SetupServer({
+        draining: () => worker?.isDraining() ?? false,
         configFile,
         port: config.port,
         preset,
@@ -212,7 +263,11 @@ async function main() {
         log,
         config: () => worker!.config,
         reload: () => reload(worker!),
-        live: () => worker!.live(),
+        live: () => workspaceHost?.live() ?? worker!.live(),
+        workspaces: {
+          list: () => workspaceHost?.grants.list() ?? [],
+          revoke: async id => { if (!workspaceHost) throw new Error('Workspace hosting is unavailable.'); await workspaceHost.revoke(id) },
+        },
       })
   let stopping = false
   /** code 2: a cloud worker the team server let go for good (a service manager must not restart it) */
@@ -222,6 +277,7 @@ async function main() {
     log('stopping — ending running tasks')
     // whatever happens: the runs' leftovers and outcomes get STOP_WAIT_MS (worker.ts), then the process ends
     setTimeout(() => process.exit(code), STOP_HARD_MS).unref()
+    await workspaceHost?.stop()
     await worker?.stop().catch(() => {})
     process.exit(code)
   }
@@ -231,7 +287,19 @@ async function main() {
   }
   const claude = findClaude()
   if (claude.from === 'native') log(nativeNotOnPath())
-  worker = new Worker({ config, version: VERSION, bin: claude.bin, claudeFrom: claude.from, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal })
+  const options = { config, version: VERSION, bin: claude.bin, claudeFrom: claude.from, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal,
+    ...(preset && !cloud ? {
+      canGrantWorkspace: true,
+      workspaceChallenge: (id: string) => ({ workspaceOwner: config.workspace!, workspaceNonce: workspaceHost!.grants.challenge(id) }),
+      routeLocal: (socket: import('ws').WebSocket, hello: Extract<import('../../../src/app/features/coding/protocol.ts').TabMessage, { type: 'hello' }>) => workspaceHost!.route(socket, hello),
+      routeTask: (token: string, tool: string, args: Record<string, unknown>) => workspaceHost!.task(token, tool, args),
+      reserveWork: (repos: string[]) => workspaceHost!.reserve(repos),
+      busyRepos: () => workspaceHost!.busyRepos(),
+      capacityChanged: () => workspaceHost?.changed(),
+    } : {}),
+  }
+  worker = new Worker(options)
+  if (preset && !cloud) workspaceHost = new WorkerWorkspaces(worker, options)
   const up = await worker.start()
   if (up !== 'listening') {
     // 'refused': the line above says why (a port Windows keeps for itself …)
@@ -244,13 +312,18 @@ async function main() {
     process.exit(1)
   }
 
+  managedChild({ ready: () => true, drain: () => { worker!.drain(); workspaceHost?.drain() },
+    resume: () => { worker!.resume(); workspaceHost?.resume() },
+    idle: () => (workspaceHost?.idle() ?? worker!.idle()) && !(setup?.busy ?? false),
+    open: async () => setup?.open() ?? { opened: false, reason: 'off' }, shutdown: () => shutdown() })
+
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())
   process.on('SIGHUP', () => void shutdown())
   // Windows: Ctrl+Break (Ctrl+C arrives as SIGINT)
   if (win) process.on('SIGBREAK', () => void shutdown())
 
-  if (command === 'setup' || !config.repos.length) await pickRepos(worker, setup)
+  if (!flag('--model-host') && (command === 'setup' || !config.repos.length)) await pickRepos(worker, setup)
 }
 
 /** `check` of a cloud worker: does the team server take this file's token (GET /api/coding/worker)? */
@@ -276,6 +349,7 @@ async function reload(worker: Worker): Promise<void> {
   for (const p of next.problems) log(`config: ${p}`)
   for (const n of next.notes ?? []) log(`config: ${n}`)
   await worker.reload(withPreset(next.config, preset))
+  await workspaceHost?.reload()
 }
 
 /** First start (or `setup`): the page in the browser — or, without one, the checklist in this terminal. */

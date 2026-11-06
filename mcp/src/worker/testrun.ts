@@ -3,9 +3,13 @@
  * in the task's worktree, with a timeout; the output's tail goes to One (paths of this machine replaced).
  * The program is looked up in PATH only — never in the worktree (exec.ts); one inside the repo needs its path.
  */
+import { git } from './git.ts'
 import type { TestResult } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
 import { commandName, killTree, spawnSafe } from './exec.ts'
+import { candidateSnapshot } from './candidate.ts'
+declare const __VERSION__: string
+const VERSION = typeof __VERSION__ === 'string' ? __VERSION__ : 'dev'
 
 /** What of the output One gets (the tail: failures are usually at the end). */
 export const TEST_OUTPUT_MAX = 64_000
@@ -13,8 +17,19 @@ export const TEST_OUTPUT_MAX = 64_000
 /** notStarted: the program was not found (PATH only) or cannot run (a .cmd cmd.exe cannot pass the arguments to) — ok false, output '', ms 0, code -1 */
 export type RunResult = TestResult & { notStarted?: 'missing' | 'refused' }
 
-export function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void, scrub?: (s: string) => string): Promise<RunResult> {
-  return runCommand(repo.testCommand, repo.testTimeoutSec, 'tests', cwd, signal, onLine, scrub)
+export async function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void, scrub?: (s: string) => string): Promise<RunResult> {
+  if(!repo.testCommand?.length)return runCommand(repo.testCommand,repo.testTimeoutSec,'tests',cwd,signal,onLine,scrub)
+  signal.throwIfAborted()
+  const before=await git(cwd,['rev-parse','HEAD'],5000,{local:true})
+  const state=await git(cwd,['status','--porcelain'],5000,{local:true})
+  const candidateBefore=await candidateSnapshot(cwd,signal)
+  const startedAt=Date.now(),result=await runCommand(repo.testCommand,repo.testTimeoutSec,'tests',cwd,signal,onLine,scrub),finishedAt=Date.now()
+  if(result.notStarted||signal.aborted)return result
+  const after=await git(cwd,['rev-parse','HEAD'],5000,{local:true})
+  const afterState=await git(cwd,['status','--porcelain'],5000,{local:true})
+  const candidateAfter=await candidateSnapshot(cwd,signal)
+  const commit=before.code===0&&/^[a-f0-9]{40,64}$/.test(before.stdout.trim())?before.stdout.trim():null
+  return {...result,execution:{command:repo.testCommand.map((x,i)=>(i===0?commandName(x):scrub?scrub(x):x).slice(0,1000)).slice(0,50),commit,dirty:state.code!==0||!!state.stdout.trim(),changedDuring:before.stdout!==after.stdout||state.stdout!==afterState.stdout||!!candidateBefore.hash&&!!candidateAfter.hash&&candidateBefore.hash!==candidateAfter.hash,platform:process.platform,startedAt,finishedAt,candidate:{schema:1,before:candidateBefore.hash,after:candidateAfter.hash,files:candidateAfter.files,node:process.version,worker:VERSION}}}
 }
 
 /** The Static analysis stage: the repo's analyzeCommand, like the tests (a non-zero exit is a finding, not a failure). */
@@ -163,7 +178,9 @@ export class OutputLines {
 function runCommand(argv: string[] | null, timeoutSec: number, what: string, cwd: string, signal: AbortSignal, onLine?: (s: string) => void, scrub?: (s: string) => string): Promise<RunResult> {
   if (!argv?.length) return Promise.resolve({ ok: true, output: '', ms: 0, code: null, skipped: true })
   const started = Date.now()
-  const env = { ...process.env, CI: process.env.CI ?? '1', FORCE_COLOR: '0', NO_COLOR: '1' }
+  const env: NodeJS.ProcessEnv = { ...process.env, CI: process.env.CI ?? '1', FORCE_COLOR: '0', NO_COLOR: '1' }
+  delete env.OLLAMA_API_KEY
+  delete env.MINIMAX_API_KEY
   // the person's own command: a .cmd / .bat the reader cannot read may run through cmd.exe (escaped); its environment
   // as it is (no NoDefaultCurrentDirectoryInExePath: its scripts may call a program in their folder by its bare name)
   const s = spawnSafe(argv[0]!, argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'person' })

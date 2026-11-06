@@ -9,6 +9,13 @@ summary: Saved AI helpers for recurring work — each with a job, a trigger and 
 ---
 **Agents** in the sidebar lists your custom agents. **New agent** starts from a recipe — *Daily mail triage*, *Weekly report from projects*, *Summarise new form answers*, *Check pages against your knowledge base* — or **Blank**. An active [integration](help:integrations) adds its own recipes, named by the integration, such as a mirror of another tool's list. Nothing runs until you save.
 
+## Templates and categories
+The catalog contains twelve starters in **Planning & projects**, **Coding & quality**, **Knowledge & documents**, **Communication**, **Integrations** and **General**. Search by name or job, or choose a category. Integration recipes join the same catalog, which stays available after you save an agent.
+
+The new specialists help with brief decomposition, code reviews, test plans, Atlas/MCP project checks, decisions, meetings and documents. They open as manual, report-only drafts: choose their source pages and any MCP connection before using them. They analyse supplied material; repository edits and executed tests run through **Coding** or **Work orders**. Set **Category** in the editor to organise your own agents. Older agents appear under **General**.
+
+**Insert tool** below Instructions opens a searchable list of One tools and tools of the selected, enabled MCP servers. It inserts a name at the cursor or replaces the selected text, with Undo. To grant or restrict MCP tools, use the checkboxes under **Access**; selecting a name in the text does not grant permissions.
+
 ## What an agent has
 - **Job** — a **Name** and **Instructions** in plain words (**Improve with Claude** polishes them). The field numbers its lines and underlines the tools the agent can use (One’s and its MCP servers’); placeholders in capitals like `[HOW TO LIST THE ITEMS]` are marked and counted — **Next placeholder** jumps to one, and **Run now** asks first while any is open.
 - **Trigger** — **Manual**, **Schedule** (hourly, daily, weekdays, weekly, monthly, at a time and time zone), **New row** in a database (form answers and synced mails included), **Row changed**, or **Webhook** (server agents only).
@@ -16,11 +23,11 @@ summary: Saved AI helpers for recurring work — each with a job, a trigger and 
 - **Report** — an optional **Report page** each run writes to (added at the end, or replacing it). A page or database in the trash (or below a page there — that page is named) or deleted for good is never saved under **May use** or as the report page — take it out or restore it first.
 - **Engine** — **Runs where**, **Model**, **Effort** and a **Budget per run** (typed with your language's decimal mark, or a dot; “1.000” in German and “1,000” in English mean one thousand and are refused as too high): the run stops when its estimated cost goes over.
 
-An agent on the path of an open fuse says so in its **Changes** row and under its MCP servers: *On fuse F1 — show in the Patchbay* (see [Patchbay](help:patchbay)). A tool list the agent keeps without the profile's unlock links **Change in the Patchbay**.
+An agent on the path of an open fuse says so in its **Changes** row and under its MCP servers: *On fuse F1 — show in the Patchbay* (see [Patchbay](help:patchbay)). A connected MCP server also links **Change in the Patchbay**.
 
 ## Tools, state and notes
-These come with an active [integration](help:integrations) that unlocks them — a profile that matches one of your MCP servers. Without one they are not offered; a tool list an agent already has stays applied.
-- **MCP tools** — under each MCP server you tick, the tools of its last connection test: untick what the agent must not use. **Read-only tools** keeps only the ones that look like reads (get, list, search, query, read, fetch, find …); **All** allows every tool, also ones the server adds later. A server that was never tested says **Test the connection first** (**Settings → Claude AI → MCP servers**).
+These come with an active [integration](help:integrations) that unlocks them — a profile that matches one of your MCP servers. MCP tool selection is always available; the other additions below require a matching profile.
+- **MCP tools** (no integration profile needed) — under each MCP server you tick, the tools of its last connection test: untick what the agent must not use. **Read-only tools** keeps only the ones that look like reads (get, list, search, query, read, fetch, find …); **None** disables every tool on that server; **All** allows every tool, also ones the server adds later. A server that was never tested says **Test the connection first** (**Settings → Claude AI → MCP servers**).
 - **Last run** — every run knows when the agent's last successful run was, so a recurring job can look at what changed since then.
 - **Saved state** — an agent can keep a small note of its own between runs (where it stopped, what it has seen). It is saved only when a run finishes without an error. Browser agents keep it on this device — the agent page shows it, and **Clear** makes the next run start from scratch; server agents keep it on the team server, encrypted. A browser run whose changes wait for review (or that applied changes) saves it too — discarding every change (undone first, if it applied them) puts back the state from before that run, unless a later run has saved one since. Runs discarded in any order end alike: at the state of the newest run whose work stays, or the one from before them all.
 - **Notes for you** — a browser agent can leave you a short note in the **Inbox** (“New comment on #8215”, “3 items became ready”), linked to the page it is about. Notes arrive only when the run finishes, at most ten per run; browser notifications only if you switched them on in the inbox. Server agents put their news into the report.
@@ -62,3 +69,25 @@ An [integration](help:integrations) brings this recipe — its database, views a
 The agent opens in the editor — built in: every weekday at 07:30, **Proposals for review**, a budget of $1.00 per run. Replace the four parts in **[SQUARE BRACKETS]** in its instructions — how to list the items, how to read one with its comments, who you are in the tool, and what *Clear* means for you; **To replace** above the text selects each one. A switched-on agent cannot be saved while one is left.
 
 Each run reads only what changed since the last one (its saved state holds the comment count per item), updates the rows by key, marks **New comment** and **Waiting on me**, judges the **Clarity**, checks **Gone from source** for items the tool no longer lists, and leaves you notes in the [inbox](help:mentions-dates) — *“New comment on #8215”*, *“3 items became ready”*. Once the first runs look right, switch **Changes** to **Apply directly**.
+
+## One-time assignments and report destinations
+
+On a page, open **Page options → Run an agent on this page…**. Or open an agent and choose **Assignment & target…** beside **Run now**. The target and optional objective apply to one manual run. An empty objective uses the saved goal on the chosen page; without either value, the saved job runs normally. The existing quick-run button remains available.
+
+The one-time objective replaces the default goal, with the same role, scope, tools, write mode, budget and reviews. An out-of-scope target is refused. The definition is not saved again. One-time runs do not advance recurring cursors, supersede older proposals or automatically publish to the recurring report page. Server agents require a server supporting `agent-invocation`; an older server receives no start request for such a run.
+
+The run history retains the assignment and source. **Patchbay → Manual agent assignments** shows source → agent → result, status and recent tools. Result links open the exact retained run.
+
+At a finished report, **Save report…** creates a new page (optionally below a page), appends to a page or creates a row in an ordinary database. It preserves existing text and includes links to the source and agent run. Templates, locked destinations and system or coding-pipeline databases are excluded. The saved-report link is kept on this device; the exported page or row syncs with its workspace. Appending the same report to the same page does not duplicate it.
+
+## See agents on the page
+
+Below the title, **Agents on this page** shows who is working with the page: agent, status, one-time objective, initial model and latest step. It covers targeted page assignments and pages actually read with `read_page` in a browser run. The indicator does not change page content. Server runs show their recorded assignment target; running assignments refresh while the page is visible.
+
+After a successful run, the indicator asks **Save the findings on this page?**. **Save findings…** opens the report dialog with the page selected and **Append to a page** as the default. Ordinary databases default to an entry. Choose another destination or cancel. Locked targets and read-only access prevent saving. The report links back to its run and source, preserves existing content and is not appended twice. **Save report…** in the run history also preselects the target of a page assignment.
+
+## Set a model default in Patchbay
+
+At the top of **Patchbay**, choose **Default model for browser agents · this device**. This applies to saved agents running in this browser and survives reloads. It shares the device's existing agent AI rule, without changing other kinds of AI work.
+
+In **Edit agent → Engine → Model**, save an explicit override. Priority is **own agent model → Patchbay/device default → workspace and general defaults**. Without an override, One shows the resolved model. A running browser assignment retains its initial model; changing the default affects later runs. The browser agent engine currently offers Claude models. Select local coding models in **Coding**; server agents use their own model or server default. Model selection changes no data rules, tools, budgets or approvals.

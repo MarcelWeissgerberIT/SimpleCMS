@@ -1,3 +1,21 @@
+import type {McpResultSession} from '@/shared/mcp/results'
+import {fitNativeToolContext} from '@/shared/ai/native-context'
+import {prepareTypedAI} from '../core/typedAI'
+import {t} from '../../../i18n'
+import {activeReviewProfile} from '../profiles/storage'
+import type {ReviewProfile} from '@/shared/quandprofile/review-profile'
+import {MockSources,MOCK_GUIDE,mockIntent,type DesignMock} from '@/shared/ai/designMock'
+import {mockTool,mockReadTool} from './designMocks'
+import {CODE_DELIVERY_RULES,codeDeliveryIssues} from '@/shared/ai/codeDelivery'
+import {groundedTask} from './grounding'
+import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
+import {WORKER_MCP_FUNCTIONS,workerMcpSession} from '../core/workerMcp'
+import {WORKER_MCP_GUIDE} from '../core/toolFormat'
+import {COMPILED_WORK_POLICY} from '@/shared/quandprofile/runtime'
+import { REVIEW_POLICY, ReviewSources, FINDING_SCHEMA, FINDING_DESCRIPTION } from '@/shared/ai/review'
+import {AtlasFacts,ATLAS_FACT_POLICY} from '@/shared/mcp/facts'
+import {guardAtlasAnswer} from '../providers/anthropic'
+import {captureReadiness} from '../../../cloud'
 /**
  * Workspace agent — one task = one run of the SDK tool runner (client.beta.messages.toolRunner)
  * over the agent tools, streamed, with the user's own key straight to api.anthropic.com.
@@ -10,9 +28,9 @@
  *   calling tools), tool results clipped with a note (tools.ts), max_iterations as a backstop. A run
  *   that reached either ends as 'limit' (also when Claude wrapped up), so the terminal can offer
  *   Continue: the same conversation, a fresh budget (session.ts).
- * - External MCP servers (Settings → AI): attached as `mcp_servers` + `mcp_toolset`s; their
- *   calls run inside a response (mcp_tool_use / mcp_tool_result, kept in the history unchanged) and
- *   only reach the step log. The session pins the setup per conversation (system + tools stay put).
+ * - External MCP servers use host-owned discovery and exact function wrappers. Every effect passes
+ *   the compiled task boundary and selected MCP policy before dispatch. Source reads and human
+ *   prerequisite answers update the next compiled model packet.
  * - The Regler (features/governor): the first request is braked on FIRST_STEP_OUT (the wire keeps its 64 000), and
  *   before every further request — after a tool_use or pause_turn response (before its tools run and before the runner
  *   sends again) and before the eager-input retry — beforeRound() decides: go (the run's reservation follows the next
@@ -34,7 +52,7 @@ import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
 import { createMediaCollector } from '../media/collect'
 import type { MediaItem } from '../media/types'
-import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, withToolScope, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
+import { TERMINAL_TOOLS, MAX_TOOL_CALLS, MAX_MODEL_ROUNDS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, withToolScope, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
 import { shapeOf, withShape } from '../core/shape'
 import type { ID } from '../../../store/types'
 import type { ToolName } from './types'
@@ -53,6 +71,9 @@ How changes work
 - The writing tools (create_page, create_pages, append_to_page, edit_page, create_row, update_row${upsert ? ', upsert_rows' : ''}, set_page_title, create_database, add_property, write_script, update_work_item) never change the workspace directly. Each call stages one proposed change (edit_page: one per edit, create_pages: one per page${upsert ? ', upsert_rows: one per row' : ''}); the user reviews the list and applies or discards each item. So don't ask for permission or confirmation: stage what the task needs, then finish.
 - Ids returned for staged pages, rows, databases and properties work right away: you can append to, update, rename or create pages under something you staged earlier in the task, and stage rows in a database you staged (create_database, then create_row with its id). Changes are applied in a safe order: pages, databases, properties, then rows.
 
+Code quality
+${CODE_DELIVERY_RULES}
+
 How to work
 - Look before you write. Find things with search_pages, list_databases and get_current_page, read them with read_page and query_database. Use only ids that tools returned; never make one up.
 - For a new table, board or tracker use create_database (a board groups its cards by a select, multi_select or checkbox column), then one create_row per item. Add a missing column to an existing database with add_property instead of a new database.
@@ -67,6 +88,8 @@ ${
 }- Questions across databases (counts, sums, filters, groups, look-ups) are one run_query call: a read-only One Script query. When the task asks for a script, a reusable automation or a saved query, draft it with write_script — the person saves it and runs it themselves (a dry run first); it never runs on its own.
 - Prefer one query_database call over reading rows one by one. You have at most ${MAX_TOOL_CALLS} tool calls per task (create_pages counts once); independent calls can go in parallel. When you reach the limit, the person can let you continue with a fresh budget: then pick up where you stopped and never stage anything twice.
 - Set database properties by their exact names with plain JSON values: text, numbers, true/false, option names for select and status (a list of names for multi-select), dates as "YYYY-MM-DD" or {"start": …, "end": …}, people by name, relations by row title or id. Computed properties (formulas, rollups, created/edited times, IDs) cannot be set. If a value does not fit, the tool says why: fix it and call again.
+- For PDFs and other attachments, read_page shows file metadata only. Use read_page_files to read the actual document text before extracting facts. Never infer amounts, issuer or invoice direction from a filename. Report scans/unreadable files precisely. For a calculation grid or Tabellenkalkulation use create_spreadsheet with actual numeric values and formulas, not create_database or a Markdown table. Include source filenames/page numbers; unknown amounts remain null, never zero.
+- Existing page-table values (including tables inside plates): use read_tables to list tables and read one table, then update_table_cells with only the exact existing cellIds requested. Never rebuild a table or its surrounding plate with edit_page to fill cells. These edits always wait for review. Missing source facts stay missing; do not manufacture decisions or evidence.
 - Adding versus changing: to add a section, notes or items to a page, use append_to_page. Change existing text with edit_page only when the task asks to fix, rewrite, update, shorten or remove it: read the page with read_page and refs: true, then cite the refs of exactly the blocks the task is about. Never rewrite, reorder or "improve" blocks the task does not touch, and keep their wording, links and formatting. Use replace_all only when the task asks for the whole page to be rewritten.
 - Write page content in Markdown: headings, lists, task lists ("- [ ] …"), tables, quotes, code. Link to a page with [Title](#/p/<page id>). Refs (⟦b3⟧) are labels for edit_page, never part of the text you write.
 - Dates and people in text you read look like [@Fri 17 Oct](one:date/2026-10-17) and [@Alex](one:person/<id>): keep them exactly when you copy text; write new ones that way only with ids you read.
@@ -139,7 +162,7 @@ export function paramsFor(o: ParamsInput) {
     max_tokens: o.maxTokens,
     stream: true as const,
     // backstop: the tool-call limit normally ends the run first (room for MCP turns the server pauses)
-    max_iterations: MAX_TOOL_CALLS + 12,
+    max_iterations: MAX_MODEL_ROUNDS,
     // automatic prompt caching: system + tools + the growing history are re-read every step
     cache_control: { type: 'ephemeral' as const },
     system: mcp ? `${o.system}\n\n${mcp.system}` : o.system,
@@ -192,6 +215,8 @@ export function untilStopped(p: Promise<HaltChoice>, signal: AbortSignal): Promi
 }
 
 export interface RunHooks {
+  mock?(artifact:DesignMock):void
+  contract?(report:import('@/shared/quandprofile/task').TaskReport):void
   /** a tool call starts: returns the step id */
   toolStart(name: ToolName, arg: string): string
   toolEnd(stepId: string, outcome: { state: 'ok' | 'err' | 'staged'; summary: string; changeId?: string; ms: number }): void
@@ -241,6 +266,17 @@ export function taskMessage(history: BetaMessageParam[], task: string, context: 
 export async function runAgent(opts: {
   /** what the run is for: 'terminal.task' (the AI terminal) or 'agents.run' (a custom agent) */
   purpose: PurposeId
+  /** Host-pinned page at task start, never a model-supplied target. */
+  targetPage?: string | null
+  privateContext?:boolean
+  /** Host-pinned recovery mode, independent of the model or historical task wording. */
+  readOnly?:boolean
+  /** Host-owned document pipeline: One body reads are required; an available Atlas connection is optional. */
+  sourcePolicy?: 'document'
+  reviewProfile?:ReviewProfile|null
+  mockSources?: MockSources
+  delivery?: ReturnType<typeof groundedTask>
+  route?: import('@/shared/ai/types').Route | null
   /** what it reads: the open page, references, the agent's scope — { all: true } for the workspace as a whole */
   sources: readonly SourceRef[]
   /** the person's own words (the terminal's task): refused when they look like an API key */
@@ -252,6 +288,7 @@ export async function runAgent(opts: {
   hooks: RunHooks
   /** the external MCP servers of this conversation (null = none) */
   mcp?: McpAttachment | null
+  mcpResults?: McpResultSession
   /**
    * Custom agents (features/agents) run the same loop headless with their own tool list (a subset,
    * scope-checked), system prompt, model and effort. Absent = the workspace agent's (the AI
@@ -261,6 +298,8 @@ export async function runAgent(opts: {
   system?: string
   model?: string | null
   effort?: 'low' | 'medium' | 'high' | null
+  /** Host-selected document pipeline step limit. */
+  maxRounds?: number
   /** the AI terminal: what the person lets Claude read of a page (context marks), null = everything */
   readLimit?: ((id: ID) => ReadLimit | null) | null
   /**
@@ -275,7 +314,20 @@ export async function runAgent(opts: {
   run?: PrepareInput['run']
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
+  opts={...opts,reviewProfile:opts.reviewProfile!==undefined?opts.reviewProfile:opts.purpose==='terminal.task'?await activeReviewProfile():null}
+  const mockSources=new MockSources()
+  const mockEnabled=opts.purpose==='terminal.task'&&!!hooks.mock&&(mockIntent(opts.typed??'')||/\b(?:ui|design|html|png|dialog|screen|oberfläche)\b[\s\S]*\b(?:mocks?|mockups?|prototyp(?:e)?)\b|\b(?:mocks?|mockups?|prototyp(?:e)?)\b[\s\S]*\b(?:ui|design|html|png|dialog|screen|oberfläche)\b/i.test(opts.typed??''))
+  const baseTools=opts.tools??TERMINAL_TOOLS
+  if(mockEnabled)opts={...opts,mockSources,tools:[...baseTools.filter(t=>!t.write),mockReadTool(mockSources),mockTool(mockSources,a=>hooks.mock!({...a,route:prepared?.route??undefined}),async(input,error)=>{const {repairDesignMock}=await import('./repairDesignMock');return repairDesignMock(opts,prepared!,mockSources,input,error)})],system:(opts.system??AGENT_SYSTEM)+'\n'+MOCK_GUIDE}
+  const delivery=groundedTask(opts.typed??'',opts.targetPage??null,opts.tools??TERMINAL_TOOLS,stage,signal,hooks,opts.readLimit)
+  opts={...opts,delivery,tools:delivery.tools,system:(opts.system??AGENT_SYSTEM)+delivery.guide}
   const mcp = opts.mcp ?? null
+  const reviewSources = new ReviewSources()
+  const atlasFacts=new AtlasFacts()
+  const reviewTool: AgentTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
+  const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool]
+  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (mcp?'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY:'')
+  const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {
     hooks.history(messages)
@@ -283,38 +335,56 @@ export async function runAgent(opts: {
   }
   let sdk: Awaited<ReturnType<typeof claudeClient>>['sdk'] | null = null
   let prepared: Prepared | null = null
+  let compiledTask:ReturnType<typeof createTaskContract>|null=null
   /** the response streaming now: metered once — whole, or from what arrived when it was cut */
   let current: { stream: { currentMessage: unknown; controller: AbortController }; chars: number; done: boolean } | null = null
   let cut: (e: unknown) => void = () => {}
   try {
     // the gate: nothing is sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
     // its size: the system prompt (+ the servers' part), the conversation and the tool definitions; the answer budget
-    const defs = (opts.tools ?? TERMINAL_TOOLS).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
+    const defs = (delivery.analysis?offeredTools.filter(t=>t.name==='read_page'):offeredTools).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
     // the brake judges the first request on FIRST_STEP_OUT (prompt + 4 096 output): the wire keeps its 64 000 — a capped
     // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
-    const fixed = (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
+    const fixed = (opts.reviewProfile?JSON.stringify(opts.reviewProfile).length*3:0)+12000+(opts.typed?.length??0)+reviewSystem.length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
     // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
-    const size = { promptChars: fixed + messagesChars(messages), maxTokens: LOOP_MAX_TOKENS, bandOut: FIRST_STEP_OUT }
+    const size = { promptChars: fixed + messagesChars(delivery.analysis?[opts.user]:messages), maxTokens: (caps: import('@/shared/ai/types').Caps | null) => Math.min(LOOP_MAX_TOKENS, caps?.maxOutput ?? LOOP_MAX_TOKENS), bandOut: FIRST_STEP_OUT }
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
     // the conversation's MCP servers: the first response may loop at the provider (its context read per iteration) —
     // the brake counts their rounds; every further request is braked by beforeRound
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied, ...(run ? { run } : {}), ...(mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources,...(opts.privateContext?{carries:['private' as const]}:{}), typed: opts.typed, model: opts.model, route: opts.route, size, applied: opts.applied, ...(run ? { run } : {}), ...(!delivery.analysis&&mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
+    const observed=await delivery.prepare(prepared)
+    if(observed){const last=messages.at(-1)!;last.content=typeof last.content==='string'?last.content+observed:[...(last.content??[]),{type:'text',text:observed}]}
+    await prepareTypedAI(prepared,opts.reviewProfile,mcp?.worker??[],signal,hooks.mcp)
+    if(/^\/pm(?:\s|$)/iu.test((opts.typed??'').trim())){const {runGroundedBrief}=await import('./groundedBrief');return await runGroundedBrief(opts,prepared)}
+    if(delivery.analysis){const {runGroundedAnalysis}=await import('./groundedAnalysis');return await runGroundedAnalysis(opts,prepared,delivery)}
+    if(delivery.boundedRewrite){const {runGroundedRewrite}=await import('./groundedRewrite');return await runGroundedRewrite(opts,prepared,delivery)}
+    if(mockEnabled&&mockIntent(opts.typed??'')){const {explicitMockSources}=await import('@/shared/ai/mockPlan');if(explicitMockSources(opts.typed??'')){const {runGroundedMock}=await import('./groundedMock');return await runGroundedMock(opts,prepared,mockSources)}}
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
+    if (['copilot','local'].includes(prepared.route?.p ?? '')) {
+      const { runCopilotAgent } = await import('./copilot')
+      return await runCopilotAgent(opts, prepared, messages)
+    }
+    compiledTask=createTaskContract({reviewProfile:opts.reviewProfile,prepared,goal:opts.typed??JSON.stringify(opts.user.content),instructions:reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:''),input:messages,tools:offeredTools.map(t=>t.name),...(opts.mockSources||opts.readOnly?{bounds:{readOnly:true,externalWrite:false,execute:false}}:{}),one:offeredTools.some(t=>t.name==='search_pages'),atlas:!!mcp,...(opts.sourcePolicy==='document'?{sourcesRequired:true,atlasSourcesRequired:false}:{}),signal,onReport:hooks.contract,interactive:opts.purpose==='terminal.task'&&!!hooks.contract})
+    const task=compiledTask
+    delivery.bind(task)
+    const remote=mcp?workerMcpSession(mcp.worker!,signal,hooks.mcp,12000,undefined,task,mockEnabled?mockSources:undefined,opts.mcpResults):null
+    const identity=await remote?.prepareIdentity();if(identity)messages.push({role:'user',content:identity})
     let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to (an agent's own, else this device's) and what it can do (caps, never its id)
     const model = prepared.route?.m ?? got.model
-    const system = opts.system ?? AGENT_SYSTEM
-    let calls = 0
+    const systemBase=reviewSystem+(mcp?'\n'+mcp.system+WORKER_MCP_GUIDE:'')
+    const system = task.packet()
+    let calls = delivery.calls()
     let warned = false
     /** a call was refused at the limit: Claude was told to wrap up, the run ends as 'limit' */
     let refused = false
 
-    const tools: BetaRunnableTool<Record<string, unknown>>[] = (opts.tools ?? TERMINAL_TOOLS).map((tool) => ({
+    const tools: BetaRunnableTool<Record<string, unknown>>[] = offeredTools.map((tool) => ({
       type: 'custom',
       name: tool.name,
       description: tool.description,
@@ -342,6 +412,8 @@ export async function runAgent(opts: {
         const stepId = hooks.toolStart(tool.name, arg)
         let out: ToolOutcome
         try {
+          if(tool.data && !prepared!.allows(tool.data)) throw new ToolInputError('File content is excluded for the selected model by the active AI data rules.')
+          task.dispatch(tool.name,oneTaskEffect(tool.name,tool.write))
           out = await withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))))
         } catch (e) {
           const ms = performance.now() - started
@@ -349,12 +421,30 @@ export async function runAgent(opts: {
           hooks.toolEnd(stepId, { state: 'err', summary: '', ms })
           throw new Error(msg)
         }
+        task.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
+          if(tool.name==='read_page'&&out.state==='ok'&&!/\[Content withheld\./u.test(out.content))task.observeSource('one',String(input.id??''))
+          task.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
+        ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
-        return clipResult(out.content, RESULT_CHARS + 2000)
+        if(tool.write)atlasFacts.noteOtherWrite()
+        const visible = clipResult(out.content, RESULT_CHARS + 2000)
+        if (tool.name === 'read_page') return reviewSources.observe(visible, `One page ${String(input.id ?? '')}`)
+        if (out.state === 'staged') reviewSources.clear()
+        return visible
       },
     }))
 
-    const paramsOf = (m: string, p: Prepared) => paramsFor({ model: m, maxTokens: capped(LOOP_MAX_TOKENS, p), thinks: thinks(p.caps), system, tools, mcp, effort: opts.effort })
+    const remoteTool=(definition:import('@/shared/ai/worker').WorkerFunction):BetaRunnableTool<Record<string,unknown>>=>({type:'custom',name:definition.name,description:definition.description,input_schema:definition.parameters as {type:'object'},parse:input=>input as Record<string,unknown>,run:async input=>{
+      if(signal.aborted)throw new AIError('aborted')
+      if(++calls>MAX_TOOL_CALLS){if(!refused){refused=true;hooks.limit()}return JSON.stringify({isError:true,oneNotExecuted:true,error:'Tool-call limit reached. Summarize completed work and remaining steps now. The person can continue with a fresh budget; do not repeat completed writes.'})}
+      const result=definition.name===TASK_QUESTION.name?await task.modelQuestion(input):await remote!(definition.name,input,crypto.randomUUID())
+      ;(runner.params as unknown as {system:string}).system=task.packet()
+      if(remote){(runner.params as unknown as {tools:BetaRunnableTool<Record<string,unknown>>[]}).tools=[...tools,...remote.functions().map(remoteTool)]}
+      return result
+    }})
+    tools.push(remoteTool(TASK_QUESTION),...(remote?WORKER_MCP_FUNCTIONS.map(remoteTool):[]))
+
+    const paramsOf = (m: string, p: Prepared) => ({ ...paramsFor({ model: m, maxTokens: capped(LOOP_MAX_TOKENS, p), thinks: thinks(p.caps), system:task.packet(), tools, mcp:null, effort: opts.effort }), max_iterations: Number.isFinite(opts.maxRounds) ? Math.max(1, Math.min(MAX_MODEL_ROUNDS, Math.floor(opts.maxRounds!))) : MAX_MODEL_ROUNDS })
     let params = paramsOf(model, prepared)
 
     let end: RunEnd = 'done'
@@ -430,6 +520,7 @@ export async function runAgent(opts: {
       const out = used.length ? Math.max(...used.map((u) => u.output)) : FIRST_STEP_OUT
       prepared = reprepare(prepared!, c.route, { size: { promptChars: fixed + messagesChars(runner.params.messages) + pending.high, maxTokens: LOOP_MAX_TOKENS, bandOut: Math.max(1, Math.min(LOOP_MAX_TOKENS, out)) } })
       // the switch's band holds the cold cache: that is what may be spent now
+      task.rebindPrepared(prepared)
       adjust(prepared.reservation?.id, c.band.high)
       call = meterCall(prepared, { source: run?.source, signal })
       const next = paramsOf(c.route.m, prepared)
@@ -441,8 +532,13 @@ export async function runAgent(opts: {
     }
     /** how the last response ended: tool_use / pause_turn here means the runner stopped at max_iterations */
     let lastStop: string | null = null
+    let guardedFinal:string|null=null,sectionRepairs=0
     // media in MCP results: cards for the person (features/ai/media), nothing is fetched
     const media = mcp && hooks.media ? createMediaCollector() : null
+    const initialBudget=Math.max(16000,Math.floor(((prepared.caps?.context??200000)-capped(LOOP_MAX_TOKENS,prepared)-8000)*2)-JSON.stringify({system:params.system,tools}).length)
+    const initialMessages=fitNativeToolContext(messages,initialBudget)
+    if(initialMessages!==messages)hooks.note('Frühere Werkzeugantworten wurden für diese Anfrage gekürzt. Geladene Quellen bleiben über das Quellenverzeichnis abrufbar.')
+    messages=initialMessages
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
     // the tool definitions go out with every request (a cut one is estimated with them)
     const toolChars = JSON.stringify(params.tools).length
@@ -472,17 +568,21 @@ export async function runAgent(opts: {
             current = cur
             stream.on('streamEvent', (event) => (cur.chars += deltaChars(event)))
             let mcpCalls: McpCall[] = []
-            stream.on('text', (delta) => hooks.text(delta))
+            let draftText=''
+            stream.on('text', (delta) => {draftText+=delta})
             stream.on('contentBlock', (block: BetaContentBlock) => {
               if (block.type === 'thinking' && block.thinking.trim()) hooks.note(block.thinking.trim())
               if (media?.block(block)) hooks.media?.(media.items)
-              const next = foldMcpBlock(mcpCalls, block)
+              // Remote MCP is dispatched only by the host wrappers below.
+              if(block.type==='mcp_tool_use'||block.type==='mcp_tool_result')return
+              const next = foldMcpBlock(mcpCalls, block, readiness, atlasFacts)
               if (next === mcpCalls) return
               const changed = next.find((c, i) => c !== mcpCalls[i])
               mcpCalls = next
               if (changed) hooks.mcp(changed)
             })
             const msg = await stream.finalMessage()
+            if(msg.content.some(b=>b.type==='mcp_tool_use'||b.type==='mcp_tool_result'))throw new AIError('policy','Unexpected provider-side MCP output; only host dispatch is permitted.')
             cur.done = true
             jsonRetries = 0
             lastStop = msg.stop_reason
@@ -495,6 +595,17 @@ export async function runAgent(opts: {
             const entry = call.response(r)
             metered(entry?.usage ?? normalise('anthropic', msg.usage as unknown as Record<string, unknown>), entry)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
+            const sectionRepair=!toolUse?remote?.sourceRepair(draftText):null
+            if(sectionRepair){
+              if(sectionRepairs++>=1)throw new AIError('mcp','features.ai.transfer.sectionsMissing')
+              if((await atLine({low:0,high:sectionRepair.length},0))==='stop'){end='held';break outer}
+              runner.setMessagesParams(p=>({...p,messages:[...p.messages,{role:'assistant',content:msg.content},{role:'user',content:sectionRepair}]}))
+              continue
+            }
+            if(msg.stop_reason!=='pause_turn'){
+              if(!toolUse){const text=mcp?await guardAtlasAnswer(draftText,remote?.facts??atlasFacts,{client,model:prepared!.route?.m??model,prepared:prepared!,call,sdk:got.sdk,signal,onEntry:e=>{if(e)metered(e.usage,e)}}):draftText;const codeIssues=codeDeliveryIssues(opts.typed??'',text);if(codeIssues.length){task.fail('C++ minimum review failed; no compiler verification recorded.');throw new AIError('capability',codeIssues.join(' '))}if(mockIntent(opts.typed??'')&&!mockSources.created){task.fail('No source-grounded mock artifact was produced.');throw new AIError('capability','features.ai.mock.held')}delivery.finish();task.finish(text);guardedFinal=text;hooks.text(text)}
+              else if(!(remote?.facts??atlasFacts).check(draftText).length)hooks.text(draftText)
+            }
             hooks.textDone(toolUse ? 'note' : 'answer')
             // links in the answer to a host an MCP result used count as media too
             if (!toolUse && media?.answer(msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n'))) hooks.media?.(media.items)
@@ -519,6 +630,25 @@ export async function runAgent(opts: {
               if ((await atLine({ low: 0, high: results }, mcpIterationsOf(msg))) === 'stop') {
                 end = 'held'
                 break outer
+              }
+              if(mockEnabled&&mockIntent(opts.typed??'')&&msg.content.some(b=>b.type==='tool_use'&&b.name==='create_design_mock')){
+                const receipt=await runner.generateToolResponse()
+                if(mockSources.created||mockSources.repairAttempted){
+                  runner.setMessagesParams(p=>({...p,messages:[...p.messages,{role:'assistant',content:msg.content},...(receipt?[receipt]:[])]}))
+                  if(!mockSources.created){task.fail('Mock correction failed; inspect the create_design_mock result.');throw new AIError('capability','features.ai.mock.held')}
+                  const answer=t('features.agent.mock.completed')
+                  task.finish(answer);guardedFinal=answer;hooks.text(answer);hooks.textDone('answer')
+                  runner.setMessagesParams(p=>({...p,messages:[...p.messages,{role:'assistant',content:answer}]}))
+                  end='done';break outer
+                }
+              }
+              if(msg.stop_reason==='tool_use'&&prepared.caps?.context){
+                const receipt=await runner.generateToolResponse()
+                const closed:BetaMessageParam[]=[...runner.params.messages,{role:'assistant',content:msg.content},...(receipt?[receipt]:[])]
+                const definitions=JSON.stringify({system:task.packet(),tools:runner.params.tools}).length
+                const budget=Math.max(16000,Math.floor((prepared.caps.context-capped(LOOP_MAX_TOKENS,prepared)-8000)*2)-definitions)
+                const fitted=fitNativeToolContext(closed,budget)
+                if(fitted!==closed){runner.setMessagesParams(p=>({...p,messages:fitted}));hooks.note('Lange Werkzeugantworten wurden für den nächsten Schritt gekürzt. Quellenverweise bleiben verfügbar; fehlende Abschnitte können gezielt nachgelesen werden.')}
               }
             }
           }
@@ -549,14 +679,18 @@ export async function runAgent(opts: {
       }
     } finally {
       messages = [...runner.params.messages]
+      // Keep protocol/thinking blocks intact; an invalid draft must not seed the next task as a fact.
+      if(guardedFinal!==null){const last=messages.at(-1);if(last?.role==='assistant'&&Array.isArray(last.content))messages[messages.length-1]={...last,content:[...last.content.filter(b=>b.type!=='text'),{type:'text',text:guardedFinal}]}}
       hooks.history(messages)
     }
     return end
   } catch (e) {
     cut(e)
     if (signal.aborted) throw new AIError('aborted')
+    if (e instanceof ToolInputError) throw new AIError('bad_request',e.message)
     throw toAIError(e, sdk, mcp)
   } finally {
+    compiledTask?.release()
     settle(prepared)
   }
 }

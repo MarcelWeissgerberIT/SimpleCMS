@@ -8,6 +8,8 @@
 import { lazy, Suspense, useEffect } from 'react'
 import type { Editor } from '@tiptap/core'
 import { stopAgent, toggleAgent, useAgent } from './state'
+import {CodeEvidenceRequestHost} from './CodeEvidenceRequest'
+import {AtlasTransferChoiceHost} from './AtlasTransferChoice'
 
 const AgentSheet = lazy(() => import('./AgentSheet'))
 
@@ -70,10 +72,7 @@ export function AgentPanel() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
-  if (!open) return null
   return (
-    <Suspense fallback={null}>
-      <AgentSheet />
-    </Suspense>
+    <><CodeEvidenceRequestHost/><AtlasTransferChoiceHost/>{open&&<Suspense fallback={null}><AgentSheet /></Suspense>}</>
   )
 }

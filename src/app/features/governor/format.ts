@@ -5,7 +5,7 @@
  * German sign follows a no-break space, as in fmtUsd.
  */
 import type { Lang } from '@/shared/i18n'
-import { fmtUsd } from '../../lib/money'
+import { fmtUsd, displayAmount, moneySymbol } from '../../lib/money'
 
 /** the sign stays on its line (as lib/money.ts writes it) */
 const NBSP = '\u00a0'
@@ -30,7 +30,7 @@ export function fmtTok(n: number, lang: Lang): string {
 
 /** An amount without the sign, two decimals ("0,30" · "0.30"); whole amounts of a limit without decimals ("6"). */
 export function fmtNum(usd: number, lang: Lang, whole = false): string {
-  const v = Number.isFinite(usd) ? usd : 0
+  const v = displayAmount(Number.isFinite(usd) ? usd : 0)
   return whole && Number.isInteger(v) ? num(lang, 0).format(v) : num(lang, 2).format(v)
 }
 
@@ -39,21 +39,21 @@ export function fmtBand(band: { low: number; high: number }, lang: Lang): string
   const low = fmtNum(band.low, lang)
   const high = fmtNum(band.high, lang)
   if (low === high) return fmtUsd(band.high, lang)
-  return lang === 'de' ? `${low}–${WJ}${high}${NBSP}$` : `$${low}–${WJ}${high}`
+  return lang === 'de' ? `${low}–${WJ}${high}${NBSP}${moneySymbol()}` : `${moneySymbol()}${low}–${WJ}${high}`
 }
 
 /** Spend of a limit, short: "4,12/6 $" · "$4.12/6" — the lamp's second line and the phone's status cell. */
 export function fmtOf(spent: number, limit: number, lang: Lang): string {
   const s = fmtNum(spent, lang)
   const l = fmtNum(limit, lang, true)
-  return lang === 'de' ? `${s}/${l}${NBSP}$` : `$${s}/${l}`
+  return lang === 'de' ? `${s}/${l}${NBSP}${moneySymbol()}` : `${moneySymbol()}${s}/${l}`
 }
 
 /** A limit as the status cell shows it: whole amounts without decimals ("6 $" · "$6"), others as fmtUsd. */
 export function fmtLimit(usd: number, lang: Lang): string {
   if (!Number.isInteger(usd)) return fmtUsd(usd, lang)
   const n = fmtNum(usd, lang, true)
-  return lang === 'de' ? `${n}${NBSP}$` : `$${n}`
+  return lang === 'de' ? `${n}${NBSP}${moneySymbol()}` : `${moneySymbol()}${n}`
 }
 
 /** A dial numeral: no trailing zeros ("0,5" · "2" · "1.25"). */

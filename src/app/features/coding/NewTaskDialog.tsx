@@ -129,13 +129,13 @@ export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose
           <label className="label" htmlFor={`${uid}-goal`}>
             {t('features.coding.new.goal')}
           </label>
-          <RefField id={`${uid}-goal`} className="input cn-text" rows={4} value={goal} onChange={setGoal} near={null} allowPrivate={allowPrivate} placeholder={t('features.coding.new.goalPh')} data-testid="coding-new-goal" onSubmit={() => void submit()} />
+          <RefField repo={repo} branch={branch || null} id={`${uid}-goal`} className="input cn-text" rows={4} value={goal} onChange={setGoal} near={null} allowPrivate={allowPrivate} placeholder={t('features.coding.new.goalPh')} data-testid="coding-new-goal" onSubmit={() => void submit()} />
         </div>
         <div className="cn-field">
           <label className="label" htmlFor={`${uid}-criteria`}>
             {t('features.coding.page.criteria')}
           </label>
-          <RefField id={`${uid}-criteria`} className="input cn-text" rows={3} value={criteria} onChange={setCriteria} near={null} allowPrivate={allowPrivate} placeholder={t('features.coding.new.criteriaPh')} data-testid="coding-new-criteria" onSubmit={() => void submit()} />
+          <RefField repo={repo} branch={branch || null} id={`${uid}-criteria`} className="input cn-text" rows={3} value={criteria} onChange={setCriteria} near={null} allowPrivate={allowPrivate} placeholder={t('features.coding.new.criteriaPh')} data-testid="coding-new-criteria" onSubmit={() => void submit()} />
         </div>
         <RefPreview texts={[draftText(goal), draftText(criteria)]} />
         {FOLLOW_UPS[kind].length > 0 && (

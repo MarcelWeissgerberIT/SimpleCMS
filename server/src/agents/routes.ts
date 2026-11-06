@@ -164,7 +164,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
     return c.json({ runs: agents.store.openRuns(workspace.id, ids, OPEN_RUNS_MAX), latest: agents.store.latestRuns(workspace.id, ids) })
   })
 
-  app.post('/:id/agents/:agentId/run', async (c) => {
+  app.post('/:id/agents/:agentId/run', bodyLimit({ maxSize: 16384 }), async (c) => {
     const { workspace, auth } = access(s, c, 'member')
     if (!agents.enabled) throw agentsOff()
     const agentId = c.req.param('agentId')
@@ -173,9 +173,18 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
     if (agent.runner !== 'server') throw conflict('agent_not_server', 'This agent runs in the browser, not on the server')
     const rt = agents.store.runtime(workspace.id)
     if (!rt?.enabled || !rt.runtime.claudeKey) throw conflict('runtime_not_ready', 'The server runtime is not set up: an admin adds a Claude key and switches it on')
+    let invocation
+    try {
+      const raw = JSON.parse((await c.req.text()) || '{}')
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(k => k !== 'invocation')) throw new Error('Invalid run options')
+      invocation = await agents.invocationFor(workspace.id, agent, raw.invocation)
+    } catch (err) {
+      if (err instanceof ApiError) throw err
+      throw new ApiError(400, 'invalid_request', 'Invalid one-time agent request.')
+    }
     let run: AgentRun
     try {
-      run = agents.enqueue({ wsId: workspace.id, agentId, trigger: { type: 'manual', detail: auth.user.name || auth.user.email.split('@')[0] }, by: auth.user.name || auth.user.email.split('@')[0] })
+      run = agents.enqueue({ wsId: workspace.id, agentId, ...(invocation ? { invocation } : {}), trigger: { type: 'manual', detail: auth.user.name || auth.user.email.split('@')[0] }, by: auth.user.name || auth.user.email.split('@')[0] })
     } catch (err) {
       if (err instanceof QueueFullError) throw conflict('queue_full', 'Too many runs of this agent are waiting already')
       throw err

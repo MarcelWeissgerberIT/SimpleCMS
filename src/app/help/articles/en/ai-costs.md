@@ -36,3 +36,10 @@ A day and month budget for all AI in a workspace — and your own limit for this
 The record behind the receipts stays on this device: ids, models, token counts, amounts — never page text. It keeps 90 days, is never synced, exported or backed up, and goes when you remove a workspace's copy from this device or reset the app here. In a team each member has their own.
 
 > These are One's figures from list prices or the provider's report. The binding amount, and a hard spend limit, live with your provider — for Claude in the Anthropic console (**console.anthropic.com → Settings → Limits**), for OpenRouter as the key's limit (**openrouter.ai → Settings → Keys**, shown live in Settings → AI).
+
+## Frankfurt: operating costs instead of token tariffs
+The designated test lead can open **Settings → AI → Atlas Flow · Frankfurt → My complete test log → Operating costs** for a private estimate since the current VM boot. A dated host rate prices VM/GPU and storage. This is not a cloud invoice and does not charge users or AI budgets.
+
+Compute is allocated by completed gateway occupancy per task and workspace. Multiple model rounds and failed attempts count; queue and tool time do not. Overlaps share time equally. Storage is prorated over actual UTC calendar months and remains a host cost. The remaining compute is **unattributed**, including idle time and potentially missing logs. Running or unfinished rounds are not yet attributed. This is not GPU kernel profiling.
+
+**Download cost snapshot** saves the allocation, period and rate as JSON without requests or answers. Underlying host logs remain for 30 days. The window covers only the current VM boot; previous boots, IPv4, snapshots, egress and tax are excluded. Missing hosts or rates show an error instead of zero costs. The running VM still incurs costs without requests; fewer model rounds initially free capacity. The Rust/WASM check itself makes no model call.

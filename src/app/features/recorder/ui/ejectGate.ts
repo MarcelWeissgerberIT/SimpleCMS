@@ -5,4 +5,4 @@
 import { rewindAllowed } from '../../../store/rewind'
 import { scopeNow } from '../journal/scope'
 
-export const canEjectHere = (): boolean => scopeNow() === 'local:local' && rewindAllowed()
+export const canEjectHere = (): boolean => scopeNow().startsWith('local:') && rewindAllowed()

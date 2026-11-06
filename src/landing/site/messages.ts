@@ -4,6 +4,7 @@
  * (features, deep dives, comparison, FAQ) live in `content[lang]`.
  */
 import type { Lang, Messages } from '@/shared/i18n'
+import { installMessages } from '@/shared/install-messages'
 import { ONE_PRICING, cloudPrice } from '@/shared/pricing'
 
 /** The hosted Team Cloud's price per user and year, as each page writes it ($99 · 99 €) — src/shared/pricing.ts. */
@@ -13,6 +14,7 @@ const CLOUD_USD_DE = `${ONE_PRICING.cloudPerUserYear.usd}\u00a0$`
 
 export const messages: Messages = {
   en: {
+    ...installMessages.en,
     'meta.title': 'SimpleCMS One — Notion, rebuilt. Minus the bill.',
     'skip': 'Skip to content',
 
@@ -366,6 +368,7 @@ export const messages: Messages = {
     'fig.close': 'Close',
   },
   de: {
+    ...installMessages.de,
     'meta.title': 'SimpleCMS One — Notion, neu gebaut. Ohne Notion-Abo.',
     'skip': 'Zum Inhalt springen',
 

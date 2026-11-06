@@ -1,0 +1,60 @@
+import {test} from 'node:test'
+import assert from 'node:assert/strict'
+import {analysisEvidence,focusAnalysisRefs,analysisIntent,baIssues,poIssues,baSchema,poSchema,renderAnalysis,type BADraft,type POReview} from '../../src/shared/ai/analysis.ts'
+const refs=[{ref:'T01',quote:'Ein Administrator übernimmt nur nachdem alle Zeilen archiviert und überprüft sind, mit Grund und Audit.'},{ref:'T02',quote:'Nicht gestartet. Entscheidung O8.'}]
+const draft:BADraft={requirements:[{statement:'Wenn alle Zeilen archiviert und überprüft sind, muss das System die Übernahme durch einen Administrator mit Grund und Audit ermöglichen.',source_refs:['T01'],checks:[{observation:'Bei der Übernahme sind alle Zeilen archiviert und überprüft; Grund und Audit liegen vor.',conforms:true},{observation:'Eine Übernahme findet statt, obwohl eine zugehörige Zeile ungeprüft ist.',conforms:false}]}],questions:[{question:'Wie wird die Prüfung jeder Zeile nachgewiesen?',reason:'Die Quelle nennt keinen Prüfnachweis.',source_refs:['T01']}]}
+const review:POReview={reviews:[{requirement:'R1',support:'partial',check_support:'supported',finding:'Der Begriff überprüft bleibt in der Quelle unbestimmt.'}],contradictions:[],questions:['Was zählt als erfolgreiche Prüfung?']}
+test('only explicit bounded BA/PO commands activate this pipeline',()=>{assert.deepEqual(analysisIntent('/BA S9'),{role:'ba',focus:'S9'});assert.deepEqual(analysisIntent('/po'),{role:'po',focus:''});assert.equal(analysisIntent('Explain what a BA does.'),null);assert.equal(analysisIntent('/ba-other'),null)})
+test('grounded concrete draft with real refs passes structural negative checks',()=>assert.deepEqual(baIssues(draft,refs),[]))
+test('an invented numeric requirement is held, not silently made authoritative',()=>{const d=structuredClone(draft);d.requirements[0].statement+=' Das muss innerhalb 25 Sekunden erfolgen.';assert(baIssues(d,refs).some(x=>x.includes('25')))})
+test('ALL associated items cannot be weakened to unspecified items',()=>{const d=structuredClone(draft);d.requirements[0].statement=d.requirements[0].statement.replace('alle Zeilen','Zeilen');assert(baIssues(d,refs).some(x=>x.includes('ALL')))})
+test('fabricated refs and notation placeholders fail',()=>{const d=structuredClone(draft);d.requirements[0].source_refs=['T-invented'];d.requirements[0].statement='When <trigger>, the system shall do something.';assert(baIssues(d,refs).some(x=>x.includes('actual source references')));assert(baIssues(d,refs).some(x=>x.includes('placeholders')))})
+test('repeating an action is not two meaningful test cases',()=>{const d=structuredClone(draft);d.requirements[0].checks[1].observation=d.requirements[0].checks[0].observation;assert(baIssues(d,refs).some(x=>x.includes('different hypothetical')))})
+test('empty analysis fails but a grounded missing-spec question is useful',()=>{assert(baIssues({requirements:[],questions:[]},refs).length);assert.deepEqual(baIssues({...draft,requirements:[]},refs),[])})
+test('PO covers every requirement exactly once',()=>{assert.deepEqual(poIssues(review,draft),[]);assert(poIssues({...review,reviews:[...review.reviews,...review.reviews]},draft).length);assert(poIssues({...review,reviews:[]},draft).length)})
+test('two distinct original passages needed for a possible contradiction',()=>assert(poIssues({...review,contradictions:[{left_ref:'T01',right_ref:'T01',reason:'The very same quote.'}]},draft).length))
+test('unsupported derivation creates a question, never automatic approval',()=>assert(poIssues({...review,questions:[]},draft).length))
+test('schema limits the work and binds refs; question-only PO has no empty enum',()=>{assert.equal((baSchema(refs).properties.requirements as any).maxItems,3);assert(!JSON.stringify(poSchema({...draft,requirements:[]},refs)).includes('"enum":[]'))})
+test('host renders actual quotes, source version, scope caveat and open human decision',()=>{const out=renderAnalysis(draft,review,refs,{title:'CNSx S9',url:'https://example.org/#/p/source',hash:'abc123',readAt:'2026-11-01T20:00:00Z',partial:true},true);for(const text of ['abc123',refs[0].quote,'Entscheidung offen','nicht ausgeführt','Atlas wurde in diesem Prüflauf nicht erneut abgefragt','nur ausgewählte Blöcke','keine unabhängige Abnahme','Klärungsbedarf'])assert(out.includes(text),text)})
+test('PO findings form one Markdown table with contiguous header, separator and data rows',()=>{
+ const multi={...review,reviews:[...review.reviews,{...review.reviews[0],requirement:'R2'}]}
+ for(const de of [true,false]){
+  const out=renderAnalysis(draft,multi,refs,{title:'Source',url:'https://example.org',hash:'abc',readAt:'now',partial:false},de)
+  const table=out.split('\n\n').find(block=>block.startsWith('| ID |'))!
+  assert(table);assert.equal(table.split('\n').length,4);assert.match(table,/\| --- \| --- \| --- \| --- \|\n\| R1 /);assert.match(table,/\n\| R2 /)
+  assert(table.includes(de?'Klärungsbedarf':'clarification needed'))
+ }
+})
+
+test('S9 focus binds actual heading span, excluding other tickets',()=>{const refs=[{ref:'T01',quote:'# Overview'},{ref:'T02',quote:'### AICM-2065 S9: Admin takeover'},{ref:'T03',quote:'Only after all rows are archived.'},{ref:'T04',quote:'### AICM-2065 S3: Other issue'},{ref:'T05',quote:'Commit failure'}];assert.deepEqual(focusAnalysisRefs(refs,'S9').refs.map(r=>r.ref),['T02','T03']);assert.throws(()=>focusAnalysisRefs(refs,'S7'));assert.throws(()=>focusAnalysisRefs(refs,'AICM-2065'));assert.equal(focusAnalysisRefs(refs,'timestamp precision').refs.length,5)})
+test('work instructions are not runtime behavioral requirements',()=>{const d=structuredClone(draft);d.requirements[0].statement='Wenn ein Stream beginnt, muss das System die Schnittstelle implementieren.';assert(baIssues(d,refs).some(x=>x.includes('development work')))})
+
+test('an audit obligation after an allowed takeover does not repeat its separate prerequisite clause',()=>{const d=structuredClone(draft);d.requirements[0].statement='Wenn ein Administrator die Übernahme erlaubt, muss das System Grund und Audit erfassen.';assert.deepEqual(baIssues(d,refs),[])})
+test('ticket label beats an auxiliary table heading merely mentioning the same ticket',()=>{const refs=[{ref:'T01',quote:'### AICM-2065 S4: Stream behavior'},{ref:'T02',quote:'Offered streams reload snapshots.'},{ref:'T03',quote:'# EARS table for AICM-2065 S4'},{ref:'T04',quote:'Auxiliary table text'}];assert.deepEqual(focusAnalysisRefs(refs,'S4').refs.map(r=>r.ref),['T01','T02']);assert.deepEqual(focusAnalysisRefs(refs,'AICM-2065 S4').refs.map(r=>r.ref),['T01','T02'])})
+
+test('ambiguous named headings never broaden silently to the full page; exact heading wins over mentions',()=>{
+ const refs=[{ref:'T1',quote:'## Access Control · CNSx'},{ref:'T2',quote:'CNSx behavior.'},{ref:'T3',quote:'## Access Control · FeliX'},{ref:'T4',quote:'FeliX behavior.'}]
+ assert.throws(()=>focusAnalysisRefs(refs,'Access Control'),/several source sections/)
+ assert.deepEqual(focusAnalysisRefs(refs,'Access Control · FeliX').refs.map(r=>r.ref),['T3','T4'])
+ const exact=[{ref:'T1',quote:'## Access Control'},{ref:'T2',quote:'Selected behavior.'},...refs]
+ assert.deepEqual(focusAnalysisRefs(exact,'Access Control').refs.map(r=>r.ref),['T1','T2'])
+})
+
+test('conformance checks need an allowed and a violating observation; no invented runtime response field',()=>{const d=structuredClone(draft);d.requirements[0].checks[1].conforms=true;assert(baIssues(d,refs).some(x=>x.includes('both a conforming')));assert(!JSON.stringify(baSchema(refs)).includes('"expected"'))})
+
+test('S9 explicit reason and audit cannot vanish from the entire draft',()=>{const d=structuredClone(draft);d.requirements[0].statement=d.requirements[0].statement.replace('mit Grund und Audit','');assert(baIssues(d,refs).some(x=>x.includes('reason AND audit')))})
+test('verification alone does not authorize an invented confirmation or error report',()=>{for(const reaction of ['die Archivierung bestätigen','dies als Fehler melden']){const d=structuredClone(draft);d.requirements[0].statement='Wenn ein Administrator die Übernahme anfordert, muss das System '+reaction+'.';assert(baIssues(d,refs).some(x=>x.includes('invented')))}})
+
+test('Capacity-409 and user confirmation cannot become every-409 automatic retries',()=>{const refs=[{ref:'T01',quote:'Capacity-409 invokes the archive workflow; Benutzerbestätigung des Wiederholens ist erforderlich.'}];const d=structuredClone(draft);d.requirements[0].source_refs=['T01'];d.questions=[];d.requirements[0].statement='Wenn HTTP 409 zurückkommt, muss das System den Commit wiederholen.';assert(baIssues(d,refs).some(x=>x.includes('capacity qualifier')));assert(baIssues(d,refs).some(x=>x.includes('USER CONFIRMATION')));d.requirements[0].statement='Wenn Capacity-409 vorliegt und eine Benutzerbestätigung erfolgt, muss das System den Commit wiederholen.';assert.deepEqual(baIssues(d,refs),[])})
+
+test('behavior citation inherits only its owning ticket context, not unrelated audit obligations',()=>{const refs=[{ref:'T01',quote:'### S9 Admin takeover'},{ref:'T02',quote:'Ein Administrator übernimmt nur mit Grund und Audit.'},{ref:'T03',quote:'### S3 Capacity conflict'},{ref:'T04',quote:'Capacity-409; Benutzerbestätigung des Wiederholens.'}];assert(!analysisEvidence(refs,['T03','T04']).includes('Audit'));assert(analysisEvidence(refs,['T03','T04']).includes('Benutzerbestätigung'));const d=structuredClone(draft);d.questions=[];d.requirements[0].source_refs=['T03','T04'];d.requirements[0].statement='Wenn Capacity-409 und eine Benutzerbestätigung vorliegen, muss das System den Commit wiederholen.';assert.deepEqual(baIssues(d,refs),[]);d.requirements[0].source_refs=['T03'];assert(baIssues(d,refs).some(x=>x.includes('behavioral source passage')))})
+
+
+test('BA schema excludes headings and delivery metadata from behavioral citations',()=>{
+ const refs=[{ref:'T1',quote:'### Decision O8'}, {ref:'T2',quote:'- **Projekt**: flux-part-cnsx'}, {ref:'T3',quote:'- **Status**: Nicht gestartet'}, {ref:'T4',quote:'- **Zusammenfassung**: Nur nachdem alle Zeilen archiviert sind, ist eine Übernahme erlaubt.'}]
+ const schema=baSchema(refs);assert.deepEqual((schema.properties.requirements as any).items.properties.source_refs.items.enum,['T4']);assert.deepEqual((schema.properties.questions as any).items.properties.source_refs.items.enum,['T1','T2','T3','T4'])
+ const metadata=baSchema(refs.slice(0,3));assert.equal((metadata.properties.requirements as any).maxItems,0);assert(!JSON.stringify(metadata).includes('"enum":[]'))
+})
+
+test('an archive-worker counter does not authorize a worker-start requirement',()=>{const source=[{ref:'T01',quote:'Capacity-409; Overlay mit Benutzerbestätigung des Wiederholens, Archivarbeiter-Zähler.'}],d:BADraft={requirements:[{statement:'Wenn ein Capacity-409 auftritt, muss das System den Archiv-Arbeiter starten.',source_refs:['T01'],checks:[{observation:'Bei Capacity-409 startet das System den Archiv-Arbeiter.',conforms:true},{observation:'Bei Capacity-409 startet kein Archiv-Arbeiter.',conforms:false}]}],questions:[]};assert(baIssues(d,source).some(x=>x.includes('counter')));assert(!baIssues(d,[{ref:'T01',quote:'Bei Capacity-409 soll das System den Archiv-Arbeiter starten.'}]).some(x=>x.includes('counter')))})
+test('user confirms retry; the system does not confirm the user',()=>{const source=[{ref:'T01',quote:'Capacity-409 mit Benutzerbestätigung des Wiederholens.'}],d:BADraft={requirements:[{statement:'Wenn ein Capacity-409 auftritt, muss das System den Benutzer vor dem erneuten Versuch bestätigen.',source_refs:['T01'],checks:[{observation:'Capacity-409 und Benutzer bestätigt Wiederholung.',conforms:true},{observation:'Capacity-409 und keine Bestätigung.',conforms:false}]}],questions:[]};assert(baIssues(d,source).some(x=>x.includes('USER confirms')))})

@@ -1,0 +1,27 @@
+.site [data-install-one][hidden] { display: none; }
+.tb-install { gap: 8px; }
+@media (max-width: 700px) {
+  .tb-install { min-width: 32px; padding: 0 8px; }
+  .tb-install__text { display: none; }
+}
+.site-install {
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--rule-strong);
+  border-top: 3px solid var(--signal);
+  border-radius: var(--radius-modal, 8px);
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  overflow-y: auto;
+}
+.site-install::backdrop { background: var(--scrim); }
+.site-install__body { padding: clamp(20px, 4vw, 32px); }
+.site-install h2 { font-size: clamp(23px, 4vw, 30px); line-height: 1.15; margin: 14px 0; }
+.site-install p { line-height: 1.55; }
+.site-install ol { padding-left: 24px; margin: 24px 0; }
+.site-install li { padding: 8px 0 8px 8px; }
+.site-install li::marker { color: var(--signal); font-family: var(--font-mono); }
+.site-install__note { color: var(--ink-2); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 16px; }
+.site-install__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.site-install__actions .btn { flex: 1 1 160px; justify-content: space-between; }

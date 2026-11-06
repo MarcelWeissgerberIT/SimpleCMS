@@ -1,3 +1,5 @@
+import type {ReadinessConfig} from '../../shared/readiness'
+export type {ReadinessConfig} from '../../shared/readiness'
 /**
  * Workspace data model. This file is the CONTRACT between all app areas
  * (shell, editor, database, features). Extend carefully and keep it backwards
@@ -64,6 +66,8 @@ export type PageCover =
 export type PageFont = 'sans' | 'serif' | 'mono'
 
 export interface PageSettings {
+  /** Optional illustrated, account-aware workshop entry; contains no secrets. */
+  firstStart?: import('../shell/firstStart/model').FirstStart
   fullWidth: boolean
   smallText: boolean
   font: PageFont
@@ -74,6 +78,8 @@ export interface Page {
   id: ID
   kind: 'page' | 'database'
   title: string
+  /** Native presentation variants; canonical IDs, content and values remain authoritative. */
+  localization?: import('./localization').PageLocalization
   icon: PageIcon | null
   cover: PageCover | null
   /** Parent page id, or null for workspace root. Database rows: the database page id. */
@@ -591,7 +597,11 @@ export interface TemplateRepeat {
   lastRunAt?: number
 }
 
+/** Optional gallery presentation for a manual workshop setup tracker. Values remain normal cells. */
+
 export interface Database {
+  /** Ordinary gallery/table data; no authorization, probes or credential storage. */
+  readiness?: ReadinessConfig
   /** Same id as the database's Page. */
   id: ID
   properties: PropertyDef[]
@@ -671,12 +681,18 @@ export type OrderStatusKey = 'draft' | 'plan' | 'ready' | 'running' | 'halted' |
  * reports — TaskLocal.spentUsd).
  */
 export interface OrderConfig {
+  /** Non-secret role defaults, snapshotted into tasks at chain confirmation. */
+  copilot?: Partial<Record<OrderKind, import('../../shared/copilot').CopilotChoice>>
+  agent?: 'claude' | 'codex' | 'local' | 'minimax' | 'ollama' | 'copilot'
+  agents?: Partial<Record<OrderKind, 'claude' | 'codex' | 'local' | 'minimax' | 'ollama' | 'copilot'>>
   v: 1
   status: Record<OrderStatusKey, ID>
   server: { name: string } | null
   kinds: OrderKind[]
   projects?: Partial<Record<OrderKind, ID>>
   checkpoint: boolean
+  /** Explicit opt-in, pinned at chain confirmation. */
+  qaRepairs?: 1 | 2
   budgetUsd?: number
 }
 
@@ -800,6 +816,8 @@ export interface Settings {
    */
   aiApiKey: string
   aiModel: string
+  /** Display only. Ledgers, provider prices and budget limits remain USD. */
+  costDisplay?: { currency: 'USD' | 'EUR'; eurPerUsd?: number; date?: string; source?: 'ecb' | 'manual' }
   /**
    * Keys of the other AI providers — vault MARKERS like aiApiKey ("vault:<seal id>:<last 4>"), never a key; nothing
    * writes them before multi-provider slice 2, but every reader keeps them (only `vault:` markers). Never exported,
@@ -812,6 +830,8 @@ export interface Settings {
    * never synced; every reader sanitizes (store/ai.ts readDeviceAI). Written by nobody in slice 1.
    */
   ai?: DeviceAI
+  /** Automatic team onboarding choices/consent for this workspace only, not global personal preferences. */
+  workspaceAI?: DeviceAI
   /** Snapshot interval for version history in minutes */
   historyIntervalMin: number
   /**
@@ -820,6 +840,8 @@ export interface Settings {
    * updateSettings({ mcpServers }): a plaintext `token` in it is sealed into the vault there.
    */
   mcpServers?: McpServerConfig[]
+  /** This workspace on this device only; never part of the browser-wide personal preferences. */
+  workspaceMcpServers?: McpServerConfig[]
   /** The MCP instructions template added to Claude's system prompt; absent / '' = the built-in default (UI language). */
   mcpInstructions?: string
   /**
@@ -1278,10 +1300,13 @@ export type AgentTriggerType = AgentTrigger['type']
 
 /** read only (answer only) · propose changes for review · apply directly */
 export type AgentWriteMode = 'none' | 'stage' | 'apply'
+export type AgentCategory = 'planning' | 'coding' | 'knowledge' | 'communication' | 'integrations' | 'custom'
 
 export interface CustomAgent {
   id: ID
   name: string
+  /** Organization only; absent on older agents = general. Does not grant tools or select a model. */
+  category?: AgentCategory
   icon?: PageIcon | null
   /** the job in plain language (≤ 8000 characters) */
   instructions: string
@@ -1307,7 +1332,7 @@ export interface CustomAgent {
    */
   mirrorOf?: ID
   runner: 'browser' | 'server'
-  /** null = the workspace default */
+  /** null = the browser's agent rule / workspace defaults (server runner: its server default). */
   model?: string | null
   effort?: 'low' | 'medium' | 'high' | null
   /**

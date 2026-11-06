@@ -1,3 +1,8 @@
+import { isTestAccess, listenTestAccess } from './cloud/testScope'
+listenTestAccess()
+import { localStorageId } from './lib/localWorkspace'
+import { personalSettings, startPersonalSettings } from './store/personal'
+import { rememberLocalWorkspace } from './store/localWorkspaces'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@/shared/fonts'
@@ -29,6 +34,7 @@ import { registerServiceWorker, watchForUpdates } from '@/shared/sw'
 import * as cloud from './cloud'
 import { getFile, saveFile, setFileWorkspace } from './lib/files'
 import { installForeignLinks } from './lib/foreignLinks'
+import {loadQuandProfile} from './features/ai/core/quandprofile'
 
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
@@ -40,7 +46,7 @@ startSwitchLed()
 // …and the workspace look this device last saw for the workspace it is about to open (lib/look)
 {
   const ref = cloud.expectedWorkspace()
-  applyCachedLook(ref.kind === 'cloud' ? ref.id : 'local')
+  applyCachedLook(ref.id)
 }
 
 // Code blocks on pages know One Script too (editor/lib/codeLanguages.ts: the language menu is a registry).
@@ -94,11 +100,13 @@ async function boot() {
     mode = await cloud.bootCloud()
   } catch (e) {
     console.error('[one] cloud boot failed — opening the local workspace', e)
-    cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: 'local' }, role: null, readOnly: false })
+    if (isTestAccess()) { mode = 'signed-out'; cloud.useCloud.setState({ status: 'signed-out', user: null, workspaces: [], role: null, readOnly: true }); useWorkspace.getState().hydrate(emptyWorkspace()) }
+    else cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: localStorageId }, role: null, readOnly: false })
   }
   if (mode === 'local') await bootLocal()
+  await loadQuandProfile().catch(e=>console.error('[one] AI compiler unavailable; AI actions remain blocked',e))
 
-  if (mode !== 'signed-out') {
+  if (mode !== 'signed-out' && !isTestAccess()) {
     // the Regler's brake at the gate (no I/O; the ledger is read after the first frame, only while a budget is set) —
     // before any service below can start an AI request
     startService('governor', installGovernor)
@@ -135,7 +143,7 @@ async function boot() {
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render
   startService('foreign links', installForeignLinks)
-  if (mode !== 'signed-out') startService('share target', consumeShareTarget)
+  if (mode !== 'signed-out' && !isTestAccess()) startService('share target', consumeShareTarget)
   // "#/" → the start page before the first render (the home screen is not built for nothing)
   if (mode !== 'signed-out') startService('start page', bootRedirect)
 
@@ -214,6 +222,10 @@ function testApi<T extends object>(mod: T): T {
 
 /** The browser-only workspace: load (or seed) it from IndexedDB and start saving + cross-tab sync. */
 async function bootLocal() {
+  // Pin even the first tab's choice: a later selection in another window must not change this tab on reload.
+  const address = new URL(window.location.href)
+  address.searchParams.set('w', localStorageId === 'local' ? 'local' : `local:${localStorageId}`)
+  history.replaceState(history.state, '', address.toString())
   // reset → load → seed → first save run under a cross-tab lock: a second tab waits and
   // then loads the very same workspace instead of seeding its own.
   await withBootLock(async () => {
@@ -223,10 +235,11 @@ async function bootLocal() {
     const saved = await loadWorkspace()
     const store = useWorkspace.getState()
     if (saved) {
+      saved.settings = await personalSettings(saved.settings)
       store.hydrate(saved)
     } else {
       const ws = emptyWorkspace()
-      ws.settings.language = detectLang()
+      ws.settings = await personalSettings(ws.settings)
       store.hydrate(ws)
       seedWorkspace(ws.settings.language)
       // MARGIN, built by clicking (the seeded budget sheet uses it)
@@ -241,7 +254,14 @@ async function bootLocal() {
     }
   })
 
+  await rememberLocalWorkspace(useWorkspace.getState().settings.workspaceName)
+  startPersonalSettings()
   startPersistence()
+  useWorkspace.subscribe((s, prev) => {
+    if (s.settings.workspaceName !== prev.settings.workspaceName) void rememberLocalWorkspace(s.settings.workspaceName).catch(console.warn)
+  })
+  const { importPendingWorkspace } = await import('./features/io/workspacePackage')
+  await importPendingWorkspace()
   // demo pages seeded before the icon change get the new icons (only untouched ones; saved like an edit)
   refreshDemoIcons()
 }

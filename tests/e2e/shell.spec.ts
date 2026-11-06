@@ -182,7 +182,7 @@ test.describe('workflows', () => {
     await openApp(page)
     const before = await wsEval(page, (s) => Object.keys(s.pages).length)
     await page.locator('#main .pv-title').click()
-    await page.keyboard.press('Control+Alt+n')
+    await page.keyboard.press(`${MOD}+Alt+n`)
     await expect(page.locator('#main .pv-title')).toHaveValue('')
     await expect(page.locator('#main .pv-title')).toBeFocused()
     expect(await wsEval(page, (s) => Object.keys(s.pages).length)).toBe(before + 1)

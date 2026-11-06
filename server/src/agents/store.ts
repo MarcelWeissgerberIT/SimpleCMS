@@ -200,11 +200,8 @@ export class AgentStore {
 
   /** When the agent's newest successful run (ok / staged) started — `exceptRunId` (the run going on) left out. */
   lastSuccess(wsId: string, agentId: string, exceptRunId?: string): number | null {
-    const row = this.db.get<{ started_at: number }>(
-      "SELECT started_at FROM agent_runs WHERE workspace_id = ? AND agent_id = ? AND status IN ('ok', 'staged') AND id <> ? ORDER BY started_at DESC, id DESC LIMIT 1",
-      wsId, agentId, exceptRunId ?? '',
-    )
-    return row ? row.started_at : null
+    // Run bodies are encrypted: inspect the bounded retained history rather than querying JSON in SQL.
+    return this.runs(wsId, { agentId, limit: 100 }).find(r => r.id !== exceptRunId && !r.invocation && (r.status === 'ok' || r.status === 'staged'))?.startedAt ?? null
   }
 
   // ── the agents' own state (agent_state_get / agent_state_set) ─────────

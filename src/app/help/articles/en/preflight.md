@@ -25,10 +25,12 @@ A lamp is on the panel only when it has something to watch here (a coding lamp o
 ## Four states
 - **Dark** — nothing waits. **Amber** — something waits. **Red** (with a notch ▲, for colour blindness) — something is broken or urgent.
 - **Grey, hatched** — the lamp cannot check right now (no folder access in this tab, offline). Grey never counts as "all clear".
-- A lamp that turned on since you last looked **flashes** and carries **new**. ↵ on it, or **MASTER CAUTION**, acknowledges it: steady from then on. Acknowledgements are per device and member — your laptop does not acknowledge for your phone.
+- A lamp that turned on since you last looked **flashes** and carries **new**. ↵ on it, or its matching master button, acknowledges it: steady from then on. Acknowledgements are per device and member — your laptop does not acknowledge for your phone.
 
 ## Keys on the panel
-Only with focus in the panel: arrows move between lamps, **Space** jumps to the next flashing one, **↵** opens its queue. **MASTER CAUTION** (also in the top bar) acknowledges every new lamp at once — with nothing new it unfolds the panel.
+Only with focus in the panel: arrows move between lamps, **Space** jumps to the next flashing one, **↵** opens its queue. The panel has two guarded buttons: **MASTER CAUTION** acknowledges new amber lamps; **MASTER WARNING** acknowledges new red lamps. First **lift the glass cover**, then press the button. Opening the cover alone acknowledges nothing. A change to that colour’s new signals closes its cover again. Acknowledgement confirms the signal; tasks stay open.
+
+**MASTER CAUTION** in the top bar or compact strip opens the full panel when new red warnings exist. Otherwise it acknowledges new cautions; with nothing new it opens the panel. **TEST** repeats the short lamp test when lamp tests and motion are allowed by your settings.
 
 In the morning, the first time you open One on a new day, One stays on Start when lamps were lit last time, with the full panel and a short lamp test. Later in the day the panel folds to a **strip** of pips; it unfolds by itself when a lamp turns new. **Settings → Appearance → Preflight**: off, the morning hold, when a new day starts, the lamp test.
 

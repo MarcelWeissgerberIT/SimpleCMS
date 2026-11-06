@@ -146,7 +146,7 @@ export interface CodingSettings {
 
 export const DEFAULT_CODING: CodingSettings = { enabled: false, port: WORKER_DEFAULT_PORT, pairs: {}, via: {}, cloudPairs: {} }
 
-const MAX_PAIRS = 20
+const MAX_PAIRS = 64
 const TEAM_ID = /^team:[A-Za-z0-9_-]{1,64}$/
 const TOKEN_ID = /^[A-Za-z0-9_-]{1,64}$/
 
@@ -278,6 +278,9 @@ export interface CodingState extends CodingSettings {
   dropped: number
   /** the refusing worker came ready-paired from a download */
   refusedPaired: boolean
+  refusedWorkspaceGrant: boolean
+  refusedWorkspaceOwner: string | null
+  refusedWorkspaceNonce: string | null
   worker: WorkerInfo | null
   busy: BusyTask[]
   spentToday: number
@@ -308,6 +311,9 @@ export const useCoding = create<CodingState>()(() => ({
   pendingHere: false,
   dropped: 0,
   refusedPaired: false,
+  refusedWorkspaceGrant: false,
+  refusedWorkspaceOwner: null,
+  refusedWorkspaceNonce: null,
   worker: null,
   busy: [],
   spentToday: 0,

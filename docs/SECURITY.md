@@ -101,3 +101,32 @@ included), `localStorage` and `sessionStorage` for the plain text, exports a bac
 If a key may have leaked, revoke it where it was made: the [Anthropic console](https://console.anthropic.com/settings/keys)
 or [GitHub → Fine-grained tokens](https://github.com/settings/personal-access-tokens). Give the GitHub token access to
 the one repository you sync, with "Contents: Read and write" only.
+
+## Personal passphrase vault (Settings → My secrets)
+
+This separate store does not migrate the profile-key vault described above. Personal Atlas/agent MCP credentials are
+client-encrypted (AES-256-GCM, random 96-bit IV, PBKDF2-SHA256 600k, random 128-bit salt, non-extractable key).
+AAD binds ciphertext to the origin/account. The server's `personal_vaults` table stores only the envelope, user id,
+revision and update time, outside workspace documents/backups/MCP. `/api/me/secrets` uses only the session user; no
+workspace-owner or server-admin override exists. CSRF, body size and write-rate guards apply; optimistic revisions
+refuse concurrent overwrite. Server operators still control delivered application code: this is not protection
+against malicious JavaScript or a compromised endpoint. Lost passphrases cannot be recovered.
+
+An explicit per-task, in-memory grant sends selected credentials through the paired coding transport (cloud relay:
+end-to-end encrypted). The current Claude Code worker keeps them in memory, not argv, environment or project config.
+It exposes a run-scoped MCP proxy with an exact tool allow-list and read-only plan/document stages. External writes
+are immediate; restricting the token in Atlas remains necessary. The worker and OS are trusted recipients, and
+locking the browser vault does not revoke a credential already granted to a running process. Stop the task or revoke
+the upstream token to end that authority. Local vault changes use a Web Lock and revision check when available.
+
+## Personal AJ-Atlas access across team workspaces
+
+`src/app/shell/cloud/personalAtlas.ts` offers optional reuse only for the current signed-in ONE account and the exact
+`https://aj-atlas.com/api/atlas/mcp` endpoint, on this browser profile. The token is sealed by the existing WebCrypto
+vault under `personal-atlas:<user id>`. Separate IndexedDB metadata contains only the verified display name, endpoint
+and timestamp. It is not workspace content, a backup payload or model context. Reuse requires an explicit click and
+a new real identity check through the destination workspace; it does not grant membership or project rights, and
+does not copy workspace model/data policies. Another ONE account or endpoint cannot use this profile through the
+reuse API. Forgetting the offer removes this account-level copy; already configured workspace connections remain.
+A different device/browser still needs personal setup. This is protection at rest and an application account boundary,
+not isolation against malicious same-origin script or someone controlling the unlocked browser profile.

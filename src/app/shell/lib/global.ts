@@ -1,3 +1,4 @@
+import { linkInCurrentWorkspace } from '../../lib/workspaceAddress'
 import { useEffect } from 'react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
@@ -187,7 +188,7 @@ function internalPageId(a: HTMLAnchorElement): string | null {
     // absolute/relative URL: only ours if it points at this very document
     try {
       const url = new URL(a.href, window.location.href)
-      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return null
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname || !linkInCurrentWorkspace(url)) return null
     } catch {
       return null
     }
@@ -256,6 +257,7 @@ export function useRouteEffects(route: Route) {
   useEffect(() => {
     let name: string
     if (route.name === 'page') name = exists || title !== undefined ? title?.trim() || t('common.untitled') : t('shell.notFound.title')
+    else if (route.name === 'personal-guides') name = t('shell.nav.personalGuides')
     else if (route.name === 'graph') name = t('shell.nav.graph')
     else if (route.name === 'journal') name = t('shell.nav.today')
     else if (route.name === 'agenda') name = t('shell.nav.agenda')
@@ -266,6 +268,7 @@ export function useRouteEffects(route: Route) {
     else if (route.name === 'kit') name = t('features.kit.title')
     else if (route.name === 'discover') name = t('shell.discover.title')
     else if (route.name === 'regler') name = t('features.governor.title')
+    else if (route.name === 'programs') name = t('features.ai.program.database')
     else if (route.name === 'mcp') name = t('features.mcp.page.title')
     else if (route.name === 'patchbay') name = t('features.patchbay.title')
     else if (route.name === 'workspace') name = t('shell.ws.title')
@@ -360,6 +363,11 @@ export function bootRedirect(route: Route = parseHash(window.location.hash)) {
   if (bootRedirected || STANDALONE.has(route.name)) return
   bootRedirected = true
   if (route.name !== 'home') return
+  const current = useWorkspace.getState(), landing = current.ai?.onboarding?.startPageId
+  if (landing && current.pages[landing] && !isEffectivelyTrashed(current.pages, landing)) {
+    navigate({name:'page',id:landing},{replace:true})
+    return
+  }
   // Preflight: the first boot of a Preflight day stays on the plate when lamps were lit last time (consumed either way)
   if (preflightHoldsStart()) return
   const { settings, pages } = useWorkspace.getState()

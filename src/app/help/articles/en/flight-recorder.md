@@ -57,7 +57,7 @@ The key never writes. It opens the dialog — *Eject 52 writes by Nordlicht mirr
 **Revert 35 places** (or <kbd>↵</kbd>, a moment after the dialog opened) writes it: first One saves every page it will change as a version, **Before the eject** ([version history](help:history)); then it checks the plan once more — if anything changed since the dialog opened, nothing is written and the dialog shows the new plan, to confirm again; then everything goes back in **one step**.
 
 ### Undo
-The message after an eject — *35 places by Nordlicht mirror reverted · 2 held* — has **Undo** (<kbd>Ctrl+Z</kbd> / <kbd>⌘Z</kbd> while it shows, unless you are typing in a field or a page) and **Show held**. The plate keeps what happened — places, what went back, the trash, held, the version — with **Undo the eject**, also after the deck was closed and after a reload. The Undo puts back exactly what the eject changed, in one step; a place changed again since stays (*kept*). An eject is never ejected itself — its own writes are on the **Undo** track, and **Undo the eject** takes it back.
+The message after an eject — *35 places by Nordlicht mirror reverted · 2 held* — has **Undo** (<kbd>Mod+Z</kbd> while it shows, unless you are typing in a field or a page) and **Show held**. The plate keeps what happened — places, what went back, the trash, held, the version — with **Undo the eject**, also after the deck was closed and after a reload. The Undo puts back exactly what the eject changed, in one step; a place changed again since stays (*kept*). An eject is never ejected itself — its own writes are on the **Undo** track, and **Undo the eject** takes it back.
 
 ### What else the eject settles
 - **[Agent runs](help:custom-agents).** The run's proposals that went back read **Ejected** in its review, the held ones **Held · changed since** (still applied); proposals still waiting are discarded — except ones you opened in [Preflight](help:preflight). The Undo brings them back.
@@ -72,7 +72,7 @@ Ejecting works in local workspaces; team workspaces get it later — reading wor
 ## Keys
 With the playhead, a track or a flag focused:
 - <kbd>←</kbd> / <kbd>→</kbd> — one minute back / forward, with <kbd>Shift</kbd> ten seconds
-- <kbd>[</kbd> / <kbd>]</kbd> — start / end of the window at the playhead, on the focused track (German Windows: <kbd>AltGr+8</kbd> / <kbd>AltGr+9</kbd>, Mac: <kbd>⌥5</kbd> / <kbd>⌥6</kbd>)
+- <kbd>[</kbd> / <kbd>]</kbd> — start / end of the window at the playhead, on the focused track (German Windows: <kbd>AltGr+8</kbd> / <kbd>AltGr+9</kbd>, Mac: Option+5 / Option+6)
 - <kbd>↑</kbd> / <kbd>↓</kbd> — the track above / below
 - <kbd>PageUp</kbd> / <kbd>PageDown</kbd> — the previous / next flag on the track
 - <kbd>Home</kbd> / <kbd>End</kbd> — the start of the span / now

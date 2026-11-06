@@ -5,7 +5,7 @@
  * all is left out (never "fixed" into something else). Fresh objects only: nothing of the input's
  * prototype chain survives.
  */
-import { COLOR_NAMES, type AgentTrigger, type AgentWriteMode, type ColorName, type CustomAgent, type ID, type PageIcon } from './types'
+import { COLOR_NAMES, type AgentCategory, type AgentTrigger, type AgentWriteMode, type ColorName, type CustomAgent, type ID, type PageIcon } from './types'
 import { sanitizeAgentAI } from '@/shared/ai/route'
 
 export const AGENT_LIMITS = {
@@ -23,6 +23,7 @@ export const AGENT_LIMITS = {
 } as const
 
 export const DEFAULT_RUN_USD = 0.5
+export const AGENT_CATEGORIES: readonly AgentCategory[] = ['planning', 'coding', 'knowledge', 'communication', 'integrations', 'custom']
 export const AGENT_WRITE_MODES: AgentWriteMode[] = ['none', 'stage', 'apply']
 export const SCHEDULE_EVERY = ['hour', 'day', 'weekday', 'week', 'month'] as const
 export const AGENT_EFFORTS = ['low', 'medium', 'high'] as const
@@ -183,6 +184,8 @@ export function sanitizeAgent(id: unknown, raw: unknown): CustomAgent | null {
     createdAt,
     updatedAt: num(own(raw, 'updatedAt'), createdAt),
   }
+  const category = own(raw, 'category')
+  if (AGENT_CATEGORIES.includes(category as AgentCategory)) agent.category = category as AgentCategory
   const mcpTools = sanitizeMcpTools(own(raw, 'mcpTools'), agent.mcpServers)
   if (mcpTools) agent.mcpTools = mcpTools
   // the mirror recipe's marker (features/agents/mirror.ts): a database id, nothing else

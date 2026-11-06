@@ -255,6 +255,8 @@ export function createCodingRelay(deps: { config: Config; log: Logger; repo: Rep
   function receive(peer: Peer, message: Message) {
     const side = sides.get(peer)
     if (!side) return
+    const currentRole = repo.memberRole(side.pair.workspaceId, side.pair.userId)
+    if (!currentRole || currentRole === 'viewer') return close(side, RELAY_CLOSE_FORBIDDEN, currentRole ? 'viewer' : 'membership-revoked')
     const raw = message.rawData
     if (typeof raw !== 'string') return close(side, 1003, 'text frames only')
     const load = budget(side, raw.length)
@@ -340,6 +342,7 @@ export function createCodingRelay(deps: { config: Config; log: Logger; repo: Rep
       const wait = limiter.hit(`coding:bad:${ip}`, BAD_AUTH_PER_MIN, MINUTE)
       return wait ? refuse(429, 'Too Many Requests', 'bad token (limited)', { 'Retry-After': String(wait) }) : refuse(401, 'Unauthorized', 'bad token')
     }
+    if (row.purpose !== 'coding') return refuse(403, 'Forbidden: inference-only token', 'model-host')
     const role = repo.memberRole(row.workspace_id, row.user_id)
     if (!role) return refuse(403, 'Forbidden: membership', 'no member')
     if (role === 'viewer') return refuse(403, 'Forbidden: viewer', 'viewer')

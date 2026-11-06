@@ -1,8 +1,10 @@
+import { isTestAccess } from './testScope'
 /**
  * Small browser helpers for the cloud area: guarded localStorage, the remembered workspace choice
  * (per browser, `?w=<id>` overrides it for one tab), the last known session (for offline boots)
  * and the user's colour.
  */
+import { localStorageId, parseLocalChoice } from '../lib/localWorkspace'
 import { COLOR_NAMES, type ColorName } from '../store/types'
 import type { CloudUser, CloudWorkspace, WorkspaceRef } from './state'
 
@@ -40,11 +42,12 @@ export function lsSet(key: string, value: string | null): void {
   }
 }
 
-const LOCAL: WorkspaceRef = { kind: 'local', id: 'local' }
+const LOCAL: WorkspaceRef = { kind: 'local', id: localStorageId }
 
 function parseRef(raw: string | null): WorkspaceRef | null {
   if (!raw) return null
-  if (raw === 'local') return LOCAL
+  const local = parseLocalChoice(raw)
+  if (local) return { kind: 'local', id: local }
   return WS_ID.test(raw) ? { kind: 'cloud', id: raw } : null
 }
 
@@ -65,7 +68,8 @@ export function hasStoredChoice(): boolean {
 }
 
 export function writeChoice(ref: WorkspaceRef): void {
-  lsSet(CHOICE_KEY, ref.kind === 'local' ? 'local' : ref.id)
+  if (isTestAccess()) return
+  lsSet(CHOICE_KEY, ref.kind === 'local' ? (ref.id === 'local' ? 'local' : `local:${ref.id}`) : ref.id)
 }
 
 export interface SessionCache {
@@ -76,6 +80,7 @@ export interface SessionCache {
 
 /** The last answer of GET /api/me — lets a cloud workspace open while the server can't be reached. */
 export function readSession(): SessionCache | null {
+  if (isTestAccess()) return null
   try {
     const v = JSON.parse(lsGet(SESSION_KEY) ?? 'null') as SessionCache | null
     return v && v.user && typeof v.user.id === 'string' && Array.isArray(v.workspaces) ? v : null
@@ -85,6 +90,7 @@ export function readSession(): SessionCache | null {
 }
 
 export function writeSession(v: SessionCache | null): void {
+  if (isTestAccess()) return
   lsSet(SESSION_KEY, v ? JSON.stringify(v) : null)
 }
 

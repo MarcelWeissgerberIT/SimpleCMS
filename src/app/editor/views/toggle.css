@@ -1,6 +1,43 @@
 /* Toggle headings (details[data-heading]): the title takes the heading typography of
    editor.css (same sizes, weights and outline spacing as H1–H3), the chevron keeps its place. */
 
+/* Neutral callouts containing one toggle are screwed moderation / reference plates.
+   Native toggle and task nodes keep their editing, keyboard and collaboration behaviour. */
+.doc-content .callout.callout--folded {
+  --screw-inset: 6px;
+  --screw-d: 6px;
+  position: relative;
+  padding: 18px 22px;
+  border: 1px solid var(--plate-edge);
+  background: var(--plate);
+  box-shadow: inset 0 1px 0 var(--plate-hi), inset 0 -1px 0 var(--plate-lo);
+}
+
+.doc-content .callout--folded > .callout__icon {
+  color: var(--signal);
+  font-family: var(--font-mono);
+}
+
+.doc-content .callout--folded [data-type='detailsSummary'] {
+  font-size: 0.94em;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.doc-content .callout--folded [data-type='detailsContent'] {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--plate-edge);
+}
+
+.doc-content .callout--folded [data-type='detailsContent'] h2 {
+  font-size: 1.05em;
+}
+
+@media (max-width: 640px) {
+  .doc-content .callout.callout--folded { padding: 16px 12px; gap: 4px; }
+}
+
 .doc-content [data-type='details'][data-heading] > div > summary {
   font-family: var(--font-head);
   font-stretch: var(--head-stretch);

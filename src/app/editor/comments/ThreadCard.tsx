@@ -1,3 +1,4 @@
+import { shortcutLabel } from '../../ui/controls'
 /**
  * One comment thread: head (author · time · resolve · menu), quote (detached / sheet), body,
  * replies, reply composer (when focused). Data changes go through the store actions.
@@ -93,7 +94,7 @@ export function Composer({ label, placeholder, submitLabel, initial = '', autoFo
       {(onCancel || value.trim()) && (
         <div className="ccomposer__row">
           <span className="ccomposer__hint label" aria-hidden>
-            <kbd className="kbd">↵</kbd> {t('editor.comments.send')} · <kbd className="kbd">⇧↵</kbd> {t('editor.comments.newLine')}
+            <kbd className="kbd">↵</kbd> {t('editor.comments.send')} · <kbd className="kbd">{shortcutLabel('Shift+↵')}</kbd> {t('editor.comments.newLine')}
           </span>
           {onCancel && (
             <button type="button" className="btn btn--ghost btn--sm" onClick={onCancel}>

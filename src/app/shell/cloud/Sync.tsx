@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useCloud, useCloudSync, type CloudStatus } from '../../cloud'
 import { Led } from '../../ui/controls'
 import { Tooltip } from '../../ui/Tooltip'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import { plural } from '../lib/format'
 import { cloudApi } from './api'
 import { useWorkspaceTitle } from './state'
@@ -60,6 +60,8 @@ export function CloudStatusCells({ readout }: { readout: CloudReadout }) {
 /** Topbar tag for viewers — and, for a tab the server finds outdated, a key that reloads it. */
 export function ViewOnlyTag() {
   const t = useT()
+  const lang = useLang()
+  const until = useCloud(s => s.active.kind === 'cloud' ? s.workspaces.find(w => w.id === s.active.id)?.participationUntil : undefined)
   const readOnly = useCloud((s) => s.readOnly && s.active.kind === 'cloud')
   const outdated = useCloud((s) => !!s.outdated && s.active.kind === 'cloud')
   if (outdated)
@@ -74,6 +76,7 @@ export function ViewOnlyTag() {
         </button>
       </Tooltip>
     )
+  if (!readOnly && until) return <Tooltip label={lang === 'de' ? 'Temporäre Mitgliedsrechte: Worker, Aufgaben und Ergebnisse. Danach wieder Gast · nur lesen.' : 'Temporary member access: worker, tasks and results. Afterwards guest · read only.'}><span className="cl-viewonly" tabIndex={0} data-testid="guest-participation">{lang === 'de' ? 'Mitmachen bis ' : 'Participation until '}{new Date(until).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span></Tooltip>
   if (!readOnly) return null
   return (
     <Tooltip label={t('shell.cloud.viewOnlyHint')}>

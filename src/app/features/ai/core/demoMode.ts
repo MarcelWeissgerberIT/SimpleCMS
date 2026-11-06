@@ -1,3 +1,4 @@
+import {centralKeyReady} from './centralAI'
 /*
  * Demo mode (no key): people can try the AI panel with canned answers (features/ai/demo.ts). This session only, never
  * persisted, never sent anywhere — and only while no key is set: a key always wins. isAIConfigured() stays false in
@@ -26,5 +27,5 @@ export function onAIDemo(listener: () => void): () => void {
 /** True when a request would get a demo answer: demo on and no key at all (any provider's key wins). */
 export function usesDemo(): boolean {
   const s = useWorkspace.getState().settings
-  return demo && !s.aiApiKey.trim() && !Object.values(s.aiKeys ?? {}).some(Boolean)
+  return demo && !centralKeyReady(!!s.aiApiKey.trim()) && !Object.values(s.aiKeys ?? {}).some(Boolean)
 }

@@ -851,15 +851,28 @@ describe('exec — source guard', () => {
       for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/\b(spawnSafe|execFileSafe|execFileSyncSafe)\(\s*([^,]+?)\s*,/g)) calls.push(`${f}: ${m[2]}`)
     }
     assert.deepEqual(calls.sort(), [
+      'certificates.ts: process.execPath', // restart this Node and the host-selected worker entry point to apply approved local CA settings
       'claude.ts: bin', // findClaude(): CLAUDE_BIN (resolved once, at the start — never in a worktree) or `claude` / the native install
       'claude.ts: r.bin', // the same (StageContext.bin = WorkerOptions.bin)
       "clone.ts: 'git'",
       'clone.ts: cmd', // runCli: 'git' (an .exe only) · 'gh' · 'glab'
+      'codex.ts: bin', // findCodex(): person's CODEX_BIN, trusted app install or PATH; help probe
+      'codex.ts: bin', // the same selected CLI; task content travels over stdin
       "config.ts: 'git'",
+      'copilot.ts: findCopilot(env)', // person's COPILOT_BIN or trusted PATH/install, version probe in tmpdir
+      'copilot.ts: findCopilot(env)', // same host-selected CLI, isolated cwd; prompt travels over SDK stdin
+      'demo-compare.ts: command', // opt-in synthetic exercise: this Node, host CXX/compiler, or its fixed temporary test binary
       "git.ts: 'git'",
       "git.ts: 'ssh'", // sshHostName(): `ssh -G <host>` — a host name (SSH_HOST: never an option) the remote's address names
       'git.ts: cmd', // run(): 'gh' | 'glab'
       "gitenv.ts: 'git'",
+      'harness-eval.ts: process.execPath', // opt-in evaluation: this Node and a host-written checker outside the disposable worktree; never a model-selected program
+      'local-benchmark.ts: process.execPath', // opt-in benchmark: this Node, fixed check.mjs in a disposable fixture
+      'local-benchmark.ts: process.execPath', // syntax-check the fixed benchmark fixture before invoking the model
+      'managed.ts: join(system', // fixed System32/whoami.exe: discover the installing Windows account SID
+      'managed.ts: join(system', // fixed System32/icacls.exe: protect the installation for that SID
+      'managed.ts: process.execPath', // syntax-check a pinned, checksummed release; no model-selected executable
+      'managed.ts: process.execPath', // launch the validated installed release with IPC, through spawnSafe
       'opener.ts: how.cmd', // cmd.exe from System32, or ONE_WORKER_BROWSER (the person's)
       'picker.ts: how.cmd', // powershell.exe from System32, or ONE_WORKER_PICKER (the person's)
       "proctree.ts: 'ps'", // macOS / Linux without /proc: the system's ps — what Claude Code left running (worker 1.11.0)
@@ -878,8 +891,15 @@ describe('exec — source guard', () => {
     // what a file in a working folder reaches the line as: named from the spawn's own folder, never its path (see the
     // Windows tests) — and nothing spawns a resolved command but through spawnForm
     const exec = readFileSync(join(dir, 'exec.ts'), 'utf8')
+    assert.match(readFileSync(join(dir, 'managed.ts'), 'utf8'), /starterText\(process\.execPath, ctx\.dir\)/, 'The generated starter pins the installing Node; never task text')
     assert.match(exec, /const line = cmdLine\(\[fromCwd\(r\.line\.argv\[0\]!, cwd\), \.\.\.r\.line\.argv\.slice\(1\)\]/)
-    assert.deepEqual([...exec.matchAll(/\bspawn(?:Sync)?\(([^,]+),/g)].map((m) => m[1]).sort(), ['run.file', 'run.file', 'systemTool(\'taskkill\')'])
+    assert.deepEqual([...exec.matchAll(/\bspawn(?:Sync)?\(([^,]+),/g)].map((m) => m[1]).sort(), ['${JSON.stringify(node)}', 'run.file', 'run.file', 'systemTool(\'taskkill\')'])
+    // The MCP SDK owns stdio spawning: resolve the person's named server outside the worktree,
+    // with the same PATH cleanup and shim rules; model arguments never select a program.
+    const localMcp = readFileSync(join(dir, 'local-mcp.ts'), 'utf8')
+    assert.match(localMcp, /resolveCommand\(expand\(entry.command, env\)/)
+    assert.match(localMcp, /cwd: homedir\(\)/)
+    assert.match(localMcp, /const childEnv = ownEnv\(/)
   })
 })
 

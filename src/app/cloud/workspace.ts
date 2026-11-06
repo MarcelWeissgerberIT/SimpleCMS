@@ -1,3 +1,4 @@
+import { isTestAccess, testCopyName, testAppearance } from './testScope'
 /**
  * An open cloud workspace: the meta document and this member's private meta document (y-indexeddb
  * copies first, then Hocuspocus), the store hydrated from both, the binding, page content documents,
@@ -121,7 +122,8 @@ async function localSettings(): Promise<Partial<Settings>> {
 }
 
 export async function emptySettings(): Promise<Settings> {
-  return { ...defaultSettings(), ...(await localSettings()) }
+  const personal = await localSettings()
+  return { ...defaultSettings(), ...(isTestAccess() ? { language: personal.language ?? 'de', theme: personal.theme ?? 'light', ...testAppearance() } : personal) }
 }
 
 /* ------------------------------------------------------------------ open */
@@ -131,11 +133,11 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
   const overlayP = loadOverlay(ws.id)
   const cacheP = loadContentCache(ws.id)
   const doc = new Y.Doc()
-  const idb = new IndexeddbPersistence(`one:ws:${ws.id}`, doc)
+  const idb = new IndexeddbPersistence(testCopyName(`one:ws:${ws.id}`), doc)
   // this member's private pages: a document only they can open (the server enforces it)
   const privateName = `ws:${ws.id}:u:${user.id}`
   const privateDoc = new Y.Doc()
-  const privateIdb = new IndexeddbPersistence(`one:${privateName}`, privateDoc)
+  const privateIdb = new IndexeddbPersistence(testCopyName(`one:${privateName}`), privateDoc)
   await Promise.all([idb.whenSynced, privateIdb.whenSynced])
 
   const socket = getSocket()

@@ -13,6 +13,7 @@ import { isEffectivelyTrashed } from '../../store/selectors'
 import type { ID } from '../../store/types'
 import { closeHelp, openHelp } from '../state'
 import type { ChangelogTry } from './entries'
+import { useCloud } from '../../cloud'
 
 /** The key's caption (`help.news.try.<id>`) and, where there is one, its shortcut. */
 export const TRY_SHORTCUT: Partial<Record<ChangelogTry, string>> = { terminal: 'Mod+J', palette: 'Mod+K' }
@@ -43,6 +44,9 @@ export function runTry(action: ChangelogTry): void {
   const own = provided.get(action)
   if (own) return own()
   switch (action) {
+    case 'welcome':
+      if (useCloud.getState().active.kind !== 'cloud' || !useCloud.getState().supports?.includes('welcome:1')) return openHelp({ kind: 'article', id: 'welcome-emails' })
+      return navigate({ name: 'workspace', section: 'people' })
     case 'terminal':
       return openAgent()
     case 'settings-ai':

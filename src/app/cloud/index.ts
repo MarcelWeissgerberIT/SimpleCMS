@@ -36,6 +36,7 @@ import {
   updateProfile as updateProfileImpl,
 } from './account'
 import { request } from './api'
+export { useCheckout, loadCheckout, checkoutWorkspace, compareCheckout, mergeCheckout, type CheckoutReview } from './checkout'
 import { readChoice, SERVER_CAPABLE } from './env'
 import { bootCloud as bootCloudImpl, refreshMe, switchWorkspaceImpl } from './boot'
 import { isApplyingCloud, withWriteActor } from './binding'
@@ -117,7 +118,8 @@ export function activeWorkspace(): WorkspaceRef {
  * remembered choice where a server can be reached, else the local workspace. For the pre-paint look (main.tsx).
  */
 export function expectedWorkspace(): WorkspaceRef {
-  return SERVER_CAPABLE ? readChoice() : { kind: 'local', id: 'local' }
+  const choice = readChoice()
+  return choice.kind === 'local' || SERVER_CAPABLE ? choice : { kind: 'local', id: 'local' }
 }
 
 /** Remember the choice for this browser and reload the app into that workspace (drops `?w=` and the route). */
@@ -138,7 +140,7 @@ export function refreshAccount(): Promise<unknown> {
  * person holds — lets a new address through an invite-only server. Errors: CloudError 'rate_limited'
  * (retryAfter seconds) · 'network' · …
  */
-export async function requestSignIn(email: string, opts?: { invite?: string; signup?: string; lang?: string }): Promise<void> {
+export async function requestSignIn(email: string, opts?: { invite?: string; signup?: string; lang?: string; signal?: AbortSignal }): Promise<void> {
   return requestSignInImpl(email, opts)
 }
 
@@ -187,8 +189,8 @@ export async function deleteWorkspace(id: string): Promise<void> {
 export async function listMembers(wsId: string): Promise<Member[]> {
   return listMembersImpl(wsId)
 }
-export async function setMemberRole(wsId: string, userId: string, role: Role): Promise<void> {
-  return setMemberRoleImpl(wsId, userId, role)
+export async function setMemberRole(wsId: string, userId: string, role: Role, guest?: boolean): Promise<void> {
+  return setMemberRoleImpl(wsId, userId, role, guest)
 }
 /** Removing yourself = leaving; leaving the open workspace switches this tab to the local one. */
 export async function removeMember(wsId: string, userId: string): Promise<void> {
@@ -206,7 +208,7 @@ export async function createInvite(wsId: string, role: Role, email?: string, opt
  * Invite several addresses at once (≤ 20): one single-use invite + mail each, in the app's language.
  * Per address: 'sent' · 'failed' (mail not sent; `link` to pass on by hand) · 'already_member' · 'invalid'.
  */
-export async function sendInvites(wsId: string, emails: string[], role: Role, opts?: { days?: number }): Promise<EmailInviteResult[]> {
+export async function sendInvites(wsId: string, emails: string[], role: Role, opts?: { days?: number; guest?: boolean }): Promise<EmailInviteResult[]> {
   return sendInvitesImpl(wsId, emails, role, opts)
 }
 export async function listInvites(wsId: string): Promise<Invite[]> {
@@ -363,8 +365,8 @@ export async function movePagePrivacy(pageId: ID, toPrivate: boolean, target?: {
  * 'api/workspaces/<id>/tokens'): same origin, session cookie, the CSRF content type. Failures are
  * CloudError with the server's code (docs/CLOUD.md), like every call above.
  */
-export function cloudRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
-  return request<T>(method, path, body)
+export function cloudRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown, opts: {signal?: AbortSignal} = {}): Promise<T> {
+  return request<T>(method, path, body, opts)
 }
 
 /**
@@ -374,3 +376,5 @@ export function cloudRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELE
 export function writeAsAgent<T>(actor: string, fn: () => Promise<T> | T): Promise<T> {
   return withWriteActor(actor, fn)
 }
+
+export { captureReadiness, noteReadiness, noteAtlasRead, useReadinessSync, type ReadinessScope } from './readiness'

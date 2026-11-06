@@ -1,0 +1,50 @@
+import { test, expect, openApp, wsEval, createPage, doc, para, gotoPage, editorOf, selectText } from './fixtures'
+import { mockClaudeScript, text } from './helpers/providers'
+import { GEN } from '../../src/shared/ai/generations'
+
+const check = (page: import('@playwright/test').Page, input: any) => page.evaluate(i=>(window as any).__oneAI.precheck(i),input)
+const rules = (page: import('@playwright/test').Page, value:any) => page.evaluate(async v=>(await (window as any).__oneAI.rules()).setWorkspaceAI(v),value)
+
+test('explicit page/local boundaries refuse cloud before sending, while ordinary work stays available',async({page})=>{
+  const calls=await mockClaudeScript(page.context(),[],{fallback:text('Mock reply.')})
+  await openApp(page)
+  await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+  const parent=await createPage(page,{title:'Private protocol',content:doc(para('CONFIDENTIAL protocol sample'))})
+  const child=await wsEval(page,(s,id)=>s.createPage({title:'Child',parentId:id}),parent)
+  const other=await createPage(page,{title:'Public example',content:doc(para('Hello'))})
+  await rules(page,{policy:{providers:{},restricted:[{root:parent,to:['local']}]}})
+  expect((await check(page,{purpose:'menu.action',sources:[{page:child}],typed:'Explain'})).code).toBe('policy')
+  expect((await check(page,{purpose:'menu.action',sources:[{page:other}],typed:'Explain'})).ok).toBe(true)
+  expect(await wsEval(page,s=>s.ai?.gen)).toBe(GEN.dataFlow)
+  await rules(page,{dataFlow:{providers:['local']}})
+  expect((await check(page,{purpose:'menu.action',sources:[{page:other}],typed:'Explain'})).code).toBe('policy')
+  // No call was dispatched by a precheck, and no cloud API is used as a fallback.
+  const sent = await page.evaluate(async id=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Explain the sample',sources:[{page:id}],mcp:false}), other)
+  expect(sent.ok).toBe(false)
+  expect(sent.code).toBe('policy')
+  expect(calls.requests).toHaveLength(0)
+})
+
+test('quiet local hint is dismissible and page boundaries are controlled by the person',async({page})=>{
+  await mockClaudeScript(page.context(),[],{fallback:text('Mock reply.')})
+  await openApp(page)
+  await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+  const id=await createPage(page,{title:'Protocol example',content:doc(para('CONFIDENTIAL — example device protocol for the workshop.'))})
+  await gotoPage(page,id)
+  const ed=editorOf(page,id);await selectText(page,ed,'CONFIDENTIAL — example device protocol for the workshop.')
+  await page.locator('[aria-label="Formatting"]').first().getByRole('button',{name:/^Ask AI$/}).click()
+  const notice=page.getByTestId('data-flow-notice').first()
+  await expect(notice).toHaveAttribute('data-hint','true')
+  await notice.getByRole('button',{name:'Dismiss this hint'}).click()
+  await expect(notice).not.toHaveAttribute('data-hint','true')
+  await notice.getByRole('button',{name:'Inspect data route'}).click()
+  const settings=page.getByTestId('data-flow-settings')
+  await expect(settings.getByTestId('flow-scope')).toHaveValue(id)
+  expect(await wsEval(page,s=>s.ai?.policy?.restricted??[])).toEqual([])
+  await expect(settings).toBeInViewport()
+  await page.screenshot({path:'node_modules/.cache/data-flow-desktop.png',animations:'disabled'})
+  await settings.getByTestId('flow-hints').uncheck()
+  expect(await wsEval(page,s=>s.settings.ai?.dataFlowHints)).toBe(false)
+  await settings.getByTestId('flow-mode').selectOption('local')
+  expect(await wsEval(page,s=>s.ai?.policy?.restricted)).toEqual([{root:id,to:['local']}])
+})

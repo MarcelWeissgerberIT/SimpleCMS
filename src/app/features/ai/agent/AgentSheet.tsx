@@ -1,3 +1,16 @@
+import {CurrentActivity} from './CurrentActivity'
+import {mcpActivityText} from '@/shared/mcp/activityDisplay'
+import {SavedWork} from './SavedWork'
+import {openSkills} from '../skills/dialog'
+import {openReviewProfiles} from '../profiles/dialog'
+import {AnswerPageAction} from './AnswerPageAction'
+import {DesignMockCard} from './DesignMockCard'
+import {openPrograms} from '../programs/dialog'
+import {TaskContractCard} from '../mcp-servers/TaskContractCard'
+import {atlasTransferOriginal} from '@/shared/quandprofile/atlas-transfer'
+import {AtlasTransferSummary,AtlasTransferDock} from './AtlasTransferSummary'
+import { RepoFilesControl } from '../../repo-files/RepoFilesControl'
+import {AtlasFactsView} from '../mcp-servers/AtlasFacts'
 /**
  * AI terminal — the dock at the bottom of the content area (the sidebar stays visible; a full-screen
  * sheet on phones), built like an instrument readout: an ink panel in JetBrains Mono. Prompt with
@@ -6,21 +19,22 @@
  * Hiding it never stops a task (only Stop, ⌘. / Ctrl+., Ctrl+C or /stop do).
  */
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { WorkerConnectionHelp } from '../mcp-servers/WorkerConnectionHelp'
 import { createPortal } from 'react-dom'
 import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, RotateCw, Settings2, Square, Undo2, X } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { navigate, openPage, useRoute } from '../../../lib/router'
-import { fmtUsd } from '../../../lib/money'
+import { fmtUsd, displayCurrency } from '../../../lib/money'
 import { useCloud } from '../../../cloud'
 import { shortcutLabel } from '../../../ui/controls'
-import { AI_MODELS, resolveModel } from '../client'
-import { AINeedsSetup } from '../setup/AINeedsSetup'
+import { RouteChip } from '../routing/RouteChip'
+import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
 import { focusIsNowhere } from '../../../ui/focus'
@@ -47,6 +61,7 @@ import { depsOf, makesTasks, onEjected, type AgentStep, type AgentTurn, type Sta
 import { ImageRefChip } from '../image/ImageRefChip'
 import { FileRefChip } from '../file/FileRefChip'
 import { MemoryProposals } from './MemoryProposals'
+import { MemoryStart } from './MemoryStart'
 import { memoryHistory } from '../memory/log'
 import { openEntry, openMemoryDb, openMemoryLog } from '../memory/open'
 import { readMemories } from '../memory/read'
@@ -57,12 +72,9 @@ import { MediaPreview } from '../media/MediaPreview'
 import { pagePrivate } from '../media/blocks'
 import { parsePageAddress } from '../../../lib/permalink'
 import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
-import { PROVIDERS } from '@/shared/ai/providers'
 import '../ai.css'
 import './agent.css'
 
-/** The terminal runs on Claude until slice 3: Anthropic bills its requests. */
-const TERMINAL_COMPANY = PROVIDERS.anthropic.company
 
 export { PropDiff, Preview } from './ReviewParts'
 
@@ -86,7 +98,8 @@ const focusPrompt = () => document.querySelector<HTMLTextAreaElement>('.term-pro
 
 export default function AgentSheet() {
   const t = useT()
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const pickedRoute = useAgent(s => s.route)
+  const hasKey = useAIStatus('terminal.task').ready || !!pickedRoute
   const status = useAgent((s) => s.status)
   const turns = useAgent((s) => s.turns)
   const echo = useAgent((s) => s.echo)
@@ -110,6 +123,9 @@ export default function AgentSheet() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const stickRef = useRef(true)
+  const waitingTurn=[...turns].reverse().find(turn=>turn.status==='running'&&turn.contract?.phase==='decision')
+  const waitingQuestion=waitingTurn?.contract?.questions.find(question=>question.state==='open')?.id
+  const lastQuestion=useRef<string|undefined>(undefined)
 
   // focus the prompt on open (and when asked again: ⌘⇧J); give focus back on hide
   useEffect(() => {
@@ -158,6 +174,24 @@ export default function AgentSheet() {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
   }, [steps, live, turns.length, status, changes.length, echo.length])
 
+  // A live question takes the reader to its answer controls, rather than the bottom of the tool log.
+  useLayoutEffect(()=>{
+    const previous=lastQuestion.current
+    lastQuestion.current=waitingQuestion
+    if(!waitingQuestion){
+      if(previous){stickRef.current=true;const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight}
+      return
+    }
+    stickRef.current=false
+    const frame=requestAnimationFrame(()=>{
+      const form=rootRef.current?.querySelector<HTMLElement>('.term-turn[data-turn="'+waitingTurn!.n+'"] .task-contract__decision')
+      const scroll=scrollRef.current
+      if(form&&scroll)scroll.scrollTop+=form.getBoundingClientRect().top-scroll.getBoundingClientRect().top
+      form?.focus({preventScroll:true})
+    })
+    return()=>cancelAnimationFrame(frame)
+  },[waitingQuestion,waitingTurn?.n])
+
   const focusReview = useCallback(() => {
     // open memory proposals first ("REMEMBER? · 2"), then the review list
     const mem = rootRef.current?.querySelector<HTMLElement>('.term-mem .term-change[data-status="pending"]')
@@ -169,6 +203,8 @@ export default function AgentSheet() {
   }, [])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Portaled inspectors belong to the React tree, but their keys belong to the modal, not this terminal.
+    if (e.target instanceof Node && !e.currentTarget.contains(e.target)) return
     if (e.nativeEvent.isComposing) return
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('[data-popover]')) {
       e.preventDefault()
@@ -195,7 +231,7 @@ export default function AgentSheet() {
     }
   }
 
-  const style = { '--term-h': max ? 1 : height } as React.CSSProperties
+  const style = { '--term-h': max ? 1 : waitingQuestion?Math.max(height,.86):height } as React.CSSProperties
   const body = (
     <section
       ref={rootRef}
@@ -210,6 +246,7 @@ export default function AgentSheet() {
       <div className="term__panel">
         <Grip />
         <Head />
+        <CurrentActivity />
         <div
           className="term-scroll"
           ref={scrollRef}
@@ -221,8 +258,10 @@ export default function AgentSheet() {
           {turns.length === 0 && echo.length === 0 && <Standby disabled={!hasKey} />}
           {/* below the intro: the scroll keeps to the bottom, so the card is what shows */}
           {!hasKey && <NoKey />}
+          <SavedWork />
           <Timeline />
           {changes.length > 0 && <Review listRef={listRef} readOnly={readOnly} />}
+          <MemoryStart />
         </div>
         {pending > 0 && (
           <div className="term-bar" role="region" aria-label={tn('features.agent.review.title', pending)}>
@@ -252,6 +291,7 @@ export default function AgentSheet() {
           </div>
         )}
         <McpChanged />
+        <AtlasTransferDock/>
         <Prompt disabled={!hasKey} onReview={focusReview} />
         <Foot />
       </div>
@@ -348,14 +388,9 @@ function Head() {
   const pinned = useAgent((s) => s.mcp?.names.length ?? null)
   const halted = useAgent((s) => !!s.halt)
   const nextMcp = useWorkspace((s) => readServers(s.settings).filter((x) => x.enabled).length)
-  const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
-  const updateSettings = useWorkspace((s) => s.updateSettings)
+  const route = useAgent(s => s.route)
   const running = status === 'running'
   const mcp = pinned ?? nextMcp
-  const cycleModel = () => {
-    const i = AI_MODELS.findIndex((m) => m.id === model.id)
-    updateSettings({ aiModel: AI_MODELS[(i + 1) % AI_MODELS.length].id })
-  }
   const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' ? 'led led--ok' : 'led led--on'
   return (
     <header className="term-head">
@@ -366,9 +401,7 @@ function Head() {
       <span className="term-head__sep" aria-hidden>
         ·
       </span>
-      <button type="button" className="term-head__model" onClick={cycleModel} disabled={running} title={t('features.ai.switchModel')}>
-        {model.short.split(' ')[0]}
-      </button>
+      <RouteChip purpose="terminal.task" chip={route} onChip={route => useAgent.setState({route})} sources={[{all:true}]} reads={t('features.agent.meter.workspace')} disabled={running} testId="term-route-chip" />
       {mcp > 0 && (
         <span className="term-head__read">
           <span aria-hidden>· </span>
@@ -391,6 +424,9 @@ function Head() {
       <span className="term-head__status" aria-live="polite">
         {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
       </span>
+<button type="button" className="term-key term-key--label" onClick={()=>openSkills(skill=>{useAgent.setState(s=>({draft:s.draft.trimEnd()+' $'+skill.spec.name+'@'+skill.version}));focusPrompt()})} aria-label={t('features.ai.skills.title')}>{t('features.ai.skills.short')}</button>
+<button type="button" className="term-key term-key--label" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
+<button type="button" className="term-key term-key--label" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
       <span className="term-spacer" />
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
         <RotateCcw size={13} strokeWidth={1.75} aria-hidden />
@@ -574,14 +610,14 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
   const ctx = turn.context
   const ctxParts = ctx ? [ctx.page ? `▣ ${ctx.page}` : '', ctx.refs ? tn('features.agent.ctx.refs', ctx.refs) : '', ...ctx.mentions.map((m) => `@${m}`)].filter(Boolean) : []
   return (
-    <section className="term-turn" data-status={turn.status} aria-label={`${t('features.agent.task')} ${pad(turn.n)}`}>
+    <section className="term-turn" data-turn={turn.n} data-status={turn.status} aria-label={`${t('features.agent.task')} ${pad(turn.n)}`}>
       <div className="term-turn__head">
         <span className="term-mark" aria-hidden>
           {turn.continues ? '↻' : '›'}
         </span>
         <p className="term-turn__task">
           {turn.continues ? <span className="term-turn__cont">{t('features.agent.continue.turn', { n: pad(turn.continues) })} · </span> : null}
-          {turn.task}
+          {atlasTransferOriginal(turn.task)}
         </p>
         <span className="term-turn__meta">
           {pad(turn.n)} · <Elapsed start={turn.startedAt} end={turn.endedAt} />
@@ -592,6 +628,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <span className="term-turn__ctxlabel">{t('features.agent.ctx.label')}</span> {ctxParts.join(' · ')}
         </p>
       )}
+      {turn.contract&&<TaskContractCard report={turn.contract}/>}
       <ol className="term-steps" role="log" aria-label={t('features.agent.log')} aria-live="polite">
         {steps.map((s) => (s.kind === 'note' ? <NoteRow key={s.id} step={s} /> : s.kind === 'mcp' ? <McpRow key={s.id} step={s} /> : <StepRow key={s.id} step={s} />))}
         {running && !live && (
@@ -611,13 +648,17 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       {turn.answer && (
         <div className="term-answer">
           <MarkdownLite source={turn.answer} />
+          <AnswerPageAction turn={turn} last={last}/>
         </div>
       )}
+      {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock} workspaceEpoch={turn.mockWorkspaceEpoch}/>)}
       <TurnMedia n={turn.n} />
       <TurnHalt n={turn.n} />
+      <AtlasTransferSummary turn={turn} steps={steps}/>
+      {turn.receipt&&<p className="term-note" role="status">{t('features.ai.program.terminal.'+turn.receipt)}{turn.receipt==='failed'&&<button className="btn btn--sm" onClick={()=>void retryTurnReceipt(turn.n)}>{t('features.ai.program.terminal.retry')}</button>}</p>}
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
-      {turn.status === 'limit' && <LimitNote last={last} />}
-      {turn.status === 'error' && turn.error && <TurnError error={turn.error} n={turn.n} last={last} />}
+      {turn.status === 'limit' && <p className="term-turn__limit">{t('features.agent.limitEnd',{max:MAX_TOOL_CALLS})}</p>}
+      {turn.status === 'error' && turn.error && !last && <TurnError error={turn.error} n={turn.n} last={false} />}
       {turn.status === 'done' && last && turn.signIn?.length ? <SignInOffer turn={turn} /> : null}
     </section>
   )
@@ -685,7 +726,8 @@ function TurnMedia({ n }: { n: number }) {
 function LimitNote({ last }: { last: boolean }) {
   const t = useT()
   const running = useAgent((s) => s.status === 'running')
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const pickedRoute = useAgent(s => s.route)
+  const hasKey = useAIStatus('terminal.task').ready || !!pickedRoute
   const staged = useAgent((s) => s.changes.filter((c) => c.status === 'pending' || c.status === 'failed').length)
   return (
     <div className="term-limit" role="status">
@@ -710,9 +752,10 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
   const keyIssue = error.code === 'invalid_key' || error.code === 'no_key' || error.code === 'permission' || error.code === 'key_in_text'
   const signIn = error.code === 'mcp_auth' && !!error.server && last
   return (
-    <div className="term-error" role="alert">
+    <div className="term-error" role={last?'alert':undefined}>
       <span className="term-error__code">✗ ERR · {error.code.toUpperCase()}</span>
       <p>{error.message}</p>
+      {error.centralLog&&<button type="button" className="btn btn--sm" onClick={()=>{navigate({name:'workspace',section:'ai'});useAgent.setState({open:false})}}><Settings2 size={13} aria-hidden/> {t('features.ai.central.open')}</button>}
       {signIn && <SignInKey server={error.server!} retry={retryOf(n)} />}
       {keyIssue && (
         <button type="button" className="btn btn--sm" onClick={() => openAISetup({ reason: error.code === 'no_key' ? 'nokey' : error.code === 'key_in_text' ? 'add' : 'refused', step: error.code === 'no_key' ? undefined : 'key', provider: 'anthropic', feature: 'terminal' })}>
@@ -757,7 +800,10 @@ function StepRow({ step }: { step: AgentStep }) {
 /** A tool call of an external MCP server ("KB · search_records"), run by Anthropic. */
 function McpRow({ step }: { step: AgentStep }) {
   const t = useT()
+  const lang=useLang()
   const call = step.mcp!
+  const citation=call.receipt?.code?.citation
+  const display=mcpActivityText(call.tool,call.display??(citation?{path:citation.path,lines:citation.lines.join('–'),version:citation.commit.slice(0,8)}:undefined),step.arg,lang)
   const result = step.state === 'run' ? t('features.ai.mcp.res.run') : step.state === 'err' ? t('features.ai.mcp.res.err') : t('features.ai.mcp.res.ok')
   const server = call.server.toUpperCase()
   return (
@@ -766,17 +812,20 @@ function McpRow({ step }: { step: AgentStep }) {
         {step.state === 'err' ? '✗' : '⇄'}
       </span>
       <span className="term-step__chip" title={callLabel(call)}>
-        {callLabel(call)}
+        {display.action}
       </span>
-      <span className="term-step__arg" title={step.arg}>
-        {step.arg}
+      <span className="term-step__arg term-step__description" title={display.detail}>
+        {display.detail}
       </span>
       <span className="term-step__res">{result}</span>
+      <details className="term-step__technical"><summary>{lang==='de'?'Technische Details':'Technical details'} · {call.server}</summary><div>{callLabel(call)}</div><pre>{call.display?.technical&&call.display.technical!=='{}'?call.display.technical:step.arg}</pre></details>
+      {call.receipt&&<AtlasFactsView receipt={call.receipt}/>}
       {step.state === 'err' && (
         <p className="term-step__err">
           {call.error ? t('features.ai.mcp.callErr', { server, tool: call.tool, error: call.error }) : t('features.ai.mcp.callErrBare', { server, tool: call.tool })} {t('features.ai.mcp.callErrNote')}
         </p>
       )}
+      {step.state === 'err' && <WorkerConnectionHelp error={new Error(call.error ?? '')} server={call.server} />}
     </li>
   )
 }
@@ -888,7 +937,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
           <CostTable lines={u.byModel} />
           <ReglerRestLine />
           <p className="term-echo__note">
-            {t('features.agent.meter.billed', { company: TERMINAL_COMPANY })} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
+            {t('features.agent.meter.providerBilling')} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
           </p>
         </>
       ) : (
@@ -910,7 +959,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
               </div>
             ))}
           </dl>
-          <p className="term-echo__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</p>
+          <p className="term-echo__note">{t('features.agent.meter.providerBilling')}</p>
         </>
       )
       break
@@ -1631,18 +1680,21 @@ function Chips() {
 function PageChip({ pageId, title }: { pageId: string; title: string }) {
   const t = useT()
   const marks = useContextMarks(pageId)
+  const tree=useAgent(s=>s.pageTree===pageId)
   const isDb = useWorkspace((s) => s.pages[pageId]?.kind === 'database')
   const menu = useMenu()
   const m = marks ? effectiveMode(marks) : 'page'
-  const suffix = m === 'marked' ? tn('features.agent.ctx.mode.marked', marks?.blocks ?? 0) : m === 'none' ? t('features.agent.ctx.mode.none') : ''
+  const suffix = tree&&m==='page'?t('features.agent.ctx.mode.tree'):m === 'marked' ? tn('features.agent.ctx.mode.marked', marks?.blocks ?? 0) : m === 'none' ? t('features.agent.ctx.mode.none') : ''
   const choose = (mode: ContextMode) => {
     if (mode === 'marked' && !marks?.marked) return pickContext(null)
+    useAgent.setState({pageTree:null})
     setContextMode(pageId, mode)
     focusPrompt()
   }
   const entries: MenuEntry[] = [
     { kind: 'section', label: t('features.agent.ctx.menu', { title }) },
-    { label: t('features.ai.reads.opt.page'), checked: m === 'page', onSelect: () => choose('page') },
+    { label: t('features.ai.reads.opt.page'), checked: m === 'page'&&!tree, onSelect: () => choose('page') },
+    { label:t('features.ai.reads.opt.tree'),checked:m==='page'&&tree,onSelect:()=>{choose('page');useAgent.setState({pageTree:pageId})} },
     { label: marks?.marked ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'), checked: m === 'marked', hint: marks?.marked ? tn('features.ai.reads.blocks', marks.marked) : undefined, onSelect: () => choose('marked') },
     { label: t('features.ai.reads.opt.mark'), hint: '/context', onSelect: () => pickContext(null) },
     { label: t('features.ai.reads.opt.none'), checked: m === 'none', onSelect: () => choose('none') },
@@ -1665,12 +1717,32 @@ function PageChip({ pageId, title }: { pageId: string; title: string }) {
         <span className="term-chip__text">{title}</span>
         {suffix && <span className="term-chip__meta term-chip__mode">· {suffix}</span>}
       </button>
-      <button type="button" className="term-chip__x" onClick={() => useAgent.setState({ pageOff: pageId })} aria-label={t('features.agent.ctx.remove', { title })}>
+      <button type="button" className="term-chip__x" onClick={() => useAgent.setState({ pageOff: pageId,pageTree:null })} aria-label={t('features.agent.ctx.remove', { title })}>
         <X size={11} strokeWidth={2} aria-hidden />
       </button>
       {!isDb && <Menu {...menu.props} entries={entries} width={280} placement="top-start" />}
     </li>
   )
+}
+
+/** Latest failure lives beside the input, outside the scrollable log and proposal list. No automatic retry. */
+function FailureDock(){
+ const t=useT(),turn=useAgent(s=>s.turns.at(-1)),route=useRoute()
+ if(turn?.status==='limit')return <section className="term-failure-dock"><LimitNote last/>{!turn.program&&!turn.contract?.program&&<><button type="button" className="btn btn--sm" onClick={()=>void continueWithCompactContext()}>{t('features.ai.skills.compact')}</button><small>{t('features.ai.skills.compactHint')}</small></>}</section>
+ if(turn?.status!=='error'||!turn.error)return null
+ const missingTarget=/Open the (?:source )?page (?:to rewrite )?first/u.test(turn.error.message)
+ const failed=turn.contract?.compiled.findings.filter(f=>f.hard&&f.status!=='verified')??[]
+ return <section className="term-failure-dock" aria-label={t('features.ai.terminal.blocked')}>
+  <strong>{t('features.ai.terminal.blocked')} · {pad(turn.n)}</strong>
+  {missingTarget?<p role="alert">{t('features.ai.terminal.missingTarget')}</p>:<TurnError error={turn.error} n={turn.n} last/>}
+  {!!failed.length&&<ul>{failed.slice(0,4).map(f=><li key={f.id}>{t('features.ai.task.finding.'+f.id)}</li>)}</ul>}
+  <div className="term-failure-dock__actions">
+   {['context','max_tokens'].includes(turn.error.code)&&!turn.program&&!turn.contract?.program&&<><button type="button" className="btn btn--sm" onClick={()=>void continueWithCompactContext()}>{t('features.ai.skills.compact')}</button><small>{t('features.ai.skills.compactHint')}</small></>}
+   {missingTarget&&route.name==='page'&&<button type="button" className="btn btn--sm" onClick={()=>{useAgent.setState({pageOff:null,draft:turn.task});focusPrompt()}}>{t('features.ai.terminal.restoreContext')}</button>}
+   <button type="button" className="btn btn--sm" onClick={()=>{useAgent.setState({draft:turn.task});focusPrompt()}}>{t('features.ai.terminal.editFailed')}</button>
+   <button type="button" className="btn btn--sm" onClick={()=>{const el=document.querySelector<HTMLElement>('.term-turn[data-turn="'+turn.n+'"]');el?.scrollIntoView({block:'start',behavior:'smooth'});el?.setAttribute('tabindex','-1');el?.focus({preventScroll:true})}}>{t('features.ai.terminal.errorDetails')}</button>
+  </div><small>{t('features.ai.terminal.reviewBeforeRetry')}</small>
+ </section>
 }
 
 function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boolean }) {
@@ -1720,7 +1792,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     })
   }
 
-  const accept = (c: Completion, i: number) => {
+  const accept = (c: Completion, i: number, execute = false) => {
     const item = c.items[i]
     // an OUT tool is shown, never taken (only the Outbox sends with it)
     if (!item || item.tool?.out) return
@@ -1731,10 +1803,12 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       useAgent.setState((s) => ({ mentions: [...s.mentions.filter((x) => x.id !== m.id), m] }))
     }
     setDraft(next, c.from + item.insert.length)
+    if(execute&&item.command==='skills')void submitPrompt(next)
   }
 
   const submit = () => {
     const text = draft.trim()
+    if (text === '/files') return
     // ↵ on an empty prompt: Continue (stopped at the limit) · sign in to a server that rejected its token (the window
     // opens from this key press) · run the task again once signed in. A y / n question goes first.
     if (!text && !running && !asking) {
@@ -1869,7 +1943,9 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
         submit()
       }}
     >
+      <FailureDock />
       <Chips />
+      <RepoFilesControl value={draft} onChange={v=>setDraft(v)} disabled={running} />
       {comp && (
         <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : comp.kind === 'tool' ? 'features.agent.complete.tools' : comp.kind === 'server' ? 'features.agent.complete.servers' : 'features.agent.complete.pages')}>
           {comp.items.map((item, i) => (
@@ -1883,7 +1959,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
               data-out={item.tool?.out || undefined}
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setActive(i)}
-              onClick={() => accept(comp, i)}
+              onClick={() => accept(comp, i, true)}
             >
               <span className="term-complete__label">{item.mention ? `${item.mention.kind === 'database' ? '▦' : '▣'} ${item.label}` : item.label}</span>
               <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.tool?.out ? t('features.agent.complete.toolOut') : item.tool ? t('features.agent.complete.toolOf', { server: item.tool.server }) : item.server ? `${item.server.codeword ? `${item.server.codeword}: · ` : ''}${item.server.host}` : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
@@ -1975,7 +2051,7 @@ function Foot() {
         </span>
         <span>{t('features.agent.kbd.help')}</span>
       </p>
-      <div className="term-meter" title={t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}>
+      <div className="term-meter" title={t('features.agent.meter.providerBilling')}>
         <dl className="term-meter__vals">
           {/* IN as in /cost: the input outside the cache; cache writes and reads beside it */}
           <div>
@@ -1999,11 +2075,11 @@ function Foot() {
             </dd>
           </div>
           <div className="term-meter__usd">
-            <dt className="visually-hidden">USD</dt>
+            <dt className="visually-hidden">{displayCurrency()}</dt>
             <dd data-testid="agent-cost">{meterUsd(usage.usd, usage.byModel, lang)}</dd>
           </div>
         </dl>
-        <span className="term-meter__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</span>
+        <span className="term-meter__note">{t('features.agent.meter.providerBilling')}</span>
       </div>
     </footer>
   )

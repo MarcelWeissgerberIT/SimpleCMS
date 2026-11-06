@@ -1,3 +1,4 @@
+import { displayAmount, moneySymbol } from '../../../lib/money'
 /**
  * What the setup assistant and Settings › AI show about providers on this device (pure readers of the store and the
  * registry — nothing is fetched or written here): key markers, a provider's plate state, its price range, its roles,
@@ -21,7 +22,7 @@ export type RoleKey = 'fast' | 'standard' | 'deep'
 export const ROLE_KEYS: readonly RoleKey[] = ['fast', 'standard', 'deep']
 
 /** A provider's key marker in settings ('' = none). */
-export const markerOf = (s: Pick<Settings, 'aiApiKey' | 'aiKeys'>, p: ProviderId): string => ((p === 'anthropic' ? s.aiApiKey : s.aiKeys?.[p]) ?? '').trim()
+export const markerOf = (s: Pick<Settings, 'aiApiKey' | 'aiKeys'>, p: ProviderId): string => ((p === 'anthropic' ? s.aiApiKey : (p === 'openai' || p === 'openrouter' ? s.aiKeys?.[p] : undefined)) ?? '').trim()
 
 /** The last 4 characters of a provider's key ('' = none or too short to show). */
 export const keyHint = (s: Pick<Settings, 'aiApiKey' | 'aiKeys'>, p: ProviderId): string => markerHint(markerOf(s, p))
@@ -33,10 +34,10 @@ export const NO_ROWS: readonly ShortlistRow[] = []
 export const hasKeyIn = (s: Pick<Settings, 'aiApiKey' | 'aiKeys'>, p: ProviderId): boolean => !!markerOf(s, p)
 
 /** The providers this build sends to, in registry order. */
-export const SHIPPED: readonly ProviderId[] = PROVIDER_ORDER.filter((p) => providerInfo(p).shipped)
+export const SHIPPED: readonly ProviderId[] = PROVIDER_ORDER.filter((p) => ['anthropic', 'openai', 'openrouter'].includes(p) && providerInfo(p).shipped)
 
 /** Plates in the assistant and in Settings: the providers this build sends to first, the coming ones after. */
-export const PLATE_ORDER: readonly ProviderId[] = [...SHIPPED, ...PROVIDER_ORDER.filter((p) => !providerInfo(p).shipped)]
+export const PLATE_ORDER: readonly ProviderId[] = [...SHIPPED, ...PROVIDER_ORDER.filter((p) => ['anthropic', 'openai', 'openrouter'].includes(p) && !providerInfo(p).shipped)]
 
 /* ------------------------------------------------------------------ */
 /* The last free check of each provider (this tab only)                 */
@@ -110,9 +111,10 @@ export function plateState(p: ProviderId, o: { hasKey: boolean; picked: boolean;
 /** "0,10 $" — a price per million in the UI's language (three decimals below 0.1). */
 export function perM(n: number, lang: Lang, sign = true): string {
   const loc = lang === 'de' ? 'de-DE' : 'en-US'
+  n = displayAmount(n)
   const digits = n > 0 && n < 0.1 ? 3 : 2
   const v = new Intl.NumberFormat(loc, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n)
-  return sign ? `${v} $` : v
+  return sign ? `${v} ${moneySymbol()}` : v
 }
 
 /** A provider's price range per million (registry rows; OpenRouter: the cheapest input of its shortlist). */

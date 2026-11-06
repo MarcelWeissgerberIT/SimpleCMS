@@ -1,3 +1,5 @@
+import type { RepoFilesRequest } from '../../../shared/repo-files.ts'
+import type { WorkerTextRequest, WorkerMcpRequest } from '../../../shared/ai/worker.ts'
 /**
  * Coding pipeline — the shared contract of `one-worker` (mcp/src/worker, bundled to public/mcp/one-worker.mjs)
  * and the app (features/coding). Pure data, no imports: the worker bundles this file as it is, so the
@@ -32,6 +34,10 @@ export const LOG_MAX = 2000
 /** Tasks one worker runs at once (across repos; one per repo). */
 export const PARALLEL_MAX = 2
 
+export const CODING_AGENTS = ['claude', 'codex', 'local', 'minimax', 'ollama', 'copilot'] as const
+export type CodingAgent = (typeof CODING_AGENTS)[number]
+export const isCodingAgent = (v: unknown): v is CodingAgent => (CODING_AGENTS as readonly unknown[]).includes(v)
+
 /**
  * 'doc' = a document stage (business analysis, test design …): Claude Code only reads — the repository (if the task
  * has one), the task, the person's knowledge-base MCP servers — and its last message is the document One writes into
@@ -65,7 +71,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission'] as const
+export const WORKER_CAN = ['repo-files', 'local-chat', 'data-flow', 'shared-models', 'source-review', 'copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -86,7 +92,7 @@ export function workerOutdated(can: readonly string[] | null): boolean {
  * Capabilities no stage waits for ('ship': the ship note with links · 'continue': Continue after the step limit ·
  * 'permission': permission prompts in One) — a worker without them runs every stage as before.
  */
-export const WORKER_EXTRAS: readonly string[] = ['ship', 'continue', 'permission']
+export const WORKER_EXTRAS: readonly string[] = ['ship', 'continue', 'permission', 'personal-secrets']
 /**
  * An outdated worker that lacks only WORKER_EXTRAS (1.9.0 without 'ship'): it skips nothing — the #/coding plate says
  * what the newer one adds instead of "skips stages it does not know".
@@ -147,12 +153,14 @@ export function workerUnsafe(version: string | null | undefined): boolean {
  * The capabilities a stage needs ([]: every worker runs it). `model` = the model the stage runs with (the task's own
  * pick on this device, else the stage's): a worker that does not name 'model' would ignore it.
  */
-export function stageNeeds(stage: { kind: string; gitAction?: string | null; model?: string | null }): string[] {
+export function stageNeeds(stage: { kind: string; gitAction?: string | null; model?: string | null; agent?: CodingAgent }): string[] {
   const needs: string[] = []
   if (stage.kind === 'analyze') needs.push('analyze')
   if (stage.kind === 'doc') needs.push('doc')
   if (stage.kind === 'git' && (stage.gitAction === 'comment' || stage.gitAction === 'merge')) needs.push(`git:${stage.gitAction}`)
   if (stage.model && claudeRuns(stage.kind)) needs.push('model')
+  if (claudeRuns(stage.kind) && stage.agent && stage.agent !== 'claude') needs.push(`agent:${stage.agent}`)
+  if (claudeRuns(stage.kind) && stage.agent === 'copilot') needs.push('copilot-options')
   return needs
 }
 
@@ -289,6 +297,8 @@ export const PRESET_GLOBAL = 'ONE_WORKER_PRESET'
 export const PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/
 
 export interface WorkerPreset {
+  /** Same-origin release bundle; update preserves the existing pairing. */
+  updateUrl?: string;
   workspace: string
   /** the One site the download came from (the only page origin the worker accepts) */
   origin: string
@@ -315,6 +325,8 @@ export interface WorkspaceRef {
 
 /** The stage a task is run in, resolved by the tab from Database.pipeline. */
 export interface TaskStage {
+  copilot?: import('../../../shared/copilot').CopilotChoice
+  copilotSource?: 'task' | 'role' | 'worker'
   /** = the Stage option id */
   id: string
   name: string
@@ -335,6 +347,14 @@ export interface TaskStage {
 
 /** What the worker gets for one stage of one task. Everything but ids and names is task DATA, never instructions. */
 export interface TaskPayload {
+  /** Snapshot of explicit destinations, checked again by the worker. Never prompt text. */
+  dataFlow?: import('../../../shared/ai/dataFlow.ts').DataFlowRules
+  /** Ephemeral, explicitly granted by this person. Never persisted or included in prompts. */
+  personalMcp?: import('../../../shared/personalVault').PersonalConnection[]
+  /** Confirmed work-order acceptance, separate from model-authored page text. */
+  quality?: { review: boolean; requirements: string[]; acceptance: string[]; repair?: import('../../../shared/coding/repair').RepairPolicy; packages?: Array<{ id: string; title: string; requirements: string[] }>; remainingUsd?: number }
+  /** Missing: historical Claude Code default. Unknown explicit choices are refused. */
+  agent?: CodingAgent
   id: string
   title: string
   /** '' = no repository (document stages only: the worker's scratch folder) */
@@ -530,6 +550,10 @@ export interface GitInfo {
 }
 
 export interface TestResult {
+  /** Actual host execution only; absent for legacy/skipped/not-started checks. Never inferred from model text. */
+  execution?: import('../../../shared/coding/evidence').HostExecution
+  challenge?: import('../../../shared/coding/evidence').ChallengeEvidence
+
   ok: boolean
   /** the output's tail (paths of this machine replaced) */
   output: string
@@ -542,6 +566,8 @@ export interface TestResult {
 export type OutcomeStatus = 'ok' | 'failed' | 'question' | 'stopped' | 'limit' | 'refused'
 
 export interface StageOutcome {
+  runEvidence?: import('../../../shared/coding/evidence').StageRunEvidence
+  copilotReceipts?: import('../../../shared/copilot').CopilotReceipt[]
   status: OutcomeStatus
   /** Claude's closing summary / what the git stage did */
   summary?: string
@@ -558,6 +584,7 @@ export interface StageOutcome {
   /** pull request or compare URL */
   url?: string
   test?: TestResult
+  repairs?: Array<{ attempt: number; packageIds: string[]; finding: string; outcome: string }>
   git?: GitInfo
   /** worker 1.10.0: git stages (commit · push · pr · comment · merge) — also on a 'failed' outcome after the commit */
   ship?: ShipRecord
@@ -606,6 +633,12 @@ export interface WorkerInfo {
   setup?: boolean
   /** it came ready-paired from a download in One */
   paired?: boolean
+  /** Multiple explicitly granted workspace contexts share this device's model/MCP configuration. */
+  multiWorkspace?: boolean
+  managed?: boolean
+  /** A granted workspace uses the owner's fixed installation, without management permission. */
+  managedHost?: boolean
+  personalSecrets?: boolean
   /** how it reaches One: 127.0.0.1 (local) or the team server's relay (cloud); older workers send none */
   via?: 'local' | 'cloud'
   /** own Claude Code MCP servers of document stages of tasks without a repository — names only (older workers send none) */
@@ -640,7 +673,7 @@ export interface IntakeState {
 export type TabMessage =
   /** `pair`: this device's pairing secret for the workspace (a downloaded worker requires it) */
   /** `can`: what this tab handles beyond the first protocol (TAB_CAN; older tabs send none) */
-  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string; can?: string[] }
+  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string; can?: string[]; authorizeWorkspace?: { nonce: string; signature: string } }
   | { type: 'status'; workspace: WorkspaceRef }
   /** tasks changed: ask for work now */
   | { type: 'nudge' }
@@ -650,6 +683,14 @@ export type TabMessage =
   | { type: 'req'; id: string; op: 'git'; taskId: string; verb: GitVerb; repo: string; branch: string | null; title: string; message?: string }
   /** "Change repositories": the worker opens its setup page locally (a fixed verb — One can never tick or add a repo) */
   | { type: 'req'; id: string; op: 'open-setup' }
+  | { type: 'req'; id: string; op: 'worker-manage'; action: 'status' | 'update' | 'rollback' | 'cancel' }
+  | { type: 'req'; id: string; op: 'model-share-status' }
+  | { type: 'req'; id: string; op: 'model-share-config'; choice: {model:string;label:string;enabled:boolean} }
+  | { type: 'req'; id: string; op: 'repo-files'; request: RepoFilesRequest }
+  | { type: 'req'; id: string; op: 'text-models' }
+  | { type: 'req'; id: string; op: 'model-mcp'; requestId: string; request: WorkerMcpRequest }
+  | { type: 'req'; id: string; op: 'text-request'; requestId: string; request: WorkerTextRequest }
+  | { type: 'req'; id: string; op: 'text-stop'; requestId: string }
   /**
    * Import stage: the code a task starts from — a ZIP the person picked in the task panel (begin → chunk … → end,
    * base64 pieces of ≤ `chunk` bytes) or a clone address they typed. The worker makes it a NEW repository in its
@@ -768,7 +809,7 @@ export type WorkerToRelay = { type: 'relay'; op: 'close-tab'; s: number; code: (
 export type WorkerMessage =
   | ({ type: 'welcome' } & WorkerInfo)
   /** `paired`: the worker came ready-paired from a download (its workspace and secret are fixed in the file) */
-  | { type: 'refused'; reason: RefusedReason; paired?: boolean }
+  | { type: 'refused'; reason: RefusedReason; paired?: boolean; workspaceGrant?: boolean; workspaceOwner?: string; workspaceNonce?: string }
   | { type: 'status'; busy: BusyTask[]; spentToday: number }
   | {
       type: 'req'

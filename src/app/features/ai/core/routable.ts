@@ -10,6 +10,11 @@ import { FEATURE_CLASSES } from '@/shared/ai/policy'
 export const ROUTABLE: Readonly<Record<ProviderId, readonly FeatureClass[]>> = {
   anthropic: FEATURE_CLASSES,
   openai: [],
+  local: FEATURE_CLASSES.filter(c => !['generate', 'gate', 'vision'].includes(c)),
+  ollama: ['write', 'ask', 'workspace', 'help'],
+  minimax: ['write', 'ask', 'workspace', 'help'],
+  codex: ['write', 'ask', 'workspace', 'help'],
+  copilot: FEATURE_CLASSES.filter(c => !['generate', 'gate'].includes(c)),
   openrouter: ['write', 'ask', 'workspace', 'structure', 'vision', 'documents', 'bulk', 'meeting', 'memory', 'help', 'gate'],
 }
 

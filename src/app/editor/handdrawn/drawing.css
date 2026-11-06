@@ -1,0 +1,27 @@
+.drawing { display: grid; gap: 16px; }
+.drawing__head, .drawing__modes, .drawing__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.drawing__head { justify-content: space-between; }
+.drawing__modes [aria-pressed='true'] { background: var(--ink); color: var(--bg); }
+.drawing__style { color: var(--signal); margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.drawing__columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 24px; }
+.drawing__controls { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.drawing__field { display: grid; gap: 7px; font-weight: 600; }
+.drawing__field .input, .drawing__code { width: 100%; min-width: 0; resize: vertical; font-weight: 400; }
+.drawing__check { display: flex; gap: 8px; align-items: center; }
+.drawing__hint { font-size: 12px; line-height: 1.5; color: var(--ink-2); margin: 0; }
+.drawing__error { color: var(--signal); overflow-wrap: anywhere; }
+.drawing__result { min-width: 0; border: 1px solid var(--rule); padding: 16px; background: var(--surface); }
+.drawing__result > .label { font-size: 10px; line-height: 1.6; }
+.drawing__result .mermaid-view__svg svg { display: block; width: 100%; max-width: 100%; max-height: 380px; height: auto; margin: 0 auto; }
+.drawing__result .mermaid-view__svg .label { font: inherit; letter-spacing: normal; text-transform: none; }
+.drawing__result .mermaid-view__svg :is(p, div, span) { margin: 0; padding: 0; min-height: 0; }
+.drawing__result .mermaid-view__svg foreignObject :is(p, div, span) { line-height: 1.125; }
+.drawing__result .mermaid-view__svg foreignObject { overflow: visible; }
+.drawing__result details { margin-top: 20px; }
+.drawing__result summary { cursor: pointer; margin-bottom: 8px; }
+.drawing__code { font-family: var(--font-mono); font-size: 12px; }
+.drawing__preview { width: 100%; height: auto; display: block; margin-bottom: 12px; }
+.drawing__empty { display: grid; justify-items: center; align-content: center; gap: 12px; min-height: 240px; color: var(--ink-3); }
+.drawing__reference { display: flex; gap: 12px; align-items: center; }
+.drawing__reference img { width: 64px; height: 64px; object-fit: contain; border: 1px solid var(--rule); }
+@media (max-width: 700px) { .drawing__columns { grid-template-columns: minmax(0, 1fr); } .drawing__head { align-items: stretch; flex-direction: column; } }

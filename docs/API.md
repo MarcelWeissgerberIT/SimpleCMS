@@ -491,3 +491,16 @@ integration profiles and the Patchbay's allowed paths (`fuseSignoffs`, see [`CLO
 server guards those keys against every other writer; which of them a server guards is in `GET /api/config` → `supports`
 (`'ai'` = `workspace.ai`, `'governor'` = `workspace.governor`, `'signoffs'` = the `fuseSignoffs` map) — an app writes such a
 key only on a server that lists it.
+
+### One-time manual agent assignments
+
+A server with `GET /api/config` → `supports` containing `agent-invocation` accepts `POST /api/workspaces/:id/agents/:agentId/run` with optional JSON `{ "invocation": { "pageId": "...", "objective": "..." } }`. Both fields are optional; objective ≤ 4,000 characters, page id ≤ 80. Unknown fields, inaccessible targets and viewers are refused before enqueueing. Empty/absent JSON retains the historical quick-run behavior.
+
+The resolved assignment (with the target title snapshot) is included as `AgentRun.invocation`. Scope is checked again against the current definition before inference. The explicit goal supersedes only the default job, never scope, tools, write mode or reviews. One-time runs do not read/write the recurring cursor, count as its last successful run, or publish to its default report page.
+
+
+### Owner-assisted first enrollment (mail unavailable)
+
+`POST /api/workspaces/:id/welcome/activate/:recipient` with `{ "revision": N, "confirm": true }` issues an activation link for an owner's private prepared recipient. Only an owner of both the source and destination team workspace may issue it. The address must have no existing account; member/viewer roles only. Returns `{ link, expiresAt, email, workspaceId }` (201), never sends mail. Treat `link` as a credential and deliver only to the intended person. It expires after 24 hours; a replacement invalidates previous links for that owner/address/workspace.
+
+GET on the link displays the intended identity without consuming it. POST confirmation atomically creates the account and its prepared membership, then signs in and opens that workspace. Existing accounts (including ones created after issuance), lost owner rights, expired or consumed tokens and missing approval metadata fail closed. This is an explicit owner-assisted enrollment decision, not proof of mailbox ownership or an account-recovery endpoint. Normal emailed sign-in links remain 15-minute, single-use links.

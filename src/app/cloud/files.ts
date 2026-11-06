@@ -201,6 +201,7 @@ export function publishReferenced(pages: Page[]): void {
     fileRefs(p.content, refs)
     fileRefs(p.cover, refs)
     fileRefs(p.properties, refs)
+    fileRefs(p.localization, refs)
   }
   const mine = [...refs].filter((id) => privateIds.has(id))
   if (mine.length) publishFileIds(mine)

@@ -203,6 +203,8 @@ function applyOrder(changes: StagedChange[]): StagedChange[] {
 const FINAL = () => true
 
 export interface ApplyOpts {
+  /** Caller access/workspace guard, rechecked after asynchronous snapshotting before an existing-content write. */
+  editGuard?: () => void
   /**
    * Who applies (store/writer.ts): the terminal's batch, an agent's run, an MCP call. Every synchronous burst of a
    * change runs under it (terminal / agent: with the change's id). The Undo's caller opens its own frame (you~undo).
@@ -376,7 +378,7 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
       if (!edits.length) continue
       let res!: Awaited<ReturnType<typeof applyPageEdits>>
       const undoEdits = await onTask(pageId, opts, async () => {
-        res = await applyPageEdits(pageId, edits, opts.writer, itemOpts())
+        res = await applyPageEdits(pageId, edits, opts.writer, itemOpts(), opts.editGuard)
         return res.undo
       })
       if (res.applied.length) undos.push({ ids: res.applied, fn: undoEdits })
@@ -662,7 +664,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
       const prev = page.content
-      const add = blocksOf(c.markdown ?? '', toDoc, c, { pageId: id, private: pagePrivate(id) }, prev)
+      const add: JSONContent[] = c.spreadsheet ? [{ type: 'spreadsheet', attrs: c.spreadsheet }] : blocksOf(c.markdown ?? '', toDoc, c, { pageId: id, private: pagePrivate(id) }, prev)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       as(() => ws().setContent(id, next, ORIGIN))
       const rev = ws().pages[id]?.contentRev

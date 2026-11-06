@@ -37,7 +37,7 @@ const propsOf = (c: StagedChange) => new Set((c.props ?? []).map((p) => p.propId
 export function supersedePlan(runs: AgentRun[], rowOf: (run: AgentRun, pageId: ID) => ID, opened: (runId: string, changeId: string) => boolean): SupersedeStep[] {
   // a run Jev made wait is staged only because of Jev: it replaces nothing and nothing replaces it. A run the Regler held
   // (stopped at the red line, proposals kept) takes part like a staged one.
-  const staged = runs.filter((r) => r.runner === 'browser' && (r.status === 'staged' || r.status === 'held') && r.staged?.length && !r.jev?.waited).sort((a, b) => b.startedAt - a.startedAt)
+  const staged = runs.filter((r) => !r.invocation && r.runner === 'browser' && (r.status === 'staged' || r.status === 'held') && r.staged?.length && !r.jev?.waited).sort((a, b) => b.startedAt - a.startedAt)
   const out: SupersedeStep[] = []
   /** proposals of newer runs that stay (not replaced themselves), newest first */
   const newer: Array<{ run: AgentRun; change: StagedChange; row: ID; props: Set<ID> }> = []

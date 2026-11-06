@@ -4,7 +4,7 @@
  * rendered raw: a bidi override would reverse what the person reads).
  */
 import { useEffect } from 'react'
-import { Bot, Command, MessageSquare, Mic, PenLine, Plug, Puzzle, Repeat, SquareTerminal, type LucideIcon } from 'lucide-react'
+import { Bot, ListTree, MessageSquare, Mic, PenLine, Plug, Puzzle, Repeat, SquareTerminal, type LucideIcon } from 'lucide-react'
 import type { Lang } from '@/shared/i18n'
 import type { ID } from '../../../store/types'
 import { useT } from '../../../i18n'
@@ -62,7 +62,7 @@ export function useMirrorRanAt(dbId: ID): number | null {
 }
 
 const ORIGIN_ICONS: Record<OriginKind, LucideIcon> = {
-  command: Command,
+  command: ListTree,
   manual: PenLine,
   loop: Repeat,
   meeting: Mic,

@@ -1,3 +1,4 @@
+import { isTestAccess, testScope, setTestScope, type TestScope } from './testScope'
 /**
  * REST wrappers (docs/CLOUD.md § REST API). Same origin, session cookie, JSON. Every failure is a
  * CloudError(code, message, status): server errors keep the server's code, a failed fetch is
@@ -140,6 +141,7 @@ interface RawUser {
   name: string | null
 }
 interface RawWorkspace {
+  participation_until?: number
   id: string
   name: string
   icon: unknown
@@ -148,7 +150,7 @@ interface RawWorkspace {
 }
 
 const toUser = (u: RawUser): CloudUser => ({ id: u.id, email: u.email, name: u.name ?? '' })
-const toWorkspace = (w: RawWorkspace): CloudWorkspace => ({ id: w.id, name: w.name, icon: (w.icon ?? null) as string | null, role: w.role, ...(w.personal ? { personal: true } : {}) })
+const toWorkspace = (w: RawWorkspace): CloudWorkspace => ({ id: w.id, name: w.name, icon: (w.icon ?? null) as string | null, role: w.role, ...(w.personal ? { personal: true } : {}), ...(Number.isFinite(w.participation_until) ? { participationUntil: w.participation_until } : {}) })
 const toMs = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) || 0 : 0)
 
 /* ------------------------------------------------------------------ endpoints */
@@ -159,8 +161,8 @@ export interface Account {
   workspaces: CloudWorkspace[]
   serverAdmin: boolean
 }
-type RawAccount = { user: RawUser; workspaces?: RawWorkspace[]; server_admin?: boolean }
-const toAccount = (r: RawAccount): Account => ({ user: toUser(r.user), workspaces: (r.workspaces ?? []).map(toWorkspace), serverAdmin: r.server_admin === true })
+type RawAccount = { user: RawUser; workspaces?: RawWorkspace[]; server_admin?: boolean; test_access?: TestScope }
+const toAccount = (r: RawAccount): Account => { setTestScope(r.test_access ?? null); return { user: toUser(r.user), workspaces: (r.workspaces ?? []).map(toWorkspace), serverAdmin: r.server_admin === true } }
 
 export async function getMe(): Promise<Account> {
   return toAccount(await request<RawAccount>('GET', 'api/me'))
@@ -184,8 +186,8 @@ export async function patchMe(name: string): Promise<CloudUser> {
   return toUser(await request<RawUser>('PATCH', 'api/me', { name }))
 }
 
-export function postSignIn(input: { email: string; redirect?: string; lang?: string; invite?: string; signup?: string }): Promise<void> {
-  return request<void>('POST', 'api/auth/request', input)
+export function postSignIn(input: { email: string; redirect?: string; lang?: string; invite?: string; signup?: string }, signal?: AbortSignal): Promise<void> {
+  return request<void>('POST', 'api/auth/request', input, { signal })
 }
 
 export function postLogout(): Promise<void> {
@@ -205,12 +207,12 @@ export function delWorkspace(id: string): Promise<void> {
 }
 
 export async function getMembers(wsId: string): Promise<Member[]> {
-  const list = await request<Array<{ user: RawUser; role: Role; created_at: unknown }>>('GET', `api/workspaces/${encodeURIComponent(wsId)}/members`)
-  return list.map((m) => ({ user: toUser(m.user), role: m.role, created_at: toMs(m.created_at) }))
+  const list = await request<Array<{ user: RawUser; role: Role; guest?: boolean; participation_until?: number; created_at: unknown }>>('GET', `api/workspaces/${encodeURIComponent(wsId)}/members`)
+  return list.map((m) => ({ user: toUser(m.user), role: m.role, guest: !!m.guest, created_at: toMs(m.created_at), ...(m.participation_until ? { participationUntil: m.participation_until } : {}) }))
 }
 
-export function patchMember(wsId: string, userId: string, role: Role): Promise<void> {
-  return request<void>('PATCH', `api/workspaces/${encodeURIComponent(wsId)}/members/${encodeURIComponent(userId)}`, { role })
+export function patchMember(wsId: string, userId: string, role: Role, guest?: boolean): Promise<void> {
+  return request<void>('PATCH', `api/workspaces/${encodeURIComponent(wsId)}/members/${encodeURIComponent(userId)}`, { role, ...(guest === undefined ? {} : {guest}) })
 }
 
 export function delMember(wsId: string, userId: string): Promise<void> {
@@ -220,6 +222,7 @@ export function delMember(wsId: string, userId: string): Promise<void> {
 type RawPerson = { id: string; name: string | null; email: string | null } | null
 
 interface RawInvite {
+  guest?: boolean
   id: string
   role: Role
   email: string | null
@@ -240,6 +243,7 @@ const toPerson = (p: NonNullable<RawPerson>) => ({ id: p.id, name: p.name ?? '',
 const toInvite = (i: RawInvite): Invite => ({
   id: i.id,
   role: i.role,
+  guest: !!i.guest,
   email: i.email ?? null,
   created_at: toMs(i.created_at) || Date.now(),
   expires_at: toMs(i.expires_at),
@@ -255,6 +259,7 @@ const toInvite = (i: RawInvite): Invite => ({
 
 /** Option names on the wire (docs/CLOUD.md § Invites & registration links). */
 const linkOptions = (o?: InviteOptions) => ({
+  ...(o?.guest !== undefined ? { guest: o.guest } : {}),
   ...(o?.maxUses !== undefined ? { max_uses: o.maxUses } : {}),
   ...(o?.days !== undefined ? { expires_in_days: o.days } : {}),
   ...(o?.domains?.length ? { domains: o.domains } : {}),
@@ -266,10 +271,11 @@ export async function postInvite(wsId: string, role: Role, email?: string, lang?
   )
 }
 
-export async function postInviteEmails(wsId: string, emails: string[], role: Role, opts?: { days?: number; lang?: string }): Promise<EmailInviteResult[]> {
+export async function postInviteEmails(wsId: string, emails: string[], role: Role, opts?: { days?: number; lang?: string; guest?: boolean }): Promise<EmailInviteResult[]> {
   const r = await request<{ results: EmailInviteResult[] }>('POST', `api/workspaces/${encodeURIComponent(wsId)}/invites/emails`, {
     emails,
     role,
+    ...(opts?.guest !== undefined ? { guest: opts.guest } : {}),
     ...(opts?.days !== undefined ? { expires_in_days: opts.days } : {}),
     ...(opts?.lang ? { lang: opts.lang } : {}),
   })
@@ -287,6 +293,7 @@ export function delInvite(wsId: string, inviteId: string): Promise<void> {
 export async function getInvitePreview(token: string): Promise<InvitePreview> {
   const r = await request<{
     workspace: { name: string; icon?: unknown }
+    guest?: boolean
     role: Role
     inviter: { name: string | null; email: string } | null
     email?: string | null
@@ -298,6 +305,7 @@ export async function getInvitePreview(token: string): Promise<InvitePreview> {
   return {
     workspace: { name: r.workspace?.name ?? '', icon: r.workspace?.icon ?? null },
     role: r.role,
+    guest: !!r.guest,
     inviter: r.inviter ? r.inviter.name || r.inviter.email || null : null,
     email: r.email ?? null,
     ...(r.expires_at !== undefined ? { expires_at: toMs(r.expires_at) } : {}),
@@ -381,7 +389,7 @@ export async function getFileBlob(wsId: string, fileId: string): Promise<{ blob:
   if (!SERVER_CAPABLE || serverKnown === false) return null
   let res: Response
   try {
-    res = await fetch(`${BASE}api/workspaces/${encodeURIComponent(wsId)}/files/${encodeURIComponent(fileId)}`, { credentials: 'same-origin' })
+    res = await fetch(`${BASE}api/workspaces/${encodeURIComponent(wsId)}/files/${encodeURIComponent(fileId)}${isTestAccess() ? `?test_access=${encodeURIComponent(testScope()?.id ?? 'pending')}` : ''}`, { credentials: 'same-origin', ...(isTestAccess() ? {cache: 'no-store' as const} : {}) })
   } catch {
     return null
   }

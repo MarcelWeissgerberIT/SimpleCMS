@@ -105,8 +105,11 @@ function decision(ctx: BrakeCtx, l: Limits): MoneyVerdict {
 
 /** The money phase (prepare only): identity without a line, else pass · cap · refuse. */
 export function money(ctx: BrakeCtx): MoneyVerdict | void {
+  // Copilot uses the person's subscription, not a USD tariff. Keep its price unknown;
+  // monetary lines cannot judge it. The gate's data/capability checks still run first.
+  if (ctx.route.p === 'copilot') return
   const l = limitsNow()
-  if (!hasLimit(l)) return
+  if (!hasLimit(l) && !ownRun(ctx.run)) return
   if (ctx.cls === 'gate') return decision(ctx, l)
   const run = ownRun(ctx.run)
   const t = totalsNow()
@@ -156,8 +159,9 @@ export function money(ctx: BrakeCtx): MoneyVerdict | void {
 
 /** precheck: what the money phase would say (null: no line) — never throws, never reserves. */
 export function peek(ctx: BrakeCtx): MoneyHint | null {
+  if (ctx.route.p === 'copilot') return null
   const l = limitsNow()
-  if (!hasLimit(l)) return null
+  if (!hasLimit(l) && !ownRun(ctx.run)) return null
   // a decision: the rests as decision() judges them — its run's decide reservation counted as room, no run budget
   const rest = ctx.cls === 'gate' ? restOf(l, totalsNow(), { reservation: ctx.run.decide ?? null }, allowanceOf({ source: ctx.run.source })) : restFor(ctx, l, totalsNow())
   const j = judged(ctx)
@@ -175,7 +179,8 @@ const loops = () => import('./loops')
 
 /** Between two loop requests (beforeRound): go · halt (the AI terminal) · stop (agents, background) — null: no line. */
 export function round(ctx: RoundCtx): RoundVerdict | null | Promise<RoundVerdict | null> {
-  if (!hasLimit(limitsNow())) return null
+  if (ctx.route.p === 'copilot') return null
+  if (!hasLimit(limitsNow()) && !ownRun(ctx.prepared.run)) return null
   return loops().then((m) => m.roundAt(ctx))
 }
 
@@ -184,7 +189,7 @@ let passStarts = false
 
 /** Before a run's first request (startCheck): the totals read in full first; the first step's band against the rests. */
 export async function startRun(input: PrepareInput): Promise<StartCheck> {
-  if (!hasLimit(limitsNow()) || passStarts) return { start: true }
+  if ((!hasLimit(limitsNow()) && !Number.isFinite(input.run?.budget)) || passStarts) return { start: true }
   return (await loops()).startAt(input, follow)
 }
 

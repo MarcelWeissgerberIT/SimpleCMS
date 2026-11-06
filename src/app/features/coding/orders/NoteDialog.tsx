@@ -39,6 +39,7 @@ export default function OrderNoteDialog({ pageId, onClose }: { pageId: ID; onClo
         </>
       }
     >
+      <p className="orn__intro">{t('features.coding.guide.note')}</p>
       <form
         id="orn-form"
         className="orn"

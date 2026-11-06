@@ -136,6 +136,8 @@ export interface GuardedResponse {
 }
 
 export interface GuardOptions {
+  /** Internal caller's response types; never forwards browser cookies or authorization. */
+  accept?: string
   /** DEV_MODE test hosts: name → "ip:port" (plain HTTP, no guard for exactly these names) */
   hosts?: Record<string, string>
   /** ms until the answer's headers (default 15 s) */
@@ -170,7 +172,7 @@ function getOnce(raw: string, hosts: Record<string, string>, opts: GuardOptions)
   const u = new URL(raw)
   const mapped = hosts[u.hostname.toLowerCase()]
   return new Promise((resolve, reject) => {
-    const headers = { 'user-agent': 'SimpleCMS-One-media-fetch/1', accept: 'image/*, video/*, audio/*;q=0.9, */*;q=0.1', 'accept-encoding': 'identity' }
+    const headers = { 'user-agent': 'SimpleCMS-One-source-fetch/1', accept: opts.accept ?? 'image/*, video/*, audio/*;q=0.9, */*;q=0.1', 'accept-encoding': 'identity' }
     const done = (err: unknown) => {
       const e = err as NodeJS.ErrnoException
       if (e?.code === 'EBLOCKED') reject(new FetchRefused('url_blocked', 'private address'))

@@ -1,3 +1,4 @@
+import { usePageLabel } from '../../store/selectors'
 /**
  * Read-only renderers for property values (cells, cards, property panel, chips).
  */
@@ -126,6 +127,7 @@ export function MeAvatar({ size = 16 }: { size?: number }) {
 
 export function RelationChip({ page, onRemove, linkable = true }: { page: Page; onRemove?: () => void; linkable?: boolean }) {
   const t = useT()
+  const label = usePageLabel(page.id)
   return (
     <span
       className="db-rel"
@@ -143,7 +145,7 @@ export function RelationChip({ page, onRemove, linkable = true }: { page: Page; 
       <span className="db-rel__icon">
         <PageIcon icon={page.icon} size={14} />
       </span>
-      <span className="db-rel__name" dir="auto">{page.title || t('common.untitled')}</span>
+      <span className="db-rel__name" dir="auto">{label || page.title || t('common.untitled')}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )

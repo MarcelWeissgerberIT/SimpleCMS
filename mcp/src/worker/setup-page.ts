@@ -131,6 +131,8 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
 .rule button:hover { background: var(--hover); color: var(--signal-ink); }
 .rule button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .hint { color: var(--ink-3); font-size: 12px; }
+.cert-meta { overflow-wrap: anywhere; min-width: 0; }
+[data-testid="worker-certificates"] input[type="file"] { max-width: 100%; }
 .warn { padding-left: 8px; border-left: 2px solid var(--signal); color: var(--signal-ink); font-size: 12px; }
 .own { grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid var(--rule); }
 .own .sw { align-items: flex-start; }
@@ -184,14 +186,74 @@ export const SETUP_JS = String.raw`(function () {
   var token = (/[#&]k=([A-Za-z0-9_-]{43})/.exec(location.hash) || [])[1] || ''
   var de = /^de\b/i.test(navigator.language || '')
   var EN = {
+    certTitle: 'Company network · TLS certificates',
+    certHint: 'The worker automatically uses certificates trusted by your operating system, alongside the standard public CAs. TLS verification stays enabled. An offered company certificate is activated only after your explicit confirmation.',
+    certInvalid: 'The saved CA is expired or unreadable and is not used. Replace or remove it here; worker setup stays available.',
+    certChoose: 'Choose company CA (.crt / .pem)',
+    certTrust: 'Trust this CA for this worker',
+    certRemove: 'Remove locally imported CAs',
+    certRestart: 'Saved locally. Finish running work, then fully stop and restart the worker using its existing desktop starter. Pairing stays unchanged. No system-wide trust or environment setting was changed.',
+    certConfirm: 'Check the SHA-256 fingerprint with your IT team. This CA can authenticate TLS connections of this worker and its child processes. Only import your approved company CA. Nothing is uploaded to ONE or Atlas.',
+    certRuntime: 'Automatic system trust requires a recent Node.js 22/24 runtime. Update Node.js if your system CA is still unavailable.',
+    certError: 'Certificate could not be read. Choose a PEM CA certificate, not a private key.',
+    certOffer: 'Check provided E+H certificate',
+    certDownload: 'Download certificate',
+    certAttention: 'TLS verification failed. 1. Check the company certificate below. 2. Confirm trust. 3. Fully restart the worker. 4. Return to ONE and retry the Atlas check. No new token is needed to fix a TLS error.',
+    copilotTitle: 'GitHub Copilot · CLI',
+    copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. In One → Settings → AI, refresh worker models and choose Copilot for workspace features; data permissions and defaults stay explicit.',
+    copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
+    copilotModel: 'Worker default model (auto lets Copilot select)',
+    copilotSave: 'Save Copilot model',
+    copilotCheck: 'Check CLI and login (no model request)',
+    copilotSaved: 'Model saved. No model request was sent.',
+    copilotReady: 'CLI signed in. Available models are listed below; no coding run was started.',
+    copilotMissing: 'CLI or login unavailable. Install/update the CLI, sign in and check organization permissions.',
+    copilotError: 'Copilot settings could not be saved.',
+    copilotEnvironment: 'Explicit task and confirmed role choices take precedence. ONE_COPILOT_MODEL overrides the saved worker default. Change the environment and restart the worker to remove that override.',
+    ollamaTitle: 'Ollama Cloud · API',
+    ollamaHint: 'Cloud model: selected source, prompts and tool results go to Ollama. The same One / Atlas harness applies. The key is saved privately on this computer, outside the One workspace. Ollama plan quotas apply; One cannot meter dollar limits for this tariff.',
+    ollamaReady: 'Key saved · not yet verified with Ollama',
+    ollamaEmpty: 'No API key configured',
+    ollamaEnvironment: 'An environment key takes precedence. Remove OLLAMA_API_KEY and restart the worker to remove it.',
+    ollamaKey: 'Ollama API key',
+    ollamaKeep: 'Leave empty to keep the saved key',
+    ollamaContext: 'Context budget (tokens)',
+    ollamaModel: 'Cloud model name',
+    ollamaModels: 'Browse Ollama cloud models (use the API name)',
+    ollamaSave: 'Save Ollama Cloud settings',
+    ollamaRemove: 'Remove saved Ollama key',
+    ollamaSaved: 'Settings saved. No model request was made.',
+    ollamaError: 'Ollama Cloud settings could not be saved.',
+    ollamaTest: 'Test connection (cloud request)',
+    ollamaTested: 'Cloud request succeeded with the saved key and model.',
+    ollamaTestError: 'Cloud test failed. Check your saved key, model and Ollama quota.',
+    miniTitle: 'MiniMax M3.1 Flash · API',
+    miniHint: 'Cloud model: selected source, prompts and tool results are sent to MiniMax. The same One / Atlas tools and task memory apply. Save your own API key on this computer; it is never sent to the One workspace.',
+    miniReady: 'Key saved · not yet verified with MiniMax',
+    miniEmpty: 'No API key configured',
+    miniEnvironment: 'An environment key takes precedence. Remove MINIMAX_API_KEY and restart the worker to revoke it.',
+    miniKey: 'MiniMax API key',
+    miniKeep: 'Leave empty to keep the saved key',
+    miniContext: 'Context budget (tokens)',
+    miniEffort: 'Thinking effort',
+    miniSave: 'Save MiniMax settings',
+    miniRemove: 'Remove saved MiniMax key',
+    miniSaved: 'Settings saved. No model request was made.',
+    miniError: 'MiniMax settings could not be saved.',
+    miniSetup: 'Configure MiniMax',
+
     kicker: '§ ONE WORKER — {ws}',
     title: 'Pick the repositories One may work in',
-    lead: 'Tick a repository and One can hand it coding tasks: Claude Code works on a branch in its own worktree, your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
+    lead: 'Select a repository for coding tasks. Your chosen coding provider works on a branch in its own worktree; your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
+    claudeOptional: 'Optional: set up Claude Code — not needed for Copilot or shared Atlas Flow',
     loading: 'Looking for git repositories…',
     searching: 'Searching… {d} folders · {n} found',
     reading: 'Reading the repositories… {f} of {n}',
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
+    workspaces: 'Additional workspaces on this device',
+    revokeWorkspace: 'Revoke access',
+    revokeWorkspaceConfirm: 'Revoke this workspace’s access and stop its running tasks? Its saved state remains on this computer.',
     noClaude: 'Claude Code was not found. Install it and sign in once (claude) — the worker looks for it again: this page within seconds, a stage when you press Retry in One. Installed where PATH does not reach? Set CLAUDE_BIN and restart the worker.',
     noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code — and sign in once (claude): the worker looks for it again, this page within seconds, a stage when you press Retry in One. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js and restart the worker.',
     syncedicloud: 'In iCloud Drive: git waits for files that are only in the cloud. Faster: a clone outside it (~/one-repos).',
@@ -227,6 +289,8 @@ export const SETUP_JS = String.raw`(function () {
     testLabel: 'Test command',
     testHint: 'Runs without a shell — && | > are plain words. A program inside the repository needs its path (./gradlew). Empty: no test stage.',
     testHintWin: 'Runs without a shell — && | > are plain words. A program inside the repository needs its path (.\\gradlew.bat); it is looked up in PATH only, never in the repository. Empty: no test stage.',
+    challengeLabel: 'Counterexample challenge · optional',
+    challengeHint: 'Run after final QA against the same candidate. Use an owner-maintained check outside the worktree when possible. It must not modify Git-visible files. Empty: coverage is explicitly not claimed.',
     analyzeLabel: 'Static analysis',
     analyzeHint: 'The Static analysis stage runs this (a linter, dotnet build, go vet …) — its findings go into the task page. Empty: none.',
     noTests: 'No test stage',
@@ -239,7 +303,7 @@ export const SETUP_JS = String.raw`(function () {
     forgeGithub: 'GitHub (also Enterprise)',
     forgeHint: 'Automatic reads the address: a host with “gitlab” or “github” in its name. A self-hosted GitLab or GitHub Enterprise under its own name: pick it here — then One links commits and branches, and the worker opens merge / pull requests with glab / gh.',
     limit: 'Cost limit per task (USD)',
-    mcpLabel: 'Own MCP servers for Claude Code',
+    mcpLabel: 'Own MCP servers for Claude Code, local Ollama, Ollama Cloud and MiniMax',
     mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
     allowedLabel: 'Allowed without asking',
     allowedHint: 'What Claude Code may do in this repo without asking you — added by “Always for this repo” in One (or by hand in worker.json). Remove one and press Save: One asks again next time.',
@@ -304,8 +368,8 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Saved — One sees {n} repositories now.',
     savedOne: 'Saved — One sees 1 repository now.',
     savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
-    wmcpLabel: 'Tasks without a repository — own MCP servers',
-    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out.',
+    wmcpLabel: 'Default MCP servers · Claude Code / Copilot / Ollama / Ollama Cloud / MiniMax',
+    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out. Copilot, Ollama and MiniMax also use this list when the repository has no list of its own; personal JSON connections come from ~/.claude.json or ONE_CODER_MCP_CONFIG.',
     writes: 'writes {file}',
     status: '§ STATUS',
     one: 'One',
@@ -322,14 +386,74 @@ export const SETUP_JS = String.raw`(function () {
     failed: 'That did not work: {e}'
   }
   var DE = {
+    certTitle: 'Firmennetz · TLS-Zertifikate',
+    certHint: 'Der Worker nutzt automatisch die vom Betriebssystem freigegebenen Zertifikate zusätzlich zu den üblichen öffentlichen CAs. Die TLS-Prüfung bleibt aktiv. Ein angebotenes Firmenzertifikat wird erst nach deiner ausdrücklichen Bestätigung aktiviert.',
+    certInvalid: 'Die gespeicherte CA ist abgelaufen oder nicht lesbar und wird nicht genutzt. Hier ersetzen oder entfernen; die Worker-Einrichtung bleibt erreichbar.',
+    certChoose: 'Firmen-CA auswählen (.crt / .pem)',
+    certTrust: 'Dieser CA für diesen Worker vertrauen',
+    certRemove: 'Lokal importierte CAs entfernen',
+    certRestart: 'Lokal gespeichert. Laufende Arbeit beenden, dann den Worker vollständig stoppen und über seinen bisherigen Desktop-Starter neu starten. Die Kopplung bleibt erhalten. Systemweite Vertrauens- und Umgebungseinstellungen wurden nicht geändert.',
+    certConfirm: 'SHA-256-Fingerabdruck mit eurer IT abgleichen. Diese CA kann TLS-Verbindungen dieses Workers und seiner Unterprozesse bestätigen. Nur eure freigegebene Firmen-CA importieren. Nichts wird zu ONE oder Atlas hochgeladen.',
+    certRuntime: 'Automatisches Systemvertrauen benötigt eine aktuelle Node.js-Version 22/24. Node.js aktualisieren, falls die System-CA weiterhin fehlt.',
+    certError: 'Zertifikat nicht lesbar. Eine PEM-CA-Datei auswählen, keinen privaten Schlüssel.',
+    certOffer: 'Bereitgestelltes E+H-Zertifikat prüfen',
+    certDownload: 'Zertifikat herunterladen',
+    certAttention: 'Die TLS-Prüfung ist fehlgeschlagen. 1. Firmenzertifikat unten prüfen. 2. Vertrauen bestätigen. 3. Worker vollständig neu starten. 4. In ONE den Atlas-Test erneut prüfen. Ein TLS-Fehler wird nicht durch einen neuen Token behoben.',
+    copilotTitle: 'GitHub Copilot · CLI',
+    copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. In One → Einstellungen → KI die Worker-Modelle aktualisieren und Copilot für Workspace-Funktionen wählen; Datenfreigaben und Standards bleiben ausdrücklich.',
+    copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
+    copilotModel: 'Worker-Standardmodell (auto lässt Copilot wählen)',
+    copilotSave: 'Copilot-Modell speichern',
+    copilotCheck: 'CLI und Anmeldung prüfen (keine Modellanfrage)',
+    copilotSaved: 'Modell gespeichert. Keine Modellanfrage gesendet.',
+    copilotReady: 'CLI angemeldet. Verfügbare Modelle stehen unten; kein Coding-Lauf gestartet.',
+    copilotMissing: 'CLI oder Anmeldung nicht verfügbar. CLI installieren/aktualisieren, anmelden und Unternehmensrechte prüfen.',
+    copilotError: 'Copilot-Einstellungen konnten nicht gespeichert werden.',
+    copilotEnvironment: 'ONE_COPILOT_MODEL hat Vorrang vor dem gespeicherten Modell. Um dies zu ändern, die Umgebungsvariable anpassen und den Worker neu starten.',
+    ollamaTitle: 'Ollama Cloud · API',
+    ollamaHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an Ollama. Der One-/Atlas-Harness gilt auch hier. Der Key wird privat auf diesem Rechner gespeichert, außerhalb des One-Arbeitsbereichs. Es gelten Ollamas Tariflimits; One kann für diesen Tarif keine Dollargrenzen messen.',
+    ollamaReady: 'Key gespeichert · noch nicht bei Ollama geprüft',
+    ollamaEmpty: 'Kein API-Key hinterlegt',
+    ollamaEnvironment: 'Ein Umgebungs-Key hat Vorrang. Zum Entfernen OLLAMA_API_KEY entfernen und den Worker neu starten.',
+    ollamaKey: 'Ollama API-Key',
+    ollamaKeep: 'Leer lassen, um den gespeicherten Key zu behalten',
+    ollamaContext: 'Kontextbudget (Tokens)',
+    ollamaModel: 'Name des Cloud-Modells',
+    ollamaModels: 'Ollama-Cloud-Modelle ansehen (API-Namen verwenden)',
+    ollamaSave: 'Ollama-Cloud-Einstellungen speichern',
+    ollamaRemove: 'Gespeicherten Ollama-Key entfernen',
+    ollamaSaved: 'Einstellungen gespeichert. Es wurde keine Modellanfrage gesendet.',
+    ollamaError: 'Ollama-Cloud-Einstellungen konnten nicht gespeichert werden.',
+    ollamaTest: 'Verbindung testen (Cloud-Anfrage)',
+    ollamaTested: 'Cloud-Anfrage mit gespeichertem Key und Modell erfolgreich.',
+    ollamaTestError: 'Cloud-Test fehlgeschlagen. Gespeicherten Key, Modell und Ollama-Kontingent prüfen.',
+    miniTitle: 'MiniMax M3.1 Flash · API',
+    miniHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an MiniMax. Die One-/Atlas-Werkzeuge und das Aufgabengedächtnis gelten auch hier. Deinen eigenen API-Key nur auf diesem Rechner speichern; er wird nicht an den One-Arbeitsbereich gesendet.',
+    miniReady: 'Key gespeichert · noch nicht bei MiniMax geprüft',
+    miniEmpty: 'Kein API-Key eingerichtet',
+    miniEnvironment: 'Ein Umgebungs-Key hat Vorrang. Zum Widerrufen MINIMAX_API_KEY entfernen und den Worker neu starten.',
+    miniKey: 'MiniMax API-Key',
+    miniKeep: 'Leer lassen, um den gespeicherten Key zu behalten',
+    miniContext: 'Kontextbudget (Tokens)',
+    miniEffort: 'Denktiefe',
+    miniSave: 'MiniMax-Einstellungen speichern',
+    miniRemove: 'Gespeicherten MiniMax-Key entfernen',
+    miniSaved: 'Einstellungen gespeichert. Keine Modellanfrage gesendet.',
+    miniError: 'MiniMax-Einstellungen konnten nicht gespeichert werden.',
+    miniSetup: 'MiniMax einrichten',
+
     kicker: '§ ONE WORKER — {ws}',
     title: 'Wähle die Repositories, in denen One arbeiten darf',
-    lead: 'Hak ein Repository an, und One kann ihm Coding-Aufgaben geben: Claude Code arbeitet auf einem Branch in einem eigenen Worktree, dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
+    lead: 'Wähle ein Repository für Coding-Aufgaben. Der gewählte Coding-Anbieter arbeitet auf einem Branch in einem eigenen Worktree; dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
+    claudeOptional: 'Optional: Claude Code einrichten – für Copilot und geteiltes Atlas Flow nicht nötig',
     loading: 'Suche Git-Repositories…',
     searching: 'Suche läuft … {d} Ordner · {n} gefunden',
     reading: 'Lese die Repositories … {f} von {n}',
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
+    workspaces: 'Weitere Arbeitsbereiche auf diesem Gerät',
+    revokeWorkspace: 'Freigabe entziehen',
+    revokeWorkspaceConfirm: 'Diesem Arbeitsbereich die Freigabe entziehen und seine laufenden Aufträge stoppen? Sein gespeicherter Stand bleibt auf diesem Rechner.',
     noClaude: 'Claude Code wurde nicht gefunden. Installiere es und melde dich einmal an (claude) – der Worker sucht es erneut: diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Liegt es außerhalb des PATH? Dann CLAUDE_BIN setzen und den Worker neu starten.',
     noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code – und melde dich einmal an (claude): Der Worker sucht es erneut, diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen und den Worker neu starten.',
     syncedicloud: 'In iCloud Drive: git wartet auf Dateien, die nur in der Cloud liegen. Schneller: ein Klon außerhalb (~/one-repos).',
@@ -365,6 +489,8 @@ export const SETUP_JS = String.raw`(function () {
     testLabel: 'Testbefehl',
     testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Ein Programm im Repository braucht seinen Pfad (./gradlew). Leer: keine Test-Stufe.',
     testHintWin: 'Läuft ohne Shell – && | > sind normale Wörter. Ein Programm im Repository braucht seinen Pfad (.\\gradlew.bat); gesucht wird nur im PATH, nie im Repository. Leer: keine Test-Stufe.',
+    challengeLabel: 'Gegenprobe · optional',
+    challengeHint: 'Läuft nach der abschließenden QA am selben Stand. Möglichst eine von dir gepflegte Prüfung außerhalb des Worktrees verwenden. Sie darf Git-sichtbare Dateien nicht ändern. Leer: keine Gegenprobenabdeckung behauptet.',
     analyzeLabel: 'Statische Analyse',
     analyzeHint: 'Die Stufe „Statische Analyse“ führt das aus (ein Linter, dotnet build, go vet …) – die Befunde kommen in die Aufgabenseite. Leer: keine.',
     noTests: 'Keine Test-Stufe',
@@ -377,7 +503,7 @@ export const SETUP_JS = String.raw`(function () {
     forgeGithub: 'GitHub (auch Enterprise)',
     forgeHint: 'Automatisch liest die Adresse: ein Host mit „gitlab“ oder „github“ im Namen. Ein selbst betriebenes GitLab oder GitHub Enterprise unter eigenem Namen: hier wählen – dann verlinkt One Commits und Branches, und der Worker öffnet Merge / Pull Requests mit glab / gh.',
     limit: 'Kostengrenze pro Aufgabe (USD)',
-    mcpLabel: 'Eigene MCP-Server für Claude Code',
+    mcpLabel: 'Eigene MCP-Server für Claude Code und lokales Ollama',
     mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
     allowedLabel: 'Ohne Nachfrage erlaubt',
     allowedHint: 'Was Claude Code in diesem Repo ohne Rückfrage darf – hinzugefügt mit „Für dieses Repo immer erlauben“ in One (oder von Hand in worker.json). Entferne eine Regel und drücke Speichern: One fragt beim nächsten Mal wieder.',
@@ -442,8 +568,8 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Gespeichert – One sieht jetzt {n} Repositories.',
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
     savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
-    wmcpLabel: 'Aufgaben ohne Repository – eigene MCP-Server',
-    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen.',
+    wmcpLabel: 'Standard-MCP-Server · Claude Code / Copilot / Ollama / Ollama Cloud / MiniMax',
+    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen. Copilot, Ollama und MiniMax nutzen diese Liste auch, wenn das Repository keine eigene hat; die persönlichen JSON-Verbindungen stehen in ~/.claude.json oder ONE_CODER_MCP_CONFIG.',
     writes: 'schreibt {file}',
     status: '§ STATUS',
     one: 'One',
@@ -520,6 +646,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   var state = null
+  var certPem = '', certPreview = [], certMessage = '', certBusy = false
   var edits = {}
   var adding = false
   var addError = ''
@@ -528,6 +655,20 @@ export const SETUP_JS = String.raw`(function () {
   var cloneOpen = false
   var cloneUrl = ''
   var cloneDirText = null
+  var copilotModel = null
+  var copilotBusy = false
+  var copilotMessage = ''
+  var copilotModels = []
+  var ollamaKey = ''
+  var ollamaContext = null
+  var ollamaModel = null
+  var ollamaSaving = false
+  var ollamaMessage = ''
+  var miniKey = ''
+  var miniContext = null
+  var miniEffort = null
+  var miniSaving = false
+  var miniMessage = ''
   var wmcpText = null
   var cloneErr = ''
   var cloneProto = 'https'
@@ -549,7 +690,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice(), allowed0: (r.allowed || []).slice() }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', challenge: r.challengeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice(), allowed0: (r.allowed || []).slice() }
     return edits[r.path]
   }
 
@@ -679,6 +820,7 @@ export const SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t(windows() ? 'testHintWin' : 'testHint') })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'ch', text: t('challengeLabel') }), el('input', { type: 'text', id: id + 'ch', value: e.challenge, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.challenge = ev.target.value } }), el('span', { className: 'hint', text: t('challengeHint') })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       forge,
@@ -687,6 +829,139 @@ export const SETUP_JS = String.raw`(function () {
       allowed,
       own
     ])
+  }
+
+  function copilotPanel() {
+    var c = state.copilot || { model: 'auto' }
+    return el('section', { className: 'wmcp', 'data-testid': 'copilot-setup' }, [
+      el('h2', { className: 'label', text: t('copilotTitle') }),
+      el('p', { className: 'hint', text: t('copilotHint') }),
+      el('p', { className: 'hint', text: t('copilotInstall') }),
+      c.error ? el('p', { className: 'hint', text: c.error }) : null,
+      c.environment ? el('p', { className: 'hint', text: t('copilotEnvironment') }) : null,
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'copilot-model', text: t('copilotModel') }),
+        el('input', { type: 'text', id: 'copilot-model', list: 'copilot-models', value: copilotModel === null ? c.model : copilotModel, maxlength: 120, autocomplete: 'off', spellcheck: 'false', disabled: copilotBusy, oninput: function (e) { copilotModel = e.target.value } }),
+        el('datalist', { id: 'copilot-models' }, ['auto'].concat(copilotModels).map(function (name) { return el('option', { value: name }) }))
+      ]),
+      el('button', { type: 'button', className: 'btn', text: t('copilotSave'), disabled: copilotBusy, onclick: function () {
+        copilotBusy = true; copilotMessage = ''; render()
+        api('POST', 'copilot', { model: (copilotModel === null ? c.model : copilotModel).trim() }).then(function (next) { copilotBusy = false; copilotModel = null; copilotMessage = t('copilotSaved'); adopt(next) }, function () { copilotBusy = false; copilotMessage = t('copilotError'); render() })
+      } }),
+      el('button', { type: 'button', className: 'btn', text: t('copilotCheck'), disabled: copilotBusy, onclick: function () {
+        copilotBusy = true; copilotMessage = ''; render()
+        api('POST', 'copilot-check', {}).then(function (result) { copilotBusy = false; copilotModels = result.models || []; copilotMessage = t(result.authenticated ? 'copilotReady' : 'copilotMissing'); render() }, function () { copilotBusy = false; copilotMessage = t('copilotMissing'); render() })
+      } }),
+      copilotModels.length ? el('p', { className: 'hint', text: copilotModels.join(', ') }) : null,
+      copilotMessage ? el('p', { className: 'hint', role: 'status', text: copilotMessage }) : null
+    ])
+  }
+
+  function minimaxPanel() {
+    var m = state.minimax || { configured: false, contextTokens: 131072, effort: 'high' }
+    function save(remove) {
+      var body = remove ? { remove: true } : { apiKey: miniKey, contextTokens: miniContext || m.contextTokens, effort: miniEffort || m.effort }
+      miniSaving = true; miniMessage = ''; render()
+      api('POST', 'minimax', body).then(function (next) {
+        miniKey = ''; miniContext = null; miniEffort = null; miniSaving = false; miniMessage = t('miniSaved'); adopt(next)
+      }, function (e) { miniSaving = false; miniMessage = e.message || t('miniError'); render() })
+    }
+    return el('section', { className: 'wmcp', 'data-testid': 'minimax-setup' }, [
+      el('h2', { className: 'label', text: t('miniTitle') }),
+      el('p', { className: 'hint', text: t('miniHint') }),
+      el('p', { className: 'hint', text: m.error || t(m.configured ? 'miniReady' : 'miniEmpty') }),
+      m.environment ? el('p', { className: 'hint', text: t('miniEnvironment') }) : null,
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'minimax-key', text: t('miniKey') }),
+        el('input', { type: 'password', id: 'minimax-key', value: miniKey, autocomplete: 'new-password', spellcheck: 'false', placeholder: t('miniKeep'), disabled: miniSaving, oninput: function (e) { miniKey = e.target.value } })
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'minimax-context', text: t('miniContext') }),
+        el('select', { id: 'minimax-context', disabled: miniSaving, onchange: function (e) { miniContext = Number(e.target.value) } }, [65536, 131072, 262144, 1000000].map(function (n) { return el('option', { value: n, selected: n === (miniContext || m.contextTokens), text: n.toLocaleString(de ? 'de-DE' : 'en-US') }) }))
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'minimax-effort', text: t('miniEffort') }),
+        el('select', { id: 'minimax-effort', disabled: miniSaving, onchange: function (e) { miniEffort = e.target.value } }, ['low', 'medium', 'high', 'xhigh', 'max'].map(function (v) { return el('option', { value: v, selected: v === (miniEffort || m.effort), text: v }) }))
+      ]),
+      el('button', { type: 'button', className: 'btn', text: t('miniSave'), disabled: miniSaving, onclick: function () { save(false) } }),
+      m.configured ? el('button', { type: 'button', className: 'btn btn--ghost', text: t('miniRemove'), disabled: miniSaving, onclick: function () { save(true) } }) : null,
+      miniMessage ? el('p', { className: 'hint', role: 'status', text: miniMessage }) : null
+    ])
+  }
+
+  function ollamaPanel() {
+    var m = state.ollama || { configured: false, contextTokens: 131072, model: 'minimax-m3.1-flash' }
+    function save(remove) {
+      var body = remove ? { remove: true } : { apiKey: ollamaKey, contextTokens: ollamaContext || m.contextTokens, model: (ollamaModel || m.model).trim() }
+      ollamaSaving = true; ollamaMessage = ''; render()
+      api('POST', 'ollama', body).then(function (next) {
+        ollamaKey = ''; ollamaContext = null; ollamaModel = null; ollamaSaving = false; ollamaMessage = t('ollamaSaved'); adopt(next)
+      }, function (e) { ollamaSaving = false; ollamaMessage = e.message || t('ollamaError'); render() })
+    }
+    return el('section', { className: 'wmcp', 'data-testid': 'ollama-setup' }, [
+      el('h2', { className: 'label', text: t('ollamaTitle') }),
+      el('p', { className: 'hint', text: t('ollamaHint') }),
+      el('p', { className: 'hint', text: m.error || t(m.configured ? 'ollamaReady' : 'ollamaEmpty') }),
+      m.environment ? el('p', { className: 'hint', text: t('ollamaEnvironment') }) : null,
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-key', text: t('ollamaKey') }),
+        el('input', { type: 'password', id: 'ollama-key', value: ollamaKey, autocomplete: 'new-password', spellcheck: 'false', placeholder: t('ollamaKeep'), disabled: ollamaSaving, oninput: function (e) { ollamaKey = e.target.value } })
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-context', text: t('ollamaContext') }),
+        el('select', { id: 'ollama-context', disabled: ollamaSaving, onchange: function (e) { ollamaContext = Number(e.target.value) } }, [65536, 131072, 262144, 1000000].map(function (n) { return el('option', { value: n, selected: n === (ollamaContext || m.contextTokens), text: n.toLocaleString(de ? 'de-DE' : 'en-US') }) }))
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-model', text: t('ollamaModel') }),
+        el('input', { type: 'text', id: 'ollama-model', value: ollamaModel === null ? m.model : ollamaModel, maxlength: 128, autocomplete: 'off', spellcheck: 'false', disabled: ollamaSaving, oninput: function (e) { ollamaModel = e.target.value } }),
+        el('a', { href: 'https://ollama.com/search?c=cloud', target: '_blank', rel: 'noopener noreferrer', text: t('ollamaModels') })
+      ]),
+      el('button', { type: 'button', className: 'btn', text: t('ollamaSave'), disabled: ollamaSaving, onclick: function () { save(false) } }),
+      m.configured ? el('button', { type: 'button', className: 'btn', text: t('ollamaTest'), disabled: ollamaSaving, onclick: function () {
+        ollamaSaving = true; ollamaMessage = ''; render()
+        api('POST', 'ollama-test', {}).then(function () { ollamaSaving = false; ollamaMessage = t('ollamaTested'); render() }, function () { ollamaSaving = false; ollamaMessage = t('ollamaTestError'); render() })
+      } }) : null,
+      m.configured ? el('button', { type: 'button', className: 'btn btn--ghost', text: t('ollamaRemove'), disabled: ollamaSaving, onclick: function () { save(true) } }) : null,
+      ollamaMessage ? el('p', { className: 'hint', role: 'status', text: ollamaMessage }) : null
+    ])
+  }
+
+  function certificatesPanel() {
+    var box = el('details', { className: 'msg', open: state.certificates && state.certificates.needsAttention, 'data-testid': 'worker-certificates' }, [el('summary', { text: t('certTitle') }), el('p', { className: 'hint', text: t('certHint') })])
+    if (state.certificates && state.certificates.needsAttention) box.appendChild(el('p', { role: 'status', text: t('certAttention') }))
+    if (state.certificates && state.certificates.invalid) box.appendChild(el('p', { role: 'status', text: t('certInvalid') }))
+    if (state.certificates && state.certificates.offer) {
+      var offer = function (download) {
+        certBusy = true
+        api('POST', 'certificates-offer', {}).then(function (result) {
+          certPem = result.pem; certPreview = result.certificates; certMessage = ''
+          if (download) { var url = URL.createObjectURL(new Blob([result.pem], {type:'application/x-pem-file'})), a = document.createElement('a'); a.href = url; a.download = 'EH-RootCA03.crt'; a.click(); setTimeout(function () { URL.revokeObjectURL(url) },1000) }
+        }, function (e) { certMessage = e.message }).finally(function () { certBusy = false; render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true })
+      }
+      box.appendChild(el('p', { text: state.certificates.offer.name }))
+      box.appendChild(el('div', { className: 'clone__keys' }, [el('button', { className:'btn btn--primary',type:'button',disabled:certBusy,text:t('certOffer'),onclick:function(){offer(false)} }),el('button',{className:'btn',type:'button',disabled:certBusy,text:t('certDownload'),onclick:function(){offer(true)}})]))
+    }
+    if (!state.certificates || !state.certificates.system) box.appendChild(el('p', { className: 'hint', text: t('certRuntime') }))
+    ;((state.certificates || {}).certificates || []).forEach(function (c) { box.appendChild(el('p', { className: 'hint cert-meta', text: c.subject + ' · SHA-256 ' + c.fingerprint })) })
+    box.appendChild(el('label', { className: 'field' }, [el('span', { text: t('certChoose') }), el('input', { type: 'file', accept: '.crt,.pem', disabled: certBusy, onchange: function (ev) {
+      var file = ev.target.files && ev.target.files[0]; if (!file) return
+      if (file.size > 131072) { certMessage = t('certError'); render(); return }
+      certBusy = true; certPreview = []; certPem = ''; certMessage = ''
+      file.text().then(function (pem) { return api('POST', 'certificates-preview', { pem: pem }).then(function (result) { certPem = pem; certPreview = result.certificates }) }).catch(function (e) { certMessage = e.message || t('certError') }).finally(function () { certBusy = false; render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true })
+    } })]))
+    certPreview.forEach(function (c) { box.appendChild(el('p', { className: 'hint cert-meta', text: c.subject + ' · ' + c.issuer + ' · ' + c.validTo + ' · SHA-256 ' + c.fingerprint })) })
+    if (certPreview.length) {
+      box.appendChild(el('p', { className: 'hint', text: t('certConfirm') }))
+      box.appendChild(el('button', { className: 'btn btn--primary', type: 'button', disabled: certBusy, text: t('certTrust'), onclick: function () {
+        certBusy = true
+        api('POST', 'certificates-save', { pem: certPem, fingerprints: certPreview.map(function (c) { return c.fingerprint }) }).then(function (next) { state = next; certPem = ''; certPreview = []; certMessage = t('certRestart') }, function (e) { certMessage = e.message }).finally(function () { certBusy = false; render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true })
+      } }))
+    }
+    if (((state.certificates || {}).certificates || []).length || (state.certificates || {}).invalid) box.appendChild(el('button', { className: 'btn', type: 'button', disabled: certBusy, text: t('certRemove'), onclick: function () {
+      api('POST', 'certificates-remove', {}).then(function (next) { state = next; certMessage = t('certRestart'); render(); var p = document.querySelector('[data-testid="worker-certificates"]'); if (p) p.open = true }, fail)
+    } }))
+    if (certMessage) box.appendChild(el('p', { role: 'status', text: certMessage }))
+    return box
   }
 
   function render() {
@@ -700,7 +975,17 @@ export const SETUP_JS = String.raw`(function () {
       return
     }
     if (!state.workspace.id) app.appendChild(el('p', { className: 'msg', text: t('unbound') }))
-    if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t(windows() ? 'noClaudeWin' : 'noClaude') }))
+    if (state.certificates && state.certificates.needsAttention) app.appendChild(certificatesPanel())
+    if (state.workspaces && state.workspaces.length) {
+      var spaces = el('section', { className: 'msg' }, [el('h2', { text: t('workspaces') })])
+      state.workspaces.forEach(function (space) {
+        spaces.appendChild(el('p', {}, [el('span', { text: space.name + ' · ' }), el('button', { type: 'button', text: t('revokeWorkspace'), onclick: function () {
+          if (confirm(t('revokeWorkspaceConfirm'))) api('POST', 'workspace-revoke', { id: space.id }).then(adopt, fail)
+        } })]))
+      })
+      app.appendChild(spaces)
+    }
+    if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('details', { className: 'hint', 'data-testid': 'optional-claude-setup' }, [el('summary', { text: t('claudeOptional') }), el('p', { text: t(windows() ? 'noClaudeWin' : 'noClaude') })]))
     if (state.marked && state.marked.length) app.appendChild(marksNote(state.marked))
     var sc = state.scan
     var meta = ''
@@ -746,6 +1031,10 @@ export const SETUP_JS = String.raw`(function () {
       el('input', { type: 'text', id: 'wmcp', value: wmcpText === null ? (state.mcpServers || []).join(', ') : wmcpText, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { wmcpText = ev.target.value } }),
       el('span', { className: 'hint', text: t('wmcpHint') })
     ]))
+    app.appendChild(copilotPanel())
+    if (!state.certificates || !state.certificates.needsAttention) app.appendChild(certificatesPanel())
+    app.appendChild(minimaxPanel())
+    app.appendChild(ollamaPanel())
     app.appendChild(statusPanel())
     var bar = $('bar')
     bar.hidden = false
@@ -993,7 +1282,7 @@ export const SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed, allowedWas: e.allowed0 }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, challenge: e.challenge, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed, allowedWas: e.allowed0 }
     })
     busy = 'save'
     note = null

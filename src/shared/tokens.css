@@ -179,6 +179,24 @@
   --lamp-off: color-mix(in srgb, var(--toggle-white) 7%, var(--lamp-housing));
   --lamp-legend: color-mix(in srgb, var(--toggle-white) 70%, var(--lamp-housing));
   --lamp-legend-2: color-mix(in srgb, var(--toggle-white) 60%, var(--lamp-housing));
+  /* Annunciator 6a: fixed charcoal hardware in both Paper and Carbon. */
+  --ann-floor: #17181a;
+  --ann-panel-hi: #3a3d41;
+  --ann-panel-lo: #242629;
+  --ann-rim: #65696d;
+  --ann-socket: #101113;
+  --ann-lens: #26282b;
+  --ann-hatch: #464a4d;
+  --ann-ink: #ecebe7;
+  --ann-muted: #c0c2c4;
+  --ann-shade: rgb(0 0 0 / 55%);
+  --ann-glint: rgb(255 255 255 / 22%);
+  --ann-texture: rgb(255 255 255 / 4%);
+  --ann-grid: rgb(0 0 0 / 9%);
+  --ann-glass: rgb(238 245 249 / 6%);
+  --ann-glass-edge: rgb(238 245 249 / 60%);
+  --ann-glass-shade: rgb(0 0 0 / 16%);
+  --ann-hinge: #a8adb1;
   /* the lamp cursor (Space jumped here): a double ring in ink, never the signal — the surface ring shows on the black
      housing in Paper, the ink ring in Carbon */
   --lamp-cursor: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);

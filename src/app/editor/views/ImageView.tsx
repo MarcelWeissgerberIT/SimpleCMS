@@ -10,6 +10,8 @@ import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 import { ImageAIKey } from './ImageAIKey'
 import { useFocusWhenShown } from '../../ui/focus'
 import { openAIPanel } from '../context/redo'
+import { drawingSpec } from '../handdrawn/model'
+import { openDrawing } from '../handdrawn/open'
 
 const MIN_W = 80
 /** Stored types that are safe to open in a tab: a blob: URL is same-origin, so an opened SVG/HTML could run script. */
@@ -167,6 +169,7 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
             <div className="image-view__tools" role="toolbar" aria-label={t('editor.image.tools')}>
               {/* Claude for images: describe, read out the text, image → table, ask */}
               <ImageAIKey editor={editor} getPos={getPos} />
+              {drawingSpec(node.attrs.drawing) && <button type="button" className="btn btn--sm" onClick={() => openDrawing(editor, node.attrs.id, 'image')} data-testid="drawing-edit">{t('editor.drawing.edit')}</button>}
               <span className="image-view__sep" />
               {(['left', 'center', 'right'] as const).map((a) => {
                 const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight

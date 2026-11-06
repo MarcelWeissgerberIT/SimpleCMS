@@ -4,7 +4,7 @@
  * (providers, data rules, routes …) around it. This device's own AI settings stay in Settings › AI.
  */
 import { Suspense } from 'react'
-import { BudgetSlot } from '../../features'
+import { BudgetSlot, CentralAISettings } from '../../features'
 import { useT } from '../../i18n'
 import { SectionHead } from './parts'
 
@@ -14,6 +14,7 @@ export function AISection() {
     <>
       <SectionHead n="07" title={t('shell.ws.sec.ai')} lead={t('shell.ws.ai.lead')} help="governor" />
       <Suspense fallback={null}>
+        <CentralAISettings />
         <BudgetSlot />
       </Suspense>
     </>

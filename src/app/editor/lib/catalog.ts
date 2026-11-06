@@ -76,6 +76,7 @@ import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
 import { insertSynced } from '../synced/actions'
 import { insertMeetingNotes } from '../schema/meetingNotes'
 import { insertSpreadsheet } from '../schema/spreadsheet'
+import { canInsertDesignMock, insertDesignMock } from '../schema/designMock'
 import { insertChart } from '../schema/chart'
 import { Columns5, ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
@@ -322,6 +323,9 @@ export const BLOCKS: BlockItem[] = [
   },
   { id: 'dbLinked', group: 'database', icon: Link2, keywords: 'linked database existing verknüpfte datenbank', picker: 'database', run: (ctx) => ctx.pickDatabase?.() },
   // ---------------- advanced
+  { id: 'codeAnalysis', group: 'advanced', icon: Code, md: '/code-analysis', keywords: 'code analyse analysis finding atlas quellcode untersuchen', run: ctx => insertBlock(ctx.editor, {type:'codeBlock',attrs:{language:'code-analysis'},content:[{type:'text',text:'{}'}]},ctx.range) },
+  { id: 'uiStudio', group: 'advanced', icon: Code, md: '/ui-studio', keywords: 'ui instructions components studio design referenz html analyse komponenten', run: ctx => insertBlock(ctx.editor, {type:'codeBlock',attrs:{language:'ui-instructions'},content:[{type:'text',text:'{}'}]},ctx.range) },
+  { id: 'codeReference', group: 'advanced', icon: Code, md: '/quellcode', keywords: 'atlas code evidence reference source finding quellcode beleg referenz datei', run: ctx => insertBlock(ctx.editor, {type:'codeBlock',attrs:{language:'atlas-code'},content:[{type:'text',text:'{}'}]},ctx.range) },
   { id: 'code', group: 'advanced', icon: Code, md: '```', keys: 'Mod+Alt+C', keywords: 'code snippet programming quellcode', turnInto: 'codeBlock', run: turn('codeBlock') },
   {
     id: 'math',
@@ -330,6 +334,16 @@ export const BLOCKS: BlockItem[] = [
     md: '$$',
     keywords: 'math equation latex katex formula formel gleichung',
     run: (ctx) => insertBlock(ctx.editor, { type: 'blockMath', attrs: { latex: '' } }, ctx.range),
+  },
+  {
+    id: 'handDrawn',
+    group: 'media',
+    icon: ClipboardPen,
+    keywords: 'hand drawn handdrawn sketch illustration diagram orange cover skizze handgezeichnet zeichnen schaubild',
+    run: (ctx) => {
+      if (ctx.range) ctx.editor.chain().focus().deleteRange(ctx.range).run()
+      ctx.bridge.setState({ drawing: {} })
+    },
   },
   {
     id: 'mermaid',
@@ -485,6 +499,15 @@ export const BLOCKS: BlockItem[] = [
     },
   },
   // ---------------- AI
+  { id: 'designMock', group: 'ai', icon: PanelTop, md: '/mock', keywords: 'mock ui atlas design prototype dialog liste vorschau entwurf', disabled: () => canInsertDesignMock() ? null : t('editor.mock.serverUpdate'), run: ctx => insertDesignMock(ctx.editor, ctx.range) },
+  {
+    id: 'skills', group: 'ai', icon: 'AI', md: '/skills',
+    keywords: 'skills skill library preview instructions fähigkeiten faehigkeiten bibliothek anleitung vorschau',
+    run: (ctx) => {
+      del(ctx)
+      ctx.bridge.setState({ ai: { mode: 'block', open: 'skills' } })
+    },
+  },
   {
     id: 'ai',
     group: 'ai',

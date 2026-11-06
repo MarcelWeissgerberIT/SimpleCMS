@@ -1,3 +1,6 @@
+import { meterUsd } from '../ai/agent/CostOut'
+import { openAgentReport } from './dialogs'
+import { loadReportLinks, useAgentReportLinks } from './reportLinks'
 /**
  * Custom agents — the run history of one agent: one instrument row per run (LED, trigger, start,
  * duration, cost), unfolding to the report, the step chips (tools, MCP calls, notes — notes wrap, never cut) and the
@@ -11,11 +14,12 @@
  * reasons row show only on the row holding the focus; touch screens get "Discard ▾" with the reasons instead.
  * Numbers in the UI's language. Fits 390 px.
  */
+import './invocation.css'
 import { memo, useEffect, useId, useMemo, useReducer, useRef, useState, type KeyboardEvent, type MouseEvent, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 import { ChevronDown, ChevronRight, ExternalLink, Undo2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { openPage } from '../../lib/router'
+import { useRoute, openPage } from '../../lib/router'
 import { useCloud } from '../../cloud'
 import { t, useLang, useT } from '../../i18n'
 import { MarkdownLite } from '../ai/MarkdownLite'
@@ -56,22 +60,37 @@ const pad = (n: number) => String(n).padStart(2, '0')
 
 export function RunHistory({ runs, empty }: { runs: AgentRun[]; empty: ReactNode }) {
   const t = useT()
+  const route = useRoute()
+  const addressed = route.name === 'agents' ? route.run : undefined
   if (!runs.length) return <div className="agx-empty">{empty}</div>
   return (
     <ol className="agx-runs" aria-label={t('features.agents.runs.title')}>
       {runs.map((r, i) => (
-        <RunItem key={r.id} run={r} n={runs.length - i} first={i === 0} />
+        <RunItem key={r.id} run={r} n={runs.length - i} first={i === 0} addressed={addressed === r.id} />
       ))}
     </ol>
   )
 }
 
-function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }) {
+function RunItem({ run, n, first, addressed }: { run: AgentRun; n: number; first: boolean; addressed: boolean }) {
   const t = useT()
   const lang = useLang()
+  const savedReport = useAgentReportLinks(s => s.links[run.id])
+  useEffect(() => { void loadReportLinks() }, [])
+  const canSaveReport = useCloud(s => !s.readOnly)
   const review = awaitsReview(run)
   const [open, setOpen] = useState(review || (first && run.status !== 'skipped'))
   const id = `agx-run-${run.id}`
+  useEffect(() => {
+    if (!addressed) return
+    setOpen(true)
+    const frame = requestAnimationFrame(() => {
+      const head = document.getElementById(id)?.parentElement?.querySelector<HTMLButtonElement>('.agx-run__head')
+      head?.scrollIntoView({ block: 'center' })
+      head?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [addressed, id])
   // a day's not-started record spans the starts it counts — it has no duration
   const dur = run.held?.kind === 'notStarted' ? '—' : run.endedAt ? fmtDuration(run.endedAt - run.startedAt) : '…'
   // proposals waiting for the person: a change a Vorprüfer held back counts (ChangeStatus 'held', slice SJ) — a run the
@@ -94,7 +113,7 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
         <span className="agx-run__meta agx-run__meta--when mono">{fmtWhen(t, run.startedAt, lang)}</span>
         <span className="agx-run__meta agx-run__meta--dur mono">{dur}</span>
         <span className="agx-run__meta agx-run__meta--usd mono" data-testid="agx-run-usd">
-          {run.usage ? fmtUsd(run.usage.usd, lang) : '—'}
+          {run.usage ? meterUsd(run.usage.usd, readLines(run.usage.byModel), lang) : '—'}
         </span>
       </button>
       {open && (
@@ -108,11 +127,18 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
               </p>
             )
           )}
+          {run.invocation && <div className="agx-run__invocation" data-testid="agent-run-assignment">
+            <span className="label">{t('features.agents.invoke.objective')}</span>
+            {run.invocation.pageId && <p><a href={`#/p/${run.invocation.pageId}`}>{run.invocation.pageTitle || t('common.untitled')}</a></p>}
+            <p>{run.invocation.objective || t('features.agents.invoke.saved')}</p>
+          </div>}
           {!!run.pruned && <p className="agx-run__pruned label">{t(run.pruned === 1 ? 'features.governor.run.pruned.one' : 'features.governor.run.pruned.other', { count: run.pruned })}</p>}
           {run.summary.trim() ? (
             <div className="agx-run__summary">
               <span className="label">{t('features.agents.runs.report')}</span>
               <MarkdownLite source={run.summary} />
+              {run.status !== 'running' && canSaveReport && <button type="button" className="btn btn--sm" onClick={() => openAgentReport(run)}>{t('features.agents.report.open')}</button>}
+              {savedReport && <a className="btn btn--sm" href={`#/p/${savedReport.pageId}`}>{t('features.agents.report.saved')}</a>}
             </div>
           ) : run.status === 'running' ? (
             <p className="agx-run__wait label">
@@ -190,7 +216,7 @@ function UsageLine({ usage }: { usage: NonNullable<AgentRun['usage']> }) {
   if (!lines.length)
     return (
       <p className="agx-run__usage mono" data-testid="agx-run-usage">
-        IN + CACHE W {n(usage.input)} · CACHE R {n(usage.cacheRead)} · OUT {n(usage.output)} · ≈ {fmtUsd(usage.usd, lang)}
+        IN + CACHE W {n(usage.input)} · CACHE R {n(usage.cacheRead)} · OUT {n(usage.output)} · ≈ {meterUsd(usage.usd, readLines(usage.byModel), lang)}
       </p>
     )
   const sum = lines.reduce((a, l) => ({ input: a.input + l.input, write: a.write + l.cacheWrite, read: a.read + l.cacheRead, output: a.output + l.output }), { input: 0, write: 0, read: 0, output: 0 })
@@ -198,7 +224,7 @@ function UsageLine({ usage }: { usage: NonNullable<AgentRun['usage']> }) {
   return (
     <p className="agx-run__usage mono" data-testid="agx-run-usage">
       IN {n(sum.input)} · CACHE W/R {n(sum.write)}/{n(sum.read)} · OUT {n(sum.output)} · {estimated ? '≈ ' : ''}
-      {fmtUsd(usage.usd, lang)}
+      {meterUsd(usage.usd, readLines(usage.byModel), lang)}
     </p>
   )
 }

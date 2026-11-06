@@ -5,6 +5,48 @@ client (`src/app/cloud/`). Change it first, then the code.
 
 ## Product
 
+### Expiring workshop participation for named guests
+
+Guests retain their base `viewer` membership and guest flag. An admin can grant named guests temporary
+`member` access for at most seven days using `PUT /api/workspaces/:id/guest-participation` with
+`{emails, expiresAt}` (epoch milliseconds, or null to revoke). Only existing guests or pending personal
+guest invitations in that workspace qualify. This allows worker registration, personal Atlas setup,
+tasks and shared results, with ordinary member rights; it never grants administration or another
+person's secrets. It includes ordinary member editing of shared content, not a per-author write sandbox.
+The UI labels the expiry and offers early revocation under People. Permissions are derived on every
+lookup from the server clock, including after restart. Expired guests revert to read-only automatically;
+collaboration rejects their next update before applying it and the worker relay rejects their next frame.
+Regular membership changes or removal clear the grant. Already downloaded local software and local files
+are outside the server's access control; expiry revokes access to this cloud workspace, not the user's computer.
+
+### Explicit detached content checkout (checkout:1)
+
+Normal cloud offline edits continue syncing automatically. Explicit checkout instead creates a separate local
+workspace/catalogue entry. `one-checkouts/kv` stores its source origin/account/workspace, three-way base,
+normalized local checkpoint and attachment-id mapping. The local copy never opens a source content document.
+Its grey crossed-out cloud/banner remains visible after reload; checkout requires an acknowledged warning.
+
+Session routes: `GET /api/workspaces/:id/checkout` (viewer read) returns a version-1 snapshot of shared pages,
+rich text and databases plus read-only people/functions/building-block context. Private documents, settings,
+agents, policies and database automation/template/command configuration are excluded. The UI offers checkout
+only to connected writers on a server advertising `checkout:1`. Every referenced attachment downloads under
+current authorization and receives a fresh local id/scope; incomplete downloads prevent opening the checkout.
+
+`POST /api/workspaces/:id/checkout/merge` (member write) accepts `{ revisions, data }`: the current review's
+meta/page document hashes (Yjs snapshots including deletions) and reviewed content. It pins the shared documents,
+rechecks current membership, the exact guarded document set, hashes, structure and locks before any write.
+Validation and all writes then run synchronously without interleaving live client edits; the batch is persisted
+in one database transaction and broadcast through normal document transactions. `409 checkout_stale` means
+nothing was applied and a fresh comparison is required. New files upload before committing content; interrupted
+uploads may leave unreferenced files but never a partially merged page batch. Limits: 5,000 pages, 16 MiB JSON.
+
+The pure three-way planner combines independent JSON fields; arrays and rich text are whole-value conflicts.
+Deletion/trash versus edit conflicts at the page boundary. Explicit local/cloud choices resolve conflicts;
+no last-writer overwrite is inferred. After a successful merge the copy remains detached and its checkpoint
+advances to the approved result. Personal settings and connections are never merged. Account changes or lost
+write membership prevent returning content. Detached copies persist after sign-out, like other local workspaces.
+
+
 | | Local (default) | Team Cloud |
 |---|---|---|
 | Who | one person, one browser | teams |
@@ -194,8 +236,8 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `POST /api/workspaces` | session | `{ name }` → workspace (caller = owner) |
 | `PATCH /api/workspaces/:id` | admin | `{ name?, icon? }` |
 | `DELETE /api/workspaces/:id` | owner | deletes workspace, documents, files |
-| `GET /api/workspaces/:id/members` | member | → `[{ user: {id,email,name}, role, created_at }]` |
-| `PATCH /api/workspaces/:id/members/:userId` | admin | `{ role }` (owner transfer only by owner) |
+| `GET /api/workspaces/:id/members` | member | → `[{ user: {id,email,name}, role, guest, created_at }]` |
+| `PATCH /api/workspaces/:id/members/:userId` | admin | `{ role, guest? }` (`guest:true` requires viewer; owner transfer only by owner) |
 | `DELETE /api/workspaces/:id/members/:userId` | admin, or self (leave) | |
 | `POST /api/workspaces/:id/invites` | admin | `{ role, email?, max_uses?, expires_in_days?, domains? }` → `{ id, link, expires_at, … }` (email → also sent) |
 | `POST /api/workspaces/:id/invites/emails` | admin | *(server addition)* `{ emails: string[] (1–20), role, expires_in_days?, lang? }` → `{ results: [{ email, status, link? }] }` |
@@ -468,6 +510,11 @@ may write:
   that number in the same server release when, as for `1`, clients without the parameter must stop writing —
   later raises can follow the app by one release. The first gate (generation 1) makes every tab of a build
   before it read-only at once.
+- Generation 3 adds saved mock feedback and version journals. Deploy its frontend reader before raising
+  `MIN_CLIENT_SCHEMA` to 3. Cloud mock editing waits for that gate; generation-2 tabs become read-only
+  before a journal can be created. Local merges retain the journal by block id when a generation-2 spec
+  parser drops it, while keeping that older tab's preview/title edits. Notes and queued MD work are
+  included in page Markdown; full historical HTML remains in the block and its explicit JSON export.
 - **A misplaced node is never repaired on mount in a shared document**: every member opening it would repair
   the same spot at once and Y would merge both repairs (a task inside a task came out doubled). Placement
   rules are enforced where content is written: local edits (paste / drop: the task moves out whole) and JSON
@@ -771,6 +818,7 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
 - The editor binds directly to the page's content document (`@tiptap/extension-collaboration`,
   carets via `@tiptap/extension-collaboration-caret`). `page.content` in the store is refreshed from
   the Y document (debounced) so search, export, graph, backlinks and history keep working.
+- **Block editors** (`block-authors:1`, comparisons `block-changes:1`): each shared page content document has a server-maintained `blockEditorsV1` Y.Map (`{actor, at}` per top-level block) and `blockChangesV1` contribution snapshots (`src/shared/blockChanges.ts`). Content hashes ignore IDs; unchanged/moved blocks retain their stamps. Consecutive changes by the same account to a block in one section coalesce into one before/after contribution, including deletion. A different/unknown writer breaks that contribution. Heading IDs define sections, `@page` the initial area. History envelopes/actors come from authenticated origins, client map changes are restored, released pending CRDT updates are unknown. Previously stored stamps have no invented preimages. Contributions survive reconnect/server reload and are readable under the same page membership rules; this intentionally retains deleted content in shared comparisons. Private page writes record no new comparisons (history maps are not rewritten during cross-scope transfer). The browser displays one name per contributor/section, opens only that person's source-section changes, and groups all captured contributions by affected block with progressive loading. No document blocks are created by the view. The optional switch is browser-local and closes/removes the view entirely; recording continues server-side. Private/local/public-share pages omit the feature. The initial implementation has no claim of a complete pre-feature audit or original offline edit time; browser AI writes identify the applying account. Source snapshots travel in full Yjs/server backups, not ordinary JSON workspace exports.
 - Non-editor writers (`setContent` with origin `ai`, `history`, `import`, `link`, buttons …) are
   bridged into the content document (`prosemirrorJSONToYXmlFragment` with the editor schema).
 - Offline: every Y document is also persisted with `y-indexeddb`; the provider syncs on reconnect.
@@ -1232,8 +1280,10 @@ Work orders (docs/CODING.md § Work orders) need nothing new from the server:
   "Ohne Bestätigung starten" does not exist in a team.
 - **Data rules** of the workspace apply to the planner like to any request; a member's refusal reads "Regel des
   Arbeitsbereichs — eine Admin kann sie ändern" (no change key).
-- A team server's CSP (`connect-src 'self' <own ws> https:`) refuses a **Local** worker link (`ws://127.0.0.1:<port>`) in
-  the app it serves — on a self-hosted server a member uses the Cloud worker (pre-existing, not specific to work orders).
+- The team app supports **Local** worker/MCP links on numeric IPv4 loopback (`ws://127.0.0.1:<port>`), including
+  a person's chosen port. CSP allows that exact host only, not arbitrary plaintext WebSockets or LAN targets.
+  Chrome device-access permission and the worker's Origin/Host allowlist plus workspace pairing still apply.
+  **Cloud** remains the outbound, encrypted team-relay route for a worker on another computer.
 
 ## Security notes
 
@@ -1270,7 +1320,7 @@ Work orders (docs/CODING.md § Work orders) need nothing new from the server:
   120/min) and 30 failed authentications per client IP per minute; the usual 256 KB body limit.
 - Security headers on all responses (CSP for the app, frame-ancestors 'none', referrer policy).
 - As implemented: the app CSP allows scripts/styles/fonts from the origin only (`'unsafe-inline'` for
-  styles), `connect-src 'self' wss://<host> https:` — `https:` because the browser calls
+  styles), `connect-src 'self' wss://<host> https: ws://127.0.0.1:*` — `https:` because the browser calls
   api.anthropic.com with the user's own key **and** posts automation webhooks to user-chosen endpoints —
   and `frame-src https:` for page embeds. API responses get `default-src 'none'; sandbox`; downloads a
   sandboxed CSP. Also `nosniff`, `X-Frame-Options: DENY`, COOP `same-origin`, a restrictive
@@ -1286,3 +1336,107 @@ Work orders (docs/CODING.md § Work orders) need nothing new from the server:
    backups (Litestream / nightly copy), self-hosting guide, admin CLI.
 3. **C3 — business:** billing for the hosted cloud at 99 € / $99 per user per year (Stripe), usage limits, DPA/AVV.
    Self-hosting stays free.
+
+### Multiple local workspaces and portable packages
+
+The original local workspace remains in `keyval-store/keyval`; it is never moved or replaced during migration. Additional local workspaces use `one-local-<id>/keyval` with the same transactional persistence layout. The local workspace identity is pinned when the tab loads. Its BroadcastChannel, unload stash, boot lock and reset flag are namespaced; another tab selecting a workspace cannot redirect existing writes. The nonsecret catalogue lives in `one-workspaces/kv`. Explicit selectors are `?w=local`, `?w=local:<id>` and the existing team `?w=<id>`; newly copied permalinks carry that selector.
+
+Personal preferences for local workspaces are held in `one-personal/kv` and merged by changed keys across tabs. Keys remain vault markers in the original local personal vault scope; no existing credentials are moved. Mail targets and sync settings remain bound to the workspace. Existing team overlays are unchanged. Worker pairing continues to require the intended MCP workspace identity.
+
+`simplecms-one-workspace` v1 is a portable envelope around a content backup. It allowlists workspace-owned fields, excludes personal settings/connections, Private team pages and fuse grants, strips webhook destinations, pauses agents and database automations, and removes active recurring schedules. Import creates a new local workspace; it never replaces the selected workspace. Pending imports finish under the new workspace identity before background services start. Imported attachments receive fresh IDs and ownership stamps; missing attachment payloads cannot resolve to files in another workspace. The same portable sanitizer is applied when copying a local workspace into a new team workspace. Existing personal overlays and keys are never uploaded to shared documents.
+
+New reset requests clear only the selected local content database. Legacy full-device reset requests queued by older builds retain their previous migration behavior.
+# Private welcome preparation and Atlas onboarding (`welcome:1`)
+
+Workspace → People offers a per-organizer private welcome draft, independent of shared Yjs content,
+workspace exports, model context and personal vaults. REST is cookie-authenticated and CSRF guarded:
+`GET/PUT /api/workspaces/:id/welcome`, `GET …/welcome/preview/:recipient` and `POST …/welcome/send`
+require admin membership and use only the signed-in organizer's draft. Every destination must be a team
+workspace the organizer administers; guest rows require viewer access in their destination workspace, which may be the same shared workspace. Revision checks and
+in-flight locks prevent stale edits and simultaneous sending. No scheduler sends these messages.
+
+Migration 14 stores draft payloads and recipient onboarding values as AES-GCM envelopes under the source
+workspace key with owner/entry-specific AAD. No secret values occur in GET/preview/send answers or shared
+documents. Explicit local paste parsing maps full names/emails, rejects ambiguous imports and separates
+invitation URL tokens from labelled MCP agent tokens. Only Send creates address-bound invitations (7 days)
+and calls SMTP. Separate MCP tokens are excluded from mail; Atlas invitation URLs remain intentionally
+included. Before sending, all rows are persisted as `sending`; failure/crash leaves `uncertain`/`sending`
+and never triggers an automatic retry. SMTP acceptance is not proof of inbox delivery.
+
+`GET …/welcome-access` returns opaque entry IDs only, for the verified session email's HMAC and current
+target membership. `POST …/welcome-access/:entry/open` additionally checks the same recipient, expiry and
+the organizer's continued source admin rights; its `no-store` answer contains that recipient's access
+values. No admin bypass. Entries expire after seven days. `POST …/:entry/complete` marks only the caller's
+entry complete. The Start/People modal masks values, supports explicit reveal/copy, and disappears after
+the participant confirms their real connection test. Completion neither proves a test nor revokes Atlas.
+The server decrypts onboarding values for these operations; durable connections use the independent
+client-encrypted personal vault. Draft ciphertext remains in normal encrypted server backups, never in
+portable workspace packages. Tests cover privacy, encryption, tenancy, deadlines, replay and SMTP failure.
+
+
+### Guests observing a shared workspace (v15)
+`guests:1` advertises guest designation on invitations and workspace members. The app offers
+**Guest · read only** when inviting and under People. On the wire this is `role: "viewer", guest: true`,
+not an additional permission rank. `members.guest` and `invites.guest` default to 0; database CHECKs
+require the viewer role whenever guest is 1. Invite create, bulk-email create and member PATCH reject
+`guest:true` with an editing role. Acceptance retains the designation, while an explicit promotion to
+member/admin/owner clears it. Existing non-guest memberships stay unchanged.
+
+Guests see the shared workspace's current documents through the same read-only collaboration path.
+Private pages, other users' secrets and organizer-private welcome drafts remain inaccessible. They
+cannot edit content, upload files, invite people or execute coding jobs. Read access does not prevent
+copying or offline retention. An optional separate viewer workspace remains possible.
+
+Welcome drafts may prepare guest recipients for the actual workshop workspace without creating
+memberships or sending mail. Sending remains explicit and deadline-gated; a guest recipient with an
+existing editing membership is refused before any email, so the organizer must review that membership.
+
+### Workspace model shares
+See `docs/CODING.md` → Workspace local model sharing. Worker 1.29.0 / server `shared-models:1` offers explicit local text inference to member+ users of one workspace, with a bounded FIFO queue and encrypted ephemeral request/result payloads. The personal coding relay's `(workspace, member)` isolation remains unchanged. Model sharing does not share coding, repository or Atlas permissions. A Frankfurt relay is still a network hop even when host and participants are on the same LAN.
+
+### Central Claude service (v22)
+
+Workspace Settings → AI hosts a write-only Anthropic key form for the service owner. An owner/admin can
+bind a single service to up to 20 workspaces they administer. All bound workspaces share one monthly
+USD limit; members use their session cookie, never the provider key. The key is AES-256-GCM sealed
+under the original workspace's envelope key with service-specific AAD. It is absent from Yjs, browser
+settings, exports, public metadata and request logs. Only its presence and model-verification time return.
+A model GET verifies access without paid inference. Replacing a key disables the service until activation.
+
+Cookie routes under `/api/workspaces/:id/central-ai`:
+
+- `GET`: member-visible service status; owner-only budget and workspace bindings.
+- `PUT`: owner + admin in every affected workspace; versioned configuration, initially disabled.
+- `POST /key`, `DELETE /key`: versioned key verification/replacement or removal; never return a key.
+- `POST /defaults`: owner-authorized shared Opus defaults through live collaboration; preserves data
+  rules and the decision-model setting. Explicit personal model selections still take precedence. Unmodified full route snapshots copied by legacy AJ onboarding are rebased to the new shared default; personal data restrictions and customized route tables are retained.
+- `POST /messages`: member-only Messages transport; the server enforces exact model, membership,
+  service version, standard tier, bounded output, tool types and a shared atomic budget reservation.
+- `GET /requests`, `GET /requests/:request`: only the service owner with admin access to all bound
+  workspaces; last 100 call receipts and encrypted, credential-redacted request/response details.
+
+The browser keeps the native Anthropic SDK and ONE/Atlas harness. Its central transport sends only a
+same-origin cookie request. SDK automatic retries and provider model fallback are disabled for this
+service. Personal Atlas tokens travel only on the requesting member's existing authorized MCP path;
+no owner token is supplied. Unsupported additional paid provider tools are rejected rather than billed
+outside the limit. Interactive ONE AI surfaces and browser agents use this transport; unattended server
+agents keep their separate, explicit server-runner enrollment and do not inherit the key.
+
+Pricing is Opus 5.5 standard, verified 2026-11-02: input $4, output $20, cache hit $0.20, 5m cache write $5,
+1h cache write $8 per million tokens. Every API round reserves the whole possible 1M input context at
+the highest cache rate plus `max_tokens` output. This deliberately covers native MCP results that are
+not present when the request starts. Four API rounds can run concurrently. Complete verified usage
+replaces its reservation with calculated tariff cost. Provider 4xx refusals release the reservation;
+5xx errors, interrupted streams, absent usage or a server restart retain it as uncertain. Raising the
+budget is an explicit owner action. This limit covers this ONE service, not other uses of the API key
+at Anthropic. Provider billing statements remain authoritative.
+
+Full logs are encrypted at rest, redacted for the central key and known personal MCP credentials, and
+unreadable through the API after 30 days. Expired log ciphertext is removed at startup and when a call
+settles. Receipts and durable reservations remain for accounting. Account/workspace removal does not
+silently erase spend from a surviving service. Removing its anchor workspace deletes the service.
+Disabling/removing a key blocks new calls; requests already started can still incur charges.
+
+Validation: `server/test/central-ai.test.ts`, the route-isolation sweep in `server/test/tenancy.test.ts`,
+and `npx playwright test -c playwright.central.config.ts` (root app build and server build required).
+All provider traffic in those tests is local and fictional; no paid requests or real credentials.

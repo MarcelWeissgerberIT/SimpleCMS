@@ -1,3 +1,5 @@
+import { isWorkerProvider } from '@/shared/ai/providers'
+import { workerModelInfo } from './workerModels'
 /**
  * What One knows of a route, synchronously (D-S2-32): the registry rows of the direct models (src/shared/ai/models.ts)
  * and, for OpenRouter, this device's shortlist (settings.ai.models) — never the catalogue (that is async: only the UI and
@@ -58,6 +60,8 @@ export const routerInfo = (route: Route, pool: readonly string[]): ModelInfo => 
 
 /** The model view of a route (null: unknown here — a gone shortlist model, a wrong id: 'model_gone'). */
 export function modelInfo(route: Route, pool?: readonly string[]): ModelInfo | null {
+  const worker = workerModelInfo(route)
+  if (worker) return worker
   const r = modelRow(route)
   if (r) return { route: r.route.m === route.m ? { ...r.route, ...(route.effort ? { effort: route.effort } : {}) } : route, label: r.label, short: r.short, vendor: r.vendor, ...(r.role ? { role: r.role } : {}), caps: r.caps, price: r.price }
   if (route.p !== 'openrouter') return null
@@ -100,6 +104,7 @@ const servedRow = (m: string): ShortlistRow | null => row(m) ?? shortlist().find
 
 /** A served model's label for a receipt: the shortlist's, else the slug's model part. */
 export function servedLabel(p: Route['p'], model: string): string {
+  if (isWorkerProvider(p)) return model
   if (p !== 'openrouter') return labelOf({ p, m: model })
   return servedRow(model)?.label ?? model.split('/').pop() ?? model
 }

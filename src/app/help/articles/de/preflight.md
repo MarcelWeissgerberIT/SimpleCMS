@@ -25,10 +25,12 @@ Eine Lampe steht nur auf der Tafel, wenn sie hier etwas zu beobachten hat (eine 
 ## Vier Zustände
 - **Dunkel** — nichts wartet. **Gelb** — etwas wartet. **Rot** (mit Kerbe ▲, auch für Farbenblinde) — etwas ist kaputt oder dringend.
 - **Grau, schraffiert** — die Lampe kann gerade nicht prüfen (kein Ordnerzugriff in diesem Tab, offline). Grau heißt nie „alles in Ordnung“.
-- Eine Lampe, die seit deinem letzten Blick angegangen ist, **blinkt** und trägt **neu**. ↵ auf ihr oder **MASTER CAUTION** quittiert sie: Ab dann leuchtet sie ruhig. Quittiert wird pro Gerät und Mitglied — dein Laptop quittiert nicht für dein Telefon.
+- Eine Lampe, die seit deinem letzten Blick angegangen ist, **blinkt** und trägt **neu**. ↵ auf ihr oder ihr passender Master-Taster quittiert sie: Ab dann leuchtet sie ruhig. Quittiert wird pro Gerät und Mitglied — dein Laptop quittiert nicht für dein Telefon.
 
 ## Tasten auf der Tafel
-Nur mit Fokus in der Tafel: Pfeile wandern zwischen den Lampen, **Leertaste** springt zur nächsten blinkenden, **↵** öffnet ihre Warteschlange. **MASTER CAUTION** (auch oben in der Leiste) quittiert alle neuen Lampen auf einmal — ist nichts neu, klappt es die Tafel auf.
+Nur mit Fokus in der Tafel: Pfeile wandern zwischen den Lampen, **Leertaste** springt zur nächsten blinkenden, **↵** öffnet ihre Warteschlange. Das Panel hat zwei geschützte Taster: **MASTER CAUTION** quittiert neue gelbe Leuchtfelder, **MASTER WARNING** neue rote. Erst den **Glasdeckel öffnen**, dann den Taster drücken. Das Öffnen allein quittiert nichts. Ändern sich die neuen Meldungen dieser Farbe, schließt der Deckel wieder. Quittieren bestätigt nur das Signal; Aufgaben bleiben offen.
+
+**MASTER CAUTION** oben in der Leiste oder im kompakten Streifen führt bei neuen roten Warnungen zur vollen Tafel. Ohne neue rote Warnung quittiert er die neuen Hinweise; ist nichts neu, öffnet er die Tafel. **TEST** wiederholt den kurzen Lampentest, sofern Lampentest und Bewegung in den Einstellungen erlaubt sind.
 
 Morgens, beim ersten Öffnen an einem neuen Tag, bleibt One auf Start, wenn zuletzt Lampen leuchteten — mit der vollen Tafel und einem kurzen Lampentest. Später am Tag klappt die Tafel zu einer **Leiste** aus Punkten zusammen; sie klappt von selbst auf, wenn eine Lampe neu angeht. **Einstellungen → Darstellung → Preflight**: aus, morgens zuerst die Tafel, wann ein neuer Tag beginnt, der Lampentest.
 

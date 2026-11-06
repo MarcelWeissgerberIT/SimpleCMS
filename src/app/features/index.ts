@@ -16,6 +16,8 @@
  *   - openTodayJournal()
  */
 import { lazy } from 'react'
+export {PendingMockRevisions} from './ai/agent/MockRevisionActions'
+export const ProgramsRoute=lazy(()=>import('./ai/programs/ProgramsDialog').then(m=>({default:m.ProgramsPage})))
 export { startHistory, seedDemoHistory } from './history/snapshots'
 /* a version of a page right now, before a structural edit (editor: "Turn into page") */
 export { snapshotNow } from './history/snapshots'
@@ -150,6 +152,7 @@ export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRoute
 export { openAISetup, openAISettings, type AISetupOptions } from './ai/setup/openAISetup'
 export { AINeedsSetup, FixKeys, offersAI, useAIStatus, openFix, type AINeedsSetupProps } from './ai/setup/AINeedsSetup'
 export const AISetupModal = lazy(() => import('./ai/setup/AISetup').then((m) => ({ default: m.AISetupModal })))
+export const CentralAISettings = lazy(() => import('./ai/setup/CentralAISettings').then(m=>({default:m.CentralAISettings})))
 export const ProvidersTab = lazy(() => import('./ai/setup/ProvidersTab').then((m) => ({ default: m.ProvidersTab })))
 /*
  * One memory (features/ai/memory): Claude remembers what the person confirms (a database "One memory" +
@@ -403,7 +406,8 @@ export { agentTriggerText, loadAgentRuns, useAgentRuns } from './agents'
  */
 export { useUnlocked, unlocked, IntegrationsPanel } from './agents'
 /* the agents' dialogs over any route (B11 fills them; ModalHost mounts the host once): MirrorSetup / AgentEditor */
-export { AgentDialogsHost, openMirrorSetup, openAgentEditor } from './agents'
+export { AgentDialogsHost, openAgentRun, openMirrorSetup, openAgentEditor } from './agents'
+export { PageAgentActivity } from './agents'
 /*
  * One Script (features/script — a small, safe script language that only reaches One; see script/index.ts):
  *  - ScriptsRoute { scriptId? } (route #/scripts, #/scripts/<id>) · ScriptDialogHost (mount once: what a run asks)
@@ -667,3 +671,27 @@ export {
   type FuseHint,
   type HintKind,
 } from './patchbay'
+
+export { buildWorkspacePackage, portableWorkspace, makeLocalWorkspace, parseWorkspacePackage, type WorkspacePackage } from './io/workspacePackage'
+
+/** Native language variants, explicit AI preview and per-workspace content language. */
+export { TranslationControls, WorkspaceTranslations } from './translation'
+
+export { MockBlockComposer } from './ai/agent/MockBlockComposer'
+
+export { DesignMockCard } from './ai/agent/DesignMockCard'
+export { MockReviewPanel } from './ai/agent/MockReviewPanel'
+
+export {MockSourcePanel} from './ai/agent/MockSourcePanel'
+
+export { CodeEvidence } from './code-evidence/CodeEvidence'
+
+export {requestCodeEvidence} from './ai/agent/CodeEvidenceRequest'
+
+export {UIStudio} from './ui-studio/UIStudio'
+export {CodeAnalysis} from './code-analysis/CodeAnalysis'
+export {runCodeAnalysis} from './ai/code-analysis/run'
+
+export {CodeChange} from './code-change/CodeChange'
+export {generateCodeChange,verifyChangeSources} from './ai/code-change/run'
+export {attachCodeChange,nativeCodeChange} from './ai/code-change/atlas'

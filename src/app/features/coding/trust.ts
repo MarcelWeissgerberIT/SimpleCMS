@@ -1,3 +1,4 @@
+import { codingAgentOf } from './agent'
 /**
  * Coding pipeline — who decides what the worker runs. A task runs Claude Code on the machine of the person
  * whose worker takes it, with their repos and their Claude account — so a task written or changed by
@@ -79,7 +80,7 @@ function fieldsKey(page: Page, db: Database | undefined): string {
   if (!db) return '[]'
   const props = codingProps(db)
   const branch = props.branch ? page.properties[props.branch] : null
-  return JSON.stringify([optionName(db, props.repo, props.repo ? page.properties[props.repo] : null), typeof branch === 'string' ? branch.trim() : '', props.stage ? (page.properties[props.stage] ?? null) : null])
+  return JSON.stringify([...(db.system === 'coding' && codingAgentOf(db, page) !== 'claude' ? [{ agent: codingAgentOf(db, page) }] : []), optionName(db, props.repo, props.repo ? page.properties[props.repo] : null), typeof branch === 'string' ? branch.trim() : '', props.stage ? (page.properties[props.stage] ?? null) : null])
 }
 
 /**

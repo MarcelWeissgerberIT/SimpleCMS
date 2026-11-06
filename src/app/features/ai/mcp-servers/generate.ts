@@ -1,15 +1,16 @@
 /**
- * "Generate" / "Test connection" for one MCP server: a single request with only that server
- * attached. Claude reads the tool definitions it was given (it is told not to call any) and lists
- * the tools — and, for Generate, writes the usage guide that goes into the system prompt. The tool names
- * come from the API's raw `mcp_tool_listing` when one arrived (Claude's TOOLS line only without it). The
- * OUT lock applies here too (attachMcp): the test never needs to call a tool.
+ * Test one MCP server by reading its tool catalogue through the prepared connection, without a model.
+ * Generate additionally asks the configured model for a usage guide. Provider-hosted discovery is
+ * the fallback when no direct transport is available. The OUT lock applies to either route.
  */
 import type { BetaContentBlock, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
-import { AIError, claudeClient, metered, thinks, toAIError, type SDKModule } from '../client'
-import { capped, prepare, settle, type Prepared } from '../core/gate'
+import { AIError, claudeClient, metered, thinks, toAIError, viaNeutral, type SDKModule } from '../client'
+import { cloudAtlasMcpReady, requestWorkerMcp, workerOnline } from '../../coding'
+import { connectionProblem, mcpConnectionMessage } from '@/shared/ai/connection-problem'
+import type { WorkerMcpTool } from '@/shared/ai/worker'
+import { assertPreparedFlow, capped, prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, type MeterCall } from '../core/meter'
 import { MCP_BETA, attachMcp, clearRefused } from './config'
 
@@ -74,8 +75,42 @@ function markUnsent(e: unknown): unknown {
   return e
 }
 
+// A connection test uses the same host-owned path as an actual Atlas task, without a model call.
+export const canInspectDirect = (server: McpServerConfig): boolean => workerOnline() || cloudAtlasMcpReady([server])
+
+async function directTools(server: McpServerConfig, signal?: AbortSignal): Promise<WorkerMcpTool[]> {
+  const mcp = await attachMcp({ servers: [{ ...server, enabled: true }], instructions: '' }, 'free', { forced: [server.name] })
+  if (!mcp?.worker) throw markUnsent(new AIError('mcp', 'the token is not available in this browser', server.name))
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined, stop = () => {}
+  try {
+    signal?.throwIfAborted()
+    const stopped = new Promise<never>((_, reject) => {
+      stop = () => { controller.abort(); reject(new AIError('aborted')) }
+      signal?.addEventListener('abort', stop, { once: true })
+      timer = setTimeout(() => { reject(new Error('Connection timed out')); controller.abort() }, 30_000)
+    })
+    // A missing worker reply must not leave the person's Test button busy for several minutes.
+    const result = await Promise.race([requestWorkerMcp({ action: 'list', servers: mcp.worker }, controller.signal), stopped]) as { tools: WorkerMcpTool[] }
+    if (!Array.isArray(result?.tools) || result.tools.some(t => !t || typeof t.tool !== 'string' || t.server !== server.name)) throw new Error('Invalid MCP tool response')
+    return result.tools
+  } catch (e) {
+    if (signal?.aborted) throw new AIError('aborted')
+    if (e instanceof AIError) throw e
+    throw new AIError(connectionProblem(e) === 'auth' ? 'mcp_auth' : 'mcp', mcpConnectionMessage(e), server.name)
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', stop)
+  }
+}
+
 /** Run one check against `server`. Throws AIError ('mcp' when the server could not be used). */
 export async function inspectServer(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
+  if (mode === 'test' && canInspectDirect(server)) {
+    const tools = [...new Set((await directTools(server, signal)).map(t => t.tool))]
+    clearRefused(server.name)
+    return { tools, listed: true, guide: '' }
+  }
   // the gate: a check sends no page — only the server's tool definitions reach Claude
   // one server joins (the brake counts its rounds and never caps it)
   let prepared: Prepared
@@ -96,7 +131,19 @@ async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', sign
   if (!mcp) throw markUnsent(new AIError('mcp', 'the token is not available in this browser', server.name))
   let sdk: SDKModule | null = null
   try {
+    if(canInspectDirect(server) || ['copilot','local'].includes(prepared.provider)){
+      if(!mcp.worker)throw new AIError('mcp')
+      const listed={tools: await directTools(server, signal)}
+      const tools=[...new Set(listed.tools.map(t=>t.tool))]
+      const text=mode==='guide'?await viaNeutral(prepared,call,{system:SYSTEM(server.name),parts:[{type:'text',text:task(mode,useWorkspace.getState().settings.language==='de'?'de':'en')+'\n\nSelected tool definitions (source data):\n'+JSON.stringify(listed.tools)}],output:{kind:'text'},maxTokens:4000},{signal}):''
+      const out=mode==='guide'?parseInspect(text):{tools,listed:true,guide:''}
+      out.tools=tools;out.listed=true
+      if(mode==='guide'&&tools.length&&!out.guide)throw new AIError('empty')
+      clearRefused(server.name)
+      return out
+    }
     const got = await claudeClient()
+    assertPreparedFlow(prepared)
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to; what it can do from its caps (never its id)

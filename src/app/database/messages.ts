@@ -11,6 +11,10 @@ import { keyMessages } from './keys-messages'
 /** Strings for the database area. Keys MUST be prefixed with "database." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    'database.props.modelNote': 'Descriptive value · the AI controls choose the model',
+    'database.text.saved': 'Saved · {name}',
+    'database.text.undoChanged': 'The value or its context has changed since saving. Undo left the current values untouched.',
+    'database.text.suggestionsHelp': 'Values already used in this column. Save your own entry as usual; it will then be offered here too.',
     ...formMessages.en,
     ...autofillMessages.en,
     ...structureMessages.en,
@@ -523,6 +527,10 @@ export const messages: Messages = {
     'database.formula.fn.dateEnd': 'End of a date range (a single date returns itself).',
   },
   de: {
+    'database.props.modelNote': 'Beschreibender Wert · die KI-Auswahl bestimmt das Modell',
+    'database.text.saved': 'Gespeichert · {name}',
+    'database.text.undoChanged': 'Wert oder Kontext haben sich seit dem Speichern geändert. Rückgängig hat die aktuellen Werte beibehalten.',
+    'database.text.suggestionsHelp': 'Bereits verwendete Werte dieser Spalte. Eigene Eingabe wie gewohnt speichern; sie wird danach ebenfalls angeboten.',
     ...formMessages.de,
     ...autofillMessages.de,
     ...structureMessages.de,

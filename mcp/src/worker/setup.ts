@@ -1,3 +1,5 @@
+import { copilotStatus, saveCopilot } from './copilot-config.ts'
+import { probeCopilot } from './copilot.ts'
 /**
  * one-worker — the local setup page: http://127.0.0.1:<port>/setup#k=<token>, on the worker's own port.
  * The person ticks the repositories One may hand tasks to (found by scan.ts), sets base branch, test
@@ -17,6 +19,9 @@
  * tick or add a repo. A folder is offered only when it is a main checkout (a `.git` folder) the scan found,
  * that is in worker.json already, or that the person typed into the page.
  */
+import { ollamaCloudInference } from './ollama-cloud-inference.ts'
+import { ollamaCloudStatus, saveOllamaCloud, readOllamaCloud } from './ollama-cloud-config.ts'
+import { miniMaxStatus, saveMiniMax } from './minimax-config.ts'
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -36,6 +41,8 @@ import { forgeOfHost } from './git.ts'
 import { inSyncedFolder, pathId, samePath, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
 import { createWriteStream, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { certificateStatus, parseCertificates, removeCertificates, saveCertificates } from './certificates.ts'
+import { certificateOffer } from './certificate-offers.ts'
 
 export interface SetupLive {
   /** the workspace id the worker serves (null: not bound) */
@@ -49,6 +56,8 @@ export interface SetupLive {
 }
 
 export interface SetupHost {
+  draining?: () => boolean
+  workspaces?: { list: () => { id: string; name: string }[]; revoke: (id: string) => Promise<void> }
   configFile: string
   port: number
   preset: WorkerPreset | null
@@ -103,6 +112,7 @@ export interface PageRepo extends FoundRepo {
   mcp: string
   /** the Static analysis stage's command as one line (configured, else the guess) */
   analyzeLine: string
+  challengeLine?: string
   /** Claude Code may load this repo's own settings (worker.json says so, else: on unless `source`) */
   ownSettings: boolean
   /** why it counts as code from elsewhere — its own settings off by default (config.ts sourceOf); null: the person's own */
@@ -180,6 +190,9 @@ export class SetupServer {
     this.host = host
     this.home = host.home ?? homedir()
   }
+
+  private updating = 0
+  get busy() { return !!this.clone?.running || this.updating > 0 }
 
   url(): string {
     return `http://127.0.0.1:${this.host.port}/setup#k=${this.token}`
@@ -271,6 +284,7 @@ export class SetupServer {
         testLine: joinArgs(r.testCommand),
         mcp: r.claude.mcpServers.join(', '),
         analyzeLine: joinArgs(r.analyzeCommand),
+        challengeLine: joinArgs(r.challengeCommand ?? null),
         ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
         source,
         allowed: [...r.claude.allowedTools],
@@ -300,6 +314,11 @@ export class SetupServer {
       cloneDir: shortPath(this.cloneDir ?? config.cloneDir, this.home),
       // the person's own Claude Code MCP servers for tasks without a repository (document stages)
       mcpServers: config.mcpServers,
+      workspaces: this.host.workspaces?.list() ?? [],
+      minimax: miniMaxStatus(this.host.configFile),
+      copilot: copilotStatus(this.host.configFile),
+      ollama: ollamaCloudStatus(this.host.configFile),
+      certificates: { ...certificateStatus(this.host.configFile), offer: certificateOffer(this.host.preset) ? { id: certificateOffer(this.host.preset)!.id, name: certificateOffer(this.host.preset)!.name } : null },
       clone: this.clone,
       // what the one-time marking marked (an older worker's clones and imports), until the person took note
       marked: unseenMarks(this.host.configFile),
@@ -499,6 +518,7 @@ export class SetupServer {
         if (mcpServers.length > 20) return ['At most 20 MCP servers per repository.']
       }
       const analyze = typeof item.analyze === 'string' ? splitArgs(item.analyze) : undefined
+      const challenge = typeof item.challenge === 'string' ? splitArgs(item.challenge) : undefined
       // the switch "Use this repo's own Claude Code settings" (absent: leave worker.json as it is)
       const projectSettings = typeof item.projectSettings === 'boolean' ? item.projectSettings : undefined
       // the host type (absent or unknown: leave worker.json as it is)
@@ -512,7 +532,7 @@ export class SetupServer {
         const was = Array.isArray(item.allowedWas) ? (item.allowedWas as unknown[]).filter((x): x is string => typeof x === 'string') : repo.allowed
         allowedRemove = was.filter((rule) => !kept.includes(rule))
       }
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}), ...(allowedRemove?.length ? { allowedRemove } : {}) })
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(challenge !== undefined ? { challengeCommand: challenge?.length ? challenge : null } : {}), ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}), ...(allowedRemove?.length ? { allowedRemove } : {}) })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {
@@ -533,6 +553,11 @@ export class SetupServer {
 
   /** Answer a request under /setup (false: not ours). */
   async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+    const mutation = req.method === 'POST' && (req.url ?? '').startsWith('/setup/api/')
+    if (mutation) this.updating++
+    try { return await this.handleRequest(req, res) } finally { if (mutation) this.updating-- }
+  }
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const path = (req.url ?? '/').split(/[?#]/)[0]!
     if (path !== '/setup' && !path.startsWith('/setup/')) return false
     const send = (status: number, type: string, body: string, extra: Record<string, string> = {}) => {
@@ -561,6 +586,7 @@ export class SetupServer {
       if (op === 'projects') return json(200, await this.listProjects()), true
       return json(404, { error: 'unknown' }), true
     }
+    if (req.method === 'POST' && this.host.draining?.()) return json(409, { error: 'Worker update pending. Wait for the new version before changing settings.' }), true
     if (req.method !== 'POST') return json(405, { error: 'method' }), true
     // a POST comes from this page only: same origin, JSON
     if (req.headers.origin !== `http://127.0.0.1:${this.host.port}`) return json(403, { error: 'forbidden' }), true
@@ -584,8 +610,30 @@ export class SetupServer {
     } catch {
       return json(400, { error: 'bad JSON' }), true
     }
+    if (op === 'certificates-offer' || op === 'certificates-preview' || op === 'certificates-save' || op === 'certificates-remove') {
+      if (this.host.live().busy.length) return json(409, { error: 'Wait for running tasks to finish before changing certificate trust.' }), true
+      try {
+        if (op === 'certificates-offer') {
+          const offer = certificateOffer(this.host.preset)
+          if (!offer) return json(404, { error: 'No company certificate is offered for this workspace.' }), true
+          const certificates = parseCertificates(offer.pem)
+          if (certificates.length !== 1 || certificates[0]!.fingerprint !== offer.fingerprint) throw Error('The offered certificate fingerprint does not match.')
+          return json(200, { pem: offer.pem, certificates: certificates.map(({ pem: _, ...c }) => c) }), true
+        }
+        if (op === 'certificates-remove') { removeCertificates(this.host.configFile); return json(200, await this.state()), true }
+        if (!isObj(body) || typeof body.pem !== 'string') throw Error('Choose a PEM CA certificate.')
+        if (op === 'certificates-preview') return json(200, { certificates: parseCertificates(body.pem).map(({ pem: _, ...c }) => c) }), true
+        saveCertificates(this.host.configFile, body.pem, body.fingerprints)
+        return json(200, await this.state()), true
+      } catch (e) { return json(400, { error: e instanceof Error ? e.message : 'Certificate setup failed.' }), true }
+    }
     if (op === 'scan') {
       await this.scan()
+      return json(200, await this.state()), true
+    }
+    if (op === 'workspace-revoke') {
+      if (!this.host.workspaces || !isObj(body) || typeof body.id !== 'string') return json(400, { error: 'Choose a granted workspace.' }), true
+      await this.host.workspaces.revoke(body.id)
       return json(200, await this.state()), true
     }
     if (op === 'pick') {
@@ -621,6 +669,36 @@ export class SetupServer {
     }
     if (op === 'marks-seen') {
       marksSeen(this.host.configFile)
+      return json(200, await this.state()), true
+    }
+    if (op === 'copilot-check') {
+      if (this.host.live().busy.length) return json(409,{error:'Wait for running tasks to finish before checking Copilot.'}),true
+      return json(200,await probeCopilot()),true
+    }
+    if (op === 'copilot') {
+      if (this.host.live().busy.length) return json(409,{error:'Wait for running tasks to finish before changing Copilot settings.'}),true
+      try { saveCopilot(this.host.configFile,body) } catch { return json(400,{error:'Enter a valid Copilot model ID or auto. Credentials belong to Copilot CLI.'}),true }
+      return json(200,await this.state()),true
+    }
+    if (op === 'ollama-test') {
+      if (this.host.live().busy.length) return json(409, { error: 'Wait for running tasks to finish before testing Ollama Cloud.' }), true
+      try {
+        const config = readOllamaCloud(this.host.configFile)
+        const response = await ollamaCloudInference(config)({ model: config.model, messages: [{ role: 'user', content: 'Connection test. Reply OK.' }], tools: [], contextTokens: config.contextTokens, outputTokens: 512, signal: AbortSignal.timeout(30000) })
+        if (!response.message?.content?.trim()) throw new Error('Empty test response')
+        return json(200, { ok: true }), true
+      } catch { return json(400, { error: 'Ollama Cloud test failed. Check the saved key, model and account quota.' }), true }
+    }
+    if (op === 'ollama') {
+      if (this.host.live().busy.length) return json(409, { error: 'Wait for running tasks to finish before changing Ollama Cloud settings.' }), true
+      try { saveOllamaCloud(this.host.configFile, body) }
+      catch { return json(400, { error: 'Ollama Cloud settings could not be saved. Check the key, model and context.' }), true }
+      return json(200, await this.state()), true
+    }
+    if (op === 'minimax') {
+      if (this.host.live().busy.length) return json(409, { error: 'Wait for running tasks to finish before changing MiniMax settings.' }), true
+      try { saveMiniMax(this.host.configFile, body) }
+      catch (e) { return json(400, { error: e instanceof Error ? e.message : 'MiniMax settings could not be saved.' }), true }
       return json(200, await this.state()), true
     }
     if (op === 'save') {

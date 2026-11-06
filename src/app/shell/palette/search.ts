@@ -1,3 +1,5 @@
+import type { Lang } from '@/shared/i18n'
+import { localizedTitle } from '../../store/localization'
 import Fuse, { type FuseResultMatch } from 'fuse.js'
 import type { ID, Page } from '../../store/types'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
@@ -48,36 +50,43 @@ function countsOf(text: string): Uint8Array {
 }
 
 /** Per page object (immutable: an edited page is a new object): lower-casing happens once per version, not per opening. */
-const entryCache = new WeakMap<Page, Entry>()
+const entryCache = new WeakMap<Page, Map<Lang | null, Entry>>()
 
-function entryOf(page: Page): Entry {
-  let e = entryCache.get(page)
+function entryOf(original: Page, lang: Lang | null): Entry {
+  const byLanguage = entryCache.get(original) ?? new Map<Lang | null, Entry>()
+  let e = byLanguage.get(lang)
   if (!e) {
+    const variant = lang && lang !== original.localization?.source ? original.localization?.variants[lang] : undefined
+    const page = variant ? { ...original, title: localizedTitle(original, lang), plain: (original.plain ?? '') + '\n' + variant.texts.map(p => p[1]).join(' ') } : original
     const title = (page.title || '').toLowerCase()
     e = { page, title, plain: (page.plain || '').toLowerCase(), words: title.split(WORD_SPLIT) }
-    entryCache.set(page, e)
+    byLanguage.set(lang, e)
+    entryCache.set(original, byLanguage)
   }
   return e
 }
 
 /** Per pages map: opening the palette again without a change in between reuses the index. */
-const indexCache = new WeakMap<Record<ID, Page>, SearchIndex>()
+const indexCache = new WeakMap<Record<ID, Page>, Map<Lang | null, SearchIndex>>()
 
 /** Every live page — a page under a trashed parent is in the trash too; template pages stay out. */
-export function buildIndex(pages: Record<ID, Page>): SearchIndex {
-  const hit = indexCache.get(pages)
+export function buildIndex(pages: Record<ID, Page>, lang: Lang | null = null): SearchIndex {
+  const byLanguage = indexCache.get(pages) ?? new Map<Lang | null, SearchIndex>()
+  const hit = byLanguage.get(lang)
   if (hit) return hit
   const entries: Entry[] = []
   const live: Page[] = []
   for (const id of Object.keys(pages)) {
     const p = pages[id]
     if (!p.trashed && !isEffectivelyTrashed(pages, id) && !inTemplate(pages, id)) {
-      entries.push(entryOf(p))
-      live.push(p)
+      const entry = entryOf(p, lang)
+      entries.push(entry)
+      live.push(entry.page)
     }
   }
   const index: SearchIndex = { entries, pages: live }
-  indexCache.set(pages, index)
+  byLanguage.set(lang, index)
+  indexCache.set(pages, byLanguage)
   return index
 }
 

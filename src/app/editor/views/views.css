@@ -1359,7 +1359,7 @@
 
 .doc-content .database-block.is-block-selected {
   background: none;
-  box-shadow: 0 0 0 2px var(--signal);
+  box-shadow: none;
 }
 
 /* mermaid uses class="label" internally — neutralise the global .label micro-type */
@@ -1379,7 +1379,7 @@
 
 .doc-content .react-renderer.is-block-selected:is(.node-bookmark, .node-embed, .node-fileBlock, .node-databaseBlock, .node-mermaid, .node-toc, .node-pageLink, .node-blockMath) {
   background: none;
-  box-shadow: 0 0 0 2px var(--signal);
+  box-shadow: none;
   border-radius: var(--radius-2);
 }
 
@@ -1389,8 +1389,7 @@
 }
 
 .doc-content .react-renderer.node-image.is-block-selected .image-view__frame img {
-  outline: 2px solid var(--signal);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* ---------- broken block (render fault isolated to one node view) ---------- */

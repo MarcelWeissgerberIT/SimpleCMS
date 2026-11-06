@@ -8,7 +8,7 @@
 
 .doc-content .sheet-block.is-block-selected {
   background: none;
-  box-shadow: 0 0 0 2px var(--signal);
+  box-shadow: none;
 }
 
 .doc-content .sheet-block__plate {

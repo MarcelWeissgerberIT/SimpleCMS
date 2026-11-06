@@ -380,7 +380,7 @@ export const awaitsReview = (r: AgentRun) => (r.status === 'staged' || r.status 
 export const succeeded = (r: AgentRun) => r.status === 'ok' || r.status === 'staged'
 
 /** The newest successful run of a list (newest first), leaving out `exceptId` (the run going on). */
-export const lastSuccess = (runs: AgentRun[], exceptId?: string): AgentRun | null => runs.find((r) => r.id !== exceptId && succeeded(r)) ?? null
+export const lastSuccess = (runs: AgentRun[], exceptId?: string): AgentRun | null => runs.find((r) => r.id !== exceptId && !r.invocation && succeeded(r)) ?? null
 
 /* ------------------------------------------------------------------ the agent's own state */
 

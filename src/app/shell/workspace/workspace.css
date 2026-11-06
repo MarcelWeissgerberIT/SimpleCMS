@@ -829,3 +829,11 @@
 .wsp-display__led {
   margin-top: 18px;
 }
+
+.local-workspace-form { display: grid; gap: var(--s-4, 16px); padding: 4px 0; }
+.local-workspace-form label { display: grid; gap: 8px; font-weight: 600; }
+.local-workspace-form input { width: 100%; min-width: 0; }
+.local-workspace-form p { line-height: 1.55; }
+.wsp-package { padding: 16px; border: 1px solid var(--rule); margin-bottom: 16px; }
+.wsp-package p { margin: 0 0 12px; line-height: 1.55; }
+.wsp-package p:last-child { margin: 12px 0 0; }

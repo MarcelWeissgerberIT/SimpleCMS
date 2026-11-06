@@ -46,3 +46,15 @@ Ein Überblick zum Lesen über alles, was läuft oder zum Wiederverwenden gebaut
 
 ## Gefahrenzone
 Lokaler Workspace: **Workspace zurücksetzen** löscht ihn auf diesem Gerät und beginnt neu — exportiere vorher ein Backup. Team-Workspace: Der Inhaber löscht ihn für alle (Name zur Bestätigung tippen); alle anderen **verlassen** ihn. Die Kopie eines Team-Workspace aus diesem Browser zu entfernen ist Sache des Geräts: **Einstellungen → Daten**.
+
+## Mehrere lokale Workspaces
+
+Im **Workspace-Menü** oben links stehen alle lokalen Workspaces und deine Team-Workspaces. **Neuer lokaler Workspace…** legt einen leeren Workspace an oder öffnet ein vorkonfiguriertes **Workspace-Paket**. Jeder lokale Workspace hat eigene Seiten, Datenbanken, Anhänge, Agenten, Skripte, Bausteine, Aussehen, KI-Regeln und Budgets. Vor einem Wechsel speichert One die aktuelle Arbeit. Zwei Fenster können unterschiedliche Workspaces geöffnet halten.
+
+Deine persönlichen Einstellungen und KI-/MCP-Schlüssel bleiben auf diesem Gerät. Zwischen lokalen Workspaces bleiben diese persönlichen Einstellungen verfügbar; Seitenziele, Mail-Ablagen, Sync-Ziele, Verläufe und Freigaben gehören zum jeweiligen Workspace. Bestehende Team-Verbindungen und deren persönliche Geräteeinstellungen werden nicht umgestellt. Worker-Kopplungen bleiben an ihre bisherige Workspace-ID gebunden; ein weiterer Workspace erhält dadurch keinen automatischen Zugriff.
+
+Unter **Workspace-Einstellungen → Daten → Workspace-Paket exportieren** entsteht eine wiederverwendbare Datei mit Workspace-Inhalt und referenzierten Anhängen. Sie enthält keine Geräteeinstellungen, Schlüssel, eingerichteten Verbindungen, privaten Team-Seiten oder erteilten Freigaben. Agenten und Automationen kommen pausiert an, wiederkehrende Vorlagen ohne aktiven Zeitplan; Webhook-Ziele sind entfernt. Öffne die Datei über **Neuer lokaler Workspace… → Optional: Workspace-Paket**. Das legt einen weiteren Workspace an und ersetzt keinen vorhandenen. Normale Komplett-Backups bleiben davon getrennt.
+
+Für gemeinsame Live-Arbeit **Neuer Team-Workspace…** wählen und den geöffneten lokalen Workspace hineinkopieren. Der lokale Workspace bleibt erhalten; die Team-Kopie erhält die Workspace-Inhalte ohne persönliche Verbindungen und mit pausierten Automationen. Der Team-Server stellt die gemeinsame Bearbeitung, Rollen und Einladungen bereit. Ein Datei-Paket ist eine Kopie, keine laufende Synchronisierung. Team-Workspaces stehen auf einem eingerichteten Team-Server zur Verfügung; die rein statische Version bietet den Weg zur Server-Anleitung.
+
+**Workspace zurücksetzen** leert nur den gewählten lokalen Workspace. Andere Workspaces und persönliche Einstellungen beziehungsweise Verbindungen bleiben erhalten. Ein früher bereits vorgemerkter vollständiger Geräte-Reset wird weiterhin nach den damaligen Regeln abgearbeitet.

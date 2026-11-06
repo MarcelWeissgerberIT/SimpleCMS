@@ -47,7 +47,7 @@ const asDraft = (look: WorkspaceLook | null): WorkspaceLook => look ?? defaultLo
 
 /** The open workspace's scope for per-device choices ('local' or the team workspace id). */
 export function useLookScope(): string {
-  return useCloud((s) => (s.active.kind === 'cloud' ? s.active.id : 'local'))
+  return useCloud((s) => (s.active.id))
 }
 
 export function LookSection({ team }: { team: TeamData }) {

@@ -1,3 +1,4 @@
+import { readInvocation, type AgentInvocation } from '@/shared/agents/invocation'
 /**
  * Custom agents — the team server's runner (docs/API.md § Agents): its runtime (the server's Claude
  * key and MCP servers — secrets are never returned, only set / last 4), its runs, "run now" and the
@@ -134,10 +135,20 @@ export function readRun(v: unknown): AgentRun | null {
   const staged = Array.isArray(v.staged) ? v.staged.map(readChange).filter((c): c is StagedChange => !!c) : undefined
   const u = isObj(v.usage) ? v.usage : null
   const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
+  let invocation: AgentRun['invocation']
+  if (v.invocation !== undefined) {
+    if (!isObj(v.invocation)) return null
+    try {
+      const input = readInvocation({ objective: v.invocation.objective, pageId: v.invocation.pageId })
+      if (!input) return null
+      invocation = { ...input, ...(typeof v.invocation.pageTitle === 'string' ? { pageTitle: v.invocation.pageTitle.slice(0, 300) } : {}) }
+    } catch { return null }
+  }
   return {
     id: v.id,
     agentId: v.agentId,
     runner: 'server',
+    ...(invocation ? { invocation } : {}),
     trigger: { type: (['manual', 'schedule', 'row_created', 'row_changed', 'webhook'].includes(trig.type as string) ? trig.type : 'manual') as AgentRun['trigger']['type'], ...(typeof trig.detail === 'string' ? { detail: trig.detail.slice(0, 300) } : {}) },
     startedAt: n(v.startedAt),
     ...(typeof v.endedAt === 'number' ? { endedAt: v.endedAt } : {}),
@@ -194,10 +205,11 @@ export async function loadServerRuns(agentId: ID, limit = 50): Promise<void> {
 }
 
 /** Start a server run now. */
-export async function runOnServer(agentId: ID): Promise<string> {
+export async function runOnServer(agentId: ID, invocation?: AgentInvocation): Promise<string> {
   const wsId = teamId()
   if (!wsId) throw new CloudError('unavailable', 'Not a team workspace.')
-  const res = await cloudRequest<{ runId?: string }>('POST', path(wsId, `agents/${encodeURIComponent(agentId)}/run`))
+  if (invocation && !useCloud.getState().supports?.includes('agent-invocation')) throw new Error(t('features.agents.invoke.serverOld'))
+  const res = await cloudRequest<{ runId?: string }>('POST', path(wsId, `agents/${encodeURIComponent(agentId)}/run`), invocation ? { invocation: readInvocation(invocation) } : undefined)
   return typeof res?.runId === 'string' ? res.runId : ''
 }
 

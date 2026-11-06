@@ -1,6 +1,9 @@
-import { BookOpen, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
+import { isTestAccess } from '../../cloud/testScope'
+import { useEffect, useState } from 'react'
+import { localWorkspaces, onLocalWorkspacesChange, type LocalWorkspace } from '../../store/localWorkspaces'
+import { BookOpen, CloudDownload, GitCompareArrows, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { openInviteSettings, useCloud } from '../../cloud'
+import { openInviteSettings, useCloud, useCheckout } from '../../cloud'
 import { useWorkspace } from '../../store/store'
 import type { MenuEntry } from '../../ui/Menu'
 import { Led } from '../../ui/controls'
@@ -23,17 +26,30 @@ export function useWorkspaceEntries(): MenuEntry[] {
     useShallow((s) => ({ available: s.available, user: s.user, workspaces: s.workspaces, active: s.active, status: s.status, role: s.role })),
   )
   const isLocal = active.kind === 'local'
+  const checkout = useCheckout(s => s.record)
+  const canCheckout = useCloud(s => s.supports?.includes('checkout:1') && !s.readOnly && s.status === 'online')
   // the local workspace's name is known while it is open
   const localName = useWorkspace((x) => (isLocal ? x.settings.workspaceName.trim() : ''))
+  const [locals, setLocals] = useState<LocalWorkspace[]>([{ id: 'local', name: 'One', createdAt: 0 }])
+  useEffect(() => {
+    if (isTestAccess()) return
+    let alive = true
+    const refresh = () => { void localWorkspaces().then(v => { if (alive) setLocals(v) }).catch(console.warn) }
+    refresh()
+    const off = onLocalWorkspacesChange(refresh)
+    return () => { alive = false; off() }
+  }, [localName])
+  if (isTestAccess()) return workspaces.map(w => ({ id: `ws-${w.id}`, label: w.name, checked: true, disabled: true, hint: roleLabel(t, 'viewer').toUpperCase() }))
   const entries: MenuEntry[] = [
     { kind: 'section', label: t('shell.cloud.switcher.workspaces') },
-    {
-      id: 'ws-local',
-      label: localName ? `${localName} · ${t('shell.cloud.switcher.local')}` : t('shell.cloud.switcher.local'),
-      icon: <Led state={isLocal ? 'ok' : 'off'} />,
-      checked: isLocal,
-      onSelect: () => !isLocal && cloudApi.switchWorkspace({ kind: 'local', id: 'local' }),
-    },
+    ...locals.map((w): MenuEntry => ({
+      id: w.id === 'local' ? 'ws-local' : `ws-local-${w.id}`,
+      label: `${isLocal && active.id === w.id ? localName || w.name : w.name} · ${t('shell.cloud.switcher.local')}`,
+      icon: <Led state={isLocal && active.id === w.id ? 'ok' : 'off'} />,
+      checked: isLocal && active.id === w.id,
+      onSelect: () => !(isLocal && active.id === w.id) && cloudApi.switchWorkspace({ kind: 'local', id: w.id }),
+    })),
+    { id: 'local-new', label: t('shell.locals.new'), icon: <Plus size={15} />, onSelect: () => openCloudDialog('new-local-workspace') },
     ...workspaces.map(
       (w): MenuEntry => ({
         id: `ws-${w.id}`,
@@ -46,6 +62,8 @@ export function useWorkspaceEntries(): MenuEntry[] {
       }),
     ),
   ]
+  if (isLocal && checkout) entries.push({ id: 'checkout-compare', label: t('shell.checkout.compare'), icon: <GitCompareArrows size={15} />, onSelect: () => openCloudDialog('checkout-merge') })
+  if (!isLocal && canCheckout) entries.push({ id: 'checkout-local', label: t('shell.checkout.action'), icon: <CloudDownload size={15} />, onSelect: () => openCloudDialog('checkout') })
 
   if (!available) {
     entries.push(

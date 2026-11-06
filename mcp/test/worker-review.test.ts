@@ -57,7 +57,7 @@ describe('capabilities', () => {
     tab.send({ type: 'nudge' })
     const next = await tab.next('req')
     assert.equal(next.op, 'next')
-    assert.deepEqual((next as Extract<typeof next, { op: 'next' }>).can, ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission'])
+    assert.deepEqual((next as Extract<typeof next, { op: 'next' }>).can, ['repo-files', 'local-chat', 'data-flow', 'shared-models', 'source-review', 'copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'])
     // the welcome names each repo's push / pr flags (One's pipeline editor warns about a git stage they turn off)
     const welcome = await tab.next('welcome')
     assert.deepEqual(welcome.repos.map((x) => [x.name, x.push, x.pr]), [['demo', false, 'none']])
@@ -98,7 +98,7 @@ describe('capabilities', () => {
     // every `next` named the same capabilities
     const nexts = tab.messages.filter((m): m is Extract<typeof m, { type: 'req'; op: 'next' }> => m.type === 'req' && m.op === 'next')
     assert.ok(nexts.length >= 3, `${nexts.length} requests`)
-    for (const n of nexts) assert.deepEqual(n.can, ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission'])
+    for (const n of nexts) assert.deepEqual(n.can, ['repo-files', 'local-chat', 'data-flow', 'shared-models', 'source-review', 'copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'])
     assertNoPaths(tab, r)
   })
 })

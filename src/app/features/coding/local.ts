@@ -21,6 +21,14 @@ import { LOG_MAX, type GitInfo, type LogLine, type TestResult } from './protocol
 
 /** What this device knows about a task's run (the row holds what everyone sees). */
 export interface TaskLocal {
+  execution?: 'one' | 'worker'
+  analysisRoute?: import('@/shared/ai/types').Route | null
+  /** An interrupted/conflicting model result, never applied as a completed stage. */
+  analysisDraft?: string | null
+  stageRuns?: Array<{run:string;stageId:ID;stage:string;status:string;receipt:import('@/shared/coding/evidence').StageRunEvidence}>
+  copilot?: import('@/shared/copilot').CopilotChoice
+  copilotRole?: import('@/shared/copilot').CopilotChoice
+  copilotRuns?: Array<{ run: string; stageId: ID; stage: string; status: string; branch?: string; test?: {ok:boolean;code:number|null;skipped?:boolean}; receipt: import('@/shared/copilot').CopilotReceipt }>
   /** idle · running (the worker has it) · question (waits for an answer) · failed · stopped */
   state: 'idle' | 'running' | 'question' | 'failed' | 'stopped'
   stageId?: ID | null
@@ -39,6 +47,10 @@ export interface TaskLocal {
   planSig?: string | null
   summary?: string | null
   test?: TestResult | null
+  /** Set at the claim, so a legacy/unrelated test cannot stand in for final delivery QA. */
+  qualityReview?: boolean
+  qualityInputs?: Record<ID, string>
+  deliveryQa?: { run: string; at: number; branch: string; inputs: Record<ID, string> } | null
   git?: GitInfo | null
   url?: string | null
   /** failed test runs since the last pass (the second one goes to the review gate) */

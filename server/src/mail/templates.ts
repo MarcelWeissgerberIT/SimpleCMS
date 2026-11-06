@@ -45,7 +45,7 @@ export function inviteMail(
 ): RenderedMail {
   const ws = oneLine(input.workspace)
   const who = oneLine(input.inviter, 60)
-  const roleDe: Record<string, string> = { admin: 'Admin', member: 'Mitglied', viewer: 'Leser' }
+  const roleDe: Record<string, string> = { admin: 'Admin', member: 'Mitglied', viewer: 'Leser', guest: 'Gast · nur lesen' }
   const t =
     lang === 'de'
       ? {
@@ -61,7 +61,7 @@ export function inviteMail(
           subject: `${who} invited you to “${ws}”`,
           label: 'INVITATION',
           title: `Join “${ws}”`,
-          body: `${who} invited you to the workspace “${ws}” on ${PRODUCT} as ${input.role}. The invitation is valid for ${input.days === 1 ? 'one day' : `${input.days} days`}.`,
+          body: `${who} invited you to the workspace “${ws}” on ${PRODUCT} as ${input.role === 'guest' ? 'guest (read only)' : input.role}. The invitation is valid for ${input.days === 1 ? 'one day' : `${input.days} days`}.`,
           button: 'Accept invitation',
           fallback: 'Or paste this link into your browser:',
           ignore: "Don't know who this is? Just ignore this email.",
@@ -73,8 +73,21 @@ export function inviteMail(
   }
 }
 
+/** Personal Atlas tokens are deliberately absent: they are available only after authenticated ONE sign-in. */
+export function welcomeMail(lang: Lang, i: {name:string;title:string;workspace:string;link:string;atlasLink:string;startLink:string;guest:boolean;note:string;cloudAtlas?:boolean;signInLink?:string}):RenderedMail {
+  const de=lang==='de', title=de?`Willkommen · ${oneLine(i.title)}`:`Welcome · ${oneLine(i.title)}`
+  const body=de?`Hallo ${oneLine(i.name)}, willkommen im Workspace „${oneLine(i.workspace)}“. ${i.guest?'Du erhältst als Gast Lesezugriff auf den gemeinsamen Workshop-Workspace. Du kannst Inhalte ansehen, aber nicht ändern.':'Hier arbeiten wir als ONE-Team zusammen.'} ${oneLine(i.note,300)}`:`Hello ${oneLine(i.name)}, welcome to “${oneLine(i.workspace)}”. ${i.guest?'You have guest read-only access to the shared workshop workspace. You can view content, but cannot change it.':'This is our ONE team workspace.'} ${oneLine(i.note,300)}`
+  const task=de?(i.guest?'Nach dem Beitritt: Öffne in ONE „Start“ und folge dem bebilderten Erststart für Gäste. Dort findest du auch deinen persönlichen Atlas-Zugang. Du liest im Workshop mit; Worker, Modellaufrufe und Änderungen sind nicht Teil deines Gastzugangs.':'Nach dem Beitritt: Öffne in ONE „Start“ → „Schritt für Schritt starten“. Die Anleitung führt dich zu deinem persönlichen Worker, deinem Atlas-Agenten und je einem echten Atlas-Leseversuch mit Copilot und Atlas Flow. Für die ersten KI-Tests richtest du den eigenen Agententoken unter Einstellungen → KI → MCP-Server ein. „Meine Secrets“ ist zusätzlich für spätere Coding-Aufgaben vorgesehen. Ein Einladungs-Token ist kein MCP-Agententoken. Keine Tokens in Seiten oder Chats kopieren.'):(i.guest?'After joining: open Home in ONE and follow the illustrated guest start guide. Your personal Atlas access is there too. You follow the workshop read-only; worker setup, model calls and edits are not part of guest access.':'After joining: open Home in ONE → Start step by step. The guide takes you through your personal worker, Atlas agent and a real Atlas read with both Copilot and Atlas Flow. For the first AI tests, configure your own agent token under Settings → AI → MCP servers. My secrets is additionally used for later coding tasks. An invitation token is not an MCP agent token. Never copy tokens into pages or chats.')
+  const instructions=i.cloudAtlas?(de?'Nach dem Beitritt öffnet sich dein Workspace-Einstieg. Die KI wird zentral im Workspace bereitgestellt. Gib auf der Startseite nur deinen eigenen AJ-Atlas-Agententoken ein und klicke „Atlas verbinden und prüfen“. Danach öffnest du deine Arbeitsliste, wählst einen vorbereiteten Auftrag und klickst auf den Vorbereitungsbutton und „Starten“. Für Atlas-Analyse brauchst du keinen lokalen Worker, keine Copilot-Anmeldung und keinen zusätzlichen Modell-API-Key. Dein Atlas-Token bleibt persönlich; bitte nicht per Mail, in Seiten oder Chats teilen. Atlas-Rechte und verfügbare Quellen bleiben maßgeblich.':'After accepting, open your workspace start. AI is provided centrally in the workspace. Enter only your own AJ-Atlas agent token and click Connect and check Atlas. Open your work list, choose a prepared task, then use its preparation button and Start. Atlas analysis needs no local worker, Copilot login or additional model API key. Keep your Atlas token personal; never share it in email, pages or chats. Your Atlas permissions and available sources still apply.'):task
+  const entryLink=i.signInLink??i.link
+  const login=i.signInLink?(de?'Dein persönlicher Einmal-Anmeldelink gilt 15 Minuten ab Versand. Öffne ihn und bestätige deine E-Mail-Adresse auf der Anmeldeseite. Eine zweite Verifikationsmail ist dafür nicht nötig. Teile den Link nicht. Nach Ablauf oder Verwendung kannst du über die Einladung eine neue Anmeldemail anfordern.':'Your personal single-use sign-in link is valid for 15 minutes after sending. Open it and confirm your email address on the sign-in page. No second verification email is needed. Do not share this link. After expiry or use, request a new sign-in email through the invitation.'):''
+  const cta={href:entryLink,label:i.signInLink?(de?'Persönlich in ONE anmelden':'Sign in to ONE'):(de?'ONE-Einladung annehmen':'Accept ONE invitation')}, fallback=de?'Dein persönlicher ONE-Link:':'Your personal ONE link:'
+  const extra=[...(i.signInLink?[{href:i.link,label:de?'Workspace-Einladung':'Workspace invitation'}]:[]),{href:i.atlasLink,label:'Atlas'},{href:i.startLink,label:de?'Erste Aufgabe in ONE':'First task in ONE'}]
+  return {subject:title,text:`${title}\n\n${body}\n\nONE: ${entryLink}\n${login?login+"\n\n"+(de?"Workspace-Einladung (7 Tage): ":"Workspace invitation (7 days): ")+i.link+"\n":""}Atlas: ${i.atlasLink}\n\n${instructions}\n\n${i.startLink}\n\n${i.cloudAtlas?(de?'ONE-Einladungen sind 7 Tage gültig. Den persönlichen Atlas-Token gibst du ausschließlich im geschützten ONE-Einstieg ein.':'ONE invitations expire after 7 days. Enter your personal Atlas token only in the protected ONE start.'):(de?'ONE-Einladungen sind 7 Tage gültig; der Atlas-Link hat seine eigene Gültigkeit.':'ONE invitations expire after 7 days; the Atlas link has its own expiry.')}\n`,html:layout(i.cloudAtlas?'ONE · ATLAS':'WORKSHOP',title,body,cta,fallback,[login,instructions].filter(Boolean).join(' '),extra)}
+}
+
 /** Table layout + inline styles: the only thing every mail client renders the same. Paper, ink, one orange. */
-function layout(label: string, title: string, body: string, cta: { href: string; label: string }, fallback: string, footer: string): string {
+function layout(label: string, title: string, body: string, cta: { href: string; label: string }, fallback: string, footer: string, extra: Array<{href:string;label:string}> = []): string {
   const e = escapeHtml
   const mono = "'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
   const sans = "Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif"
@@ -93,6 +106,7 @@ function layout(label: string, title: string, body: string, cta: { href: string;
 <a href="${e(cta.href)}" style="display:inline-block;background:#141413;color:#fbfaf6;text-decoration:none;font:600 14px/1 ${sans};padding:13px 20px;border-radius:2px;border-bottom:2px solid #ff4f00;">${e(cta.label)} &rarr;</a>
 </td></tr>
 <tr><td style="padding:0 28px 24px;font:400 12px/1.5 ${sans};color:#67635b;">${e(fallback)}<br><a href="${e(cta.href)}" style="color:#141413;word-break:break-all;font:400 11.5px/1.5 ${mono};">${e(cta.href)}</a></td></tr>
+${extra.length?`<tr><td style="padding:0 28px 24px;font:400 14px/1.6 ${sans};">${extra.map(x=>`<a href="${e(x.href)}" style="color:#141413;">${e(x.label)}</a>`).join(' &nbsp;·&nbsp; ')}</td></tr>`:''}
 <tr><td style="padding:16px 28px;border-top:1px solid #d9d5ca;font:400 12px/1.5 ${sans};color:#67635b;">${e(footer)}</td></tr>
 </table>
 </td></tr></table>

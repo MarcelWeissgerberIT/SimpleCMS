@@ -1,3 +1,8 @@
+import {CodeChangeView} from './CodeChangeView'
+import {CodeAnalysisView} from './CodeAnalysisView'
+import {UIStudioView} from './UIStudioView'
+import {codeReference} from '@/shared/mcp/codeReference'
+import { CodeReferenceView } from './CodeReferenceView'
 /**
  * Code block view: a bar (language, lines or the JSON check, line numbers, soft wrap, copy) over the code. Line
  * numbers and the current line are widget decorations (extensions/codeLines.ts); this view only says whether
@@ -55,7 +60,11 @@ const subscribeViews = (fn: () => void) => {
 
 /* ------------------------------------------------------------------ the view */
 
-export function CodeBlockView({ node, updateAttributes, editor, getPos }: ReactNodeViewProps) {
+export function CodeBlockView(props: ReactNodeViewProps) {
+  return props.node.attrs.language === 'code-change' ? <CodeChangeView {...props}/> : props.node.attrs.language === 'code-analysis' ? <CodeAnalysisView {...props}/> : props.node.attrs.language === 'ui-instructions' ? <UIStudioView {...props}/> : props.node.attrs.language === 'atlas-code' ? <CodeReferenceView {...props}/> : <PlainCodeBlockView {...props}/>
+}
+
+function PlainCodeBlockView({ node, updateAttributes, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
   const menu = useMenu()
   const [copied, setCopied] = useState(false)
@@ -148,6 +157,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: ReactN
         ) : (
           <span className="code-block__lines">{t('editor.code.lines', { count: lines })}</span>
         )}
+        {current==='json'&&editor.isEditable&&codeReference(text)&&<button type="button" className="code-block__tool" onClick={()=>updateAttributes({language:'atlas-code'})}>{t('editor.code.sourceReference')}</button>}
         <span className="code-block__spacer" />
         <button
           type="button"

@@ -26,6 +26,7 @@ export interface ModeRow {
 const row = (mode: ModeRow['mode'], answer: AnswerKind, series: string): ModeRow => ({ mode, answer, series })
 
 export const RUN_MODES: Readonly<Record<PurposeId, ModeRow>> = {
+  'table.cells': row('interactive', 'text', 'table-cells'),
   'menu.action': row('interactive', 'text', 'ai'),
   'menu.ask': row('interactive', 'text', 'ai'),
   'menu.tasks': row('interactive', 'text', 'ai'),
@@ -36,6 +37,8 @@ export const RUN_MODES: Readonly<Record<PurposeId, ModeRow>> = {
   'structure.transform': row('interactive', 'structured', 'ai'),
   'structure.freeboard': row('interactive', 'structured', 'ai'),
   'structure.redo': row('interactive', 'structured', 'ai'),
+  'workspace.translate': row('interactive', 'structured', 'translation'),
+  'drawing.diagram': row('interactive', 'structured', 'ai'),
   'memory.propose': row('follow-up', 'structured', 'memory'),
   'memory.example': row('follow-up', 'structured', 'memory'),
   'vision.image': row('interactive', 'text', 'ai'),

@@ -1,3 +1,4 @@
+import {anthropicOutputSchema} from '@/shared/ai/anthropic-schema'
 /**
  * Claude looks at an image block: the request (the image as a base64 image block + the task as text, one
  * user message) and the prompts of the four actions.
@@ -13,7 +14,7 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo, viaNeutral } from '../client'
-import { capped, prepare, settle, type Prepared } from '../core/gate'
+import { assertPreparedFlow, capped, prepare, settle, type Prepared } from '../core/gate'
 import { imageChars, meterCall, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { RouteOptions } from '../client'
@@ -161,13 +162,14 @@ export async function requestImage(req: ImageRequest): Promise<string> {
       return await viaNeutral(prepared, call, { system: SYSTEM, parts: [{ type: 'image', mime: image.mediaType, data: image.data }, { type: 'text', text: prompt }], output, maxTokens: 8000, promptChars: promptChars() }, { signal, onToken })
     }
     const got = await claudeClient()
+    assertPreparedFlow(prepared)
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to; what it can do from its caps (never its id)
     const model = prepared.route?.m ?? got.model
     if (signal?.aborted) throw new AIError('aborted')
     const schema = action === 'describe' ? DESCRIBE_SCHEMA : action === 'table' ? TABLE_SCHEMA : null
-    const format = schema ? { type: 'json_schema' as const, schema } : null
+    const format = schema ? { type: 'json_schema' as const, schema: anthropicOutputSchema(schema) } : null
     const source = { type: 'base64' as const, media_type: image.mediaType, data: image.data }
     let text = ''
     const onText = (delta: string) => {

@@ -1,0 +1,19 @@
+# Repository-root context for both legacy Docker and BuildKit.
+# Keep in sync with server/Dockerfile.dockerignore (BuildKit's per-Dockerfile override).
+**/node_modules
+**/.DS_Store
+**/*.log
+.git
+.github
+dist
+server/dist
+server/.data
+server/.env
+.env
+docs
+tests
+test-results
+playwright-report
+.shots
+.art-work
+.vite

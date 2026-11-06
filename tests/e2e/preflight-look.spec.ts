@@ -77,7 +77,7 @@ const ratio = (a: Rgb, b: Rgb) => {
   return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100
 }
 
-const NAMES = ['--lamp-amber', '--lamp-red', '--lamp-red-ink', '--lamp-ink', '--lamp-housing', '--lamp-off', '--lamp-legend', '--lamp-legend-2', '--surface', '--ink', '--plate', '--switch-led-yellow']
+const NAMES = ['--lamp-amber', '--lamp-red', '--lamp-red-ink', '--lamp-ink', '--lamp-housing', '--lamp-off', '--lamp-legend', '--lamp-legend-2', '--surface', '--ink', '--plate', '--switch-led-yellow', '--ann-ink', '--ann-muted', '--ann-floor', '--ann-panel-hi', '--ann-lens', '--ann-hatch']
 
 for (const mode of ['relative colours', 'no relative colours'] as const) {
   for (const theme of ['light', 'dark'] as const) {
@@ -100,6 +100,10 @@ for (const mode of ['relative colours', 'no relative colours'] as const) {
         inkRingVsPlate: ratio(c['--ink'], c['--plate']),
       }
       test.info().annotations.push({ type: 'contrast', description: JSON.stringify(report) })
+      for (const bg of ['--ann-floor', '--ann-panel-hi', '--ann-lens', '--ann-hatch']) {
+        expect(ratio(c['--ann-muted'], c[bg]), `annunciator labels on ${bg}`).toBeGreaterThanOrEqual(4.5)
+        expect(ratio(c['--ann-ink'], c[bg]), `annunciator readout on ${bg}`).toBeGreaterThanOrEqual(4.5)
+      }
       // lamp texts (the legend, the count, the "new" chip in the swapped colours)
       expect(report.textOnAmber, 'lamp text on amber').toBeGreaterThanOrEqual(4.5)
       expect(report.whiteOnRed, 'white on lamp red').toBeGreaterThanOrEqual(4.5)

@@ -122,3 +122,35 @@ test('a newer client than the server knows writes as usual', async () => {
   const newer = doc(member, name, MIN_CLIENT_SCHEMA + 5)
   assert.equal(await newer.ready, 'read-write')
 })
+
+
+test('a generation-5 tab cannot delete the free rectangle of a generation-6 mock note', async () => {
+  assert.equal(MIN_CLIENT_SCHEMA, 6)
+  const name = `ws:${wsId}:p:mockgate0001`
+  const current = doc(owner, name, 6)
+  assert.equal(await current.ready, 'read-write')
+  await current.synced
+  const mock = new Y.XmlElement('designMock')
+  mock.setAttribute('spec', JSON.stringify({journal:{notes:[{text:'Keep the badge feedback',region:{x:10,y:20,width:200,height:100},elements:[{path:'first'},{path:'second'}]}]}}))
+  const title = new Y.XmlElement('paragraph')
+  title.insert(0, [new Y.XmlText('CyBio head selector')])
+  mock.insert(0, [title])
+  current.doc.getXmlFragment('default').insert(0, [mock])
+  await flushed(current)
+  const old = doc(member, name, 5)
+  const got = notices(old)
+  assert.equal(await old.ready, 'readonly')
+  await old.synced
+  await waitFor(() => got.length > 0, 5000, 'reload notice for generation 5')
+  assert.equal(JSON.parse(got[0]!).min, 6)
+  ;(old.doc.getXmlFragment('default').get(0) as Y.XmlElement).setAttribute('spec', '{}')
+  old.doc.getXmlFragment('default').delete(0, 1)
+  await sleep(400)
+  const fresh = doc(owner, name, 6)
+  await fresh.synced
+  assert.equal((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).nodeName, 'designMock')
+  assert.match(fresh.doc.getXmlFragment('default').toString(), /CyBio head selector/)
+  assert.match((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')!, /Keep the badge feedback/)
+  assert.match((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')!, /second/)
+  assert.match((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')!, /region/)
+})

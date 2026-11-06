@@ -475,6 +475,35 @@ test('CODING_RELAY=off: no relay, no worker tokens', async () => {
   }
 })
 
+test('inference-only hosts survive laptop downloads and cannot connect to the coding relay', async () => {
+  const server = await startServer()
+  try {
+    const owner = await signIn(server, 'host-owner@x.test')
+    const ws = (await owner.post('/api/workspaces', { name: 'Model host isolation' })).body.id
+    const host = (await owner.post(`/api/workspaces/${ws}/model-hosts`, { label: 'Frankfurt inference' })).body
+    assert.equal(host.purpose, 'model-host')
+    const denied = await upgrade(server, '/coding/worker', { authorization: `Bearer ${host.token}`, 'x-one-workspace': `team:${ws}`, 'sec-websocket-protocol': PROTOCOL })
+    assert.equal(denied.status, 403)
+    const check = await fetch(server.url + '/api/coding/worker', { headers: { authorization: `Bearer ${host.token}` } })
+    assert.equal(check.status, 403)
+    const coding = (await owner.post(`/api/workspaces/${ws}/coding/workers`, {})).body
+    const laptop = worker(server, coding.token, ws)
+    await laptop.opened
+    await owner.post(`/api/workspaces/${ws}/coding/workers`, {})
+    assert.ok((await owner.get(`/api/workspaces/${ws}/coding/workers`)).body.every((w: any) => w.id !== host.id))
+    const config = await fetch(server.url + '/api/coding/shared-model/config', { method: 'PUT', headers: { authorization: `Bearer ${host.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'atlas-flow:latest', label: 'Frankfurt', enabled: true }) })
+    assert.equal(config.status, 200, 'laptop activation and another download do not revoke the model host')
+    const second = (await owner.post(`/api/workspaces/${ws}/model-hosts`, { label: 'Replacement inference' })).body
+    assert.equal(laptop.closed, null, 'replacing a host does not close the personal worker')
+    const old = await fetch(server.url + '/api/coding/shared-model/info', { headers: { authorization: `Bearer ${host.token}` } })
+    assert.equal(old.status, 401)
+    assert.notEqual(second.id, host.id)
+    const viewer = await signIn(server, 'host-viewer@x.test')
+    assert.equal((await viewer.post(`/api/workspaces/${ws}/model-hosts`, { label: 'Unrelated' })).status, 404)
+    laptop.close()
+  } finally { await server.stop() }
+})
+
 test('repo: pending tokens lapse after a day, revoked ones are kept 90 days, one active and one pending per member', () => {
   const db = openDb(joinPath(tempDir(), 'one.sqlite'))
   try {

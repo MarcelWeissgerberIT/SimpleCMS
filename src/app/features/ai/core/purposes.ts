@@ -39,6 +39,7 @@ const p = (cls: FeatureClass, needs: DataClass[], may: DataClass[], caps: Need[]
 })
 
 export const PURPOSES = {
+  'table.cells': p('write', ['selection'], ['page']),
   'menu.action': p('write', ['selection'], ['page', 'mcp']),
   'menu.ask': p('ask', ['selection'], ['page', 'memory', 'mcp']),
   'menu.tasks': p('write', ['selection', 'people'], ['page', 'mcp']),
@@ -49,15 +50,17 @@ export const PURPOSES = {
   'structure.transform': p('structure', ['selection'], ['people', 'mcp'], ['structured']),
   'structure.freeboard': p('structure', ['selection', 'structure'], ['mcp'], ['structured']),
   'structure.redo': p('structure', ['selection'], ['page'], ['structured']),
+  'workspace.translate': p('write', ['page', 'structure'], [], ['structured']),
+  'drawing.diagram': p('structure', ['selection'], ['page'], ['structured']),
   'memory.propose': p('memory', ['memory'], ['selection', 'page'], ['structured']),
   'memory.example': p('memory', ['memory'], ['page'], ['structured']),
   'vision.image': p('vision', ['files'], ['page'], ['vision']),
   'vision.design': p('vision', ['files'], [], ['vision']),
   // a PDF needs a model that reads PDFs (the call says so); a text file goes to any
   'documents.file': p('documents', ['files'], ['page']),
-  'generate.media': p('generate', ['mcp'], ['page'], ['mcp']),
+  'generate.media': p('generate', ['mcp'], ['page', 'files'], ['mcp']),
   'mcp-setup.inspect': p('mcp-setup', ['mcp'], [], ['mcp', 'listing']),
-  'terminal.task': p('terminal', ['workspace'], ['memory', 'files', 'selection', 'mcp'], ['tools']),
+  'terminal.task': p('terminal', ['workspace'], ['memory', 'files', 'selection', 'mcp', 'private'], ['tools']),
   'agents.run': p('agents', [], ['workspace', 'rows', 'page', 'structure', 'memory', 'mcp'], ['tools']),
   'write.instructions': p('write', ['public'], []),
   'bulk.autofill': p('bulk', ['rows'], ['page', 'mcp'], ['structured']),

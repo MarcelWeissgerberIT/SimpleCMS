@@ -5,21 +5,21 @@ section: ai
 order: 6
 keywords: mcp, mcp server, mcp connections, connections, what is connected, overview page, overview, table, where used, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, sign-in code, device code, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren, Verbindungen, Übersichtsseite
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
-summary: Let One's Claude use the tools of other systems — a knowledge base, a tracker, a CRM.
+summary: Use external tools with Claude, Copilot or tool-capable Atlas Flow — with personal access and actual call receipts.
 ---
-**Settings → AI → MCP servers.** You need [your Claude key](help:claude-key) first.
+**Settings → AI → MCP servers.** Choose an available tool-capable model. Claude requires [your Claude key](help:claude-key); Copilot uses your signed-in worker. Prepared Atlas Flow in the AJ workspaces uses your personal Atlas access through the ONE cloud proxy. It does not require a Claude key.
 
 ## Add a server (a knowledge base as example)
 1. In your knowledge base, copy its MCP server address (`https://…/mcp`) and create a token for One — read-only, limited to the projects you need, if it lets you choose.
 2. In One: **Add server**, paste the **Server URL** and the **Token**, **Save**.
-3. One names the server after its address, switches it on and checks it in the background: it tests the connection, lists the tools Claude sees and writes a **Usage prompt** that tells Claude which tool is for what. The LED turns to **Connected**.
+3. One names the server after its address and enables it. **Test connection** checks access and the available tools. An online worker or the prepared AJ-Atlas cloud connection performs this directly, without an AI model. **Generate usage prompt** is a separate AI action.
 
 ## Overview: where each server may be used
 The section opens with a table, one row per server: its **codeword**, **One's Claude** (which requests take it, or *Off*), the **custom agents** that attach it (with the number of tools a tool list allows; a switched-off agent struck through), the **integrations** it makes active, and **Claude Code (worker)** — the repos (and *tasks without a repo*) where Claude Code in the coding worker has a server of the same name or codeword. Claude Code's servers are its own (your `claude mcp` setup, ticked per repo on the worker's setup page): a name only Claude Code has gets a row of its own. Click a server's name to open its details.
 
 ## All connections at a glance
 ⌘K **MCP · Connections** (`#/mcp`) shows every MCP connection One knows of on one page — **All connections →** here and in **Settings → Agents · MCP** opens it too:
-- **§ 01 One's Claude** — these servers, each with a lamp and a word: **OK** (when it was tested, how many tools), **Not tested**, **Test failed** (amber), **Token refused** or **Sign-in ran out** (red), **Off**. The lamps follow the [Preflight](help:preflight) Token lamp: the same servers are red or amber there. Each row offers **Test** (one short Claude request — only when you press it), **Sign in** on a red row, and **Settings ↗** to its card here.
+- **§ 01 One's Claude** — these servers, each with a lamp and a word: **OK** (when it was tested, how many tools), **Not tested**, **Test failed** (amber), **Token refused** or **Sign-in ran out** (red), **Off**. The lamps follow the [Preflight](help:preflight) Token lamp: the same servers are red or amber there. Each row offers **Test** (directly through a worker or AJ-Atlas cloud access; otherwise through the selected model — only when you press it), **Sign in** on a red row, and **Settings ↗** to its card here.
 - **§ 02 Claude Desktop · Code** — this tab's bridge ([Claude Desktop & local MCP](help:mcp-bridge)): connected or not, which client, what agents may change.
 - **§ 03 Coding worker** — this browser's link to the worker and the MCP servers Claude Code has there, per repo.
 - **§ 04 Team server** — in a team workspace: the workspace's `/mcp` address and the server agents' MCP servers.
@@ -38,7 +38,7 @@ A server you switch off is not used by One on this device — custom agents that
 A server that rejects its token (expired, or not signed in yet) no longer stops your requests: Claude answers without it and a note says *“… rejected its token — Claude answers without it”*. It stays left out in this tab until you sign in again, replace the token or a test passes — or address it by its codeword, which shows the error instead.
 
 ## Codeword
-**Details** → **Codeword**: a short word like `kb` — One suggests the server's name, **Use** takes it. Start a request with it — *“kb: what do we know about the launch?”* — in the AI menu, in `⌘K ?` or in the agent, and Claude answers with this server's tools first (the `kb:` itself is not sent). Several work at once: `kb: wiki: …`. In the AI terminal, `kb:` lists the server's tools (from **Test connection**): pick one with <kbd>Tab</kbd> and Claude is told to use it.
+**Details** → **Codeword**: a short word like `kb` — One suggests the server's name, **Use** takes it. Start a request with it — *“kb: what do we know about the launch?”* — in the AI menu, in <kbd>Mod+K</kbd> `?` or in the agent, and Claude answers with this server's tools first (the `kb:` itself is not sent). Several work at once: `kb: wiki: …`. In the AI terminal, `kb:` lists the server's tools (from **Test connection**): pick one with <kbd>Tab</kbd> and Claude is told to use it.
 - While you type, a chip shows the server: `→ KB`. A switched-off server stays off — the answer says so.
 - a–z, 0–9, `-` and `_`, up to 24 characters, one per server. `one` is reserved: it is One's own codeword in Claude Desktop ([Claude Desktop & local MCP](help:mcp-bridge)).
 
@@ -59,8 +59,8 @@ A sign-in that a browser can't finish at all (the server's sign-in refuses brows
 In the [AI terminal](help:agent), `/connect` lists the servers and how they stand (signed in, token, sign-in needed, off). `/connect kb` — a name, a codeword or an address — signs in: the window opens right from your <kbd>Enter</kbd>, and the terminal shows the waiting, the code (with **Use a code instead**), the connection test and **Connected · 3 tools**. A server whose token works is only tested; no window opens. `/connect https://…` adds a server by its address first. When the browser blocks the window, the terminal says so and stays where it is — allow pop-ups for One, or press **Sign in again**. A server you add during a conversation joins after `/new`; a server you sign in to again is used with its new sign-in right away.
 
 ## Save media to One
-Image and video services (and others) return pictures, clips or audio. One shows each as a **card** — file type, host, size when known — under the answer in the AI menu, in `⌘K ?`, in the [AI terminal](help:agent) and in [custom agents'](help:custom-agents) runs. Nothing is loaded until you click.
-- **Save to One** (or **Save all**) fetches the file in this browser, checks that it really is an image, video or audio file (type and content), stores it in this browser and puts the block where you asked: below the selection in the AI menu, at the end of the current page in `⌘K ?`. In the terminal, saving stages **Insert media** for your review — on the page the task worked on, or on a new page "Generated media".
+Image and video services (and others) return pictures, clips or audio. One shows each as a **card** — file type, host, size when known — under the answer in the AI menu, in <kbd>Mod+K</kbd> `?`, in the [AI terminal](help:agent) and in [custom agents'](help:custom-agents) runs. Nothing is loaded until you click.
+- **Save to One** (or **Save all**) fetches the file in this browser, checks that it really is an image, video or audio file (type and content), stores it in this browser and puts the block where you asked: below the selection in the AI menu, at the end of the current page in <kbd>Mod+K</kbd> `?`. In the terminal, saving stages **Insert media** for your review — on the page the task worked on, or on a new page "Generated media".
 - A host that does not let browsers load its files: the card offers **Open** (a new tab) and **Upload a copy**. In a team workspace, **Fetch through the team server** downloads it there (https only, never private addresses).
 - SVG files are kept for download only — they can contain script.
 
@@ -73,7 +73,57 @@ Type `/generate image` (or `/generate video`) on a line, or click **Generate…*
 
 > Generating may use credits on that service.
 
-## How it works — and the token
+## How Claude connects — and the token
 Requests go to `api.anthropic.com`; Anthropic connects to the server while Claude answers. So only remote servers reachable over HTTPS work (Streamable HTTP or SSE) — no local ones.
 
 > The token is sent to Anthropic with every request that uses the server, and stored sealed in this browser — never in backups, exports or sync (a sign-in's tokens too). Use a dedicated token for One, read-only where possible. On another device, add the token again or sign in there.
+
+## Personal tokens for Claude Code
+
+[My secrets](help:personal-secrets) stores Atlas and agent tokens per person with a separate passphrase. In a coding task, explicitly grant the connections needed to the current worker. This grant is separate from regular MCP connections for browser agents; existing connections are not automatically migrated.
+
+
+## Check access before starting an AI task
+With an online worker or the prepared AJ-Atlas cloud connection, **Test connection** checks your access and available tools directly. It needs no model and reads or changes no record. A green connection confirms this check; individual projects and operations still have their own permissions.
+
+**Generate usage prompt** remains a separate AI action. Open a server’s **Details** and choose an available MCP-capable model for it; ONE remembers this choice for this purpose on your device. Copilot and local models have a separate personal MCP permission beside it. Choosing a model grants no data access. Workspace restrictions still apply. For general MCP connections, your own worker executes calls. The prepared personal AJ-Atlas connection in the Analytik Jena workspaces can instead use the ONE cloud proxy, so it does not require a local worker. Both routes still require your own Atlas access; the model host receives no access tokens.
+
+
+## Atlas Flow in Frankfurt
+
+The Frankfurt model uses the selected personal Atlas MCP connection for records, agents, flows, and available Polarion operations. After discovery the model receives the complete native function schema, including large write schemas. Server usage guidance explains the protocol; it grants no additional permissions.
+
+Discovery is not execution. Check the actual tool call and result in the AI terminal. A queued flow job still needs a runner using the agent's own authorized connection. A personal token does not turn the model into that agent. Model selection never bypasses write permissions, constraints, signatures, or human approvals.
+
+Polarion Connect also needs an online, project-authorized Polarion worker and its browser sign-in. Start with `atlas_polarion_status`. Atlas sign-in and `atlas_polarion_resolve` do not prove a live Polarion browser connection. `atlas_polarion_prepare_change` previews a change; `atlas_polarion_apply_change` needs explicit approval of that exact preview and a write-enabled worker.
+
+Transport support and result quality are qualified separately. Identity or search success does not qualify agent execution, writes, or Polarion. Report the specific missing prerequisite; never infer success or absent records from a failed call.
+
+The prepared AJ workspace carries an explicit default Atlas tenant. It applies per call unless you specify another accessible tenant. Your global Atlas selection stays unchanged; a different selected tenant does not prove that project data is absent.
+
+## Compiled dispatch checks and evidence cubes
+
+Expand **Actual Atlas result** beneath an actual Atlas call, then click **Compiled dispatch check · …**. The short hash identifies the check profile, not the individual evidence cube. The inspector shows a glass cube, its complete quantum ID and the compiler-returned dimensions. Select a dimension to see its check status and associated rule. Drag the cube or use the two rotation buttons.
+
+Expand **Bound values and dependencies**, **Full hashes** or **Original compiler receipt data** to inspect the recorded check. **Download compiler receipt as JSON** exports it. Opening and exporting make no new AI or Atlas request. Detailed compiler data is not added to model context.
+
+A stored receipt describes the historical check. It does not recheck current permissions or establish factual correctness or success of an Atlas action; the action result and any read-back are displayed separately. Older compact receipts have no original compiler output. Their dimensions are labelled as catalogue mappings; historical detail is never invented afterwards.
+
+
+## Fix the actual failure
+
+In the AI terminal and direct source handoff, ONE shows a short repair card for a failed call. **Check connection** opens the affected personal connection; it grants no additional permissions.
+
+- **401 / authentication rejected:** Check the Atlas instance and personal access. Replace a token only if it is actually invalid.
+- **403 / permission denied:** Check project membership and tool permissions. This does not prove an invalid token.
+- **TLS / certificate:** Check the worker's company certificate setup; certificate verification stays enabled.
+- **Timeout / network:** Check reachability from the executing worker or proxy, VPN and DNS.
+- **Tool or schema:** Check the current catalogue and exact arguments. Do not blindly repeat an effect.
+- **Result or context too large:** Read fewer records or specific sections; preserve the original source.
+
+Discovery and identity checks do not establish project content. A failed search means “not checked”, not “no data exists”. ONE checks recognizable false references, counts and success claims and allows at most one answer correction without further tools. This does not replace domain review.
+
+
+## Connect your personal Polarion access
+
+The FluX start page prepares **Connect my Polarion access.** Choose **START** to authorize personal sign-in through `atlas_polarion_connect`. This does not authorize content changes, approvals or arbitrary agent execution. ONE still checks identity, workspace and data flow; unresolved decisions also block authentication. A read-only status request never starts login. Open a returned protected sign-in link promptly; enter your password and MFA only there. With `worker_offline`, first start the already assigned Polarion worker. A successful Atlas connection alone is not a Polarion login.

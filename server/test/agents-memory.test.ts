@@ -66,6 +66,7 @@ describe('server agents: tool allow-list, last run, own state', () => {
       agents.set('ag-allow', agentDef('ag-allow', 'Item mirror', { mcpServers: ['tracker', 'wiki'], mcpTools: { tracker: ['list_items', 'get_item', 'bad name!', 'list_items'], wiki: [], ghost: ['x'] } }))
       agents.set('ag-all', agentDef('ag-all', 'All tools', { mcpServers: ['tracker'] }))
       agents.set('ag-state', agentDef('ag-state', 'Cursor keeper', {}))
+      agents.set('ag-invocation-state', agentDef('ag-invocation-state', 'Manual cursor', {}))
       meta.doc.getMap('integrations').set('tracker', { schema: 'one.integration/1', id: 'tracker', name: 'Tracker', match: { name: 'tracker' }, unlocks: ['upsert', 'toolAllowList', 'agentState', 'notify'] })
     })
     await flushed(meta)
@@ -101,7 +102,8 @@ describe('server agents: tool allow-list, last run, own state', () => {
     assert.ok(r.steps.some((s: any) => s.kind === 'note' && s.label === 'MCP server "wiki": no tool is allowed for this agent — left out.'), JSON.stringify(r.steps))
     // the agent's own tools come after the workspace tools; no notify_me on the server (no inbox there)
     const names = req.body.tools.filter((t: any) => t.name).map((t: any) => t.name)
-    assert.deepEqual(names.slice(-2), ['agent_state_get', 'agent_state_set'])
+    assert.ok(names.includes('check_finding'))
+    assert.deepEqual(names.filter((n:string)=>n!=='check_finding').slice(-2), ['agent_state_get', 'agent_state_set'])
     assert.equal(names.includes('notify_me'), false)
 
     fake.script('All tools', () => say('ok'))
@@ -170,6 +172,31 @@ describe('server agents: tool allow-list, last run, own state', () => {
     assert.equal(r3.steps.some((s: any) => /State saved/.test(s.label)), false)
   })
 
+  test('one-time work neither inherits nor advances the recurring state and last successful run', async () => {
+    fake.script('Manual cursor', (_req, n) => {
+      if (n === 0) return tools(['agent_state_set', { json: '{"cursor":"saved-cursor-123"}' }])
+      if (n === 3) return tools(['agent_state_get', {}])
+      return say('Done.')
+    })
+    const first = await run('ag-invocation-state', 1)
+    assert.equal(first.status, 'ok')
+    const started = await owner.post(`/api/workspaces/${wsId}/agents/ag-invocation-state/run`, { invocation: { objective: 'Review this once.' } })
+    assert.equal(started.status, 202, JSON.stringify(started.body))
+    const oneOff = (await finished('ag-invocation-state', 2)).find(r => r.id === started.body.runId)
+    assert.equal(oneOff.status, 'ok')
+    const oneRequest = fake.of('Manual cursor')[2]!
+    assert.equal(oneRequest.body.tools.some((t: any) => t.name === 'agent_state_get' || t.name === 'agent_state_set'), false)
+    assert.doesNotMatch(JSON.stringify(oneRequest.body), /saved-cursor-123/)
+    assert.match(firstText(oneRequest), /Last successful run: none/)
+    const third = await run('ag-invocation-state', 3)
+    assert.equal(third.status, 'ok')
+    const next = fake.of('Manual cursor')[3]!
+    assert.ok(firstText(next).includes(new Date(first.startedAt).toISOString()))
+    assert.equal(firstText(next).includes(new Date(oneOff.startedAt).toISOString()), false)
+    assert.doesNotMatch(JSON.stringify(next.body), /Review this once/)
+    assert.match(toolResults(fake.of('Manual cursor')[4]!)[0]!.content, /\{"cursor":"saved-cursor-123"\}/)
+  })
+
   test('the stored definition keeps the sanitised allow-list', async () => {
     const def = meta.doc.getMap('agents').get('ag-allow') as Record<string, unknown>
     assert.ok(def && !(def instanceof Y.AbstractType))
@@ -177,4 +204,27 @@ describe('server agents: tool allow-list, last run, own state', () => {
     assert.deepEqual(sanitizeAgent('ag-allow', def)?.mcpTools, { tracker: ['list_items', 'get_item'], wiki: [] })
     assert.equal(sanitizeAgent('ag-all', meta.doc.getMap('agents').get('ag-all'))?.mcpTools, undefined)
   })
+  test('source checker uses actual scoped reads and cannot approve a semantic conflict', async () => {
+    const at=Date.now(),sourceA='The configured timeout is ten seconds.',sourceB='The configured timeout is thirty seconds.'
+    meta.doc.transact(()=>{
+      for(const [id,title] of [['source-a',sourceA],['source-b',sourceB]]){
+        const p=new Y.Map<unknown>();for(const[k,v] of Object.entries({kind:'page',title,parentId:null,databaseId:null,order:1,trashed:false,createdAt:at,updatedAt:at,plain:title,properties:{},comments:[],settings:{fullWidth:false,smallText:false,font:'sans',locked:false}}))p.set(k,v)
+        meta.doc.getMap('pages').set(id!,p)
+      }
+      meta.doc.getMap('agents').set('ag-source',agentDef('ag-source','Source review',{}))
+    });await flushed(meta)
+    fake.script('Source review',(req,n)=>{
+      assert.match(req.body.system,/not a domain decision-maker/)
+      if(n===0)return tools(['read_page',{id:'source-a'}],['read_page',{id:'source-b'}])
+      if(n===1){
+        const refs=toolResults(req).map(r=>JSON.parse(r.content.match(/\[One observed source: (\{.*\})\. Snapshot/)![1]!))
+        return tools(['check_finding',{classification:'possible_contradiction',sourceA:{receipt:refs[0].receipt,quote:sourceA},sourceB:{receipt:refs[1].receipt,quote:sourceB}}])
+      }
+      const checked=JSON.parse(toolResults(req)[0]!.content)
+      assert.equal(checked.status,'quotations_supported');assert.equal(checked.teamDecision,'open');assert.equal(checked.semanticConflict,'not_verified')
+      return say('Two quotations supported; context and team decision remain open.')
+    })
+    const result=await run('ag-source',1);assert.equal(result.status,'ok',JSON.stringify(result));assert.equal(fake.of('Source review').length,3)
+  })
+
 })

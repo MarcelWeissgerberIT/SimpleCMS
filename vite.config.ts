@@ -62,6 +62,7 @@ function serviceWorkerPrecache(): Plugin {
       visit(entry.fileName)
       // fonts are referenced from CSS (not tracked per chunk): the Latin subsets the UI uses
       for (const a of chunks.values()) {
+        if(a.type==='asset'&&/\.wasm$/.test(a.fileName))out.add(a.fileName)
         if (a.type === 'asset' && /\.woff2$/.test(a.fileName) && /latin/.test(a.fileName) && !/vietnamese|cyrillic|greek/.test(a.fileName)) out.add(a.fileName)
       }
       // legacy font formats (every browser we support takes woff2) and mermaid's optional ELK layout engine

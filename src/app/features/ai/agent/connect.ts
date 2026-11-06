@@ -12,6 +12,7 @@
 import { isAIConfigured } from '../client'
 import { MAX_SERVERS, addServer, findServer, needsSignIn, patchServer, readServers } from '../mcp-servers/config'
 import { OAuthError, signIn, signInWithCode } from '../mcp-servers/oauth'
+import { canInspectDirect } from '../mcp-servers/generate'
 import { checkServer, whenChecked } from '../mcp-servers/checks'
 import { patchConnect, pushEcho, type ConnectState } from './state'
 import { COMMANDS, namesOf } from './commands'
@@ -124,9 +125,9 @@ async function runTest(entry: string, id: string): Promise<void> {
   const server = readServers().find((s) => s.id === id)
   if (!server) return patchConnect(entry, { phase: 'failed', issue: 'gone' })
   patchConnect(entry, { phase: 'testing' })
-  // without Claude nothing can be tested: signed in, tested later
-  if (!isAIConfigured()) return patchConnect(entry, { phase: 'ok', untested: true })
-  const done = await Promise.race([checkServer(id, server.prompt.trim() ? 'test' : 'guide').then(() => true), new Promise<boolean>((r) => window.setTimeout(() => r(false), CHECK_WAIT))])
+  // Without either a direct transport or model, sign-in can finish before discovery.
+  if (!isAIConfigured() && !canInspectDirect(server)) return patchConnect(entry, { phase: 'ok', untested: true })
+  const done = await Promise.race([checkServer(id, canInspectDirect(server) || server.prompt.trim() ? 'test' : 'guide').then(() => true), new Promise<boolean>((r) => window.setTimeout(() => r(false), CHECK_WAIT))])
   if (!done) return patchConnect(entry, { phase: 'failed', issue: 'noAnswer' })
   settle(entry, id)
 }
@@ -136,5 +137,5 @@ function settle(entry: string, id: string): void {
   const s = readServers().find((x) => x.id === id)
   if (!s) return patchConnect(entry, { phase: 'failed', issue: 'gone' })
   if (s.checkError) return patchConnect(entry, { phase: 'failed', issue: 'check', detail: s.checkError, ...(s.checkAuth ? { auth: true } : {}) })
-  patchConnect(entry, { phase: 'ok', tools: s.tools?.length ?? 0, ...(isAIConfigured() ? {} : { untested: true }) })
+  patchConnect(entry, { phase: 'ok', tools: s.tools?.length ?? 0, ...(!s.checkedAt ? { untested: true } : {}) })
 }

@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
-import { detectOs, downloadLines, startLines } from '../../src/app/features/coding/startLines'
+import { detectOs, downloadLines, startLines, selectedInstallLines } from '../../src/app/features/coding/startLines'
 import { WORKER_WIN_SAFE, workerOldOnWindows } from '../../src/app/features/coding/winWorker'
 import { messages } from '../../src/app/features/coding/messages'
 import { logValues } from '../../src/app/features/coding/logValues'
@@ -203,4 +203,11 @@ test('git without a name / email: the line says how to set them — and names th
     expect(l, lang).toContain('git config --global user.email')
     expect(l, lang).not.toMatch(/\(none\)|@DESKTOP/)
   }
+})
+
+
+test('selected download filenames quote duplicate suffixes and reject shell substitutions',()=>{
+  expect(selectedInstallLines('one-worker (1).mjs','posix')[0]!.line).toBe('node "$HOME/Downloads/one-worker (1).mjs" install')
+  for(const line of selectedInstallLines('one-worker (1).mjs','windows'))expect(line.line).toContain('\\Downloads\\one-worker (1).mjs" install')
+  for(const name of ['../one.mjs','$(touch x).mjs','%PATH%.mjs','x&y.mjs','x`y`.mjs','x\ny.mjs','x"y.mjs'])expect(()=>selectedInstallLines(name,'posix')).toThrow()
 })

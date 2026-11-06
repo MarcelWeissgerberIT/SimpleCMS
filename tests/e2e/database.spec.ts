@@ -365,13 +365,13 @@ test.describe('database: more', () => {
     await page.keyboard.press('Enter')
     await expect(page.locator('.db-textedit__area')).toHaveCount(0)
     await expect(tableRow(page, 'Alpha').locator('[role="gridcell"][data-type="text"]')).toHaveText('typed via keyboard')
-    // Esc also commits (Notion semantics, see cells/TextEditor.tsx) and hands focus back to the grid
+    // Escape cancels the current draft and hands focus back to the grid
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
     await page.keyboard.type('second row note')
     await page.keyboard.press('Escape')
     await expect(page.locator('.db-textedit__area')).toHaveCount(0)
-    await expect(tableRow(page, 'Beta').locator('[role="gridcell"][data-type="text"]')).toHaveText('second row note')
+    await expect(tableRow(page, 'Beta').locator('[role="gridcell"][data-type="text"]')).toHaveText('')
     // keyboard keeps working: → Kind (select) → Enter opens the option picker
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('Enter')
@@ -380,7 +380,8 @@ test.describe('database: more', () => {
     await page.keyboard.press('Enter')
     await expect(tableRow(page, 'Beta').locator('[role="gridcell"][data-type="select"]')).toHaveText('Apple')
     expect((await rowByTitle(page, 'Alpha'))!.props.pNotes).toBe('typed via keyboard')
-    expect((await rowByTitle(page, 'Beta'))!.props).toMatchObject({ pNotes: 'second row note', pKind: 'oApple' })
+    expect((await rowByTitle(page, 'Beta'))!.props).toMatchObject({ pKind: 'oApple' })
+    expect((await rowByTitle(page, 'Beta'))!.props.pNotes ?? '').toBe('')
   })
 
   test('peek: editing the row title updates the table', async ({ page }) => {

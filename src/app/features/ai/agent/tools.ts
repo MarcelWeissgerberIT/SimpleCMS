@@ -1,3 +1,4 @@
+import {TERMINAL_TOOL_CALLS,TERMINAL_MODEL_ROUNDS} from '@/shared/ai/requestLimits'
 /**
  * Workspace agent — the tools Claude can call. Read-only tools answer from the store; writing
  * tools never touch it: each call stages (or extends) one StagedChange through the StageApi.
@@ -17,10 +18,13 @@ import { docForRoute, retrieve, workspaceDocs, type Doc } from '../workspace'
 import { coerceProperties, coerceProperty, findProp, isSettable, mergeProps } from './props'
 import { canBeKey, isHandOnly, keyPropOf, keyText } from '../../../store/keys'
 import { holderText, intentValue, keyConflict, keyHolders, type KeyHolder } from './keys'
-import { keepsSingle, knownOf, planEdits, readWithRefs, settlesItems, stripRefs, type RawEdit } from './edit'
+import { keepsSingle, knownOf, pageDoc, planEdits, readWithRefs, settlesItems, stripRefs, type RawEdit } from './edit'
+import { pageTableIds, snapshotTable, cellText, planCellPatches, resolveCellPatch, type TableSnapshot } from '@/shared/ai/tableCells'
+import { redactInScope } from '@/shared/ai/redact'
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 import { SCRIPT_REFERENCE } from '../../script/reference'
 import { currentReadLimit, currentToolScope, LIMITED_NOTE, ToolInputError } from './toolScope'
+import { documentTools, pageFiles } from './documentTools'
 import { currentShape } from '../core/shape'
 import { rowFactsFor } from '../rowFacts'
 import { commitItems, itemsWithNeeds, listWorkItems, pagePrivate, registerChange, registerItems, scratchSession, stageBlocks, stageItems, stagedPrivacy, updateWorkItem, withNeeds, type ItemSession, type ItemStaging } from './workItems'
@@ -30,6 +34,8 @@ import { commitItems, itemsWithNeeds, listWorkItems, pagePrivate, registerChange
 /* ------------------------------------------------------------------ */
 
 export interface ToolOutcome {
+  /** Host-only source coordinates; document prose cannot forge these. */
+  pageRead?:import('@/shared/ai/sourcePassages').PageReadWindow
   /** what Claude gets back */
   content: string
   /** localized readout for the step log */
@@ -57,6 +63,8 @@ export interface AgentTool {
   input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[]; additionalProperties?: boolean }
   /** stages changes (shown with a different verb in the log) */
   write: boolean
+  /** Additional source class required at dispatch; page visibility still applies. */
+  data?: 'files'
   /** most tools answer at once; run_query / write_script load the script engine first */
   run(input: Record<string, unknown>, stage: StageApi): ToolOutcome | Promise<ToolOutcome>
 }
@@ -68,11 +76,13 @@ export { ToolInputError, currentReadLimit, currentToolScope, withReadLimit, with
 /* ------------------------------------------------------------------ */
 
 /**
- * Tool calls per task (one run of the loop). Calls of external MCP servers run inside a response
- * (Anthropic runs them) and do not count; a task that reaches the limit can go on with a fresh
- * budget ("Continue", /continue — session.ts).
+ * Host-dispatched tool calls per task (ONE tools, MCP discovery and MCP execution).
+ * Provider-native MCP iterations have their own bounds. A task at the limit can continue
+ * with a fresh budget ("Continue", /continue — session.ts), retaining staged changes.
  */
-export const MAX_TOOL_CALLS = 40
+export const MAX_TOOL_CALLS = TERMINAL_TOOL_CALLS
+/** Extra model turns for a final answer and bounded format/evidence corrections. */
+export const MAX_MODEL_ROUNDS = TERMINAL_MODEL_ROUNDS
 /** Pages one create_pages call may stage. */
 export const MAX_BATCH_PAGES = 50
 /** Characters of one page part (read_page) and of any other tool result. */
@@ -405,6 +415,7 @@ const readPage: AgentTool = {
         summary: t('features.agent.res.withheld'),
         state: 'ok',
       }
+    if (pageFiles(p.content, lim ? new Set(lim.ids ?? []) : undefined).length) head.push('[This page has file attachments. The links below are metadata, not their content. Use read_page_files to list and read the actual PDF/file text before extracting or calculating values.]')
     if (lim) head.push(`[${LIMITED_NOTE}: only the ${lim.blocks} block${lim.blocks === 1 ? '' : 's'} they marked are shown below — the rest of the page is not available to you.]`)
     const withRefs = input.refs === true || input.refs === 'true'
     if (withRefs && p.kind !== 'database') head.push('[Blocks are labelled with refs (⟦b1⟧ …) for edit_page: cite them as "b1". The labels are not part of the text: never write them into content.]')
@@ -420,7 +431,23 @@ const readPage: AgentTool = {
     let body = md ? part : '(empty page)'
     if (offset && !part) body = `(offset ${offset} is past the end: the page has ${md.length} characters)`
     if (more) body += `\n[Part ${offset}–${offset + part.length} of ${md.length} characters. Call read_page with offset ${offset + part.length}${withRefs ? ' and refs: true' : ''} for the rest.]`
-    return { content: `${head.join('\n')}\n\n${body}`, summary: t(lim ? 'features.agent.res.limited' : 'features.agent.res.chars', { count: md.length.toLocaleString() }), state: 'ok' }
+    // Count the actual block-aligned parts, not ceil(length / max): a boundary can shorten a part.
+    let total = 0
+    let number = 1
+    for (let start = 0; start < md.length;) {
+      total++
+      if (start <= offset) number = total
+      let next = Math.min(md.length, start + PAGE_PART_CHARS)
+      if (next < md.length) {
+        const cut = md.lastIndexOf('\n\n', next)
+        if (cut > start + PAGE_PART_CHARS * 0.6) next = cut
+      }
+      start = next
+    }
+    const size = t(lim ? 'features.agent.res.limited' : 'features.agent.res.chars', { count: md.length.toLocaleString() })
+    const summary = total > 1 && offset < md.length
+      ? `${t('features.agent.res.part', { number, total })} · ${size}` : size
+    return { content: `${head.join('\n')}\n\n${body}`, summary, state: 'ok',pageRead:{pageId:p.id,offset,nextOffset:more?offset+part.length:null,totalCharacters:md.length,bodyStart:head.join('\n').length+2,characters:part.length,partial:!!lim} }
   },
 }
 
@@ -1539,8 +1566,66 @@ const writeScript: AgentTool = {
   },
 }
 
+/** Snapshots belong to this staging session, never to a model-supplied version or another user's run. */
+const tableReads = new WeakMap<ItemSession, Map<string, TableSnapshot>>()
+function readableTableDoc(stage: StageApi, rawId: string) {
+  const page = pageOrThrow(stage, rawId), doc = pageDoc(page.id)?.toJSON() as JSONContent | undefined
+  if (!doc) throw new ToolInputError('Page content unavailable.')
+  const limit = currentReadLimit()?.(page.id)
+  if (limit?.mode === 'none') throw new ToolInputError(LIMITED_NOTE)
+  const ids = limit ? new Set(limit.ids ?? []) : null
+  return { page, doc: { ...doc, content: (doc.content ?? []).filter((n, i) => !ids || ids.has(n.attrs?.id ?? `#${i}`)) } }
+}
+const readTables: AgentTool = {
+  name: 'read_tables', write: false,
+  description: 'Read existing PAGE tables, including tables inside cards/toggles. First pass id alone to list table ids; then pass table_id to read stable cellId addresses and values. Not a database or a spreadsheet. update_table_cells changes only addressed plain-text cells and retains layout; read the target table first in this session. A header or non-text cell is not an invitation to overwrite it.',
+  input_schema: { type: 'object', properties: { id: { type: 'string' }, table_id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  run(input, stage) {
+    const { page, doc } = readableTableDoc(stage, str(input, 'id', { required: true, max: 80 }).trim())
+    const tableId = str(input, 'table_id', { max: 100 }).trim()
+    if (!tableId) return { content: JSON.stringify({ pageId: page.id, tables: pageTableIds(doc).slice(0, 40), next: 'Read one table with table_id before proposing cell updates.' }), summary: titleOf(page), state: 'ok' }
+    try {
+      const snapshot = snapshotTable(doc, tableId)
+      const cells = snapshot.cells.map(c => ({ cellId: c.id, address: c.address, header: c.header, editable: c.editable, text: cellText(redactInScope(c.node)) }))
+      const content = JSON.stringify({ pageId: page.id, tableId, rows: snapshot.rows, columns: snapshot.columns, cells })
+      if (content.length > 24000) throw new ToolInputError('This table is too large for a cell-edit request. Use a smaller page table.')
+      let reads = tableReads.get(stage.items)
+      if (!reads) tableReads.set(stage.items, reads = new Map())
+      reads.set(`${page.id}:${tableId}`, snapshot)
+      if (reads.size > 24) reads.delete(reads.keys().next().value!)
+      return { content, summary: titleOf(page), state: 'ok' }
+    } catch (e) { if (e instanceof ToolInputError) throw e; throw new ToolInputError('Table unavailable, too large, or structurally unsupported. Open the page and read it again; do not replace its container.') }
+  },
+}
+const updateTableCells: AgentTool = {
+  name: 'update_table_cells', write: true,
+  description: 'Propose changes to EXISTING page-table cells read with read_tables in this session. Supply only explicitly requested cellId/value pairs (plain text, max 30). Keep headers, other cells, table/card layout and unrelated content unchanged. Missing source information stays open; never invent requirements or test results. Each changed cell is a reviewable edit; no write happens before approval. Read-only, scoped and context-mark limits still apply.',
+  input_schema: { type: 'object', properties: { id: { type: 'string' }, table_id: { type: 'string' }, cells: { type: 'array', maxItems: 30, items: { type: 'object', properties: { cellId: { type: 'string' }, value: { type: 'string', maxLength: 4000 } }, required: ['cellId', 'value'], additionalProperties: false } } }, required: ['id', 'table_id', 'cells'], additionalProperties: false },
+  run(input, stage) {
+    const { page, doc } = readableTableDoc(stage, str(input, 'id', { required: true, max: 80 }).trim())
+    const tableId = str(input, 'table_id', { required: true, max: 100 }).trim(), snapshot = tableReads.get(stage.items)?.get(`${page.id}:${tableId}`)
+    if (!snapshot || !pageTableIds(doc).includes(tableId)) throw new ToolInputError('Read this permitted table with read_tables first in this session.')
+    try {
+      const patches = planCellPatches(snapshot, input.cells as { cellId: string; value: string }[])
+      // Validate the whole proposal before staging any of it.
+      for (const patch of patches) {
+        resolveCellPatch(doc, patch)
+        for (const c of stage.list().filter(c => c.kind === 'edit' && c.pageId === page.id && c.status === 'pending' && !c.edit?.cell)) {
+          if (c.edit?.op === 'replace_all' || JSON.stringify(c.edit?.targets).includes(patch.cellId)) throw new ToolInputError('A pending block edit overlaps these cells. Review it first.')
+        }
+      }
+      const changes = patches.map(cell => {
+        const edit = { op: 'replace' as const, targets: [], refs: `${cell.address} · ${tableId}`, cell }
+        const pending = stage.list().find(c => c.kind === 'edit' && c.pageId === page.id && c.status === 'pending' && c.edit?.cell?.cellId === cell.cellId)
+        return pending ? stage.update(pending.id, { edit }) : stage.add({ kind: 'edit', pageId: page.id, title: titleOf(page), edit })
+      })
+      return { content: changes.length ? `Staged cell edits: ${changes.map(c => `#${c.n} ${c.edit!.cell!.address}`).join(', ')}. Nothing written; review each cell. Layout and other cells remain unchanged.` : 'No cell values changed.', summary: titleOf(page), state: changes.length ? 'staged' : 'ok', ...(changes[0] ? { changeId: changes[0].id } : {}) }
+    } catch (e) { if (e instanceof ToolInputError) throw e; throw new ToolInputError('Cell proposal refused: unknown/non-text cell, duplicate target, oversized value, or changed table/cell. Read the table again; never replace the whole card.') }
+  },
+}
+
 /** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, upsertRows, setPageTitle, runQuery, listWorkItems, updateWorkItem]
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, ...documentTools(pageOrThrow), listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, readTables, updateTableCells, createRow, updateRow, upsertRows, setPageTitle, runQuery, listWorkItems, updateWorkItem]
 
 /**
  * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools, write_script
@@ -1561,9 +1646,15 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     return p ? titleOf(p) : id
   }
   switch (name) {
+    case 'read_requested_source':
+      return s('url')
     case 'search_pages':
       return `“${s('query')}”`
     case 'read_page':
+    case 'read_page_files':
+    case 'create_spreadsheet':
+    case 'read_tables':
+    case 'update_table_cells':
     case 'append_to_page':
     case 'update_row':
       return title(s('id'))

@@ -15,6 +15,8 @@ A Mermaid diagram doesn't have to be typed: select a list of steps → **Ask AI*
 
 Too wide for the page? **Open large** — the ↗ key on the diagram, its block menu or a double-click — shows it across the screen with zoom, pan and a minimap ([Charts](help:charts)).
 
+For sketch diagrams and illustrations, use `/handdrawn` → **Hand-drawn**. Diagrams remain editable; illustrations use a connected image service. Both can become page covers ([Hand-drawn](help:hand-drawn)).
+
 ## Markdown shortcuts
 Type these at the start of a line:
 - `# `, `## `, `### ` — headings
@@ -22,8 +24,14 @@ Type these at the start of a line:
 - `> ` — quote, `>> ` — toggle, `!> ` — callout
 - ```` ``` ```` — code block, `$$ ` — equation, `---` — divider
 
-**Code blocks** number their lines from four lines on and keep each line on one row (long lines scroll); the keys in their bar switch line numbers and **Wrap lines** for that block on this device, **Copy** copies the code, and a JSON block says whether it is valid — or where the first mistake is. ⌘/Ctrl+A inside a block selects its code first. *One Script* is one of the languages.
+**Code blocks** number their lines from four lines on and keep each line on one row (long lines scroll); the keys in their bar switch line numbers and **Wrap lines** for that block on this device, **Copy** copies the code, and a JSON block says whether it is valid — or where the first mistake is. <kbd>Mod+A</kbd> inside a block selects its code first. *One Script* is one of the languages.
 
 Select text for the formatting toolbar: bold, italic, underline, strikethrough, code, link, colour, **Ask AI** and **Comment**.
 
 > Pasting a link offers to keep it as a link or turn it into a bookmark, an embed or a player.
+
+## Setup and download buttons
+
+A button can open **Worker setup / download**. It opens your personal Coding worker settings; use the download there to pair the worker with your account and current workspace. It creates no token and starts no task by itself. Code blocks have a **Copy** button that copies the command without executing it.
+
+On a translated live page, authorized members can use navigation and worker setup buttons. Buttons that change content remain disabled in that translated view. Locked pages, read-only guest access and static shares grant no new actions.

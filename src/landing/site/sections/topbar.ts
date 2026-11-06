@@ -42,6 +42,7 @@ export function renderTopbar({ t, lang }: Ctx): string {
         <button type="button" data-lang="en" aria-pressed="${lang === 'en'}">EN</button><button type="button" data-lang="de" aria-pressed="${lang === 'de'}">DE</button>
       </div>
       <a class="btn btn-sig tb-cta" href="${BRAND.appHref}"><span class="tb-cta-long">${esc(t('nav.open'))}</span><span class="tb-cta-short">${esc(t('nav.openShort'))}</span><span class="arr" aria-hidden="true">→</span></a>
+      <button type="button" class="btn btn-ghost tb-install" data-install-one aria-label="${esc(t('shell.install.title'))}"><span class="tb-install__text">${esc(t('shell.install.button'))}</span><span aria-hidden="true">↓</span></button>
       <button type="button" class="tb-menu" aria-expanded="false" aria-controls="tb-sheet" data-menu>
         <span aria-hidden="true">§</span><span class="sr">${esc(t('nav.menu'))}</span>
       </button>

@@ -145,8 +145,8 @@ export const OnePlaceholder = Extension.create({
 
 /**
  * One block (NodeSelection) or several neighbours (a node range — editor/select): every selected
- * block is marked `.is-block-selected` (a signal wash laid OVER the block, so images and embeds are
- * tinted too); the pinned grip, the gutter rule and the count chip are the overlay's (SelectionGrip).
+ * block is marked `.is-block-selected` (an unfilled frame); the pinned grip, gutter rule and count
+ * chip are the overlay's (SelectionGrip). Embedded controls keep their own focus indication.
  */
 export const BlockSelection = Extension.create({
   name: 'blockSelection',

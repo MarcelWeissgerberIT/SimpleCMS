@@ -2,10 +2,11 @@
  * AIError: every AI failure, for every provider and for the gate in front of every request (moved here from
  * client.ts, which re-exports it unchanged). The codes are the shared ones (src/shared/ai/errors.ts).
  */
+import {isSharedFailure} from '@/shared/ai/shared-failure'
 import type { AIErrorCode } from '@/shared/ai/errors'
 import type { DataClass, ProviderId, Route } from '@/shared/ai/types'
 import { labelOf, providerLabel } from '@/shared/ai/models'
-import { providerInfo } from '@/shared/ai/providers'
+import { PROVIDER_ORDER, providerInfo } from '@/shared/ai/providers'
 import { legacyRule } from '@/shared/ai/route'
 import { useWorkspace } from '../../../store/store'
 import { t } from '../../../i18n'
@@ -37,12 +38,29 @@ export type AIFix =
  * registry.ts labelFor); Claude's are the registry's own ("Claude Opus 5.5").
  */
 export function providerOfLabel(label: string): ProviderId {
-  for (const p of ['openrouter', 'openai'] as const) if (label === providerLabel(p) || label.startsWith(`${providerLabel(p)} ·`)) return p
+  for (const p of PROVIDER_ORDER.filter(p => p !== 'anthropic')) if (label === providerLabel(p) || label.startsWith(`${providerLabel(p)} ·`)) return p
   return 'anthropic'
 }
 
 /** The friendly sentence for an error code (in the current UI language) — naming the company and host of the route. */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
+  if(v.detail?.startsWith('Typed AI check blocked:'))return t('features.ai.typed.held')
+  if(v.detail?.startsWith('features.ai.skills.'))return t(v.detail)
+  if(v.detail?.startsWith('features.ai.central.'))return t(v.detail)
+  if(v.detail?.startsWith('features.ai.local.host.')&&isSharedFailure(v.detail.slice('features.ai.local.host.'.length)))return t(v.detail)
+  if(code==='context'&&v.detail==='features.ai.local.contextFull')return t(v.detail)
+  if(code==='bad_request'&&v.detail==='features.ai.analysis.held')return t(v.detail)
+  if(code==='rate_limit'&&v.detail==='features.ai.local.queueFull')return t(v.detail)
+  if(v.detail==='features.ai.mock.held')return t(v.detail)
+  if(v.detail==='features.ai.source.documentMissing'||v.detail==='features.ai.transfer.sourcesMissing')return t(v.detail)
+  if(v.detail==='features.ai.quantum.blocked')return t(v.detail)
+  if(v.detail==='features.ai.mcp.sessionChanged')return t(v.detail)
+  if(v.detail==='features.ai.local.unverifiedFacts')return t(v.detail)
+  // Local material errors survive stored-run reconstruction; only known keys become UI text.
+  if ((code === 'context' || code === 'capability') && ['features.agent.err.repeatedTool','features.ai.local.sourceContradiction','features.ai.local.discovery','features.ai.local.toolFormat','features.ai.local.mcpWorker','features.ai.copilot.mediaLimit','features.ai.copilot.pdfLimit','features.ai.copilot.pdfScan','features.ai.copilot.unsupportedPart'].includes(v.detail ?? '')) return t(v.detail!)
+  if (code === 'policy' && (v.detail === 'destination' || v.detail === 'mcp-destination')) return t('features.ai.flow.blocked')
+  if (code === 'policy' && v.detail === 'legacy-flow') return t('features.ai.flow.legacy')
+  if (code === 'policy' && v.detail === 'mcp-required') return t('features.ai.mcp.required')
   if (code === 'mcp') return t(v.server ? 'features.ai.err.mcp' : 'features.ai.err.mcpAny', { server: v.server ?? '', detail: v.detail ?? '' })
   if (code === 'mcp_auth') return t(v.server ? 'features.ai.err.mcp_auth' : 'features.ai.err.mcp_authAny', { server: v.server ?? '' })
   const info = providerInfo(providerOfLabel(v.model))

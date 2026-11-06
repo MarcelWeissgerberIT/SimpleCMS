@@ -1,3 +1,4 @@
+import { isTestAccess } from './testScope'
 /**
  * This device's own data for a cloud workspace (never synced, docs/CLOUD.md § not synced):
  *   overlay:<ws>          settings (theme, language, AI key …), favourites, recent pages,
@@ -20,6 +21,7 @@ import { noteCopyWrite } from '../store/storageHealth'
 
 let kv: UseStore | null = null
 function db(): UseStore | null {
+  if (isTestAccess()) return null
   if (!kv && typeof indexedDB !== 'undefined') kv = createStore('one-cloud', 'kv')
   return kv
 }

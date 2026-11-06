@@ -327,7 +327,7 @@ export function useFilePanel({ editor, pageId, run, phase, start, finish, discar
       </span>
       {f.sent
         ? f.kind === 'pdf'
-          ? t('features.ai.file.sentPdf', { pages: f.pages ? t(f.pages === 1 ? 'features.ai.file.pagesOne' : 'features.ai.file.pages', { n: f.pages.toLocaleString(lang) }) : t('features.ai.file.pagesUnknown'), bytes: formatBytes(f.bytes, lang) })
+          ? (f.textOnly ? t('features.ai.copilot.pdfTextOnly') : t('features.ai.file.sentPdf', { pages: f.pages ? t(f.pages === 1 ? 'features.ai.file.pagesOne' : 'features.ai.file.pages', { n: f.pages.toLocaleString(lang) }) : t('features.ai.file.pagesUnknown'), bytes: formatBytes(f.bytes, lang) }))
           : t(f.clipped ? 'features.ai.file.sentTextCut' : 'features.ai.file.sentText', { type: kindLabel(f.kind, req.name), chars: (f.chars ?? 0).toLocaleString(lang), max: TEXT_MAX_CHARS.toLocaleString(lang) })
         : t('features.ai.file.local', { type: kindLabel(f.kind, req.name), bytes: formatBytes(f.bytes, lang) })}
     </div>

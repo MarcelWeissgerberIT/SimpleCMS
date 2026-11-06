@@ -87,7 +87,7 @@ async function handedAfter(n: number): Promise<Json> {
   return fake!.handed()[n]!
 }
 
-const answerField = (page: Page) => page.getByLabel('Answer to Claude’s question')
+const answerField = (page: Page) => page.getByLabel('Answer to the coding agent’s question')
 const mention = (id: string, label: string) => ({ type: 'mention', attrs: { id, label, kind: 'page' } })
 /** The titles "Goes along" shows, in order (without the "new" mark). */
 const shownTitles = (page: Page) => page.getByTestId('coding-refs').locator('.ctk-refs__page > span:first-of-type').allTextContents()
@@ -327,7 +327,7 @@ test('the permalink: ⋯ and the spec plate copy it; ⌘K opens it (also an id a
   await openApp(page)
   const id = await createPage(page, { title: 'Launch plan', content: doc(para('Nordlicht launch.')) })
   await gotoPage(page, id)
-  const link = await page.evaluate((id) => `${window.location.origin}${window.location.pathname}#/p/${id}`, id)
+  const link = await page.evaluate((id) => `${window.location.origin}${window.location.pathname}?w=local#/p/${id}`, id)
   // page ⋯ → Copy permalink: the address on the clipboard and in the toast
   await page.getByRole('button', { name: 'Page options' }).click()
   await page.getByRole('menuitem', { name: 'Copy permalink' }).click()
@@ -380,7 +380,7 @@ test('a pasted permalink becomes a page mention in a page, and "@Title" in the A
   const id = await createPage(page, { title: 'Tessera contract', content: doc(para('Terms.')) })
   const host = await createPage(page, { title: 'Nordlicht notes', content: doc(para('')) })
   await gotoPage(page, host)
-  const link = await page.evaluate((id) => `${window.location.origin}${window.location.pathname}#/p/${id}`, id)
+  const link = await page.evaluate((id) => `${window.location.origin}${window.location.pathname}?w=local#/p/${id}`, id)
   const editor = editorOf(page)
   await editor.click()
   await paste(editor, link)

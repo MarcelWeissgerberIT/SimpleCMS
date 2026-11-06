@@ -24,7 +24,8 @@ import type { PreflightLog } from '../types'
 import { tn } from '../sources/util'
 import type { LampView } from '../types'
 import { Cap } from './Cap'
-import { MasterKey } from './MasterCaution'
+import { GuardedMasters } from './GuardedMasters'
+import '../annunciator.css'
 
 /** The first tab stop: the first new lamp, else the first lit, else the first. */
 export function firstStop(views: readonly LampView[]): number {
@@ -64,7 +65,7 @@ function showHiddenLamps(): void {
   setHidden(new Set())
 }
 
-export function PlateHead({ strip }: { strip?: boolean }) {
+export function PlateHead({ strip, onTest }: { strip?: boolean; onTest?: () => void }) {
   const t = useT()
   const lang = useLang()
   const views = usePreflight((s) => s.views)
@@ -108,6 +109,7 @@ export function PlateHead({ strip }: { strip?: boolean }) {
         <span className="pf-hide-s">{t('features.preflight.head.cost')} </span>
         <b>{t('features.preflight.unit.tokens', { n: 0 })}</b>
       </span>
+      {onTest && <button type="button" className="label pf__test" onClick={onTest}>{t('features.preflight.guard.test')}</button>}
       {!strip && (
         <>
           <button type="button" className="pf__icon-btn" aria-label={t('features.preflight.head.menu')} aria-haspopup="menu" aria-expanded={menu.open} onClick={menu.toggle}>
@@ -264,7 +266,7 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
 
   return (
     <section
-      className="pf screw-plate"
+      className="pf"
       aria-label={t('features.preflight.title')}
       data-mode="full"
       data-testid="pf-plate"
@@ -274,9 +276,9 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) useQueue.setState({ cursor: null })
       }}
     >
-      <Screws seed="preflight" />
-      <PlateHead />
-      <div className="pf__body">
+      <PlateHead onTest={() => runLampTest(grid.current, true)} />
+      <div className="pf__body screw-plate">
+        <Screws seed="preflight" />
         <div ref={grid} className="pf__grid" role="group" aria-label={t('features.preflight.plate.grid')} aria-describedby={hintId} data-grid="" data-test={testing === 'phase1' ? '1' : testing === 'phase2' ? '2' : undefined}>
           {views.map((v, i) => (
             <Cap
@@ -297,7 +299,7 @@ export function Plate({ views, busy }: { views: LampView[]; busy: boolean }) {
           {t('features.preflight.plate.keysHint')}
         </span>
         <div className="pf__master">
-          <MasterKey />
+          <GuardedMasters />
           <ReadOut />
           {!coarse && (
             <div className="pf__keys">

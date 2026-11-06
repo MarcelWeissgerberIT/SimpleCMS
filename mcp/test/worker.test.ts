@@ -43,9 +43,9 @@ async function connect(workspace = WS_LOCAL): Promise<FakeTab> {
   return tab
 }
 
-/** Everything the tab received must be free of this machine's paths (in every form they take — leakIn) and commands. */
+/** Everything the tab received must be free of this machine's paths (in every form they take — leakIn) and unconfigured commands. The structured test receipt intentionally names its configured relative checker. */
 function assertNoPaths(tab: FakeTab, r: TempRepo) {
-  const leak = leakIn(tab.raw.join('\n'), [r.path, r.worktrees, r.dir, homedir(), process.execPath], ['check.mjs"', 'fake-claude'])
+  const leak = leakIn(tab.raw.join('\n'), [r.path, r.worktrees, r.dir, homedir(), process.execPath], ['fake-claude'])
   assert.equal(leak, null, `the tab received ${leak}`)
 }
 
@@ -187,6 +187,7 @@ describe('a task through the pipeline', () => {
     const passed = await tab.run(task({ kind: 'test' }, { id: 'flow1abc', branch }))
     assert.equal(passed.status, 'ok', JSON.stringify(passed))
     assert.match(passed.test!.output, /PASS 1 check/)
+    assert.deepEqual(passed.test!.execution!.command, [process.execPath.split(/[/\\]/).pop(), 'check.mjs'], 'Receipt keeps the configured command but never the host executable path')
 
     const ship = await tab.run(task({ kind: 'git', gitAction: 'pr' }, { id: 'flow1abc', branch, summary: '- Added feature.txt' }))
     assert.equal(ship.status, 'ok', JSON.stringify(ship))

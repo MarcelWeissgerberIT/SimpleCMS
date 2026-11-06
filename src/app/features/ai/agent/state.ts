@@ -1,3 +1,4 @@
+import type { Route } from '@/shared/ai/types'
 /**
  * AI terminal (the workspace agent) — session state (this tab only, never persisted). Kept light:
  * the terminal body, the loop and the tools load lazily when it opens (AgentPanel.tsx). A task
@@ -98,12 +99,15 @@ export interface EchoAsk {
 }
 
 export interface AgentState {
+  route: Route | null
   open: boolean
   /** text in the prompt */
   draft: string
   /** run the draft as soon as the terminal is ready (opened with a task from the AI menu) */
   autorun: boolean
   status: AgentStatus
+  /** Quiet page-saving reminder dismissed for this conversation only. */
+  answerPageHintDismissed: boolean
   turns: AgentTurn[]
   steps: AgentStep[]
   changes: StagedChange[]
@@ -122,6 +126,8 @@ export interface AgentState {
   mentions: TermMention[]
   /** the open page's chip was removed (for this page id) */
   pageOff: string | null
+  /** Explicit source scope: this page and its descendants, read through normal ONE tools. */
+  pageTree: string | null
   /** a task ended while the terminal was hidden (the status bar shows it until it is opened) */
   unseen: 'done' | 'error' | null
   /** dock height as a share of the content area (per device) · maximised */
@@ -143,7 +149,10 @@ export interface AgentState {
   doneShown: boolean
 }
 
-export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'doneShown'> => ({
+export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'pageTree' | 'answerPageHintDismissed' | 'doneShown'> => ({
+  pageTree: null,
+  answerPageHintDismissed: false,
+  route: null,
   status: 'idle',
   turns: [],
   steps: [],

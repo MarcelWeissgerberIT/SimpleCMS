@@ -4,13 +4,13 @@
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { ArrowDown, ArrowUp, ChevronDown, ExternalLink, FilePlus2, ListPlus, MessageSquare, PencilLine, Plus, SquareCode, Trash2, Webhook, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, Download, ExternalLink, FilePlus2, ListPlus, MessageSquare, PencilLine, Plus, SquareCode, Trash2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { Switch } from '../../ui/controls'
 import { PageIcon } from '../../ui/PageIcon'
 import { useWorkspace } from '../../store/store'
-import { pageTitle, sortPages } from '../../store/selectors'
+import { pageTitle, sortPages, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, PropertyDef, PropertyValue } from '../../store/types'
 import { tagStyle } from '../../lib/colors'
 import { useT } from '../../i18n'
@@ -37,6 +37,8 @@ const ACTION_ICON: Record<ButtonActionType, LucideIcon> = {
   open: ExternalLink,
   message: MessageSquare,
   run_script: SquareCode,
+  worker_setup: Download,
+  ai_task: MessageSquare,
 }
 
 const TYPE_GLYPH: Partial<Record<PropertyDef['type'], string>> = {
@@ -273,6 +275,12 @@ function ActionCard({
     case 'run_script':
       body = <ScriptFields action={action} onChange={onChange} />
       break
+    case 'ai_task':
+      body = <AITaskFields action={action} onChange={onChange}/>
+      break
+    case 'worker_setup':
+      body = <p className="bcfg__note">{t('editor.button.workerSetupHint')}</p>
+      break
   }
   return (
     <li className="bcfg-card" aria-label={t('editor.button.actionN', { n: index + 1, name })}>
@@ -298,6 +306,13 @@ function ActionCard({
       </div>
     </li>
   )
+}
+
+function AITaskFields({action,onChange}:{action:Act<'ai_task'>;onChange:(a:ButtonAction)=>void}){
+ const t=useT(),pages=useWorkspace(s=>s.pages),sourceId=useId(),helpId=sourceId+'-help'
+ const available=sortPages(Object.values(pages).filter(p=>!isEffectivelyTrashed(pages,p.id)))
+ return <><label>{t('editor.button.aiTask.prompt')}<textarea className="input" rows={7} maxLength={8000} value={action.prompt} onChange={e=>onChange({...action,prompt:e.target.value})}/><small>{t('editor.button.aiTask.hint')}</small></label>
+ <div className="bcfg__field"><label htmlFor={sourceId}>{t('editor.button.aiTask.source')}</label><select id={sourceId} aria-describedby={helpId} className="input" value={action.sourcePageId??''} onChange={e=>{const next={...action};if(e.target.value)next.sourcePageId=e.target.value;else delete next.sourcePageId;onChange(next)}}><option value="">{t('editor.button.aiTask.sourceNone')}</option>{action.sourcePageId&&!available.some(p=>p.id===action.sourcePageId)&&<option value={action.sourcePageId}>{t('editor.button.aiTask.sourceMissing')}</option>}{available.map(p=><option key={p.id} value={p.id}>{pageTitle(p,t('common.untitled'))}</option>)}</select><small id={helpId}>{t('editor.button.aiTask.sourceHelp')}</small></div></>
 }
 
 /* ------------------------------------------------------------------ */

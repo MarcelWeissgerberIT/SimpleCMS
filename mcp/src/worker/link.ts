@@ -55,6 +55,11 @@ export interface CloudLink {
 }
 
 export interface LinkOptions {
+  /** A device host routes an authenticated hello to its isolated workspace link. */
+  routeLocal?: (socket: WebSocket, hello: Extract<TabMessage, { type: 'hello' }>) => Promise<boolean>
+  virtual?: boolean
+  canGrantWorkspace?: boolean
+  workspaceChallenge?: (id: string) => { workspaceOwner: string; workspaceNonce: string }
   port: number
   host?: string
   origins: string[]
@@ -282,6 +287,11 @@ export class WorkerLink {
 
   /** 'in-use': another program holds the port (another one-worker?) · 'refused': the system does not let the worker listen there */
   start(): Promise<'listening' | 'in-use' | 'refused'> {
+    if (this.opts.virtual) {
+      this.state = 'listening'
+      this.pinger = setInterval(() => this.ping(), this.opts.pingMs ?? 15_000)
+      return Promise.resolve('listening')
+    }
     return new Promise((resolve) => {
       const onError = (e: NodeJS.ErrnoException) => {
         this.state = 'in-use'
@@ -311,6 +321,8 @@ export class WorkerLink {
     if (this.pairing) this.endPairing(this.pairing)
     await this.dial?.stop()
     for (const ws of this.wss.clients) ws.close(1001, 'worker stopped')
+    // Virtual contexts adopt sockets upgraded by the device host's WebSocketServer.
+    for (const conn of this.conns) conn.close(1001, 'worker stopped')
     await new Promise<void>((r) => this.wss.close(() => r()))
     await new Promise<void>((r) => (this.http.listening ? this.http.close(() => r()) : r()))
     this.http.closeAllConnections?.()
@@ -430,10 +442,24 @@ export class WorkerLink {
     if (!isAllowedOrigin(req.headers.origin, this.opts.origins)) return this.refuse(socket, 403, 'Forbidden', `origin ${JSON.stringify(req.headers.origin ?? '(none)')} is not allowed`)
     const protocols = String(req.headers['sec-websocket-protocol'] ?? '').split(',').map((s) => s.trim())
     if (!protocols.includes(WORKER_SUBPROTOCOL)) return this.refuse(socket, 400, 'Bad Request', `protocol ${JSON.stringify(protocols.join(', '))} (this worker speaks ${WORKER_SUBPROTOCOL})`)
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.adopt(ws))
+    this.wss.handleUpgrade(req, socket, head, (ws) => {
+      if (!this.opts.routeLocal) return this.adopt(ws)
+      const timer = setTimeout(() => ws.close(1008, 'hello expected'), HELLO_MS)
+      ws.once('message', (data, binary) => {
+        clearTimeout(timer)
+        let hello: Extract<TabMessage, { type: 'hello' }>
+        try { hello = JSON.parse(data.toString()) } catch { return ws.close(1008, 'bad hello') }
+        if (binary || hello?.type !== 'hello' || hello.app !== 'one' || !workspaceOf(hello.workspace)) return ws.close(1008, 'bad hello')
+        void this.opts.routeLocal!(ws, hello).then(taken => {
+          if (!taken && ws.readyState === WebSocket.OPEN) this.adopt(ws, hello)
+        }).catch(() => ws.close(1008, 'workspace unavailable'))
+      })
+      ws.once('close', () => clearTimeout(timer))
+      ws.on('error', () => {})
+    })
   }
 
-  private adopt(ws: WebSocket) {
+  adopt(ws: WebSocket, first?: Extract<TabMessage, { type: 'hello' }>) {
     const conn: Conn = {
       ws,
       workspace: null,
@@ -466,6 +492,7 @@ export class WorkerLink {
       clearTimeout(hello)
       this.gone(conn)
     })
+    if (first) this.receive(conn, first, hello)
   }
 
   /** A tab's connection ended (its socket closed, or its relay pairing ended). */
@@ -593,7 +620,7 @@ export class WorkerLink {
             ? `refused a tab of ${JSON.stringify(offered.name)}: it did not bring this download's pairing key — start the file One downloaded last, or download the worker again (One → Settings → Coding worker)`
             : `refused the tab of ${JSON.stringify(offered.name)} (${offered.id}): this worker serves ${this.opts.workspace}`,
       )
-    if (conn.isOpen()) conn.send(JSON.stringify({ type: 'refused', reason, ...(this.opts.pair ? { paired: true } : {}) } satisfies WorkerMessage))
+    if (conn.isOpen()) conn.send(JSON.stringify({ type: 'refused', reason, ...(this.opts.pair ? { paired: true } : {}), ...(this.opts.canGrantWorkspace && reason === 'workspace' ? { workspaceGrant: true, ...this.opts.workspaceChallenge?.(offered.id) } : {}) } satisfies WorkerMessage))
     conn.close(WORKER_CLOSE_REFUSED, reason === 'unbound' ? 'worker not bound' : reason === 'pair' ? 'not paired' : 'another workspace')
   }
 

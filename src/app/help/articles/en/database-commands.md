@@ -10,9 +10,9 @@ summary: Every database has a menu of things to run — New entry, Export CSV, S
 Every database has a short list of commands: what you do with it most, one click away.
 
 ## Where they are
-- **Sidebar:** hover a database and click the **⌘** key next to **+**. On a phone, tap **⋯** — the commands sit on top of that menu.
+- **Sidebar:** hover a database and click the **Commands** key next to **+**. On a phone, tap **⋯** — the commands sit on top of that menu.
 - **Right-click** a database in the sidebar: the section **Commands** comes first.
-- **Database page:** the **⌘** key in the toolbar.
+- **Database page:** the **Commands** key in the toolbar.
 - **⌘K:** type the database's name or the command, e.g. *Mails: Sync now* or *Projects: Export CSV*.
 
 ## The defaults
@@ -33,6 +33,6 @@ A running command shows its LED on the key; the result comes as a short message 
   - **Run agent** — one of your [custom agents](help:custom-agents),
   - **Open view** — the database on one of its views.
 
-*Edit properties* changes the rows you selected in the table — start it with the **⌘** key on the database page.
+*Edit properties* changes the rows you selected in the table — start it with the **Commands** key on the database page.
 
 > A **locked** database keeps its commands as they are: they still run, but nobody changes the list until it is unlocked. In a team workspace the commands are shared like the database; viewers see only commands that don't change anything, and agents follow their own rules (a browser agent runs in its creator's browser).

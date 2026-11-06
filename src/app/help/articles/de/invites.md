@@ -24,3 +24,6 @@ Der Link öffnet *Du bist eingeladen.* Melde dich mit deiner E-Mail an (neu hier
 
 ## Registrierungslinks (Server-Admins)
 Adressen, die in `ADMIN_EMAILS` des Servers stehen, sehen **Einstellungen → Server**: den Modus der **Registrierung** — **Offen**, **Nur mit Einladung** oder **Domains** — und **Registrierungslink erstellen**. Wer ihn öffnet, kann ein Konto anlegen und bekommt einen eigenen Bereich, sonst nichts. Nur einmal sichtbar; jederzeit widerrufbar.
+
+## Gäste im selben Workspace
+Wähle **Gast · nur lesen** als Zugang. Die Einladung führt in diesen Workspace, mit denselben gemeinsamen Seiten und Live-Änderungen. Gäste werden unter **Personen** als Gäste gekennzeichnet; sie können weder Inhalte ändern noch andere Personen einladen. Ein Gastzugang schützt keine lesbaren Inhalte vor dem Kopieren.

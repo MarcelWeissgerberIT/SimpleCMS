@@ -8,6 +8,7 @@ import type { CloseReason, CollabControl } from '../context.ts'
 import { isSameOrigin } from '../http/security.ts'
 import type { Logger } from '../log.ts'
 import type { Repo, Role } from '../repo.ts'
+import { guardBlockAuthors } from './block-authors.ts'
 import { guardAgentAuthors } from './agent-authors.ts'
 import { guardIntegrations, guardWorkspaceLook } from './workspace-look.ts'
 import { guardWorkspaceAI } from './workspace-ai.ts'
@@ -66,7 +67,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       if (!doc) throw deny('invalid-document')
       const auth = sessions.resolve(cookieFromHeader(requestHeaders.get('cookie'), SESSION_COOKIE))
       if (!auth) throw deny('unauthenticated')
-      const role = repo.memberRole(doc.workspaceId, auth.user.id)
+      const role = sessions.role(auth, doc.workspaceId)
       if (!role) throw deny('forbidden')
       // private documents (docs/CLOUD.md § Private pages) open for their owner only — never for
       // another member, whatever the role (the owner of the workspace included)
@@ -81,9 +82,18 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       return { userId: auth.user.id, sessionId: auth.session.id, workspaceId: doc.workspaceId, role, ...(schema === 'outdated' ? { outdated: true } : {}) } satisfies ConnContext
     },
 
+    async beforeHandleMessage({ context, connection }) {
+      if (!context.sessionId) return // server-owned direct writes have their own API gate
+      const role = sessions.roleForSession(context.sessionId, context.workspaceId)
+      if (role !== context.role) {
+        connection.close({ code: 4403, reason: role ? 'role-changed' : 'session-ended' })
+        throw deny('forbidden') // reject the very first update after expiry, before applying it
+      }
+    },
+
     async connected({ context, connection }) {
       // membership may have changed while the document was loading
-      const role = repo.memberRole(context.workspaceId, context.userId)
+      const role = sessions.roleForSession(context.sessionId, context.workspaceId)
       if (role !== context.role) {
         connection.close({ code: 4403, reason: role ? 'role-changed' : 'membership-revoked' })
         return
@@ -109,6 +119,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       // custom agents (and scripts) live in the workspace's shared meta document: the server, not the
       // client, says who changed one (docs/CLOUD.md § Agents → Who changed an agent)
       const doc = parseDocName(documentName)
+      if (doc?.kind === 'page') document.on('destroy', guardBlockAuthors(document, { history: doc.owner === null }))
       if (doc?.kind === 'meta' && doc.owner === null) {
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log }))
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log, map: 'scripts' }))
@@ -221,6 +232,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       if (!checked.has(e.sessionId)) checked.set(e.sessionId, sessions.isValid(e.sessionId))
       return !checked.get(e.sessionId)
     }, 'session-ended')
+    close(e => sessions.roleForSession(e.sessionId, e.workspaceId) !== e.role, 'role-changed')
   }, 60_000)
   sweep.unref()
 
@@ -240,6 +252,26 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     pageInMeta,
     read,
     write,
+    async withDocuments(names, fn, actor) {
+      const opened: Array<{ name: string; connection: Awaited<ReturnType<typeof hocuspocus.hocuspocus.openDirectConnection>>; context: ConnContext }> = []
+      try {
+        for (const name of [...new Set(names)]) {
+          const parsed = parseDocName(name)
+          if (!parsed || parsed.owner !== null) throw new Error('checkout only opens shared documents')
+          const context: ConnContext = { userId: actor, sessionId: '', workspaceId: parsed.workspaceId, role: repo.memberRole(parsed.workspaceId, actor) ?? 'viewer', actor }
+          const connection = await hocuspocus.hocuspocus.openDirectConnection(name, context)
+          opened.push({ name, connection, context })
+        }
+        const docs = new Map(opened.map(e => [e.name, e.connection.document!]))
+        return fn(docs, (name, change) => {
+          const entry = opened.find(e => e.name === name)
+          if (!entry) throw new Error('document not pinned')
+          docs.get(name)!.transact(() => change(docs.get(name)!), { source: 'local', context: entry.context })
+        })
+      } finally {
+        await Promise.all(opened.map(e => e.connection.disconnect()))
+      }
+    },
     onStored(fn) {
       storedListeners.add(fn)
       return () => storedListeners.delete(fn)

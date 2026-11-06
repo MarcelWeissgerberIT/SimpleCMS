@@ -140,3 +140,64 @@ like any other — no custom agent, no tool loop of One's: ONE structured reques
   `orders-planner.spec` (the planner's real body — golden `golden/orders-planner-pick.json`; fixture
   `orders-plan-kb.json` with the fictional server "Wissensbasis"), `orders-plan.spec` (the strict reader, prompt rules,
   no service name in the prompt), `governor-core` (the `RUN_MODES` row).
+
+## Page agent activity and model defaults
+
+`agents/PageActivitySlot` loads the page-owned activity UI lazily, without storing markers in page content. Targeted invocation records show immediately; `exec.ts` records at most 100 successful real `read_page` target IDs and the initial model label. Server assignments use existing run records and poll only while a matching run is active and the page is visible. Interrupted browser runs still use the runner's existing Web Lock recovery. Report export defaults to the source page (ordinary databases: a row), appends current content after a version snapshot, and rechecks locks, workspace and read-only state. Merely reading the page does not save a report.
+
+Patchbay's browser-agent model control writes the existing device AI class rule through `setDeviceRule('agents', ...)` under the person's patchbay writer. It does not change Coding or server-agent models. For class `agents`, an explicit `PrepareInput.model` has the `agent` level after a per-request chip, before device/workspace rules, with all normal key/capability/data checks. The runner pins the initial prechecked Claude model for subsequent requests of the same run; actual usage receipts still identify models that answered. Changing a default affects later runs. The browser engine's supported provider set is unchanged.
+
+
+### Existing page-table cell proposals (`table.cells`)
+
+The table toolbar opens a provider-neutral text action. `table-cells/run.ts` uses the ordinary routing, source classification, redaction, data-flow rules and metered `streamCompletion` facade, with `mcp:false`. No tool or structured-output capability is required: the same action therefore works through the encrypted shared-local text channel without granting it agent, repository or MCP access. Only the table's readable plain values and stable cell addresses go out; optional page context uses the approved context marks. Private guards and document JSON stay in ONE.
+
+`shared/ai/tableCells.ts` snapshots an existing table (also inside a callout), using each cell's first paragraph ID as its anchor; no migration of existing table-cell IDs. Merged topology and complete target-cell JSON are checked before applying. Proposals accept only selected IDs and bounded literal text (30 cells, 4,000 characters each, 16,000 total output; the one-shot prompt is limited to 18,000 characters). Unknown or repeated IDs, model document nodes, unsupported rich cells and malformed/truncated responses are rejected. A target-cell conflict fails closed; other cells may change concurrently. Rich inline formatting inside a replaced cell value can be lost; cell/paragraph attributes, spans, other values and outer layout remain.
+
+Native agent tools `read_tables` and `update_table_cells` use the same patch engine. Reads obey page scope and context marks; snapshot guards live only in the conversation/run's ItemSession. Updates require a read in that session and stage one ordinary `kind:edit` proposal per cell. The existing review, task-confirmation, snapshot, writer attribution and apply transaction remain in use; custom agents do not bypass review in direct-write mode. The new one-shot action also requires explicit review/apply, rechecks workspace and edit access, and saves one version before one undoable transaction. A foreign synced projection is never an editable local table.
+
+This targets ordinary **page tables**; database property edits and native spreadsheet formulas remain separate contracts. Source-only instructions are a model prompt, not a semantic truth guarantee. Human review remains required.
+
+
+## Private compiled-task inspection
+
+`#/compilates` and the terminal library expose the saved program IR through guided inputs, a local readiness check, a block/dependency view and an inspectable quantum space. The BA/PO recipe builder saves `draftWorkflow` definitions without inference. Schema enums remain closed; ordinary strings remain free. Local checks never grant permission or stand in for current source/MCP checks.
+
+`ProgramRun.inspection` is an optional `one.program-inspection.v1` historical snapshot of the actual Rust TaskReport: findings, quanta, dependencies, source identities, the last 40 observed content reads and the compiler model packet. Packets over 120,000 characters are omitted with a digest and an explicit flag. Strict bounds, packet hashes and finding/quantum consistency are validated by both app and server. The receipt is not provider transport evidence, a server signature, semantic proof or reusable execution authority. Legacy receipts show intended open checks instead of invented completed evidence.
+
+Personal program/run rows remain actor/workspace scoped and sealed with their existing AEAD bindings. `GET /api/workspaces/:id/programs/runs?summary=1` omits answers, inspection and step bodies. `GET /api/workspaces/:id/programs/runs/:runId` returns one owned full receipt; other actors receive 404. The original list endpoint without `summary=1` remains compatible with older clients. The UI loads full bodies only on selection, guards workspace/account changes and keeps a bounded five-receipt cache keyed by scope.
+
+Source pagination uses host-only `PageReadWindow` coordinates rather than directives parsed from document prose. BA/PO source passages retain short headings and split long lines into exact bounded excerpts. Focus selection happens before the catalogue bound (120 references / 36,000 characters). Ambiguous heading matches stop with the actual choices before inference. Too-wide sources are explicitly held rather than silently truncated.
+
+## ONE-first authoring (2026-11-04)
+
+Current human instructions containing `Only in ONE` / `Nur in ONE`, and the bounded `/ba` / `/po` ONE analysis commands, do not attach MCP configuration or prior external conversation history to a new terminal run. Inline custom ONE-only actions also disable MCP. Native ONE tools remain review-based. This does not grant model access or bypass data/provider rules.
+
+Completed terminal answers can be staged through `AnswerPageAction` using the existing `create_page` review path. The action pins actor/workspace epoch and answer, defaults cloud roots to private, preserves the original page, sanitizes Markdown through the existing tool and records its staged change ID to prevent accidental duplicate preparation. Only Apply changes the store. No extra inference or external write is performed.
+
+A subsequent Atlas create transfer reads the ONE source and checks the accessible Atlas project, constraints and duplicates. Existing target bodies are required for update/comment, not for create. Accepted writes are still read back and are never automatically repeated.
+
+Inline MCP completion loops allow one metered, budget-checked correction when a task requires source evidence but no successful source read was observed. A known failed source read does not retry. A second ungrounded completion reports `features.ai.transfer.sourcesMissing`; the compiler's source requirement remains intact. Discovery and user-supplied URLs do not count as source bodies.
+
+## Inline clarification lifecycle (2026-11-04)
+
+MCP one-shot adapters are interactive only when they receive a UI `onMcp` handler. Their `one_task_question` call then awaits the human answer, exactly as the terminal does. A headless caller still cannot wait on a nonexistent UI. `taskDecisionActive` distinguishes an actual scoped waiter from a persisted or released report; displaying a report alone grants no continuation capability.
+
+The inline run store checkpoints decision reports. Reloaded runs are interrupted, never resumed automatically. A closed card prepares the original goal and current clarification as a fresh terminal draft, with actor/workspace/epoch and run/page checks. No tool transcript, approvals, read evidence or write is replayed. Existing targets must be read again before any external effect. Stopping an empty run with an open question retains its report for this recovery path.
+
+
+## Large Atlas tasks and retained sources (2026-11-05)
+
+The terminal allows 1,000 tool calls and 1,012 model rounds per task. Provider context/output limits and the person's spending rules still apply independently. Raising a call budget does not put every downloaded byte into the model at once.
+
+Large MCP responses (over 4,500 characters) are retained in browser memory for the current conversation: up to 128 MiB of original UTF-8 responses and 2,048 distinct responses. Identical responses reuse a handle. Earlier entries are never silently evicted: if capacity is reached, the additional download is explicitly refused while existing sources remain readable. Raw strings and parsed objects use additional JavaScript heap beyond the original-byte allowance.
+
+`one_mcp_list_results` pages through source handles and metadata; `one_mcp_read_result` and `one_mcp_find_result` retrieve original passages without a new Atlas request. Conversation pages target 12,000 serialized characters. Model context fitting preserves source handles and observed effect receipts. Historical recovery retains earlier accepted/queued/uncertain MCP effects, answered decisions and staged changes, rather than only the latest read steps.
+
+The cache survives task continuation in the same open conversation. New conversation, page reload, changed account/workspace, connection credentials or access policy invalidate it. It is not durable storage; no original sources or tokens are added to project files or localStorage by this cache. Cached data does not confer fresh source evidence or write permission. Reading coverage is reset for each task, and existing fresh-read write guards still apply.
+
+Read operations explicitly refused by a rate limit may retry eight times, with a maximum two-minute individual wait and ten minutes of total waiting per invocation. Cancellation remains available. Writes and ambiguous failures are not automatically replayed.
+
+Transport bounds remain separate: Atlas `get` responses support 8 MiB at the MCP adapter; other MCP responses remain bounded at 180,000 bytes and need server pagination. The encrypted worker relay can impose a lower envelope limit. Native Claude context is fitted before the first request as well as between tool rounds, with room reserved for output and definitions. Model catalogue context windows are not inflated beyond provider specifications. Local-model windows are not increased without actual model support.
+
+Validation: source retention beyond 64 entries/24 MiB, complete paged source index, explicit capacity refusal, scope isolation, continuation/reset, UTF-16-safe text paging, rate-limit wait budget/cancellation, historical effect preservation and SDK continuation without replaying a completed write.

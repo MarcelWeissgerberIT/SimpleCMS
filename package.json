@@ -2,17 +2,18 @@
   "name": "simplecms-one",
   "private": true,
   "version": "1.0.0",
-  "description": "SimpleCMS One – Notion, rebuilt. On steroids. A local-first workspace with block editor, databases, AI (BYOK), automations and more.",
+  "description": "SimpleCMS One \u2013 Notion, rebuilt. On steroids. A local-first workspace with block editor, databases, AI (BYOK), automations and more.",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/build-quandprofile.mjs --check && vite build",
     "build:pages": "BASE_PATH=${BASE_PATH:-/} vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test:e2e": "playwright test",
     "build:mcp": "npm --prefix mcp run build",
-    "test:mcp": "npm --prefix mcp test"
+    "test:mcp": "npm --prefix mcp test",
+    "build:quandprofile": "node scripts/build-quandprofile.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -68,6 +69,7 @@
     "lucide-react": "^1.50.0",
     "mermaid": "^12.1.0",
     "nanoid": "^6.0.1",
+    "pdfjs-dist": "6.4.299",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "three": "^0.186.1",

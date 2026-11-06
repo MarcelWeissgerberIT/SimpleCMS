@@ -42,6 +42,7 @@ import { countList, unitOf } from './count'
 import { onRovingKey } from './roving'
 import './io.css'
 import { withWriter } from '../../store/writer'
+import { SourceImport } from './SourceImport'
 
 interface Picked {
   path: string
@@ -55,6 +56,7 @@ type Phase =
   | { name: 'backup'; backup: Backup; fileName: string }
   | { name: 'deck'; deck: PptxDeck; fileName: string }
   | { name: 'design' }
+  | { name: 'source' }
   | { name: 'done'; result: ImportResult; ms: number; skipped: string[]; source: string; extra?: ImportExtra; before?: string }
   | { name: 'restored'; result: RestoreResult; ms: number; fileName: string }
   | { name: 'error'; message: string }
@@ -338,7 +340,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
   }
 
   // the PowerPoint preview and the Claude Design step take their files themselves
-  const stepOpen = phase.name === 'deck' || phase.name === 'design'
+  const stepOpen = phase.name === 'deck' || phase.name === 'design' || phase.name === 'source'
 
   // drag & drop anywhere on the dialog
   const onDrop = async (e: React.DragEvent) => {
@@ -432,6 +434,9 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                 <span>{t('features.imp.sources.pick')}</span>
               </div>
               <div className="io-sources__grid" role="group" aria-label={t('features.imp.sources')}>
+                <button type="button" className="io-src" data-source="external" onClick={() => setPhase({ name: 'source' })}>
+                  <span className="io-src__n mono">↗</span><span className="io-src__name">{lang === 'de' ? 'Externe Quelle' : 'External source'}</span><span className="io-src__code mono">URL · PDF · TEXT</span><span className="io-src__how">{lang === 'de' ? 'URL, PDF oder formatierten Text prüfen und mit Herkunft übernehmen.' : 'Review a URL, PDF or formatted text and import it with provenance.'}</span><ChevronRight className="io-src__go" size={14} aria-hidden />
+                </button>
                 {SOURCES.map((s, i) => (
                   <button key={s.id} type="button" className="io-src" data-source={s.id} aria-label={t(`features.imp.src.${s.id}`)} aria-describedby={`io-src-${s.id}`} onClick={() => pickSource(s.id)}>
                     <span className="io-src__n mono">{String(i + 1).padStart(2, '0')}</span>
@@ -473,6 +478,8 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {phase.name === 'source' && <SourceImport onCancel={() => setPhase({ name: 'idle' })} onImport={importPlan} />}
+
         {phase.name === 'done' && (
           <div className="io-done">
             <div className="io-done__head">
@@ -511,7 +518,8 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
             )}
             {phase.result.report.length > 0 && <ImportReport items={phase.result.report} />}
             <div className="io-actions">
-              {(phase.source === 'pptx' || phase.source === 'design') && (
+              {phase.extra?.sourcePage && <button type="button" className="btn" onClick={()=>useUI.getState().openModal({type:'sourceAtlas',pageId:phase.extra!.sourcePage!})}>{lang==='de'?'Atlas-Übergabe prüfen':'Review Atlas handoff'}</button>}
+              {(phase.source === 'pptx' || phase.source === 'design' || phase.extra?.canUndo) && (
                 <button type="button" className="btn btn--ghost io-done__undo" onClick={() => undoImport(phase.result, phase.extra, phase.before)}>
                   <Undo2 size={14} /> {t('features.imp.done.undo')}
                 </button>

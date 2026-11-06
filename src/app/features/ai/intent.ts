@@ -14,7 +14,7 @@
  *    connected MCP server ("for every ticket in the tracker …"), or a page action mixed with writing → the AI terminal.
  *  - null: a writing request (rewrite, summarise, translate, ask …) — it goes to Claude as before.
  *
- * Pure (no imports): the AI menu passes the enabled MCP server names.
+ * Pure routing (no store reads): the AI menu passes selected MCP names.
  */
 export type RequestIntent = 'topage' | 'pagesPerItem' | 'todb' | 'items' | 'terminal'
 

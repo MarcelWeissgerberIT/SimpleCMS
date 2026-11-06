@@ -15,6 +15,7 @@
 import type { ID, OrderConfig, OrderKind, OrderStatusKey } from '../../../store/types'
 import type { Writer } from '../../../store/writer'
 import type { Receipt } from '../../ai/core/meter'
+import type { DeliveryContract } from './delivery'
 
 export type { OrderConfig, OrderKind, OrderStatusKey }
 
@@ -23,8 +24,12 @@ export type { OrderConfig, OrderKind, OrderStatusKey }
 /** The planner's answer: what it understood, the server's context (when one took part), the steps, open points. */
 export interface OrderPlanV1 {
   v: 1
+  /** Absent on legacy drafts. New plans bind every requirement to work and final acceptance. */
+  delivery?: DeliveryContract
   /** ≤ 600 — "Verstanden: …" */
   summary: string
+  /** Reversible working defaults, shown together with the plan; never a substitute for authority or evidence. */
+  assumptions?: string[]
   /** what the picked server returned that the planner used (null: no server took part); note ≤ 2000, absolute links only */
   context: { server: string; note: string; links: string[] } | null
   /** ≤ 6 steps, ≤ 3 of them coding — BA first when the requirement is unclear, QA last for the coded change */
@@ -40,6 +45,8 @@ export interface OrderPlanV1 {
 
 /** One step of a plan — becomes one pipeline task in its kind's project. */
 export interface OrderStepPlan {
+  needs?: number[]
+  covers?: string[]
   kind: OrderKind
   /** ≤ 200 */
   title: string
@@ -247,6 +254,9 @@ export type OrderAutoWhy =
 
 /** One step of a confirmed chain. */
 export interface OrderChainStep {
+  delivery?: DeliveryContract
+  /** Required earlier steps, mapped to the chain's actual step numbers at confirmation. */
+  needs?: number[]
   /** the step number (a follow-up chain goes on counting: 4, 5, 6 …) */
   n: number
   /** the task row */
@@ -314,6 +324,7 @@ export interface OrderChain {
   resumedAt?: number
   /** "Stop after the analysis" as confirmed */
   checkpoint: boolean
+  repair?: import('@/shared/coding/repair').RepairPolicy
   budgetUsd?: number
   /** while creating: step n → the task made so far (a throw trashes them; finishCreates completes them) */
   made?: Record<number, ID>
@@ -400,6 +411,8 @@ export interface OrderPress {
 
 /** This device's record of one request. */
 export interface OrderRecord {
+  /** A bounded handoff proof for this exact accepted snapshot; never a token or raw MCP output. */
+  handoff?: import('@/shared/coding/evidence').AtlasHandoff
   v: 1
   state: OrderState
   /**
@@ -409,6 +422,8 @@ export interface OrderRecord {
   want?: { at: number; mode: 'trigger'; press?: OrderPress }
   draft?: OrderDraft
   chain?: OrderChain
+  /** Human acceptance of one exact evidence snapshot on this device. A changed snapshot invalidates it. */
+  accepted?: { run: string; at: number; evidence: string }
   /**
    * Orders B12 (a team): the request's Status reached Planen from ANOTHER device — this device saw the change arrive
    * from the server (the member's own write: the work orders are private) — the worker device's VON HAND card "Auf

@@ -1,3 +1,5 @@
+import type { Lang } from '@/shared/i18n'
+import { localizePage } from '../store/localization'
 /**
  * PageEditor — the TipTap block editor bound to one page in the workspace store.
  *  - initial content from page.content; debounced writes via setContent(…, instanceId)
@@ -32,11 +34,14 @@ import { acquireContentDoc, flushPageContent, releaseContentDoc, useCloud, type 
 import { inEditAs, NORMALISE_META, PERSON_META, registerEditorFlush } from './lib/editAs'
 import { useT } from '../i18n'
 import { ReadOnlyDoc } from './ReadOnlyDoc'
+import { BlockAuthors } from './authors/BlockAuthors'
 import './editor.css'
 
 export interface PageEditorProps {
   pageId: ID
   readOnly?: boolean
+  /** A language variant is rendered without binding its text back to the canonical Y document. */
+  language?: Lang | null
   autoFocus?: boolean
   /** Called with the TipTap editor instance once created. */
   onReady?: (editor: Editor) => void
@@ -268,7 +273,7 @@ export function PageEditor(props: PageEditorProps) {
   // A fresh editor per page keeps undo history and plugins page-scoped.
   // (A tab shows one workspace for its whole life: switching workspaces reloads the app.)
   if (useCloud.getState().active.kind === 'cloud') return <CloudEditor key={props.pageId} {...props} />
-  return <EditorInstance key={props.pageId} {...props} />
+  return props.language ? <TranslatedDoc {...props} /> : <EditorInstance key={props.pageId} {...props} />
 }
 
 /** How long a page document may take before the page shows its last known text (read-only) meanwhile. */
@@ -302,9 +307,22 @@ function CloudEditor(props: PageEditorProps) {
       releaseContentDoc(pageId)
     }
   }, [pageId])
-  if (unbound) return <EditorInstance {...props} />
+  if (unbound) return props.language ? <TranslatedDoc {...props} /> : <EditorInstance {...props} />
   if (!handle) return slow ? <WaitingDoc pageId={pageId} className={props.className} /> : <div className={['one-editor', 'is-loading', props.className ?? ''].filter(Boolean).join(' ')} aria-busy="true" />
-  return <EditorInstance {...props} collab={handle} />
+  return props.language ? <TranslatedDoc {...props} collabHandle={handle} /> : <EditorInstance {...props} collab={handle} />
+}
+
+function TranslatedDoc({ pageId, language, className, onReady, collabHandle }: PageEditorProps & { collabHandle?: ContentDocHandle }) {
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const ready = useCallback((ed: Editor) => { setEditor(ed); onReady?.(ed) }, [onReady])
+  const page = useWorkspace(s => s.pages[pageId])
+  const cloudReadOnly = useCloud(s => s.readOnly)
+  const db = useWorkspace(s => page ? s.databases[page.kind === 'database' ? page.id : page.databaseId ?? ''] : undefined)
+  const shown = useMemo(() => page ? localizePage(page, language ?? null, db) : null, [page, language, db])
+  return <div className={`one-editor is-readonly ${className ?? ''}`} data-page-id={pageId} data-localized-page={language}>
+    {editor && collabHandle && <BlockAuthors editor={editor} handle={collabHandle} pageId={pageId} />}
+    <ReadOnlyDoc content={shown?.content ?? null} headingOffset={1} onReady={ready} pageId={pageId} pageActions={!!page && !cloudReadOnly && !page.trashed && !page.settings.locked} />
+  </div>
 }
 
 /** Plain text as paragraphs (one per line) — what is known of a page whose content this device never had. */
@@ -564,6 +582,7 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   const classes = ['one-editor', `doc--font-${font}`, small ? 'doc--small' : '', editable ? 'is-editable' : 'is-readonly', className ?? '']
   return (
     <div className={classes.filter(Boolean).join(' ')} data-instance={instanceId}>
+      {editor && collab && <BlockAuthors editor={editor} handle={collab} pageId={pageId} />}
       {editor && <Comments editor={editor} bridge={bridge} pageId={pageId} />}
       <EditorContent editor={editor} className="one-editor__content" />
       {editable && <div className="one-editor__tail" onMouseDown={onTailDown} aria-hidden />}

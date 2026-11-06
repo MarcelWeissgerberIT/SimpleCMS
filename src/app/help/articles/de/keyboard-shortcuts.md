@@ -7,7 +7,7 @@ keywords: tasten, tastatur, kürzel, tastenkürzel, shortcut, hotkey, keyboard
 related: command-palette, blocks, block-handle, tasks
 summary: Die Tasten, die sich zuerst lohnen. Die ganze Liste steht im Tab „Tasten“ der Hilfe.
 ---
-Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/Ctrl. Die vollständige Liste: der Tab **Tasten** der Hilfe, oder <kbd>Mod+/</kbd>.
+One erkennt dein Betriebssystem automatisch. App und Hilfe zeigen Command/Option unter macOS und Ctrl/Alt unter Windows und Linux. Auf deutschen Tastaturen heißt Ctrl auch Strg. Die vollständige Liste: der Tab **Tasten** der Hilfe, oder <kbd>Mod+/</kbd>.
 
 ## Überall
 - <kbd>Mod+K</kbd> — Suche & Befehle

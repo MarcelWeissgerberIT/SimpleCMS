@@ -26,7 +26,7 @@ Bereich markieren und **Diagramm** in der Werkzeugleiste der Tabelle klicken. Ei
 
 ## Groß öffnen, zoomen, Minikarte
 **Groß öffnen** — die ↗-Taste an einem Diagramm oder Mermaid-Schaubild, sein Blockmenü oder ein Doppelklick auf die Zeichnung — zeigt es über den ganzen Bildschirm, scharf in jeder Größe:
-- **Zoomen:** <kbd>+</kbd> <kbd>−</kbd>, <kbd>Strg</kbd> / <kbd>⌘</kbd> + Mausrad oder zwei Finger (um den Zeiger), ein Doppelklick (<kbd>Shift</kbd> = kleiner). <kbd>0</kbd> passt es ins Fenster ein, <kbd>1</kbd> zeigt es in 100 %.
+- **Zoomen:** <kbd>+</kbd> <kbd>−</kbd>, <kbd>Mod</kbd> + Mausrad oder zwei Finger (um den Zeiger), ein Doppelklick (<kbd>Shift</kbd> = kleiner). <kbd>0</kbd> passt es ins Fenster ein, <kbd>1</kbd> zeigt es in 100 %.
 - **Verschieben:** ziehen, das Mausrad oder die Pfeiltasten (<kbd>Shift</kbd> = größere Schritte).
 - **Minikarte:** unten rechts, solange die Zeichnung größer als das Fenster ist — eine Stelle anklicken oder den orangen Rahmen ziehen, um dorthin zu springen; <kbd>M</kbd> blendet sie aus und ein.
 - **Als SVG herunterladen** speichert die Zeichnung; <kbd>Esc</kbd> schließt.

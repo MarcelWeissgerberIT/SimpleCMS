@@ -1,8 +1,10 @@
+import { installMessages } from '../../../shared/install-messages'
 import type { Messages } from '@/shared/i18n'
 
 /** Capture strings: files shared into the app, install, quick capture (merged into the shell messages) — always en + de. */
 export const captureMessages: Messages = {
   en: {
+    ...installMessages.en,
     // files shared into the installed app
     'shell.capture.shared': 'Shared',
     'shell.capture.share.label': 'Shared to One · check',
@@ -22,25 +24,6 @@ export const captureMessages: Messages = {
     'shell.capture.next.summarize': 'Summarise',
     'shell.capture.next.tables': 'Extract tables',
     'shell.capture.next.offline': 'Saved. The AI can describe or summarise it once you are online — One offers it again then.',
-
-    // install
-    'shell.install.title': 'Install One',
-    'shell.install.hint': 'As an app: its own window and icon, works offline, and other apps can share files into it.',
-    'shell.install.hintIos': 'On iPhone and iPad, Safari adds One to the Home Screen — full screen and offline.',
-    'shell.install.hintMenu': 'Your browser installs One from its menu.',
-    'shell.install.button': 'Install',
-    'shell.install.how': 'Show how',
-    'shell.install.placard.title': 'Add One to your Home Screen',
-    'shell.install.placard.labelIos': 'Install · iPhone & iPad',
-    'shell.install.placard.labelMenu': 'Install · browser menu',
-    'shell.install.placard.why': 'One then opens full screen, works offline and gets its own icon.',
-    'shell.install.placard.done': 'Got it',
-    'shell.install.ios.share': 'In Safari, tap Share (iOS 26: in the ⋯ menu)',
-    'shell.install.ios.add': 'Choose Add to Home Screen',
-    'shell.install.ios.confirm': 'Tap Add',
-    'shell.install.ios.note': 'The Home Screen app keeps its own storage. Sharing files into One is not possible on iOS — use the Clip to One bookmarklet or a Shortcut instead.',
-    'shell.install.menu.open': 'Open the browser menu',
-    'shell.install.menu.add': 'Choose Install app or Add to Home screen',
 
     // quick capture
     'shell.qcap.title': 'Quick capture',
@@ -86,6 +69,7 @@ export const captureMessages: Messages = {
     'shell.keys.capture': 'Quick capture',
   },
   de: {
+    ...installMessages.de,
     'shell.capture.shared': 'Geteilt am',
     'shell.capture.share.label': 'An One geteilt · prüfen',
     'shell.capture.share.why': 'Aus einer anderen App geteilt. Alles Mögliche kann an One teilen, darum fragt One, bevor es speichert: Prüfe, was angekommen ist, und leg es dann in der Ablage ab.',
@@ -104,24 +88,6 @@ export const captureMessages: Messages = {
     'shell.capture.next.summarize': 'Zusammenfassen',
     'shell.capture.next.tables': 'Tabellen übernehmen',
     'shell.capture.next.offline': 'Gespeichert. Die KI kann es beschreiben oder zusammenfassen, sobald du online bist — One bietet es dann wieder an.',
-
-    'shell.install.title': 'One installieren',
-    'shell.install.hint': 'Als App: eigenes Fenster und Symbol, funktioniert offline, und andere Apps können Dateien an One teilen.',
-    'shell.install.hintIos': 'Auf iPhone und iPad legt Safari One auf den Home-Bildschirm — im Vollbild und offline.',
-    'shell.install.hintMenu': 'Dein Browser installiert One über sein Menü.',
-    'shell.install.button': 'Installieren',
-    'shell.install.how': 'So geht’s',
-    'shell.install.placard.title': 'One zum Home-Bildschirm hinzufügen',
-    'shell.install.placard.labelIos': 'Installieren · iPhone & iPad',
-    'shell.install.placard.labelMenu': 'Installieren · Browser-Menü',
-    'shell.install.placard.why': 'One öffnet sich dann im Vollbild, funktioniert offline und hat ein eigenes Symbol.',
-    'shell.install.placard.done': 'Verstanden',
-    'shell.install.ios.share': 'In Safari auf Teilen tippen (iOS 26: im ⋯-Menü)',
-    'shell.install.ios.add': '„Zum Home-Bildschirm“ wählen',
-    'shell.install.ios.confirm': 'Auf „Hinzufügen“ tippen',
-    'shell.install.ios.note': 'Die App auf dem Home-Bildschirm hat ihren eigenen Speicher. Dateien an One teilen geht unter iOS nicht — nimm stattdessen das Bookmarklet „In One clippen“ oder einen Kurzbefehl.',
-    'shell.install.menu.open': 'Das Browser-Menü öffnen',
-    'shell.install.menu.add': '„App installieren“ oder „Zum Startbildschirm hinzufügen“ wählen',
 
     'shell.qcap.title': 'Schnell erfassen',
     'shell.qcap.cmd': 'Schnell erfassen (Text, Sprache, Foto)',

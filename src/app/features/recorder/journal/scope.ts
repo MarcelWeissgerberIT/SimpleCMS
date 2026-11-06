@@ -9,7 +9,7 @@ import type { Scope } from '../model/types'
 export function scopeNow(): Scope {
   const c = useCloud.getState()
   const a = c.active
-  if (a.kind !== 'cloud') return 'local:local'
+  if (a.kind !== 'cloud') return `local:${a.id}`
   const uid = c.user?.id
   return uid && /^[A-Za-z0-9_-]{1,64}$/.test(uid) ? `cloud:${a.id}:u:${uid}` : `cloud:${a.id}`
 }

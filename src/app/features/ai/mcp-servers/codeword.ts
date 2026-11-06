@@ -1,3 +1,4 @@
+import {skillRequest} from '../../../../shared/ai/skills.ts'
 /**
  * Codewords for external MCP servers: a free-form request that starts with "<codeword>:" ("kb: what
  * is X", also several: "kb: wiki: …") addresses those servers — client.ts attaches them whatever
@@ -53,7 +54,7 @@ export function parseCodewords(text: string, servers: McpServerConfig[]): Codewo
   for (const s of servers) if (s.codeword) byWord.set(s.codeword, s)
   if (!byWord.size) return { text, servers: [] }
   const hit: McpServerConfig[] = []
-  let rest = text
+  let rest = skillRequest(text).text
   for (;;) {
     const m = PREFIX_RE.exec(rest)
     const server = m ? byWord.get(m[1].toLowerCase()) : undefined

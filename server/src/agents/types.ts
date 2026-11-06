@@ -4,6 +4,7 @@
  * The JSON shapes here are the app's: a run the server stores reads exactly like one the browser runner
  * stores, and staged changes are the app's `StagedChange` (src/app/features/ai/agent/types.ts).
  */
+import type { AgentInvocationRecord } from '../../../src/shared/agents/invocation.ts'
 import type { AgentAIFields } from '../../../src/shared/ai/route.ts'
 
 export type AgentTrigger =
@@ -116,6 +117,7 @@ export interface AgentRun {
   agentId: string
   runner: 'browser' | 'server'
   trigger: { type: TriggerType; detail?: string }
+  invocation?: AgentInvocationRecord
   startedAt: number
   endedAt?: number
   status: RunStatus

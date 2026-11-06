@@ -9,7 +9,7 @@ summary: Claude drafts a reply or a change for another tool, you see exactly wha
 ---
 Writing into another tool — a comment in a ticket, a status, booked time — is where a mistake costs the most. The Outbox splits it into three steps, and only the last one is yours alone:
 
-1. **Claude drafts.** ⌘ on a mirrored row → **Reply in the ticket tool**. Claude writes the text in a request **without any tools** — it cannot send anything, whatever the row says.
+1. **Claude drafts.** Commands on a mirrored row → **Reply in the ticket tool**. Claude writes the text in a request **without any tools** — it cannot send anything, whatever the row says.
 2. **You look.** The draft becomes a **slip**: the text exactly as it goes out, the tool's inputs, what changes in One afterwards, what Claude read — with every piece of someone else's text marked **FOREIGN**.
 3. **You send.** **Copy & open**, post it in the other tool, **Mark as sent**. One updates the row and keeps a receipt.
 
@@ -39,7 +39,7 @@ A send route belongs to an [integration profile](help:integrations) (`sends`). I
 The profile needs the unlocks `sends` and `keys` and must match its server **by name or host**. Every `sends[].tool` is then **OUT**: switched off in every Claude request One makes for that server, whatever allow-lists, codewords or picked tools say. **Settings → Claude AI → MCP servers** shows an OUT count per server.
 
 ## Drafting a slip
-A route shows up as a [database command](help:database-commands) of the mirrored database: the ⌘ key on its sidebar row, the right-click menu, the toolbar's ⌘ key (pick a row first) and ⌘K “<database>: Reply in the ticket tool”. The **send routes** plate under the table lists them too.
+A route shows up as a [database command](help:database-commands) of the mirrored database: the Commands button on its sidebar row, the right-click menu, the toolbar's Commands button (pick a row first) and ⌘K “<database>: Reply in the ticket tool”. The **send routes** plate under the table lists them too.
 
 The popover takes an optional instruction — `@` or `one:` mentions your own pages — and offers **Claude drafts** (↵) or **Write it myself**. Claude reads the row (as text from someone else), the pages you mention (only what their context marks let through), your [memory](help:memory) and your instruction; the cost line shows what it cost. With several rows selected, each gets its own slip (up to 10). Closing the popover never stops a draft.
 

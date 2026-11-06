@@ -44,6 +44,7 @@ export interface InviteRow {
   token_hash: string
   workspace_id: string
   role: InviteRole
+  guest: number
   email: string | null
   created_by: string | null
   created_at: number
@@ -123,6 +124,8 @@ export interface WebhookRow {
 /** A cloud coding worker's token (docs/CLOUD.md § Coding relay): one member, one workspace, only /coding/worker. */
 export interface CodingWorkerRow {
   id: string
+  /** Model hosts may use only the inference queue, never the coding WebSocket relay. */
+  purpose: 'coding' | 'model-host'
   workspace_id: string
   user_id: string
   label: string
@@ -149,7 +152,7 @@ export const isApiTokenShape = (s: unknown): s is string => typeof s === 'string
 export const publicUser = (u: Pick<UserRow, 'id' | 'email' | 'name'>) => ({ id: u.id, email: u.email, name: u.name })
 
 /** `viewer`: the user asking — `personal` is true on their own personal workspace (while they own it). */
-export const publicWorkspace = (w: WorkspaceRow, role: Role, viewer?: string) => ({
+export const publicWorkspace = (w: WorkspaceRow & { participationUntil?: number }, role: Role, viewer?: string) => ({
   id: w.id,
   name: w.name,
   icon: parseJson(w.icon),
@@ -157,6 +160,7 @@ export const publicWorkspace = (w: WorkspaceRow, role: Role, viewer?: string) =>
   plan: w.plan,
   created_at: iso(w.created_at),
   personal: !!viewer && w.personal_of === viewer && role === 'owner',
+  ...(w.participationUntil ? { participation_until: w.participationUntil } : {}),
 })
 
 function parseJson(s: string | null): unknown {
@@ -245,7 +249,10 @@ export class Repo {
       `SELECT w.*, m.role FROM members m JOIN workspaces w ON w.id = m.workspace_id
        WHERE m.user_id = ? ORDER BY (w.personal_of IS NOT NULL AND w.personal_of = m.user_id AND m.role = 'owner') DESC, w.created_at`,
       userId,
-    )
+    ).map(w => {
+      const participationUntil = this.guestParticipationUntil(w.id, userId)
+      return { ...w, role: participationUntil ? 'member' as const : w.role, ...(participationUntil ? { participationUntil } : {}) }
+    })
   }
 
   /** Workspaces this user created (the personal one, created for them, does not count). */
@@ -319,23 +326,32 @@ export class Repo {
   }
 
   memberRole(workspaceId: string, userId: string): Role | undefined {
-    return this.db.get<{ role: Role }>('SELECT role FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)?.role
+    const role = this.db.get<{ role: Role }>('SELECT role FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)?.role
+    return role === 'viewer' && this.guestParticipationUntil(workspaceId, userId) ? 'member' : role
+  }
+
+  /** Base membership stays viewer/guest. Expiry is checked on every permission lookup, also after restart. */
+  guestParticipationUntil(workspaceId: string, userId: string): number | undefined {
+    return this.db.get<{ expires_at: number }>(`SELECT p.expires_at FROM guest_participation p
+      JOIN users u ON u.email=p.email JOIN members m ON m.user_id=u.id AND m.workspace_id=p.workspace_id
+      WHERE p.workspace_id=? AND u.id=? AND m.role='viewer' AND m.guest=1 AND p.expires_at>?`, workspaceId, userId, Date.now())?.expires_at
   }
 
   members(workspaceId: string) {
-    return this.db.all<UserRow & { role: Role; member_since: number }>(
-      `SELECT u.*, m.role, m.created_at AS member_since FROM members m JOIN users u ON u.id = m.user_id
+    return this.db.all<UserRow & { role: Role; guest: number; member_since: number }>(
+      `SELECT u.*, m.role, m.guest, m.created_at AS member_since FROM members m JOIN users u ON u.id = m.user_id
        WHERE m.workspace_id = ? ORDER BY m.created_at`,
       workspaceId,
     )
   }
 
-  addMember(workspaceId: string, userId: string, role: Role) {
-    this.db.run('INSERT INTO members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)', workspaceId, userId, role, Date.now())
+  addMember(workspaceId: string, userId: string, role: Role, guest = false) {
+    this.db.run('INSERT INTO members (workspace_id, user_id, role, guest, created_at) VALUES (?, ?, ?, ?, ?)', workspaceId, userId, role, Number(guest), Date.now())
   }
 
-  setRole(workspaceId: string, userId: string, role: Exclude<Role, 'owner'>) {
-    this.db.run('UPDATE members SET role = ? WHERE workspace_id = ? AND user_id = ?', role, workspaceId, userId)
+  setRole(workspaceId: string, userId: string, role: Exclude<Role, 'owner'>, guest = false) {
+    this.db.run('DELETE FROM guest_participation WHERE workspace_id=? AND email=(SELECT email FROM users WHERE id=?)', workspaceId, userId)
+    this.db.run('UPDATE members SET role = ?, guest = ? WHERE workspace_id = ? AND user_id = ?', role, Number(guest), workspaceId, userId)
   }
 
   /**
@@ -346,7 +362,7 @@ export class Repo {
     this.db.tx(() => {
       this.db.run('UPDATE workspaces SET personal_of = NULL WHERE id = ? AND personal_of IS NOT NULL AND personal_of != ?', workspaceId, toUserId)
       this.db.run("UPDATE members SET role = 'admin' WHERE workspace_id = ? AND role = 'owner'", workspaceId)
-      if (this.memberRole(workspaceId, toUserId)) this.db.run("UPDATE members SET role = 'owner' WHERE workspace_id = ? AND user_id = ?", workspaceId, toUserId)
+      if (this.memberRole(workspaceId, toUserId)) this.db.run("UPDATE members SET role = 'owner', guest = 0 WHERE workspace_id = ? AND user_id = ?", workspaceId, toUserId)
       else this.addMember(workspaceId, toUserId, 'owner')
     })
   }
@@ -361,14 +377,17 @@ export class Repo {
   /** Their cloud worker tokens go with the membership (the relay closes the sockets). */
   removeMember(workspaceId: string, userId: string) {
     this.db.tx(() => {
+      this.db.run('DELETE FROM guest_participation WHERE workspace_id=? AND email=(SELECT email FROM users WHERE id=?)', workspaceId, userId)
       this.db.run('DELETE FROM members WHERE workspace_id = ? AND user_id = ?', workspaceId, userId)
+      this.db.run('DELETE FROM task_program_runs WHERE workspace_id=? AND user_id=?',workspaceId,userId)
+      this.db.run('DELETE FROM task_programs WHERE workspace_id=? AND user_id=?',workspaceId,userId)
       this.revokeCodingWorkersOf(workspaceId, userId)
     })
   }
 
   // ── invites ──────────────────────────────────────────────────────────
 
-  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string; maxUses?: number; ttl?: number; domains?: string[] | null }) {
+  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string; maxUses?: number; ttl?: number; domains?: string[] | null; guest?: boolean }) {
     const token = randomToken()
     const now = Date.now()
     const row: InviteRow = {
@@ -376,6 +395,7 @@ export class Repo {
       token_hash: this.hash(token),
       workspace_id: input.workspaceId,
       role: input.role,
+      guest: Number(input.guest ?? false),
       email: input.email ? normalizeEmail(input.email) : null,
       created_by: input.createdBy,
       created_at: now,
@@ -387,9 +407,9 @@ export class Repo {
       allowed_domains: input.domains?.length ? input.domains.join(',') : null,
     }
     this.db.run(
-      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at, max_uses, allowed_domains)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains,
+      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at, max_uses, allowed_domains, guest)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains, row.guest,
     )
     return { token, row }
   }
@@ -667,11 +687,12 @@ export class Repo {
    * (activateCodingWorker). An older pending token (a download never started) is revoked now. The secret is
    * returned once and stored only as HMAC.
    */
-  createCodingWorker(input: { workspaceId: string; userId: string; label: string; userAgent: string | null }): { token: string; row: CodingWorkerRow; replaced: string[] } {
+  createCodingWorker(input: { workspaceId: string; userId: string; label: string; userAgent: string | null; purpose?: 'coding' | 'model-host' }): { token: string; row: CodingWorkerRow; replaced: string[] } {
     const token = WORKER_TOKEN_PREFIX + randomToken()
     const now = Date.now()
     const row: CodingWorkerRow = {
       id: newId(),
+      purpose: input.purpose ?? 'coding',
       workspace_id: input.workspaceId,
       user_id: input.userId,
       label: input.label,
@@ -684,12 +705,12 @@ export class Repo {
     }
     const replaced = this.db.tx(() => {
       const ids = this.db
-        .all<{ id: string }>('SELECT id FROM coding_workers WHERE workspace_id = ? AND user_id = ? AND revoked_at IS NULL AND activated_at IS NULL', input.workspaceId, input.userId)
+        .all<{ id: string }>('SELECT id FROM coding_workers WHERE workspace_id = ? AND user_id = ? AND purpose = ? AND revoked_at IS NULL AND activated_at IS NULL', input.workspaceId, input.userId, row.purpose)
         .map((r) => r.id)
       for (const id of ids) this.db.run('UPDATE coding_workers SET revoked_at = ? WHERE id = ?', now, id)
       this.db.run(
-        'INSERT INTO coding_workers (id, workspace_id, user_id, label, token_hash, created_at, created_ua) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        row.id, row.workspace_id, row.user_id, row.label, row.token_hash, row.created_at, row.created_ua,
+        'INSERT INTO coding_workers (id, workspace_id, user_id, label, token_hash, created_at, created_ua, purpose) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        row.id, row.workspace_id, row.user_id, row.label, row.token_hash, row.created_at, row.created_ua, row.purpose,
       )
       return ids
     })
@@ -700,7 +721,7 @@ export class Repo {
   codingWorkers(workspaceId: string, userId?: string, now = Date.now()) {
     return this.db.all<CodingWorkerRow & { user_name: string | null; user_email: string }>(
       `SELECT c.*, u.name AS user_name, u.email AS user_email FROM coding_workers c JOIN users u ON u.id = c.user_id
-       WHERE c.workspace_id = ? AND c.revoked_at IS NULL AND (c.activated_at IS NOT NULL OR c.created_at > ?)${userId ? ' AND c.user_id = ?' : ''}
+       WHERE c.workspace_id = ? AND c.purpose = 'coding' AND c.revoked_at IS NULL AND (c.activated_at IS NOT NULL OR c.created_at > ?)${userId ? ' AND c.user_id = ?' : ''}
        ORDER BY c.created_at DESC`,
       ...(userId ? [workspaceId, now - CODING_PENDING_TTL, userId] : [workspaceId, now - CODING_PENDING_TTL]),
     )
@@ -736,7 +757,7 @@ export class Repo {
       const row = this.db.get<CodingWorkerRow>('SELECT * FROM coding_workers WHERE id = ? AND revoked_at IS NULL', id)
       if (!row || row.activated_at !== null) return { activated: false, replaced: [] }
       const replaced = this.db
-        .all<{ id: string }>('SELECT id FROM coding_workers WHERE workspace_id = ? AND user_id = ? AND id != ? AND revoked_at IS NULL', row.workspace_id, row.user_id, id)
+        .all<{ id: string }>('SELECT id FROM coding_workers WHERE workspace_id = ? AND user_id = ? AND purpose = ? AND id != ? AND revoked_at IS NULL', row.workspace_id, row.user_id, row.purpose, id)
         .map((r) => r.id)
       for (const other of replaced) this.db.run('UPDATE coding_workers SET revoked_at = ? WHERE id = ?', now, other)
       this.db.run('UPDATE coding_workers SET activated_at = ?, last_used_at = ? WHERE id = ?', now, now, id)

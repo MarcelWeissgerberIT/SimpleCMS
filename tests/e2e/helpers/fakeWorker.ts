@@ -8,7 +8,7 @@
  * running stage finishes as 'stopped' (`stopAsked`).
  * Used by coding-old-worker.spec (older workers), coding-ship-fake.spec (ship records), coding-permission.spec.
  */
-import { WORKER_SUBPROTOCOL, type WorkerInfo } from '../../../src/app/features/coding/protocol'
+import { WORKER_SUBPROTOCOL, type WorkerInfo } from '../../../src/app/features/coding/protocol.ts'
 
 export type Json = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -20,7 +20,15 @@ export interface Asked {
 }
 
 export interface FakeWorker {
+  onManage: ((action: string) => Json) | null
   /** null: an older worker (no `can`); a list: what a newer one names (with `docs: true`) */
+  mcpAsked: Json[]
+  onRepoFiles: ((request: Json) => Json) | null
+  repoFilesAsked: Json[]
+  onModelMcp: ((request: Json) => Json) | null
+  textModels: Json[]
+  textAsked: Json[]
+  onText: ((request: Json) => Json) | null
   can: string[] | null
   /** `docs: true` without a `can`: the worker the Business analysis / QA pipelines came with */
   docs: boolean
@@ -73,6 +81,8 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
   const running = () => fake.handed().filter((t) => !finished.has(t))
   const status = () => tab?.send(JSON.stringify({ type: 'status', busy: running().map((t) => ({ taskId: t.id, repo: t.repo, stageId: t.stage.id, since: Date.now(), ...(fake.asks.get(t.id) ? { ask: fake.asks.get(t.id) } : {}) })), spentToday: 0 }))
   const fake: FakeWorker = {
+    onManage: null,
+    onRepoFiles: null, repoFilesAsked: [], mcpAsked: [], onModelMcp: null, textModels: [], textAsked: [], onText: null,
     can: null,
     docs: false,
     hellos: [],
@@ -128,7 +138,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
   }
   const poll = setInterval(ask, 2000)
   wss.on('connection', (ws) => {
-    ws.on('message', (d) => {
+    ws.on('message', async (d) => {
       const m = JSON.parse(String(d)) as Json
       if (m.type === 'hello') {
         fake.hellos.push(m)
@@ -137,6 +147,20 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
         return ask()
       }
       if (m.type === 'nudge') return ask()
+      if (m.type === 'req' && m.op === 'worker-manage') { ws.send(JSON.stringify({type:'res',id:m.id,ok:true,result:fake.onManage?.(m.action) ?? {installed:true,version:info.worker,previous:null,phase:'running'}})); return }
+      if (m.type === 'req' && m.op === 'repo-files') { fake.repoFilesAsked.push(m.request);const result=fake.onRepoFiles?.(m.request) ?? {repo:m.request.repo,branch:'main',paths:[]}; ws.send(JSON.stringify(result instanceof Error?{type:'res',id:m.id,ok:false,error:result.message}:{type:'res',id:m.id,ok:true,result}));return }
+      if (m.type === 'req' && m.op === 'text-models') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: fake.textModels })); return }
+      if (m.type === 'req' && m.op === 'model-mcp') {
+        fake.mcpAsked.push(m.request)
+        const result = fake.onModelMcp?.(m.request) ?? { tools: [] }
+        ws.send(JSON.stringify(result instanceof Error ? { type: 'res', id: m.id, ok: false, error: result.message } : { type: 'res', id: m.id, ok: true, result })); return
+      }
+      if (m.type === 'req' && m.op === 'text-request') {
+        fake.textAsked.push(m.request)
+        const result = await fake.onText?.(m.request) ?? { model: m.request.model, text: 'Worker text answer.', inputTokens: 200, outputTokens: 50, usd: null }
+        ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result })); return
+      }
+      if (m.type === 'req' && m.op === 'text-stop') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: { stopped: true } })); return }
       if (m.type === 'req' && m.op === 'git') {
         fake.gitAsked.push(m)
         const answer = fake.onGit ? fake.onGit(m) : new Error('git is not played by this fake')

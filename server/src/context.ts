@@ -30,6 +30,8 @@ export interface CollabControl {
    * Private documents (`ws:<id>:u:…`) are refused: the server never writes them.
    */
   write<T>(documentName: string, fn: (doc: Y.Doc) => T, actor: string): Promise<T>
+  /** Pins shared documents, then validates/applies a checkout synchronously, without interleaved client edits. */
+  withDocuments<T>(names: string[], fn: (docs: Map<string, Y.Doc>, transact: (name: string, change: (doc: Y.Doc) => void) => void) => T, actor: string): Promise<T>
   /**
    * Called after a shared document (never a private one) was stored — debounced client edits, server
    * writes, the last disconnect. `fn` runs synchronously inside the store: it must be quick, must not

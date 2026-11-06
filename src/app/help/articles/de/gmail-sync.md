@@ -22,7 +22,7 @@ Nach dem Verbinden wählst du:
 - **Labels** — z. B. Posteingang; **Spam und Papierkorb überspringen**,
 - **Mails pro Durchlauf** und **Wann**: beim Öffnen, alle paar Minuten oder manuell (**Jetzt synchronisieren**).
 
-**Jetzt synchronisieren** ist auch einer der [Befehle](help:database-commands) der Mails-Datenbank: die Taste **⌘** an ihrer Zeile in der Seitenleiste, oder ⌘K → *Mails: Jetzt synchronisieren*.
+**Jetzt synchronisieren** ist auch einer der [Befehle](help:database-commands) der Mails-Datenbank: die Taste **Befehle** an ihrer Zeile in der Seitenleiste, oder ⌘K → *Mails: Jetzt synchronisieren*.
 
 Die erste Synchronisation legt die Datenbank **Mails** an: Betreff, Von, An, Datum, Labels, ungelesen, Anhänge, ein Gmail-Link — und die Mail selbst als Seite. Die Gmail-LED in ihrem Kopf öffnet diese Einstellungen. Bilder aus dem Web bleiben blockiert, bis du **Bilder laden** klickst. Deine Änderungen an Einträgen bleiben; eine erneute Synchronisation ändert nur Gmails Felder.
 

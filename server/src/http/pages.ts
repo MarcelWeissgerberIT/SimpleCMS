@@ -30,7 +30,7 @@ button:focus-visible,a.button:focus-visible{outline:2px solid var(--signal);outl
 
 const label = (text: string) => `<div class="label"><span class="led"></span>SimpleCMS One &nbsp;§&nbsp; ${e(text)}</div>`
 
-export function confirmSignInPage(lang: Lang, input: { email: string; token: string }): string {
+export function confirmSignInPage(lang: Lang, input: { email: string; token: string;activation?:string }): string {
   const t =
     lang === 'de'
       ? { label: 'Anmeldung', title: 'Anmeldung bestätigen', body: `Melde dich auf diesem Gerät als ${input.email} an.`, button: 'Anmelden' }
@@ -38,7 +38,7 @@ export function confirmSignInPage(lang: Lang, input: { email: string; token: str
   return page(
     lang,
     t.title,
-    `${label(t.label)}<h1>${e(t.title)}</h1><p>${e(t.body)}</p>
+    `${label(t.label)}<h1>${e(t.title)}</h1><p>${e(t.body)}</p>${input.activation?'<p>'+e(lang==='de'?`Dein Workspace-Inhaber hat deinen neuen Zugang zu „${input.activation}“ freigegeben. Mit „Anmelden“ aktivierst du ihn ohne Verifikationsmail. Dieser Link ist nur für dich bestimmt.`:`Your workspace owner approved your new access to “${input.activation}”. Sign in to activate it without a verification email. This link is intended only for you.`)+'</p>':''}
 <form method="post" action="/api/auth/verify"><input type="hidden" name="token" value="${e(input.token)}"><button type="submit">${e(t.button)} &rarr;</button></form>`,
   )
 }

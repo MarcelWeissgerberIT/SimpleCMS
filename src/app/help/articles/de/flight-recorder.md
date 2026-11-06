@@ -57,7 +57,7 @@ Die Taste schreibt nie. Sie öffnet den Dialog — *52 Vorgänge von Nordlicht-S
 **35 Stellen zurücknehmen** (oder <kbd>↵</kbd>, einen Moment nachdem der Dialog aufging) schreibt es: Zuerst sichert One jede Seite, die sich ändern wird, als Version **Vor dem Auswurf** ([Versionsverlauf](help:history)); dann prüft One den Plan noch einmal — hat sich seit dem Öffnen des Dialogs etwas geändert, wird nichts geschrieben und der Dialog zeigt den neuen Plan zum erneuten Bestätigen; dann geht alles in **einem Schritt** zurück.
 
 ### Rückgängig
-Die Meldung nach einem Auswurf — *35 Stellen von Nordlicht-Spiegel zurück · 2 gehalten* — hat **Rückgängig** (<kbd>Strg+Z</kbd> / <kbd>⌘Z</kbd>, solange sie zu sehen ist, außer du schreibst gerade in einem Feld oder einer Seite) und **Gehaltene zeigen**. Das Schild behält, was passiert ist — Stellen, was zurückging, Papierkorb, gehalten, die Version — mit **Auswurf zurücknehmen**, auch nachdem das Deck zu war und nach einem Neuladen. Das Rückgängig setzt genau das zurück, was der Auswurf geändert hat, in einem Schritt; eine Stelle, die seitdem wieder geändert wurde, bleibt (*behalten*). Ein Auswurf wird selbst nie ausgeworfen — seine Vorgänge stehen auf der Spur **Rückgängig**, und **Auswurf zurücknehmen** nimmt ihn zurück.
+Die Meldung nach einem Auswurf — *35 Stellen von Nordlicht-Spiegel zurück · 2 gehalten* — hat **Rückgängig** (<kbd>Mod+Z</kbd>, solange sie zu sehen ist, außer du schreibst gerade in einem Feld oder einer Seite) und **Gehaltene zeigen**. Das Schild behält, was passiert ist — Stellen, was zurückging, Papierkorb, gehalten, die Version — mit **Auswurf zurücknehmen**, auch nachdem das Deck zu war und nach einem Neuladen. Das Rückgängig setzt genau das zurück, was der Auswurf geändert hat, in einem Schritt; eine Stelle, die seitdem wieder geändert wurde, bleibt (*behalten*). Ein Auswurf wird selbst nie ausgeworfen — seine Vorgänge stehen auf der Spur **Rückgängig**, und **Auswurf zurücknehmen** nimmt ihn zurück.
 
 ### Was der Auswurf sonst noch erledigt
 - **[Agentenläufe](help:custom-agents).** Die Vorschläge des Laufs, die zurückgingen, heißen in seiner Prüfung **Ausgeworfen**, die gehaltenen **Gehalten · seitdem geändert** (weiter übernommen); noch wartende Vorschläge werden verworfen — außer solchen, die du im [Vorflug-Check](help:preflight) geöffnet hast. Rückgängig bringt sie wieder.
@@ -72,7 +72,7 @@ Auswerfen geht in lokalen Arbeitsbereichen; Team-Arbeitsbereiche bekommen es sp�
 ## Tasten
 Wenn der Abspielkopf, eine Spur oder ein Fähnchen den Fokus hat:
 - <kbd>←</kbd> / <kbd>→</kbd> — eine Minute zurück / vor, mit <kbd>Shift</kbd> zehn Sekunden
-- <kbd>[</kbd> / <kbd>]</kbd> — Anfang / Ende des Fensters am Abspielkopf, auf der Spur mit dem Fokus (Windows mit deutscher Tastatur: <kbd>AltGr+8</kbd> / <kbd>AltGr+9</kbd>, Mac: <kbd>⌥5</kbd> / <kbd>⌥6</kbd>)
+- <kbd>[</kbd> / <kbd>]</kbd> — Anfang / Ende des Fensters am Abspielkopf, auf der Spur mit dem Fokus (Windows mit deutscher Tastatur: <kbd>AltGr+8</kbd> / <kbd>AltGr+9</kbd>, Mac: Option+5 / Option+6)
 - <kbd>↑</kbd> / <kbd>↓</kbd> — die Spur darüber / darunter
 - <kbd>Bild↑</kbd> / <kbd>Bild↓</kbd> — das vorige / nächste Fähnchen auf der Spur
 - <kbd>Pos1</kbd> / <kbd>Ende</kbd> — Anfang des Ausschnitts / jetzt

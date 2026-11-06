@@ -210,9 +210,15 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   border-bottom: 1px solid var(--rule);
   background: var(--bg);
 }
+
+/* The complete response scrolls: tool evidence must never push the answer or
+   errors across the result keys and footer. */
+.ai-out > * { flex-shrink: 0; min-width: 0; }
 
 .ai-out__bar {
   display: flex;
@@ -278,8 +284,9 @@
 
 .ai-out__body {
   position: relative;
-  max-height: min(320px, 42vh);
-  overflow: auto;
+  flex: none;
+  max-height: none;
+  overflow-wrap: anywhere;
   padding: 12px 16px 14px;
   font-size: var(--text-md);
   line-height: 1.6;
@@ -392,8 +399,31 @@
   margin: 0;
   padding: 0;
   list-style: none;
+  max-height: 76px;
+  overflow: auto;
 }
 
+.ai-mcp__issues { margin: 8px 0; padding: 8px; border: 1px solid var(--c-red-text); overflow-wrap: anywhere; }
+.ai-mcp__issues > summary, .ai-mcp__trace > summary { cursor: pointer; font-weight: 600; }
+.ai-mcp__issues > p { margin: 5px 0; font-size: var(--text-xs); }
+.ai-mcp__trace { margin-top: 8px; }
+.ai-mcp__trace > summary { font-size: var(--text-xs); }
+.ai-mcp__arg { display: block; margin: 4px 0; font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-mcp-alert { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; padding: 6px 12px; border-block: 1px solid var(--c-red-text); background: var(--surface); font-size: var(--text-xs); }
+
+.atlas-facts {
+  grid-column: 2 / -1;
+  margin: 4px 0;
+  padding: 5px 8px;
+  border-inline-start: 2px solid var(--accent, #ff5a00);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.atlas-facts summary { cursor: pointer; }
+.atlas-facts > button { max-width: 100%; height: auto; min-height: var(--sp-8); white-space: normal; overflow-wrap: anywhere; text-align: start; }
+.atlas-facts[data-outcome='error'] { border-inline-start-color: #c43b42; }
 .ai-mcp__chip {
   display: inline-flex;
   align-items: center;
@@ -468,6 +498,8 @@
   flex: 1 1 auto;
   max-height: none;
 }
+.ai-panel[data-resized] .ai-out__body { flex: none; }
+.ai-list[data-keys] { flex: none; max-height: min(200px, 30dvh); }
 
 /* ---------- list (actions / languages / result keys) ---------- */
 .ai-list {
@@ -663,6 +695,7 @@
 }
 
 @media (max-width: 520px) {
+  .ai-cmd__input, .ai-cmd__title { flex: 1 1 calc(100% - 30px); }
   .ai-foot > span:nth-child(1) {
     display: none;
   }
@@ -677,9 +710,9 @@
   }
 
   .ai-out__body {
-    flex: 0 1 auto;
-    min-height: 96px;
-    max-height: 52vh;
+    flex: none;
+    min-height: 0;
+    max-height: none;
   }
 
   .ai-list {

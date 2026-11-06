@@ -1,7 +1,11 @@
+import {CompiledProgramsHost} from '../../features/ai/programs/dialog'
+import { isTestAccess } from '../../cloud/testScope'
+import { useLang } from '../../i18n'
+import { Modal } from '../../ui/Modal'
 import { useUI, type ModalState } from '../../store/ui'
 import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal, AgentPanel, FunctionsModal, RecorderHost } from '../../features'
 import { ExampleDialog, CommandsEditor, AISetupModal, AgentDialogsHost, OrderNoteModal } from '../../features'
-import { Suspense } from 'react'
+import { Suspense, lazy } from 'react'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
 import { MoveModal } from './MoveModal'
@@ -15,11 +19,12 @@ export function ModalHost() {
   const close = useUI((s) => s.closeModal)
   return (
     <>
-      <AgentPanel />
-      <RecorderHost />
+      {!isTestAccess() && <AgentPanel />}
+      {!isTestAccess() && <RecorderHost />}
       <HelpHost shortcuts={<ShortcutList />} />
       {/* MirrorSetup / the agent editor over any route (the Patchbay's setup lamps) — a lazy chunk, only while asked */}
-      <AgentDialogsHost />
+      {!isTestAccess() && <AgentDialogsHost />}
+      {!isTestAccess() && <CompiledProgramsHost />}
       {modal && <ModalSwitch modal={modal} onClose={close} />}
     </>
   )
@@ -28,6 +33,8 @@ export function ModalHost() {
 /** A key per modal object (each `openModal` call hands over a new one). */
 const modalKeys = new WeakMap<object, number>()
 let modalCount = 0
+const SourceAtlasHandoff=lazy(()=>import('../../features/io/SourceAtlasHandoff').then(m=>({default:m.SourceAtlasHandoff})))
+
 function modalKey(m: object): number {
   let k = modalKeys.get(m)
   if (k === undefined) modalKeys.set(m, (k = ++modalCount))
@@ -35,6 +42,7 @@ function modalKey(m: object): number {
 }
 
 function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => void }) {
+  if (isTestAccess() && !['export', 'shortcuts'].includes(modal.type)) return <TestViewNotice onClose={onClose} />
   switch (modal.type) {
     case 'settings':
       return <SettingsModal initialTab={modal.tab} section={modal.section} server={modal.server} add={modal.add} onClose={onClose} />
@@ -57,6 +65,8 @@ function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => voi
       return <ShareModal pageId={modal.pageId} onClose={onClose} />
     case 'import':
       return <ImportModal onClose={onClose} />
+    case 'sourceAtlas':
+      return <Suspense fallback={null}><SourceAtlasHandoff pageId={modal.pageId} onClose={onClose} /></Suspense>
     case 'export':
       return <ExportModal pageId={modal.pageId} onClose={onClose} />
     case 'automations':
@@ -76,4 +86,9 @@ function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => voi
     default:
       return null
   }
+}
+
+function TestViewNotice({onClose}: {onClose:()=>void}) {
+  const de = useLang() === 'de'
+  return <Modal open onClose={onClose} label="§ TEST" title={de ? 'Testansicht · nur lesen' : 'Test view · read-only'} footer={<button className="btn" onClick={onClose}>{de ? 'Schließen' : 'Close'}</button>}><p style={{padding:20}}>{de ? 'Persönliche Einstellungen und Arbeitsläufe sind in der Testansicht gesperrt. Nutze den Testbalken, um zu deinem Konto zurückzukehren.' : 'Personal settings and work runs are disabled in the test view. Use the test banner to return to your account.'}</p></Modal>
 }

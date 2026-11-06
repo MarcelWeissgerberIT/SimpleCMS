@@ -21,7 +21,7 @@ import './runs.css'
 type T = typeof tt
 
 /** The company that runs a provider's models (receipts name it for its own steps). */
-const COMPANY: Record<ProviderId, string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter' }
+const COMPANY: Record<ProviderId, string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Local Ollama', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex', copilot: 'GitHub Copilot' }
 
 /** What a receipt says the run cost: an amount, "≈ amount" for an estimate, "Price unknown" without a price. */
 export function costText(t: T, lang: Lang, usd: number | null, source: CostSource): string {
@@ -34,6 +34,7 @@ export const sourceText = (t: T, usd: number | null, source: CostSource): string
 
 /** A step on the way, as a receipt line (null: none to show). */
 export function stepText(t: T, s: StepNote, p: ProviderId, o: { lang?: Lang; usd?: number | null } = {}): string | null {
+  if (s.k === 'data-flow' && ['cloud','local-worker','shared-local'].includes(s.code ?? '')) return t(`features.ai.flow.place.${s.code}`)
   if (s.k === 'refusal-fallback' && s.to) return t('features.ai.receipt.fallback', { provider: COMPANY[p], model: labelOf({ p, m: s.to }) })
   // the Regler: a capped answer budget, a model switched at the line (H), an allowance (E), the band it was braked on
   if (s.k === 'brake' && s.code === 'cap' && s.to) return t('features.governor.cap', { tokens: Number(s.to).toLocaleString(o.lang ?? 'en') })

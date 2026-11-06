@@ -5,7 +5,7 @@ let requested = false
 
 export function openCodingSettings() {
   requested = true
-  useUI.getState().openModal({ type: 'settings' })
+  useUI.getState().openModal({ type: 'settings', tab: 'coding' })
 }
 
 export function consumeCodingSettingsRequest(): boolean {

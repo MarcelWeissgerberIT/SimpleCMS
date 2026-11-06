@@ -43,9 +43,9 @@ export function SignInKeys({ server, st, testId, describedBy }: { server: McpSer
       >
         <LogIn size={13} strokeWidth={1.75} aria-hidden /> {label}
       </button>
-      {phase === 'waiting' && (
+      {busy && phase !== 'code' && (
         <>
-          {code && (
+          {code && phase === 'waiting' && (
             <button type="button" className="btn btn--sm" onClick={() => void signInWithCode(server.id).catch(() => {})} data-testid="mcp-use-code">
               <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.useCode')}
             </button>

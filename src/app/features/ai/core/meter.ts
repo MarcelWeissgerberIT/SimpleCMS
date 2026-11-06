@@ -17,7 +17,7 @@ import type { ProviderError } from '@/shared/ai/errors'
 import type { AIErrorCode } from '@/shared/ai/errors'
 import { costOf, costSourceOf, priceRow } from '@/shared/ai/prices'
 import { addUsage, estimateUsage, normalise, ZERO_USAGE } from '@/shared/ai/usage'
-import { modelBase, sameModel } from '@/shared/ai/models'
+import { isProviderId, modelBase, sameModel } from '@/shared/ai/models'
 import { routeKey } from '@/shared/ai/route'
 import { CHARS_PER_TOKEN, meter } from '../../governor'
 import { newId } from '../../../lib/ids'
@@ -144,9 +144,10 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     costSource = row ? 'estimate' : 'none'
   }
   // the request's own steps (the brake's cap, an allowance) first, then the response's
-  const own = (prepared.steps ?? []).filter((x) => x.k === 'brake' || x.k === 'allowance')
+  const own = (prepared.steps ?? []).filter((x) => x.k === 'brake' || x.k === 'allowance' || x.k === 'data-flow')
   const steps: StepNote[] = [...own, ...(fallback ? [{ k: 'refusal-fallback' as const, from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])])]
   return meter({
+    ...(prepared.quantum?{quantum:prepared.quantum}:{}),
     id: newId(),
     at,
     scope: '',
@@ -247,7 +248,7 @@ export function readLines(v: unknown): ModelLine[] {
   for (const x of v.slice(0, 24)) {
     if (!x || typeof x !== 'object') continue
     const l = x as Record<string, unknown>
-    if ((l.p !== 'anthropic' && l.p !== 'openai' && l.p !== 'openrouter') || typeof l.model !== 'string' || !l.model || l.model.length > 200) continue
+    if (!isProviderId(l.p) || typeof l.model !== 'string' || !l.model || l.model.length > 200) continue
     const source = l.source === 'reported' || l.source === 'table' || l.source === 'catalogue' || l.source === 'estimate' || l.source === 'none' ? l.source : 'none'
     out.push({ p: l.p, model: l.model, requests: num(l.requests), input: num(l.input), output: num(l.output), cacheRead: num(l.cacheRead), cacheWrite: num(l.cacheWrite), usd: l.usd === null ? null : num(l.usd), source })
   }

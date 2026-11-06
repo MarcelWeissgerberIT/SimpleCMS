@@ -1,0 +1,75 @@
+import { test, expect, email, signIn, openApp, waitOnline, createWorkspace, api, newPerson, wsEval } from './fixtures'
+
+test('temporary guests see expiry and can set up their worker; revocation returns them to read only', async ({ page: owner, context }, info) => {
+  await openApp(owner); await signIn(owner, email('owner'))
+  const ws = await createWorkspace(owner, 'Workshop participation')
+  await openApp(owner,ws);await waitOnline(owner)
+  await wsEval(owner,s=>{s.createPage({id:'guest-guided-start',title:'Your first start'});s.updatePageSettings('guest-guided-start',{firstStart:{v:1,project:'one-webserver',record:31503,readinessPage:'guest-guided-start'}})})
+  const guest = await newPerson(context), address = email('guest')
+  try {
+    await openApp(guest); await signIn(guest, address)
+    const invite = await api<{ link: string }>(owner, 'POST', `/api/workspaces/${ws}/invites`, { email: address, role: 'viewer', guest: true })
+    expect(invite.status).toBe(201)
+    expect((await api(guest, 'POST', '/api/invites/' + invite.json.link.split('#/invite/')[1] + '/accept', {})).status).toBe(200)
+    const end = Date.now() + 3600_000
+    expect((await api(owner, 'PUT', `/api/workspaces/${ws}/guest-participation`, { emails: [address], expiresAt: end })).status).toBe(200)
+    await openApp(guest, ws); await waitOnline(guest)
+    await expect(guest.getByTestId('guest-participation')).toContainText('Participation until')
+    expect(await guest.evaluate(() => (window as any).__one.cloud.useCloud.getState().readOnly)).toBe(false)
+    expect((await api(guest, 'POST', `/api/workspaces/${ws}/coding/workers`, {})).status).toBe(201)
+    expect((await api(owner,'PUT',`/api/workspaces/${ws}/personal-guides/guest-setup`,{email:address,title:'Your workshop start today',sections:[{title:'Your own Copilot',body:'Use your own worker and Atlas connection.'}],expiresAt:end})).status).toBe(200)
+    await openApp(guest,ws,'/my-start')
+    await expect(guest.getByRole('heading',{name:'Your workshop start today'})).toBeVisible()
+    await guest.getByRole('button',{name:'Set up step by step'}).click()
+    const guide=guest.getByTestId('guided-setup')
+    await expect(guide.getByTestId('setup-active-step')).toBeVisible()
+    await expect(guide).toContainText('Check Copilot on your computer')
+    await guide.getByRole('button',{name:'Check what is missing'}).click()
+    await expect(guide.getByTestId('setup-diagnosis')).toContainText('Worker reachable')
+    await guest.screenshot({ path: info.outputPath('guest-participation.png'), animations: 'disabled' })
+    expect((await api(owner, 'PUT', `/api/workspaces/${ws}/guest-participation`, { emails: [address], expiresAt: null })).status).toBe(200)
+    await expect(guest.getByTestId('view-only')).toBeVisible()
+    await expect(guide).toContainText('Your access is currently read-only')
+    await expect(guide.getByTestId('setup-active-step')).toHaveCount(0)
+    await expect(guest.getByTestId('guest-participation')).toHaveCount(0)
+    expect((await api(guest, 'POST', `/api/workspaces/${ws}/coding/workers`, {})).status).toBe(403)
+  } finally { await guest.context().close() }
+})
+
+test('readiness uses effective guest participation and preserves the guest role and past checks',async({page:owner,context},info)=>{
+ await openApp(owner);await signIn(owner,email('readiness-owner'));await openApp(owner)
+ const ws=await createWorkspace(owner,'Guest readiness'),address=email('readiness-guest'),guest=await newPerson(context)
+ try{
+  await openApp(owner,ws);await waitOnline(owner)
+  await openApp(guest);await signIn(guest,address)
+  const invite=await api<{link:string}>(owner,'POST',`/api/workspaces/${ws}/invites`,{email:address,role:'viewer',guest:true})
+  expect((await api(guest,'POST','/api/invites/'+invite.json.link.split('#/invite/')[1]+'/accept',{})).status).toBe(200)
+  const db=await wsEval(owner,s=>{
+   const checks=['one','atlas','worker','copilot','repo']
+   const id=s.createDatabase({title:'Workshop readiness',properties:[{id:'name',name:'Name',type:'title'},...checks.map(id=>({id,name:id,type:'select',options:['open','ready','blocked','na'].map(id=>({id,name:id,color:'gray'}))})),...['role','participation'].map(id=>({id,name:id,type:'select'})),...['blocker','next','owner','note','at','by','recipient','evidence'].map(id=>({id,name:id,type:'text'}))]})
+   s.updateDatabase(id,{readiness:{v:1,automation:{recipient:'recipient',evidence:'evidence',atlasProjects:['one-webserver']},checks:Object.fromEntries(checks.map(k=>[k,k])),role:'role',participation:'participation',blocker:'blocker',next:'next',owner:'owner',note:'note',changedAt:'at',changedBy:'by'},views:[{id:'plates',type:'gallery',name:'Plates',filter:null,sorts:[],visibleProperties:[],propertyWidths:{}}]})
+   s.createRow(id,{title:'Workshop guest',properties:{recipient:'readiness-guest-recipient',role:'guest',participation:'workshop',one:'ready',atlas:'ready',worker:'na',copilot:'na',repo:'na'}})
+   return id
+  })
+  expect((await api(owner,'PUT',`/api/workspaces/${ws}/welcome`,{revision:0,title:'Workshop',notBefore:Date.now()+86400000,lang:'en',recipients:[{id:'readiness-guest-recipient',name:'Workshop guest',email:address,workspaceId:ws,role:'viewer',guest:true,note:''}]})).status).toBe(200)
+  const until=Date.now()+3600000
+  expect((await api(owner,'PUT',`/api/workspaces/${ws}/guest-participation`,{emails:[address],expiresAt:until})).status).toBe(200)
+  await openApp(owner,ws,`/p/${db}`)
+  const card=owner.getByTestId('workshop-start').locator('article').filter({hasText:'Workshop guest'})
+  await expect(card).toContainText('Guest · temporary participation')
+  await expect(card).toContainText('2/5')
+  await card.getByRole('button').click()
+  await expect(card.getByLabel('Workshop guest · Worker',{exact:true})).toHaveValue('open')
+  await expect(card.locator('select:disabled')).toHaveCount(0)
+  await card.getByLabel('Workshop guest · Worker',{exact:true}).selectOption('ready')
+  await expect(card).toContainText('3/5')
+  await card.screenshot({path:info.outputPath('guest-active-readiness.png'),animations:'disabled'})
+  expect((await api(owner,'PUT',`/api/workspaces/${ws}/guest-participation`,{emails:[address],expiresAt:null})).status).toBe(200)
+  await owner.evaluate(()=>window.dispatchEvent(new Event('focus')))
+  await expect(card).toContainText('Guest · read only')
+  await expect(card).toContainText('2/2')
+  await expect(card.locator('select:disabled')).toHaveCount(3)
+  const stored=await wsEval(owner,s=>Object.values(s.pages).find((p:any)=>p.title==='Workshop guest') as any)
+  expect(stored.properties.role).toBe('guest');expect(stored.properties.worker).toBe('ready')
+ }finally{await guest.context().close()}
+})

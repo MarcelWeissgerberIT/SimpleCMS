@@ -1,6 +1,72 @@
 import { test, expect, openApp, reloadApp, gotoPage, createPage, doc, para, wsEval, uiEval, pageIdByTitle, editorOf, MOD } from './fixtures'
 
 test.describe('navigation', () => {
+  test('One Back stays inside the app, follows areas and pages, and survives reload and browser Forward', async ({ page }) => {
+    // The site before One must not make the in-app Back button available.
+    await page.goto('./')
+    await openApp(page, '/agents')
+    const back = page.locator('.tb').getByRole('button', { name: 'Back', exact: true })
+    await expect(back).toBeVisible()
+    await expect(back).toBeDisabled()
+    const wiki = await pageIdByTitle(page, 'Team wiki')
+    await gotoPage(page, wiki)
+    await expect(back).toBeEnabled()
+    await page.evaluate(() => { location.hash = '#/patchbay' })
+    await expect(page).toHaveURL(/#\/patchbay$/)
+    await reloadApp(page)
+    await expect(back).toBeEnabled()
+    await back.click()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Team wiki')
+    await back.click()
+    await expect(page).toHaveURL(/#\/agents$/)
+    await expect(back).toBeDisabled()
+    await page.goForward()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Team wiki')
+    await expect(back).toBeEnabled()
+    // A new branch after going back still returns to the actual previous entry.
+    await page.evaluate(() => { location.hash = '#/coding' })
+    await expect(page).toHaveURL(/#\/coding$/)
+    await back.click()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Team wiki')
+  })
+
+  test('replacing a route adds no Back step and preserves other history state', async ({ page }) => {
+    await openApp(page, '/agents')
+    const back = page.locator('.tb').getByRole('button', { name: 'Back', exact: true })
+    const wiki = await pageIdByTitle(page, 'Team wiki')
+    // MissingPage normalizes a pasted uppercase page ID with navigate(..., { replace: true }).
+    await page.evaluate((wiki) => {
+      location.hash = `#/p/${wiki.toUpperCase()}`
+      history.replaceState({ ...history.state, example: 'keep' }, '')
+    }, wiki)
+    await expect(page).toHaveURL(new RegExp(`#/p/${wiki}$`))
+    await expect(page.locator('#main .pv-title')).toHaveValue('Team wiki')
+    expect(await page.evaluate(() => history.state.example)).toBe('keep')
+    await expect(back).toBeEnabled()
+    await back.click()
+    await expect(page).toHaveURL(/#\/agents$/)
+    await expect(back).toBeDisabled()
+  })
+
+  test('Back is visible on desktop and phone in both themes without header overflow', async ({ page }, info) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openApp(page, '/agents')
+    await gotoPage(page, await pageIdByTitle(page, 'Weekly sync — notes'))
+    for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      const back = page.locator('.tb').getByRole('button', { name: 'Back', exact: true })
+      await expect(back).toBeVisible()
+      await expect(back).toBeEnabled()
+      await expect(page.locator('.tb-burger')).toHaveCount(width === 390 ? 1 : 0)
+      await page.screenshot({ path: info.outputPath(`back-${width}-${theme}.png`), animations: 'disabled' })
+      expect(await page.locator('.tb').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    }
+    await wsEval(page, s => s.updateSettings({ language: 'de' }))
+    await page.locator('.tb').getByRole('button', { name: 'Zurück', exact: true }).click()
+    await expect(page).toHaveURL(/#\/agents$/)
+  })
+
   test('browser back / forward walk through visited pages', async ({ page }) => {
     await openApp(page)
     const wiki = await pageIdByTitle(page, 'Team wiki')

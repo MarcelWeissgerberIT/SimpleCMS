@@ -79,7 +79,7 @@ const setKey = (page: Page) => wsEval(page, (s) => s.updateSettings({ aiApiKey: 
 /** Open the agent (the AI terminal) through the command palette. */
 async function openAgentFromPalette(page: Page) {
   await page.keyboard.press(`${MOD}+k`)
-  const input = page.getByRole('combobox').or(page.locator('.pal-scrim input')).first()
+  const input = page.locator('.pal-scrim input').first()
   await expect(input).toBeVisible()
   await input.fill('AI terminal')
   await page.keyboard.press('Enter')
@@ -138,6 +138,59 @@ function meetingScript(ids: { meeting: string; projects: string }): Step[] {
   ]
 }
 
+for (const language of ['en', 'de'] as const) test(`${language}: page reads show actual part numbers including block-aligned pagination`, async ({ page, context }) => {
+  await openApp(page)
+  await setKey(page)
+  const id = await wsEval(page, (s, language) => {
+    const id = s.createPage({ title: 'Long acceptance notes', parentId: null })
+    const paragraphs = language === 'de' ? Array.from({ length: 5 }, (_, i) => String(i + 1).repeat(9000)) : ['a'.repeat(38851)]
+    s.setContent(id, { type: 'doc', content: paragraphs.map(text => ({ type: 'paragraph', content: [{ type: 'text', text }] })) }, 'seed')
+    return id
+  }, language)
+  const total = language === 'de' ? 5 : 4 // 45K chars need FIVE parts when preserving paragraph boundaries.
+  let n = 0
+  let lastOffset = 0
+  const script: Step[] = [() => sseMessage([{ type: 'tool_use', id: 'part-0', name: 'read_page', input: { id } }])]
+  for (let i = 1; i <= total; i++) script.push(body => {
+    const last = body.messages.at(-1).content.find((b: AnyState) => b.type === 'tool_result')
+    const next = /Call read_page with offset (\d+)/.exec(last.content)
+    n++
+    if (i < total) {
+      expect(next).not.toBeNull()
+      const offset = Number(next![1])
+      expect(offset).toBeGreaterThan(lastOffset)
+      lastOffset = offset
+      return sseMessage([{ type: 'tool_use', id: `part-${i}`, name: 'read_page', input: { id, offset } }])
+    }
+    expect(next).toBeNull()
+    // Re-reading the first part must still say part 1, rather than counting calls.
+    return sseMessage([{ type: 'tool_use', id: 'reread', name: 'read_page', input: { id } }])
+  })
+  script.push(() => sseMessage([{ type: 'text', text: 'Read all acceptance notes.' }]))
+  await mockAgent(context, script)
+  await openAgentFromPalette(page)
+  await wsEval(page, (s, language) => s.updateSettings({ language }), language)
+  const input = page.getByRole('textbox', { name: language === 'de' ? 'Aufgabe für den Agenten' : 'Task for the agent' })
+  await input.fill('Read all acceptance notes')
+  await input.press('Enter')
+  const rows = page.locator('.term-step[data-tool="read_page"]')
+  await expect(rows).toHaveCount(total + 1)
+  await expect(page.locator('.term-head__status')).toContainText(language === 'de' ? 'Fertig' : 'Done')
+  expect(n).toBe(total)
+  for (let i = 0; i <= total; i++) {
+    const number = i === total ? 1 : i + 1
+    await expect(rows.nth(i)).toContainText(language === 'de' ? `Teil ${number} von ${total}` : `Part ${number} of ${total}`)
+  }
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    for (const theme of ['light', 'dark']) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await rows.last().scrollIntoViewIfNeeded()
+      await page.screenshot({ path: test.info().outputPath(`page-parts-${language}-${width}-${theme}.png`) })
+    }
+  }
+})
+
 test.describe('Workspace agent (mocked Claude API)', () => {
   test('scripted run: step log, 2 staged rows, nothing written until "Apply all", then Undo removes them', async ({ page, context }) => {
     await openApp(page)
@@ -163,7 +216,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     await expect(log.locator('.term-step[data-tool="read_page"]')).toContainText('Weekly sync — notes')
     await expect(log.locator('.term-step[data-tool="create_row"]').nth(0)).toContainText('Staged #1')
     await expect(log.locator('.term-step[data-tool="create_row"]').nth(1)).toContainText('Staged #2')
-    await expect(log.locator('.term-step--note')).toContainText('Reading its action items next.')
+    await expect(log.locator('.term-step--note', { hasText: 'Reading its action items next.' })).toBeVisible()
 
     // review items: property diffs, the new option, the content preview
     const first = panel.getByRole('listitem', { name: '#1 New row' })
@@ -175,10 +228,10 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     const second = panel.getByRole('listitem', { name: '#2 New row' })
     await expect(second.locator('.agent-diff__row', { hasText: 'Tags' })).toContainText('+ new option')
 
-    // usage meter: summed tokens and the cost by the price table ("≈" only for an estimate), labelled as billed by Anthropic
+    // usage meter: summed tokens and the cost by the price table ("≈" only for an estimate), labelled as belonging to the selected provider
     await expect(panel.getByTestId('agent-cost')).toHaveText(/^(< )?\$\d/)
-    await expect(panel.locator('.term-meter')).toContainText('billed by Anthropic to your key')
-    await expect(panel.locator('.term-meter')).toContainText('4/40')
+    await expect(panel.locator('.term-meter')).toContainText('Usage belongs to the selected provider.')
+    await expect(panel.locator('.term-meter')).toContainText('4/120')
 
     // nothing written yet
     expect(await rowsTitled(page, ['Final QA on staging', 'Connect webhook to n8n'])).toEqual([])
@@ -190,8 +243,8 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     expect(b0.model).toBe('claude-opus-5-5')
     expect(b0.stream).toBe(true)
     // no integration profile here: upsert_rows is not offered (integrations.spec.ts)
-    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'edit_page', 'create_row', 'update_row', 'set_page_title', 'run_query', 'list_work_items', 'update_work_item', 'create_database', 'add_property', 'write_script', 'create_pages'])
-    expect(b0.tools.every((x: AnyState) => x.eager_input_streaming === true && x.input_schema?.type === 'object')).toBe(true)
+    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'edit_page', 'read_tables', 'update_table_cells', 'create_row', 'update_row', 'set_page_title', 'run_query', 'list_work_items', 'update_work_item', 'create_database', 'add_property', 'write_script', 'create_pages', 'check_finding', 'one_task_question'])
+    expect(b0.tools.every((x: AnyState) => (x.name === 'one_task_question' || x.eager_input_streaming === true) && x.input_schema?.type === 'object')).toBe(true)
     expect(b0.tools.some((x: AnyState) => 'run' in x || 'parse' in x)).toBe(false)
     expect(b0.thinking).toMatchObject({ type: 'adaptive', display: 'updates' })
     expect(b0.system).toContain('stages one proposed change')

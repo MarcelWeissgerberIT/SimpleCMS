@@ -11,6 +11,18 @@ Write down what should be checked — in a row of the **Work orders** database, 
 
 All of this needs **Coding switched on on this device** and a connected [coding worker](help:coding-pipeline). One of your own [MCP servers](help:mcp-servers) can add context — optional: without one, One plans from the request and its pages alone.
 
+## Guided start through acceptance
+
+**Start a guided task …** in the page menu uses the current page as its starting point. A new work order also offers a goal field and **Check context & prepare proposal**. The task companion shows five phases: Goal & context, Proposal, Implementation, Evidence and Acceptance. Collapse it using its header; the browser remembers this view. It creates no additional notifications or model calls.
+
+The planner consults permitted sources and existing answers first. Reversible details become visible **working assumptions**, individually removable before confirming the plan. They are included in the work packages. Product decisions, authority and successful tests cannot be assumed. Questions are reserved for real blockers and should be bundled. Existing pipeline approvals, data rules and budgets still apply.
+
+**A finished pipeline is not human acceptance.** Evidence is collected on the executing device. Coding deliveries require a confirmed contract, completed work packages and successful final QA on the combined branch with an actually executed test (exit code 0). Skipped work, changed ONE sources or coding packages changed since QA prevent acceptance. Older runs without the new QA receipt need another review. Analysis-only requests do not need invented coding tests.
+
+**Accept the result** confirms exactly the displayed evidence snapshot. ONE writes a report to the work order and keeps the decision on this device. Changed evidence invalidates that decision in the companion; the older report remains historical evidence. This is not a tamper-proof server signature or a live check of subsequent repository changes.
+
+**Prepare handoff to …** uses the MCP server selected in the plan, such as Atlas, and opens an editable AI-terminal draft. It sends nothing yet. Once started, the terminal should read current target records, check workspace and project, match existing evidence using the snapshot ID and follow existing approvals. Missing targets or permissions remain concrete blockers. The report does not claim a successful Atlas sync. An active terminal or existing draft is not overwritten.
+
 ## Writing a request
 - **On any page**: ⋯ → **Have it checked** (also in the sidebar row's menu and in ⌘K). The first use creates the **Work orders** database — the toast *Work orders created · WO-1* has **Undo**. One makes a row titled like the page, its body *Page: @the page*, and starts planning; the page itself is not changed. **Have it checked …** first asks for one line (*What should it look out for?*) that goes above the mention.
 - A page an open request already links opens that request instead — *Already in WO-3 (Plan)*, with **New request** in the toast.
@@ -82,3 +94,17 @@ The Work orders database is private. Planning, starting and going on happen on t
 
 ## What stays on this device
 The plan, the chain's record (which tasks belong to it, who set each one done), what it spent and the switch for starting without confirming live in this browser — never synced, exported or backed up — and go with the device copy and the local reset. Full backups carry the database's settings, never a plan or a chain. The [flight recorder](help:flight-recorder) can eject a chain's steps: an ejected step halts its chain, and <kbd>S</kbd> decides.
+
+## Context and QA repairs
+In **Settings → Automatic QA repairs**, optionally allow bounded repair sub-runs. The default is Off; the confirmed chain pins the choice and Coding agent. See [Coding harness, context and quality](help:coding-harness) for operation, limits, evaluations and Atlas memory.
+
+
+## Copilot per role
+In settings under **Pipelines**, choose **GitHub Copilot** independently for BA, Coding and QA, then set model, reasoning effort and context below it. Worker **1.27.0** copies these choices into tasks when created; a personal task override takes precedence. Automatic QA repairs use the confirmed Coding choice, and re-reviews use the QA choice. The acceptance report includes the observed Copilot model/token summary. See [GitHub Copilot in One](help:copilot-coding).
+
+## Evidence packets and confirmed Atlas handoffs
+At the end of the guided order, download the displayed evidence as JSON or save it under an explicitly selected shared page. The packet contains the bounded report, task/model receipts and actually reported host test metadata. Personal order controls and secrets are not transferred. Review the displayed report before sharing; the packet is a dated snapshot, not live device access. Publishing the same snapshot again creates no duplicate. Later task changes need a new snapshot. The shared page remains readable on another device.
+
+After human acceptance, **Prepare handoff** still opens a reviewable draft in the AI terminal. Only its approved execution can change Atlas. Then enter the project slug and actual record number and choose **Read and verify Atlas evidence**. ONE uses only `atlas_get` through the selected personal connection on your worker. The record must belong to that project and contain the exact `ONE-EVIDENCE <SHA-256>` line of the accepted snapshot in its body. A model claim or link alone is insufficient. Verification changes no domain decision or Atlas status. Missing rights, a wrong record, errors or a missing marker keep the handoff pending; retrying verification writes nothing and creates no duplicate Atlas record.
+
+The states are **prepared → transferred → confirmed by readback**. A successful readback proves storage and then confirms project/record/marker. An already published evidence packet receives a visible Atlas addendum, retaining its original snapshot data. Another browser does not restore private execution or its permissions. Worker **1.30.0 or newer** is recommended and supplies the extended host receipts.

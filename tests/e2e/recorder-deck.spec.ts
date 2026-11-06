@@ -143,7 +143,10 @@ test.describe('ways in and out', () => {
   })
 
   test('macOS: ⌘⌥Z opens it (⌥ turns Z into "Ω") — on a German Mac too, where the Z key is KeyY; ⌘⌥Y never', async ({ page }) => {
-    await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }))
+    await page.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' })
+      Object.defineProperty(navigator, 'userAgentData', { get: () => ({ platform: 'macOS' }) })
+    })
     await openApp(page)
     // US layout
     await key(page, { key: 'Ω', code: 'KeyZ', metaKey: true, altKey: true })

@@ -115,7 +115,7 @@ export async function serveTaskMcp(version: string): Promise<void> {
         inputSchema: d.inputSchema as Tool['inputSchema'],
         // read-only for Claude Code (plan mode allows them): a note or a question only goes to the person in One —
         // nothing on this computer or in the repository changes
-        annotations: { title: d.title, readOnlyHint: true, destructiveHint: false, idempotentHint: !d.write, openWorldHint: false },
+        annotations: { title: d.title, readOnlyHint: d.name !== 'one_task_mcp_call' || process.env.ONE_WORKER_PERSONAL_READ_ONLY === '1', destructiveHint: d.name === 'one_task_mcp_call', idempotentHint: !d.write, openWorldHint: false },
       }),
     ),
   }))
@@ -149,7 +149,7 @@ export async function serveTaskMcp(version: string): Promise<void> {
       }
     }
     try {
-      const res = await post(url, token, { tool: name, args }, 30_000)
+      const res = await post(url, token, { tool: name, args }, name === 'one_task_mcp_call' ? 75_000 : 30_000)
       return res.body.ok ? text(String(res.body.text ?? '')) : text(String(res.body.error ?? `The worker answered ${res.status}.`), true)
     } catch (e) {
       return text(`The One worker is not reachable: ${e instanceof Error ? e.message : String(e)}`, true)

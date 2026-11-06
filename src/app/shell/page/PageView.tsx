@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useContentLanguage } from '../../lib/contentLanguage'
+import { localizePage } from '../../store/localization'
+import { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react'
 import type { Editor } from '@tiptap/core'
 import { ImagePlus, SmilePlus, RotateCcw, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -7,7 +9,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
-import { TemplateBanner, CodingTaskSlot, OrderSlot, OrderDbSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips } from '../../features'
+import { TemplateBanner, CodingTaskSlot, OrderSlot, OrderDbSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips, PageAgentActivity, TranslationControls } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -25,30 +27,41 @@ import { MarginRail, railHasContent } from './MarginRail'
 import { scrollHostOf } from './outline'
 import { toggleMarginRail, useMarginRailOpen } from './railPref'
 import { TourOffer } from '../tour/TourOffer'
+import { AtlasStart } from '../cloud/AtlasStart'
+import {FirstStartTools} from '../firstStart/FirstStart'
+import {firstStart} from '../firstStart/model'
+import {useLang} from '../../i18n'
 import './page.css'
 
 export type PageVariant = 'main' | 'pane' | 'peek'
 
 export function PageView({ pageId, variant }: { pageId: ID; variant: PageVariant }) {
-  const page = usePage(pageId)
+  const source = usePage(pageId)
+  const { lang } = useContentLanguage()
+  const db = useWorkspace(s => source ? s.databases[source.kind === 'database' ? source.id : source.databaseId ?? ''] : undefined)
+  const page = useMemo(() => source ? localizePage(source, lang, db) : undefined, [source, lang, db])
+  const language = source?.localization && lang !== source.localization.source ? lang : null
   if (!page) return <NotFound kind="page" />
-  return <PageViewInner key={pageId} page={page} variant={variant} />
+  return <PageViewInner key={pageId} page={page} variant={variant} language={language} />
 }
 
-function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) {
+function PageViewInner({ page, variant, language }: { page: Page; variant: PageVariant; language: import('@/shared/i18n').Lang | null }) {
   const trashed = useWorkspace((s) => isEffectivelyTrashed(s.pages, page.id))
   const editorRef = useRef<Editor | null>(null)
   const isDb = page.kind === 'database'
   const isRow = !!page.databaseId
+  const lang=useLang()
+  const guided=variant==='main'&&!!firstStart(page)&&!trashed
+  const [referenceOpen,setReferenceOpen]=useState(false)
   const locked = page.settings.locked
   // a viewer in a team workspace reads every page like a locked one
   const viewer = useReadOnly()
-  const readOnly = locked || trashed || viewer
+  const readOnly = locked || trashed || viewer || !!language
   const wide = page.settings.fullWidth || isDb
 
   const articleRef = useRef<HTMLElement>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
-  const rail = useRail(articleRef, variant === 'main' && !wide)
+  const rail = useRail(articleRef, variant === 'main' && !wide && (!guided||referenceOpen))
   const railOpen = useMarginRailOpen()
   // an empty rail (no outline, no reminders) leaves the text centred; the first layout reads the
   // stored content, the rail reports the live document from then on
@@ -63,6 +76,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
     if (ed && !ed.isDestroyed && ed.isEditable) ed.commands.focus(where)
   }
 
+  const editorContent = <PageEditor pageId={page.id} language={language} readOnly={readOnly} onReady={(ed) => { editorRef.current=ed;setEditor(ed) }} />
   return (
     <article
       ref={articleRef}
@@ -83,8 +97,12 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
+          {!trashed && <TranslationControls pageId={page.id} />}
+          {!trashed && <PageAgentActivity pageId={page.id} />}
+          {variant === 'main' && !trashed && <FirstStartTools page={page} />}
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
           {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
+          {variant === 'main' && !trashed && <AtlasStart pageId={page.id} readOnly={viewer} />}
           {/* a database with send routes or slips: IN OUTBOX · SENT TODAY (features/outbox) */}
           {isDb && !trashed && <OutboxReadout dbId={page.id} />}
           {/* right after an eject into this database: ENTRIES · LAST You · 08:05 · Eject (features/recorder) */}
@@ -111,16 +129,12 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
               <DatabaseView databaseId={page.id} />
               {!trashed && <OutboxDbFoot dbId={page.id} />}
             </>
-          ) : (
-            <PageEditor
-              pageId={page.id}
-              readOnly={readOnly}
-              onReady={(ed) => {
-                editorRef.current = ed
-                setEditor(ed)
-              }}
-            />
-          )}
+          ) : guided ? (
+            <>
+              <button className="btn first-start-reference" aria-expanded={referenceOpen} onClick={()=>setReferenceOpen(!referenceOpen)}>{lang==='de'?'Bebilderte Anleitung und alle Details nachschlagen':'Look up illustrated guide and all details'}</button>
+              <div hidden={!referenceOpen}>{editorContent}</div>
+            </>
+          ) : editorContent}
         </div>
         {rail && <MarginRail page={page} editor={editor} onFill={setRailFilled} />}
         {!isDb && (
@@ -373,4 +387,3 @@ function TrashBanner({ page, canEdit }: { page: Page; canEdit: boolean }) {
     </div>
   )
 }
-

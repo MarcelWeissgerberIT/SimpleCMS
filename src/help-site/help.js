@@ -5,13 +5,17 @@
  */
 ;(function () {
   'use strict'
-  var mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
-  if (mac) {
-    var MAC = { Mod: '⌘', Alt: '⌥', Shift: '⇧' }
-    document.querySelectorAll('kbd[data-keys]').forEach(function (k) {
-      k.textContent = k.getAttribute('data-keys').split('+').map(function (p) { return MAC[p] || p }).join('')
-    })
-  }
+  var keyboard = createKeyboardLabels(navigator)
+  document.querySelectorAll('kbd[data-keys]').forEach(function (k) {
+    k.textContent = keyboard.label(k.getAttribute('data-keys'))
+  })
+  document.querySelectorAll('[data-shortcut-text]').forEach(function (el) {
+    el.textContent = keyboard.text(el.getAttribute('data-shortcut-text'))
+  })
+  // Titles and index summaries are plain text, never source code or links.
+  document.querySelectorAll('.art-title, .row-title, .row-sum, .art-sum, title').forEach(function (el) {
+    if (!el.children.length) el.textContent = keyboard.text(el.textContent)
+  })
 
   document.addEventListener('keydown', function (e) {
     if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
@@ -32,6 +36,7 @@
   var list = results.querySelector('[data-list]')
   var count = results.querySelector('[data-count]')
   var items = JSON.parse(dataEl.textContent || '[]')
+  items.forEach(function (it) { it.t = keyboard.text(it.t); it.m = keyboard.text(it.m); it.x = keyboard.text(it.x) })
 
   var fold = function (s) {
     return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')

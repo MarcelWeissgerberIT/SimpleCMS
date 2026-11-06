@@ -801,7 +801,7 @@ test.describe('a backup that would loosen the AI rules (acceptance 10)', () => {
     // rules a later build wrote: a restriction this build cannot read, stamped a generation above every one this build
     // names (GEN in shared/ai/generations.ts — the Regler's budget took 3; restricted pages get theirs when they merge)
     const newer = JSON.parse(JSON.stringify(json))
-    newer.workspace.ai = { gen: 4, policy: { providers: { openrouter: { allow: ['public'] } }, restricted: [{ root: 'pg_newer_root', to: ['openrouter'] }] } }
+    newer.workspace.ai = { gen: Math.max(...Object.values(GEN)) + 1, policy: { providers: { openrouter: { allow: ['public'] } }, restricted: [{ root: 'pg_newer_root', to: ['openrouter'] }] } }
     const file = testInfo.outputPath('newer.json')
     writeFileSync(file, JSON.stringify(newer))
     const dialog = await mergeFile(page, file)

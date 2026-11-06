@@ -16,6 +16,7 @@ import { defaultApprovals, type ApprovalsLevel } from './state'
 export { startCoding } from './service'
 export { CodingRoute, CodingTaskSlot, OrderSlot, OrderDbSlot, OrderNoteModal } from './slot'
 export { WorkerTab as CodingWorkerTab } from './WorkerTab'
+export { OllamaCloudSettings } from './OllamaCloudSettings'
 export { CodingStatusCell } from './WorkerStatus'
 export { openCodingSettings, consumeCodingSettingsRequest } from './open'
 /** a worker older than 1.9.0 on this Windows computer (Local link) — the #/coding plate and the Preflight lamp name it */
@@ -300,3 +301,8 @@ export const unsettleEjectedOrder = (runKey: string, ids: readonly string[], eje
 export const orderEjectBusy = (runKeys: readonly string[]) => import('./orders/eject').then((m) => m.orderEjectBusy(runKeys))
 export const orderEjectFacts = (units: readonly string[]) => import('./orders/eject').then((m) => m.orderEjectFacts(units))
 export { withEjected, withoutEjected } from './chain'
+
+/** The selected coding agent's display name for task-specific UI. */
+export { useCodingAgentName } from './agent'
+
+export { modelShareStatus, configureModelShare, workerOptionalHere, cloudAtlasMcpReady, requestTextModels, requestWorkerText, requestWorkerMcp } from './service'

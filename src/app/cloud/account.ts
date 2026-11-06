@@ -1,3 +1,4 @@
+import { isTestAccess } from './testScope'
 /** Account, workspaces, members and invites — the REST side of the public API, keeping useCloud current. */
 import { useWorkspace } from '../store/store'
 import {
@@ -52,17 +53,18 @@ function returnPath(): string {
   }
 }
 
-export async function requestSignInImpl(email: string, opts?: { invite?: string; signup?: string; lang?: string }): Promise<void> {
+export async function requestSignInImpl(email: string, opts?: { invite?: string; signup?: string; lang?: string; signal?: AbortSignal }): Promise<void> {
   await postSignIn({
     email: email.trim(),
     redirect: returnPath(),
     lang: opts?.lang ?? lang(),
     ...(opts?.invite ? { invite: opts.invite } : {}),
     ...(opts?.signup ? { signup: opts.signup } : {}),
-  })
+  }, opts?.signal)
 }
 
 export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promise<void> {
+  if (isTestAccess()) return
   try {
     await postLogout()
   } finally {
@@ -85,6 +87,7 @@ export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promis
  * downloads it afresh). The open workspace's copy goes at the reload into the local workspace.
  */
 export async function removeDeviceCopyImpl(wsId: string): Promise<void> {
+  if (isTestAccess()) return
   scheduleForget([wsId])
   const active = useCloud.getState().active
   if (active.kind === 'cloud' && active.id === wsId) {
@@ -118,8 +121,8 @@ export function listMembersImpl(wsId: string): Promise<Member[]> {
   return getMembers(wsId)
 }
 
-export async function setMemberRoleImpl(wsId: string, userId: string, role: Role): Promise<void> {
-  await patchMember(wsId, userId, role)
+export async function setMemberRoleImpl(wsId: string, userId: string, role: Role, guest?: boolean): Promise<void> {
+  await patchMember(wsId, userId, role, guest)
   // an ownership transfer (or a change of one's own role) changes what this person may do
   if (role === 'owner' || userId === useCloud.getState().user?.id) {
     const me = await refreshMe()
@@ -142,8 +145,8 @@ export function createInviteImpl(wsId: string, role: Role, email?: string, opts?
   return postInvite(wsId, role, email?.trim() || undefined, lang(), opts)
 }
 
-export function sendInvitesImpl(wsId: string, emails: string[], role: Role, opts?: { days?: number }): Promise<EmailInviteResult[]> {
-  return postInviteEmails(wsId, emails, role, { days: opts?.days, lang: lang() })
+export function sendInvitesImpl(wsId: string, emails: string[], role: Role, opts?: { days?: number; guest?: boolean }): Promise<EmailInviteResult[]> {
+  return postInviteEmails(wsId, emails, role, { days: opts?.days, guest: opts?.guest, lang: lang() })
 }
 
 export function listInvitesImpl(wsId: string): Promise<Invite[]> {

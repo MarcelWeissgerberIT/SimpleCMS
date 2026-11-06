@@ -1,9 +1,4 @@
-/**
- * MASTER CAUTION — the topbar key (every route) and the plate's own keys. Lit with the number of new lamps; a click
- * acknowledges every new lamp (there is no keyboard shortcut for "acknowledge all" — a key press on the focused button
- * is a click). Nothing new: the off window — with the number of lit lamps in ink-3, or a green LED when all is dark —
- * and a click opens the panel. On a phone the topbar key shows the triangle and the count; the name is its label.
- */
+/** Compact master key: new warnings open the guarded panel; otherwise it acknowledges new cautions. */
 import { memo } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import { useT } from '../../../i18n'
@@ -14,15 +9,18 @@ import { tn } from '../sources/util'
 
 type McState = 'lit' | 'acked' | 'dark'
 
-function useMc(): { state: McState; mc: number; lit: number } {
+function useMc(): { state: McState; mc: number; lit: number; guarded: boolean } {
   const mc = usePreflight((s) => s.mc)
   const lit = usePreflight((s) => s.lit)
-  return { state: mc > 0 ? 'lit' : lit > 0 ? 'acked' : 'dark', mc, lit }
+  const guarded = usePreflight((s) => s.views.some((v) => v.level === 'red' && v.isNew))
+  return { guarded, state: mc > 0 ? 'lit' : lit > 0 ? 'acked' : 'dark', mc, lit }
 }
 
-/** The click: acknowledge every new lamp; with nothing new, open the panel. */
+/** Never bypass the warning cover from a compact entry point. */
 export function pressMasterCaution(): void {
-  if (usePreflight.getState().mc > 0) ackAll()
+  const s = usePreflight.getState()
+  if (s.views.some((v) => v.level === 'red' && v.isNew)) openPreflight()
+  else if (s.mc > 0) ackAll()
   else openPreflight()
 }
 
@@ -32,12 +30,12 @@ export const MasterCautionKey = memo(function MasterCautionKey() {
   const t = useT()
   const on = usePreflight((s) => s.on)
   const ready = usePreflight((s) => s.ready)
-  const { state, mc, lit } = useMc()
+  const { state, mc, lit, guarded } = useMc()
   if (!on || !ready) return null
   const name = t('features.preflight.mc.name')
-  const label = state === 'lit' ? tn('features.preflight.mc.aria', mc) : state === 'acked' ? tn('features.preflight.mc.ariaLit', lit) : t('features.preflight.mc.ariaOff')
+  const label = guarded ? t('features.preflight.mc.guarded') : state === 'lit' ? tn('features.preflight.mc.aria', mc) : state === 'acked' ? tn('features.preflight.mc.ariaLit', lit) : t('features.preflight.mc.ariaOff')
   return (
-    <button type="button" className="pf-mc" data-state={state} data-testid="pf-mc" title={name.toUpperCase()} aria-label={label} onClick={pressMasterCaution}>
+    <button type="button" className="pf-mc" data-state={state} data-warning={guarded || undefined} data-testid="pf-mc" title={name.toUpperCase()} aria-label={label} onClick={pressMasterCaution}>
       <span className="pf-mc__win">
         <span className="pf-mc__name">{name}</span>
         <TriangleAlert className="pf-mc__icon" size={14} strokeWidth={2} aria-hidden />
@@ -50,9 +48,9 @@ export const MasterCautionKey = memo(function MasterCautionKey() {
 /** The plate's key (the master column) — `small` for the strip. */
 export function MasterKey({ small }: { small?: boolean }) {
   const t = useT()
-  const { state, mc, lit } = useMc()
+  const { state, mc, lit, guarded } = useMc()
   const name = t('features.preflight.mc.name')
-  const label = state === 'lit' ? tn('features.preflight.mc.ariaPlate', mc) : state === 'acked' ? tn('features.preflight.mc.ariaLit', lit) : t('features.preflight.mc.ariaStrip')
+  const label = guarded ? t('features.preflight.mc.guarded') : state === 'lit' ? tn('features.preflight.mc.ariaPlate', mc) : state === 'acked' ? tn('features.preflight.mc.ariaLit', lit) : t('features.preflight.mc.ariaStrip')
   return (
     <button type="button" className={small ? 'pf-mkey pf-mkey--s' : 'pf-mkey'} data-state={state === 'lit' ? undefined : state} data-testid={small ? 'pf-mkey-strip' : 'pf-mkey'} aria-label={label} onClick={pressMasterCaution}>
       <span className="pf-mkey__win">{small ? name : name.replace(' ', '\n')}</span>

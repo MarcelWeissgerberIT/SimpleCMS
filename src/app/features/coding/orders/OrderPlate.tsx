@@ -56,6 +56,7 @@ import { HelpLink } from '../../../help'
 import { ORDER_LIMITS } from './types'
 import { useOrderAuto } from './auto'
 import type { OrderPreWhy } from './pre'
+import GuidedOrder from './GuidedOrder'
 import './orders.css'
 
 type Chip = 'planning' | 'question' | 'regler' | 'worker' | 'expired' | 'asked' | null
@@ -297,7 +298,7 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   const brake = status === 'plan' && outcome?.kind === 'brake' && !brakeDone ? outcome.error : null
 
   return (
-    <section ref={plateRef} className="screw-plate orp" aria-labelledby={hid} data-status={status ?? undefined} data-testid="order-plate">
+    <section ref={plateRef} className="screw-plate orp" aria-labelledby={hid} data-status={status ?? undefined} data-testid="order-plate" data-row={rowId}>
       <Screws seed={rowId} />
       <header className="orp-head">
         <h2 id={hid} className="label orp-code" tabIndex={-1}>
@@ -332,6 +333,7 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
         />
         <Lamp name={t('features.coding.order.lamp.planner')} led={planner.led} text={planner.text} testId="order-lamp-planner" />
       </dl>
+      <GuidedOrder rowId={rowId} rec={rec} status={status} planning={planningNow} viewer={viewer || shared || unreadable} server={server} />
       {strip && !planningNow && (
         <div className="orp-strip" data-why={why} data-ended={ended && !brake ? '' : undefined} data-testid="order-pre">
           <p className="orp-strip__line">

@@ -1,3 +1,15 @@
+import {inlineContextCheckpoint} from './agent/checkpoint'
+import {skillLibraryQuery,pinSkillRequest} from '@/shared/ai/skills'
+import {scrubSecrets} from '@/shared/ai/keys'
+import {openSkills,useSkillsOpen} from './skills/dialog'
+import {openPage} from '../../lib/router'
+import {useCloud} from '../../cloud/state'
+import {decisionRecoveryPrompt} from './core/decisionRecovery'
+import type {TaskQuestion,TaskReport} from '@/shared/quandprofile/task'
+import {TaskContractCard} from './mcp-servers/TaskContractCard'
+import { RepoFilesControl } from '../repo-files/RepoFilesControl'
+import {AtlasFactsView} from './mcp-servers/AtlasFacts'
+import { WorkerConnectionHelp } from './mcp-servers/WorkerConnectionHelp'
 /**
  * AIMenu — the Claude panel the editor opens for a selection ("Ask AI") or at the cursor
  * block (space on an empty line / slash command). One input line on top (prompt or filter),
@@ -97,6 +109,7 @@ import { FileStack, ListPlus } from 'lucide-react'
 import { listItemsIn, openTurnIntoList } from '../kit'
 import { itemCount, pagesPerItem } from '../../editor'
 import { requestIntent } from './intent'
+import {writeActionRequested} from '@/shared/ai/actionIntent'
 import { RouteChip, isRouteKey, type RouteChipHandle } from './routing/RouteChip'
 import type { PurposeId } from './core/purposes'
 import { aiWriterOf } from './core/runMeta'
@@ -123,9 +136,9 @@ import { holdsItemNode } from '../../lib/itemIds'
 import { echoedIds, insideTaskOrTable, rangeDoc, replaceRange } from './menuItems'
 import { itemsFitAt } from './transform/range'
 import { ITEM_KEYWORDS } from './transform/forms'
-import { openAgent } from './agent/state'
+import { openAgent, useAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, selectionMarkdown, type RunTarget } from './runsTarget'
-import { markSeen, receiptOf, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
+import { markSeen, receiptOf, currentScope, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
 import { countWords, effectiveMode, readsFor, readsShort, readsText, type RunReads } from './reads'
 import { RedoSetup, type RedoDraft } from './redo/RedoSetup'
 import { RedoReview } from './redo/RedoReview'
@@ -180,7 +193,7 @@ export interface AIMenuProps {
    * Open on a submenu: 'todb' — "More …" with "Turn into database" highlighted (the grip menu's "Turn into
    * database…") · 'transform' — the forms of "Transform into …" (the tour, "What can One do?").
    */
-  open?: 'todb' | 'transform'
+  open?: 'todb' | 'transform' | 'skills'
   /** Open on the generate card (`/generate image` · `/generate video` · an empty image block's "Generate…"). */
   generate?: GenerateKind
   /**
@@ -385,7 +398,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   }, [editor, own, openRun])
 
   const narrow = useNarrow()
-  const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
+  const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun && openOn!=='skills')
+  // Worker discovery is asynchronous. A usable request route can arrive after the menu opened.
+  useEffect(() => { if (hasKey) setSetup(false) }, [hasKey])
   /** the key card is what a typed Space opened (and it has not been left since): typing there goes back into the page */
   const [typedCard, setTypedCard] = useState(() => !!typed && setup)
   useEffect(() => {
@@ -415,6 +430,15 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     onClose()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once, as the menu mounts
   const [query, setQuery] = useState('')
+  const recoveryScope=useRef(JSON.stringify([currentScope(),useWorkspace.getState().epoch,useCloud.getState().user?.id]))
+  const recoverDecision=(report:TaskReport,question:TaskQuestion,answer:string)=>{
+    const latest=runId?useAIRuns.getState().runs[runId]:null
+    if(!latest||latest.pageId!==pageId||editor.isDestroyed||!useWorkspace.getState().pages[latest.pageId]||useWorkspace.getState().pages[latest.pageId]?.trashed||latest.status==='running'||latest.scope!==currentScope()||recoveryScope.current!==JSON.stringify([currentScope(),useWorkspace.getState().epoch,useCloud.getState().user?.id])||!latest.mcpCalls.some(c=>c.contract?.id===report.id))return false
+    const latestReport=latest.mcpCalls.find(c=>c.contract?.id===report.id)?.contract
+    if(!latestReport?.questions.some(q=>q.id===question.id&&q.state==='open'))return false
+    const task=decisionRecoveryPrompt(latestReport,question,answer)
+    onClose();openPage(latest.pageId);useAgent.setState({route:latest.chip??null,refs:[],mentions:[],pageOff:null});openAgent({task,run:false});return true
+  }
   const lang = useLang()
   const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist' | 'transform' | 'more'>('actions')
   /** One memory: switched off for the next own request (the list's toggle) · the entry whose history shows */
@@ -571,8 +595,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /* ---------------- running ---------------- */
 
   /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
+  const skillsOpen=useSkillsOpen()
+  const recoveryBusy=useAgent(s=>s.status==='running')
+  const pageTree=useAgent(s=>s.pageTree===pageId)
   const start = useCallback(
     (req: RunRequest, tg?: RunTarget, pick?: Route | null) => {
+      // Contextual tool work shares the terminal's discovery and live clarification loop.
+      const addressed=req.kind==='action'&&req.action==='custom'&&req.instruction?codewordsIn(req.instruction):null
+      const toolWrite=!!addressed?.forced.length&&writeActionRequested(addressed.text)
+      const remoteWrite=req.kind==='action'&&req.action==='custom'&&!!req.instruction&&writeActionRequested(req.instruction)&&requestIntent(req.instruction,{selection:targetRef.current.mode==='selection',servers:mcpNames?.split(' · ')})==='terminal'
+      if(req.kind==='action'&&req.action==='custom'&&req.instruction&&(pageTree||toolWrite||remoteWrite)){
+        const target=targetRef.current,at=target.mode==='selection'?{from:target.from,to:target.to}:null
+        useAgent.setState({route:(pick===undefined?chip:pick)??null})
+        onClose()
+        void import('./agent/refs').then(m=>m.runInTerminal(req.instruction!,editor,at))
+        return
+      }
       stickRef.current = true
       setConvertIssue(null)
       convertingRef.current = false
@@ -586,7 +624,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       if (view === 'memory' || view === 'memhist' || view === 'transform' || view === 'more') setView('actions')
       makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : req.kind === 'file' && isStructuredAction(req.action) ? FILE_ROOM : true)
     },
-    [editor, pageId, runId, makeRoom, view, chip],
+    [editor, pageId, runId, makeRoom, view, chip, mcpNames, onClose, pageTree],
   )
 
   /** "Ask Claude": the refused request once more, with Claude as its route (this request only — a codeword's server). */
@@ -631,6 +669,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const chooseMode = useCallback(
     (mode: ContextMode) => {
       if (mode === 'marked' && !pageContextMarks(pageId).marked) return pickBlocks()
+      useAgent.setState({pageTree:null})
       setContextMode(editor, mode)
       setView('actions')
       setActive(0)
@@ -923,7 +962,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     window.addEventListener('pointerdown', mark, true)
     return () => window.removeEventListener('pointerdown', mark, true)
   }, [])
-  const onPopoverClose = () => (performance.now() - pointerAt.current < 120 ? onClose() : dismiss())
+  const onPopoverClose = () => {if(!skillsOpen)performance.now() - pointerAt.current < 120 ? onClose() : dismiss()}
 
   const copy = async () => {
     try {
@@ -947,10 +986,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const handToTerminal = useCallback(
     (task: string) => {
       const at = own.t.mode === 'selection' ? { from: own.t.from, to: own.t.to } : null
+      useAgent.setState({route:chip??null})
       onClose()
       void import('./agent/refs').then((m) => m.runInTerminal(task, editor, at))
     },
-    [onClose, own, editor],
+    [onClose, own, editor, chip],
   )
 
   /* ---------------- Claude for images ---------------- */
@@ -1534,6 +1574,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase()
+    const skillQuery=skillLibraryQuery(query)
+    if(skillQuery!==null&&phase!=='streaming')return [{id:'skills',label:t('features.ai.skills.title'),icon:Workflow,code:'/skills',run:()=>{setQuery('');openSkills(skill=>{setQuery('$'+skill.spec.name+'@'+skill.version);requestAnimationFrame(()=>inputRef.current?.focus())},skillQuery)}}]
     if (setup) return []
     if (phase === 'streaming') return []
     if (view === 'reads') {
@@ -1542,7 +1584,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       const blocks = marks?.marked ?? 0
       const n = (x: number) => x.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
       return [
-        { id: 'reads-page', label: t('features.ai.reads.opt.page'), icon: FileText, group, current: m === 'page', run: () => chooseMode('page'), code: 'ALL' },
+        { id: 'reads-page', label: t('features.ai.reads.opt.page'), icon: FileText, group, current: m === 'page'&&!pageTree, run: () => chooseMode('page'), code: 'ALL' },
+        {id:'reads-tree',label:t('features.ai.reads.opt.tree'),icon:FileStack,group,current:m==='page'&&pageTree,code:'TREE',run:()=>{chooseMode('page');useAgent.setState({pageTree:pageId})}},
         {
           id: 'reads-marked',
           label: blocks ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'),
@@ -1684,6 +1727,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         else out.push(insert)
         out.push({ id: 'copy', label: t('features.ai.res.copy'), icon: Copy, run: () => void copy() })
       }
+      if(error&&['context','max_tokens'].includes(error.code)&&run&&['action','workspace','redo'].includes(run.req.kind))out.push({id:'compact-recovery',label:t('features.ai.skills.compactInline'),icon:Workflow,disabled:recoveryBusy,run:()=>{
+       if(run.scope!==currentScope()||useAgent.getState().status==='running')return
+       const report=run.mcpCalls.find(c=>c.contract)?.contract,req=run.req
+       const goal=report?.compiled.contract.goal??(req.kind==='action'?req.instruction||req.label:req.kind==='workspace'?req.question:req.kind==='redo'?req.instructions:req.label)
+       const task=pinSkillRequest(goal,report?.skills??[])+'\n\nNur lesen. Keine externen Änderungen und keine Ausführung. Setze die Analyse anhand aktueller Quellen fort und benenne noch notwendige Aktionen.'
+       const checkpoint=scrubSecrets(inlineContextCheckpoint(report,run.mcpCalls,run.output)),at=own.t.mode==='selection'?{from:own.t.from,to:own.t.to}:null
+       useAgent.setState({route:run.chip??chip??null});onClose();void import('./agent/refs').then(m=>run.scope===currentScope()?m.runInTerminal(task,editor,at,checkpoint):undefined)
+      }})
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
       if (error && (error.code === 'invalid_key' || error.code === 'permission' || error.code === 'no_key'))
         out.push({
@@ -1874,7 +1925,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       })
     }
     // an own request that is really a structure action, or work for the AI terminal (intent.ts): that key first, Enter runs it
-    const intent = q && !img?.only && !file?.only && !remembering ? requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [] }) : null
+    const addressed=codewordsIn(query)
+    const toolWrite=!!addressed?.forced.length&&writeActionRequested(addressed.text)
+    const intent = q && !img?.only && !file?.only && !remembering
+      ? pageTree||toolWrite?'terminal':requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [] })
+      : null
     const routed = intent && intent !== 'terminal' ? actions.find((a) => a.id === (intent === 'items' ? 'workItems' : intent)) : null
     // the typed request goes along (who owns what, when): Turn into database, Make tasks (selection: Transform → Tasks;
     // at the cursor: make_tasks)
@@ -1912,7 +1967,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, pageTree, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions, answerItems, recoveryBusy]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -1921,8 +1976,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   // opened on a submenu (the grip menu's "Turn into database…", the tour): there, the asked row highlighted
   const openedOn = useRef(false)
   useEffect(() => {
-    if (!openOn || openRun || setup || openedOn.current) return
+    if (!openOn || openRun || (setup&&openOn!=='skills') || openedOn.current) return
     openedOn.current = true
+    if(openOn==='skills')return openSkills(skill=>{setQuery('$'+skill.spec.name+'@'+skill.version);requestAnimationFrame(()=>inputRef.current?.focus())})
     if (openOn === 'transform' && transformPicks.length) return setView('transform')
     if (openOn === 'todb' && moreActions.some((a) => a.id === 'todb')) {
       setView('more')
@@ -2065,7 +2121,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   return (
     <>
       {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && !file?.only && run?.req.kind !== 'image' && run?.req.kind !== 'file' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
-      <Popover open={!picking} focusIf={typedCard ? () => typedWhere() === 'card' : undefined} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
+      <Popover open={!picking} closeOnOutside={!skillsOpen} focusIf={typedCard ? () => typedWhere() === 'card' : undefined} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
             purpose={chipPurpose}
@@ -2143,6 +2199,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   autoComplete="off"
                 />
               )}
+              {!busy&&<button type="button" className="btn btn--sm" aria-label={t('features.ai.skills.title')} onClick={()=>openSkills(skill=>{setQuery(q=>q.trimEnd()+' $'+skill.spec.name+'@'+skill.version);requestAnimationFrame(()=>inputRef.current?.focus())})}>{t('features.ai.skills.short')}</button>}
               {/* "kb: …" — the query goes to Claude as an own request / a revision: the addressed server shows */}
               {!busy && !wsMode && !redoHead && view === 'actions' && run?.req.kind !== 'todb' && run?.req.kind !== 'transform' && <CodewordChip text={query} />}
               {demo ? (
@@ -2156,6 +2213,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   chip={chip}
                   onChip={setChip}
                   sources={chipSources}
+                  text={query}
                   needs={chipNeeds}
                   reads={t(wsMode ? 'features.ai.prov.chip.reads.question' : 'features.ai.prov.chip.reads.selection')}
                   disabled={busy}
@@ -2163,6 +2221,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 />
               )}
             </div>
+
+            {!busy && !reviewing && view === 'actions' && <RepoFilesControl value={query} onChange={task=>{onClose();useAgent.setState({route:chip});openAgent({task})}} />}
 
             {demo && (
               <div className="ai-demo" role="note" data-ai-demo="">
@@ -2197,7 +2257,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 </span>
                 {(img || run?.req.kind === 'image') && <span className="ai-reads__img">{t('features.ai.image.readsImage')}</span>}
                 {(run ? run.req.kind === 'file' && !isLocalAction(run.req.action) : !!file) && <span className="ai-reads__file">{t('features.ai.file.readsFile')}</span>}
-                <span className="ai-reads__v">{readsText(t, lang, readsNow, marks ?? undefined)}</span>
+                <span className="ai-reads__v">{pageTree?t('features.agent.ctx.mode.tree'):readsText(t, lang, readsNow, marks ?? undefined)}</span>
                 <ChevronDown className="ai-reads__chev" size={12} strokeWidth={1.8} aria-hidden />
               </button>
             )}
@@ -2265,7 +2325,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             )}
 
             {showOutput && (
-              <div className="ai-out" data-phase={phase}>
+              <div className="ai-out" data-phase={phase} ref={outRef} onScroll={e=>{const el=e.currentTarget;stickRef.current=el.scrollHeight-el.scrollTop-el.clientHeight<24}}>
                 <div className="ai-out__bar label">
                   <span className="ai-out__code">{run?.req.code}</span>
                   <span className="ai-out__title">{run?.req.label}</span>
@@ -2292,7 +2352,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     </button>
                   )}
                 </div>
-                {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
+                {mcpCalls.length > 0 && <McpChips calls={mcpCalls} onRecover={recoverDecision} />}
                 {generatePanel.body}
                 {imagePanel.body}
                 {filePanel.body}
@@ -2349,11 +2409,6 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 {!isTodb && !isRedo && !isMemory && !isTransform && !isGen && !imagePanel.structured && !filePanel.structured && !run?.imageIssue && !run?.fileIssue && (output || busy) && (
                   <div
                     className="ai-out__body"
-                    ref={outRef}
-                    onScroll={(e) => {
-                      const el = e.currentTarget
-                      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-                    }}
                   >
                     {output ? (
                       <MarkdownLite
@@ -2469,6 +2524,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 {t('features.ai.menu.leadA')} <Kbd>↵</Kbd> {t('features.ai.menu.leadB')}
               </p>
             )}
+
+            {showOutput&&mcpCalls.some(c=>c.state==='err'&&!c.skipped)&&<div className="ai-mcp-alert" role="status"><span>{t('features.ai.mcp.partial',{failed:mcpCalls.filter(c=>c.state==='err'&&!c.skipped).length,ok:mcpCalls.filter(c=>c.state==='ok'&&!c.contract&&!c.skipped).length})}</span><button type="button" className="btn btn--sm" onClick={()=>{const out=outRef.current,issue=out?.querySelector<HTMLElement>('.ai-mcp__issues');if(out&&issue){stickRef.current=false;out.scrollTop+=issue.getBoundingClientRect().top-out.getBoundingClientRect().top;issue.querySelector<HTMLElement>('summary')?.focus({preventScroll:true})}}}>{t('features.ai.mcp.showErrors')}</button></div>}
 
             {rows.length > 0 && (
               <div className="ai-list" ref={listRef} role="listbox" data-keys={phase === 'done' || phase === 'error' ? '' : undefined} data-quiet={reviewing || undefined}>
@@ -2617,13 +2674,13 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
 }
 
 /** Tool calls of external MCP servers: "KB · search_records" chips with an LED; failures said politely. */
-function McpChips({ calls }: { calls: McpCall[] }) {
+function McpChips({ calls,onRecover }: { calls: McpCall[];onRecover:(report:TaskReport,question:TaskQuestion,answer:string)=>boolean }) {
   const t = useT()
   const failed = calls.filter((c) => c.state === 'err' && !c.skipped)
   return (
     <div className="ai-mcp">
       <ul className="ai-mcp__list" aria-label={t('features.ai.mcp.calls')}>
-        {calls.map((c) =>
+        {calls.filter(c=>!c.contract).map((c) =>
           c.skipped ? (
             // a server the codeword addressed that stayed out (switched off, no token here)
             <li key={c.id} className="ai-mcp__chip" data-state="skipped">
@@ -2639,19 +2696,23 @@ function McpChips({ calls }: { calls: McpCall[] }) {
         )}
       </ul>
       <McpSkippedNote calls={calls} />
+      {failed.length>0&&<details className="ai-mcp__issues" open><summary>{t('features.ai.mcp.partial',{failed:failed.length,ok:calls.filter(c=>c.state==='ok'&&!c.contract&&!c.skipped).length})}</summary><p>{t('features.ai.mcp.partialNote')}</p>
       {failed.map((c) => (
-        <p key={c.id} className="ai-mcp__err">
-          {c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
-          {t('features.ai.mcp.callErrNote')}
-        </p>
-      ))}
+        <div key={c.id} className="ai-mcp__err">
+          {c.notExecuted?<>{t('features.ai.transfer.notExecuted')} · {c.error?.startsWith('Atlas AQL: tags')?t('features.ai.mcp.aqlArray'):c.error}</>:c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
+          {c.arg&&<code className="ai-mcp__arg">{c.arg}</code>}
+          {!c.notExecuted&&<WorkerConnectionHelp error={new Error(c.error ?? '')} server={c.server} />}
+        </div>
+      ))}</details>}
+      {calls.filter(c=>c.contract).map(c=><TaskContractCard key={c.id} report={c.contract!} onRecover={(q,a)=>onRecover(c.contract!,q,a)}/>)}
+      {calls.some(c=>c.receipt)&&<details className="ai-mcp__trace"><summary>{t('features.ai.mcp.evidence',{count:calls.filter(c=>c.receipt).length})}</summary>{calls.filter(c=>c.receipt).map(c=><AtlasFactsView key={c.id} receipt={c.receipt!}/>)}</details>}
     </div>
   )
 }
 
 function ErrorNote({ error, model, message, onAskClaude, fix, fixes, onFixOpen, onPick }: { error: AIError; model: string; message?: string; onAskClaude?: () => void; fix?: AIFix | null; fixes?: AIFix[]; onFixOpen?: () => void; onPick?: () => void }) {
   const t = useT()
-  const detail = error.code === 'bad_request' || error.code === 'unknown' || error.code === 'mcp' ? (error.detail ?? '') : ''
+  const detail = ['bad_request','unknown','mcp','context','capability'].includes(error.code) ? (error.detail ?? '') : ''
   // every distinct way out (no endpoint: the operator rules and another model), the first one first
   const keys = (fixes?.length ? fixes : fix ? [fix] : []).filter((f, i, all) => f.kind !== 'askClaude' && all.findIndex((x) => JSON.stringify(x) === JSON.stringify(f)) === i)
   return (

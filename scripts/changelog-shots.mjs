@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: work-orders, mcp-boards, worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: minimax-coding, annunciator-panel, work-orders, mcp-boards, worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -35,9 +35,10 @@ import { createRequire } from 'node:module'
 import { delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
-import { seedMorning, waitPreflight } from '../tests/e2e/helpers/preflightStory.mjs'
+import { seedMorning, seedPipeline, waitPreflight, flushLamps } from '../tests/e2e/helpers/preflightStory.mjs'
 import { seedTrust } from '../tests/e2e/helpers/trustStory.mjs'
 import { playStoryPage, storyTime } from '../tests/e2e/helpers/recorderStory.mjs'
+import {analysisFixture} from '../tests/e2e/helpers/codeAnalysisStory.mjs'
 import { routeAIHosts } from './lib/aiHosts.mjs'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
@@ -942,6 +943,278 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'code-changes'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const reference={server:'aj-atlas',repoName:'ui-components',citation:{repo:'repo-a',snapshot:'snapshot-a',commit:'a'.repeat(40),path:'src/SaveButton.tsx',lines:[12,14],digest:'d'.repeat(64)},finding:'The icon button needs a readable label.',highlight:[12,14]}
+    const raw=JSON.stringify({format:'one-code-change',version:1,id:'shot-change',origin:{analysis:'analysis',revision:'v1',finding:'f1',title:'Name the save action'},references:[reference],files:[{id:'file-0',reference,before:['<button type="button" onClick={save}>','  <SaveIcon />','</button>'],checkedAt:1793966400000}],proposals:[{id:'p1',at:1793966400000,instruction:'Give the save action an accessible name.',reason:'A visible label explains the action to everyone.',checks:['Check the accessible name and keyboard activation.'],edits:[{file:'file-0',after:['<button type="button" onClick={save}>','  <SaveIcon aria-hidden="true" /> Save','</button>']}],author:'ai'}],accepted:null,deliveries:[],remote:[]})
+    const id=await createPage(page,'Review a small UI change',doc({type:'codeBlock',attrs:{language:'code-change'},content:[{type:'text',text:raw}]},para('')))
+    await page.setViewportSize({width:1440,height:1250});await openPage(page,id);const block=page.getByRole('region',{name:'Code change',exact:true});await block.waitFor();await scrollToTop(block,20);await rest(page);await save(page,'code-changes');await ctx.close()
+  },
+  async 'code-analysis'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const raw=JSON.stringify(analysisFixture(true))
+    const id=await createPage(page,'Protocol analysis',doc({type:'codeBlock',attrs:{language:'code-analysis'},content:[{type:'text',text:raw}]},para('')))
+    await openPage(page,id)
+    const block=page.getByRole('region',{name:'Code analysis',exact:true})
+    await block.waitFor();await block.getByRole('tab',{name:'Findings',exact:true}).click()
+    await scrollToTop(block,20);await rest(page);await save(page,'code-analysis')
+    for(const [width,theme] of [[390,'light'],[1440,'dark'],[390,'dark']]){
+      await page.setViewportSize({width,height:width===390?844:900})
+      await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
+      await scrollToTop(block,20);await rest(page)
+      await page.screenshot({path:`.shots/code-analysis-${width}-${theme}.png`})
+    }
+    await ctx.close()
+  },
+  async 'analysis-source-check'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    await page.evaluate(()=>{window.__one.workspace.getState().updateSettings({aiApiKey:'sk-ant-shot-only'});location.hash='#/coding/spec'})
+    await page.waitForFunction(()=>!!window.__oneCodingWrites)
+    const id=await page.evaluate(()=>window.__oneCodingWrites.create('Protocol requirements · document review','spec'))
+    await openPage(page,id)
+    await mockClaude(ctx,{turns:[
+      ()=>sseTurn([{type:'tool_use',id:'read-analysis',name:'read_page',input:{id}}]),
+      ()=>sseTurn([{type:'text',text:'## Analysis\nThe task requests a document review. Requirements remain proposals for the team.'}]),
+      ()=>sseTurn([{type:'tool_use',id:'read-spec',name:'read_page',input:{id}}]),
+      ()=>sseTurn([{type:'text',text:'## Specification\nBased on the saved One analysis. No fresh Atlas verification was requested.\n\nThe team reviews the specification before it is recorded.'}]),
+    ]})
+    await page.getByTestId('coding-run').click()
+    await page.getByTestId('coding-approve').waitFor({timeout:30000})
+    await page.getByRole('tab',{name:'Log',exact:true}).click()
+    const panel=page.getByTestId('coding-panel')
+    await scrollToTop(panel,30);await rest(page)
+    await save(page,'analysis-source-check')
+    for(const [width,theme] of [[390,'light'],[1440,'dark'],[390,'dark']]){
+      await page.setViewportSize({width,height:width===390?844:900})
+      await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
+      await scrollToTop(panel,20);await rest(page)
+      await page.screenshot({path:`.shots/analysis-source-check-${width}-${theme}.png`})
+    }
+    await ctx.close()
+  },
+  async 'ui-studio-evidence'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const manifest={version:1,definitions:[{id:'C001',name:'Protocol list',kind:'DataTable',evidence:'dom'},{id:'C002',name:'Status badge',kind:'Badge',evidence:'image'}],trees:[{id:'T1',name:'Protocols',width:1440,nodes:[{id:'N1',componentId:'C001',parentId:null,label:'Table with search and status filter'},{id:'N2',componentId:'C002',parentId:'N1',label:'Ready / In review / Draft'}]}]}
+    const contracts={C001:'# Protocol list\n\nKomponenten-ID: C001\n\n## Responsibility\nShow protocols with their device, modification date and status.\n\n## One integration\nReuse the existing table, search and select components. Use One typography, spacing and color tokens.\n\n## Open questions\nConfirm empty, loading and permission-denied states.',C002:'# Status badge\n\nKomponenten-ID: C002\n\nUse the existing One badge. Image-derived appearance is an estimate.'}
+    const markdown=Object.entries(contracts).map(([id,text])=>`<!-- ui-component:${id}:start -->\n${text}\n<!-- ui-component:${id}:end -->`).join('\n\n')+'\n<!-- ui-manifest:start -->\n```json\n'+JSON.stringify(manifest)+'\n```\n<!-- ui-manifest:end -->'
+    const raw=JSON.stringify({format:'component-studio-project',version:1,settings:{project:'Protocol UI · Component library'},markdown})
+    const id=await createPage(page,'UI Instructions in One',doc({type:'codeBlock',attrs:{language:'ui-instructions'},content:[{type:'text',text:raw}]},para('')))
+    await openPage(page,id)
+    const studio=page.getByRole('region',{name:'UI Studio'})
+    await studio.waitFor();await scrollToTop(studio,60);await rest(page)
+    await save(page,'ui-studio-evidence')
+    await ctx.close()
+  },
+  async 'atlas-connection-stability'(browser) {
+    const {ctx,page}=await freshPage(browser,{setup:async ctx=>{
+      await ctx.route(`${LOCAL}/api/config`,r=>r.fulfill({json:{version:'shot',signup:{mode:'open',domains:[]},max_upload_mb:20,dev_mode:false,source_url:'',schema_min:2,supports:['ai','providers']}}))
+      await ctx.route(`${LOCAL}/api/session`,r=>r.fulfill({json:{user:null,workspaces:[]}}))
+      await ctx.route(`${LOCAL}/api/workspaces/*/model-shares`,r=>r.fulfill({json:[]}))
+      await ctx.route(`${LOCAL}/api/workspaces/*/ai/central`,r=>r.fulfill({json:{assigned:false,ready:false}}))
+      await ctx.route(`${LOCAL}/api/workspaces/*/atlas-mcp`,r=>r.fulfill({json:{result:JSON.stringify({content:[{type:'text',text:JSON.stringify({person:'Alex Example',effectiveTenantScope:['analytik-jena']})}]})}}))
+    }})
+    const id=await createPage(page,'Your personal Atlas start',doc(para('Connect once, check access, then choose your first task.')))
+    await page.evaluate(id=>{
+      const s=window.__one.workspace.getState()
+      s.updateSettings({aiApiKey:''})
+      s.setWorkspaceAI({routes:{'*':[{p:'anthropic',m:'claude-opus-5-5'}]},onboarding:{startPageId:id,mcpName:'aj-atlas',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',project:'FeliX',tenant:'analytik-jena',skipIntro:true}})
+    },id)
+    await openPage(page,id)
+    await page.evaluate(()=>window.__oneCloud.set({active:{kind:'cloud',id:'shot-atlas'},user:{id:'shot-person',email:'alex@example.test',name:'Alex Example'},role:'owner',readOnly:false,supports:['atlas-mcp:1']}))
+    const box=page.getByTestId('atlas-team-start')
+    await box.getByLabel('Your personal Atlas token',{exact:true}).fill('synthetic-shot-token')
+    await box.getByRole('button',{name:'Connect and check Atlas',exact:true}).click()
+    await box.getByText('Connected as Alex Example.',{exact:true}).waitFor()
+    await box.scrollIntoViewIfNeeded();await rest(page)
+    await save(page,'atlas-connection-stability',await boxOf(box,16))
+    await ctx.close()
+  },
+  async 'compiled-inspection'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const source=await createPage(page,'Measurement · Source review',doc(h(2,'Measurement start'),para('When a measurement starts, the logger records its original start time.')))
+    const mod=process.platform==='darwin'?'Meta':'Control'
+    await page.keyboard.press(mod+'+j')
+    await page.getByRole('button',{name:'Saved compiled programs'}).click()
+    const dialog=page.getByRole('dialog',{name:'Saved compiled programs'})
+    await dialog.getByRole('button',{name:'New BA / PO task',exact:true}).click()
+    const recipe=dialog.getByRole('region',{name:'Prepare a BA / PO analysis'})
+    await recipe.getByLabel('Source page',{exact:true}).selectOption(source)
+    await recipe.getByLabel('Section or topic · optional',{exact:true}).fill('Measurement start')
+    await recipe.getByLabel('Name',{exact:true}).fill('Measurement · BA review')
+    await recipe.getByRole('button',{name:'Save recipe and review start',exact:true}).click()
+    await page.keyboard.press('Escape');await page.keyboard.press(mod+'+j')
+    await page.getByRole('button',{name:'My compiled tasks',exact:true}).click()
+    await page.getByRole('button',{name:'Measurement · BA review',exact:true}).click()
+    await page.getByRole('button',{name:'Quantum space',exact:true}).click()
+    const cube=page.locator('.programs__details .quantum-cube')
+    await cube.getByRole('button',{name:'Dimension slice',exact:true}).click()
+    await cube.scrollIntoViewIfNeeded();await rest(page)
+    await save(page,'compiled-inspection')
+    await ctx.close()
+  },
+  async 'atlas-mock-block'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const content = { type: 'doc', content: [{ type: 'designMock', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Choose a CyBio head' }] }], attrs: { spec: { source: 'https://aj-atlas.com/docs/flux-client/atlas-ui-instructions', requirement: '#32155', request: 'Create a dialog for choosing a CyBio head. Show the selected head in the dropdown.', preview: null } } }, { type: 'paragraph' }] }
+    const id = await createPage(page, 'UI proposal from Atlas', content)
+    await openPage(page, id)
+    const block = page.locator('.mock-block')
+    await block.getByRole('button', { name: 'Prepare in AI terminal', exact: true }).waitFor()
+    await block.scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'atlas-mock-block', await boxOf(block))
+    await ctx.close()
+  },
+  async 'free-design-mocks'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const content = { type: 'doc', content: [{ type: 'designMock', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Choose a CyBio head' }] }], attrs: { spec: { source: 'https://aj-atlas.com/docs/flux-client/atlas-ui-instructions', requirement: '', request: 'Create a dialog for choosing a CyBio head. Show the selected head in the dropdown.', preview: null } } }, { type: 'paragraph' }] }
+    const id = await createPage(page, 'UI proposal from Atlas', content)
+    await openPage(page, id)
+    const block = page.locator('.mock-block')
+    await block.getByRole('button', { name: 'Prepare in AI terminal', exact: true }).waitFor()
+    await block.scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'free-design-mocks', await boxOf(block))
+    await ctx.close()
+  },
+  async 'frankfurt-costs'(browser) {
+    const {ctx,page}=await freshPage(browser,{setup:async ctx=>{
+      await ctx.route(`${LOCAL}/api/config`,route=>route.fulfill({json:{version:'shot',signup:{mode:'open'},max_upload_mb:25,dev_mode:true,source_url:'https://example.test/source',supports:['ai']}}))
+      await ctx.route(`${LOCAL}/api/session`,route=>route.fulfill({json:{user:null,workspaces:[]}}))
+    }})
+    await page.route('**/api/workspaces/cost-shot/model-audit*',async route=>{const url=new URL(route.request().url());return route.fulfill({json:url.searchParams.has('status')?{enabled:true}:url.searchParams.has('costs')?await page.evaluate(()=>window.__oneCostShot):{entries:[]}})})
+    await page.evaluate(()=>{
+      const workspace={id:'cost-shot',name:'Atlas Flow team',role:'owner',icon:null},user={id:'lead',name:'Test lead',email:'lead@example.test'},from=Date.UTC(2026,10,1,6)
+      const report={schema:'one.host-costs.v1',basis:'estimate',window:{from,to:from+3600000,kind:'current-vm-boot'},rate:{currency:'EUR',asOf:'2026-11-01',source:'Synthetic screenshot estimate',computePerHour:.6,diskPerMonth:8},totals:{computeEUR:.6,diskEUR:.0111,estimatedEUR:.6111,allocatedComputeEUR:.06,unallocatedComputeEUR:.54,busyMs:360000,rounds:3,incompleteRounds:0,overlapMs:0},workspaces:[{workspace:workspace.id,tasks:1,rounds:3,failedRounds:0,occupancyMs:360000,allocatedMs:360000,queueMs:30000,computeEUR:.06}],tasks:[],excludes:['ipv4','snapshots','egress','tax'],method:'Screenshot fixture'}
+      report.tasks=[{workspace:workspace.id,user:user.id,task:'briefing-source-check',rounds:3,failedRounds:0,occupancyMs:360000,allocatedMs:360000,queueMs:30000,computeEUR:.06}]
+      window.__oneCostShot=report
+      window.__oneCloud.mock({cloudRequest:async(_method,path)=>path.includes('status=1')?{enabled:true}:path.includes('costs=1')?report:path.includes('model-audit')?{entries:[]}:[]})
+      window.__one.workspace.getState().setWorkspaceAI({routes:{'*':[{p:'local',m:'one-shared/shot'}]},onboarding:{startPageId:'welcome',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',mcpName:'atlas',project:'Demo',skipIntro:true}})
+      window.__oneCloud.set({available:true,status:'online',active:{kind:'cloud',id:workspace.id},user,role:'owner',readOnly:false,workspaces:[workspace],supports:['ai']})
+      window.__one.ui.getState().openModal({type:'settings'})
+    })
+    await page.getByRole('tab',{name:/AI$/}).click()
+    const panel=page.getByTestId('frankfurt-audit')
+    await panel.getByRole('button',{name:'My complete test log'}).click()
+    await panel.getByRole('button',{name:'Operating costs',exact:true}).click()
+    const costs=page.getByTestId('frankfurt-costs');await costs.getByText('Estimated subtotal',{exact:false}).waitFor()
+    await costs.evaluate(el=>el.scrollIntoView({block:'start'}));await rest(page)
+    await save(page,'frankfurt-costs')
+    await ctx.close()
+  },
+  async 'compiled-programs'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+j' : 'Control+j')
+    await page.getByRole('button', {name:'Saved compiled programs'}).click()
+    const dialog=page.getByRole('dialog',{name:'Saved compiled programs'})
+    await dialog.getByRole('button',{name:'New program',exact:true}).click()
+    const editor=dialog.getByRole('textbox',{name:'Executable JSON definition'}), p=JSON.parse(await editor.inputValue())
+    p.goal='Read the current ONE source, then ask who the briefing is for.'
+    p.parameters.page_id.default=await page.evaluate(()=>Object.keys(window.__one.workspace.getState().pages)[0])
+    p.steps.splice(1,0,{id:'audience',kind:'decision',question:'Who is this briefing for?',neededFor:'Generate the briefing'})
+    p.steps.at(-1).context={object:{source:{result:'page',path:[]},audience:{result:'audience',path:[]}}}
+    await editor.fill(JSON.stringify(p,null,2))
+    await dialog.getByLabel('Name',{exact:true}).fill('Repeatable source briefing')
+    await dialog.getByRole('button',{name:'Compile and save'}).click()
+    await dialog.getByRole('button',{name:'Run this version'}).waitFor()
+    await rest(page)
+    await save(page,'compiled-programs')
+    await ctx.close()
+  },
+  async 'table-cells'(browser) {
+    const { ctx, page } = await freshPage(browser, { claude: { text: () => JSON.stringify({ cells: [{ cellId: 'workshop-result', value: 'The team confirms the simulated response matches the requirement. Source: supplied test note.' }] }) } })
+    const cell = (id, text, header = false) => ({ type: header ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', attrs: { id }, content: text ? [{ type: 'text', text }] : [] }] })
+    const id = await createPage(page, 'Workshop · Review the result', doc(
+      h(2, 'Keep the structure. Change the right cells.'),
+      { type: 'callout', attrs: { color: 'orange' }, content: [para('Requirement → implementation → evidence'), { type: 'table', attrs: { id: 'workshop-table' }, content: [
+        { type: 'tableRow', content: [cell('heading-source', 'Source', true), cell('heading-result', 'Result', true)] },
+        { type: 'tableRow', content: [cell('workshop-input', 'Team test note: the simulated response matches the expected result.'), cell('workshop-result', 'Draft result')] },
+        { type: 'tableRow', content: [cell('workshop-keep', 'Human decision'), cell('workshop-owner', 'The team decides — keep this input.')] },
+      ] }] },
+    ))
+    await openPage(page, id)
+    await page.locator('[contenteditable="true"]').getByText('Draft result', { exact: true }).click()
+    await page.getByRole('button', { name: 'Fill existing cells with AI', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: /Fill existing cells|Review cell changes/ })
+    await dialog.getByRole('textbox', { name: 'Task and source material' }).fill('Update only the selected result from the supplied test note. Leave the human decision unchanged.')
+    await dialog.getByRole('button', { name: 'Propose values', exact: true }).click()
+    await dialog.getByText('The team confirms the simulated response matches the requirement. Source: supplied test note.', { exact: true }).waitFor()
+    await rest(page)
+    await save(page, 'table-cells')
+    await ctx.close()
+  },
+  async 'setup-buttons'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(page, 'Set up your coding worker', {type:'doc',content:[
+      {type:'heading',attrs:{level:2},content:[{type:'text',text:'Your account. Your workspace. Your worker.'}]},
+      {type:'paragraph',content:[{type:'text',text:'Open your personal download, then start the worker on your computer. Copying a command never runs it.'}]},
+      {type:'button',attrs:{label:'Open my worker download',variant:'signal',actions:[{id:'setup',type:'worker_setup'}]}},
+      {type:'button',attrs:{label:'Node.js downloads',variant:'ink',actions:[{id:'node',type:'open',url:'https://nodejs.org/en/download',pageId:null}]}},
+      {type:'codeBlock',attrs:{language:'bash'},content:[{type:'text',text:'node one-worker-cloud.mjs'}]},
+      {type:'paragraph',content:[{type:'text',text:'Keep this terminal and One open while work should run. Your download is paired with your own account and workspace.'}]}
+    ]})
+    await openPage(page, id)
+    await page.locator('.code-block__copy').waitFor()
+    await rest(page)
+    await save(page, 'setup-buttons')
+    await ctx.close()
+  },
+  async 'welcome-link-token'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      const user={id:'organizer',name:'Organizer',email:'organizer@example.test'}
+      const workspace={id:'ws_workshop',name:'Workshop team',role:'owner',icon:null}
+      const recipients=[{id:'mara',name:'Mara Schön',email:'mara.schoen@example.test',workspaceId:workspace.id,role:'member',guest:false,note:'We work together in the workshop.',status:'draft',hasAtlasLink:true,hasAtlasLinkToken:true,hasAtlasToken:false,atlasHost:'atlas.example.test'},{id:'jan',name:'Jan Sommer',email:'jan.sommer@example.test',workspaceId:workspace.id,role:'viewer',guest:true,note:'Guest · read only',status:'draft',hasAtlasLink:true,hasAtlasLinkToken:true,hasAtlasToken:true,atlasHost:'atlas.example.test'}]
+      window.__oneCloud.mock({listMembers:async()=>[{user,role:'owner',created_at:Date.now()}],listInvites:async()=>[],cloudRequest:async(_method,path)=>path.endsWith('/welcome')?{revision:1,title:'Workshop',notBefore:Date.parse('2031-01-01'),lang:'en',recipients}:[]})
+      window.__oneCloud.set({available:true,status:'online',active:{kind:'cloud',id:workspace.id},user,role:'owner',readOnly:false,workspaces:[workspace],supports:['welcome:1','guests:1']})
+      location.hash='#/workspace/people'
+    })
+    const card=page.getByTestId('welcome-recipient').first()
+    await card.locator('summary').click()
+    await card.scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'welcome-link-token')
+    await ctx.close()
+  },
+  async 'memory-start'(browser) {
+    const { ctx, page } = await freshPage(browser, { claude: { turns: [() => sseTurn([{ type: 'text', text: 'For the workshop review, use three sections: **Findings**, **Evidence**, and **Next check**. Separate confirmed results from assumptions.' }])] } })
+    await page.keyboard.press('Control+j')
+    const prompt = page.locator('.term-prompt__input')
+    await prompt.fill('For workshop reviews, I prefer findings, evidence and the next check. Draft a short review outline.')
+    await prompt.press('Enter')
+    await page.getByTestId('memory-start').getByRole('button', { name: 'Suggest memories from this task' }).waitFor()
+    await page.getByTestId('memory-start').scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'memory-start')
+    await ctx.close()
+  },
+  /** Website desktop install entry, using Windows/Edge instructions without installing an OS app. */
+  async 'desktop-install'(browser) {
+    const { ctx, page } = await freshPage(browser, { setup: async (ctx) => {
+      await ctx.addInitScript(() => {
+        Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0' })
+      })
+    } })
+    await page.goto(`${LOCAL}/?skip`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: 'Install One', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Install One as a desktop app' }).waitFor()
+    await rest(page)
+    await save(page, 'desktop-install')
+    await ctx.close()
+  },
+  /** Hand-drawn: the real preview, no AI request and no external image. */
+  async 'hand-drawn'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(page, 'Workshop · From request to evidence', doc(para('One organises the work; Atlas keeps requirements, decisions and evidence.'), para('')))
+    await openPage(page, id)
+    await page.locator('#main .ProseMirror p').last().click()
+    await page.keyboard.type('/handdrawn')
+    await page.getByRole('option', { name: /Hand-drawn/ }).click()
+    await page.getByTestId('drawing-prompt').fill('Show the path from a requirement to tested evidence. Keep the team responsible for decisions.')
+    await page.getByTestId('drawing-panel').locator('.mermaid-view__svg svg').waitFor({ timeout: 20000 })
+    await rest(page)
+    await save(page, 'hand-drawn', await boxOf(page.locator('.modal.drawing-modal'), 16))
+    await ctx.close()
+  },
   /**
    * Work orders (2026-10-18): a request "Check the login timeout" (it mentions @Support case 4711 and names the repo)
    * planned by ↵ Plan on its plate — the plate in Chain ready: lamps (Coding on, the worker studio-mac, Context
@@ -1812,6 +2085,21 @@ process.exit(1)
    * Outbox acknowledged earlier, ↵ on Proposals, one card applied and one discarded: the queue at card 3 / 10. Every
    * request to another host is refused; Claude is never asked (counting and the cards cost no tokens).
    */
+  async 'annunciator-panel'(browser) {
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => route.abort()) })
+    await waitPreflight(page)
+    await seedMorning(page)
+    await page.evaluate(() => {
+      window.__onePreflight.noBlink()
+      const ui = window.__one.ui.getState()
+      for (const toast of ui.toasts) ui.dismissToast(toast.id)
+    })
+    await page.getByTestId('pf-cover-red').click()
+    await rest(page)
+    await save(page, 'annunciator-panel', await page.getByTestId('pf-plate').boundingBox())
+    await ctx.close()
+  },
+
   async preflight(browser) {
     const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => route.abort()) })
     await waitPreflight(page)
@@ -4280,6 +4568,333 @@ process.exit(1)
     await ctx.close()
   },
 
+  /** Agent-neutral overview, named task question. Fixture state only; no model or worker starts. */
+  async 'minimax-coding'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await waitPreflight(page)
+    const pipe = await seedPipeline(page)
+    const id = pipe.tasks[1]
+    await page.evaluate(id => { window.location.hash = `#/p/${id}` }, id)
+    await page.getByTestId('coding-agent-select').selectOption('minimax')
+    await page.getByTestId('coding-agent-type').scrollIntoViewIfNeeded()
+    await rest(page)
+    await page.evaluate(() => {
+      const ui = window.__one.ui.getState()
+      for (const toast of ui.toasts) ui.dismissToast(toast.id)
+    })
+    await rest(page)
+    await save(page, 'minimax-coding')
+    await ctx.close()
+  },
+
+  async 'euro-costs'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      window.__one.workspace.getState().updateSettings({ costDisplay: { currency: 'EUR', eurPerUsd: 0.8, date: '2026-10-20', source: 'manual' } })
+      window.__one.ui.getState().openModal({ type: 'settings' })
+    })
+    await page.getByRole('tab', { name: /AI$/ }).click()
+    await page.getByTestId('cost-settings').scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'euro-costs', await boxOf(page.getByRole('dialog', { name: 'Settings' })))
+    await ctx.close()
+  },
+
+  async 'worker-workspaces'(browser) {
+    const work = codingRepo()
+    const { startDownloadedWorker, fakeOpener } = await import('../tests/e2e/helpers/coding.ts')
+    const { ctx, page } = await freshPage(browser)
+    let worker = null
+    const settings = async () => {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: /Coding worker$/ }).click()
+    }
+    try {
+      await page.evaluate(() => window.__one.workspace.getState().updateSettings({ workspaceName: 'Original' }))
+      await settings()
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill('47867'); await port.press('Enter')
+      const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('coding-download').click()])
+      const file = join(work.root, 'one-worker.mjs'); await download.saveAs(file)
+      const home = join(work.root, 'home'), config = join(home, '.config', 'one')
+      mkdirSync(config, { recursive: true })
+      writeFileSync(join(config, 'worker.json'), JSON.stringify({ name: 'device-worker', pollSec: 2, repos: [{ name: 'website', path: work.path, pr: 'none' }] }))
+      worker = await startDownloadedWorker(file, home, work, fakeOpener(work).program)
+      await page.getByTestId('coding-multiple-workspaces').waitFor({ timeout: 20000 })
+      await page.getByRole('dialog').locator('.modal__close').click()
+      await page.locator('aside.sb .sb-head__ws').click()
+      await page.getByRole('menuitem', { name: 'New local workspace…' }).click()
+      await page.getByRole('textbox', { name: 'Workspace name', exact: true }).fill('TestSpace')
+      await page.getByRole('button', { name: 'Create and open', exact: true }).click()
+      await page.waitForURL(/w=local%3A/); await page.waitForFunction(() => !!window.__one)
+      await settings()
+      const grant = page.getByTestId('coding-workspace-grant')
+      await grant.waitFor({ timeout: 20000 }); await grant.scrollIntoViewIfNeeded()
+      await rest(page)
+      await save(page, 'worker-workspaces', await boxOf(page.getByRole('dialog', { name: 'Settings' })))
+      for (const [width, height] of [[1440, 900], [390, 844]]) for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width, height })
+        await page.evaluate(theme => window.__one.workspace.getState().updateSettings({ theme }), theme)
+        await grant.scrollIntoViewIfNeeded(); await rest(page)
+        await page.screenshot({ path: `.shots/worker-workspaces-${width}-${theme}.png` })
+      }
+      await grant.click(); await page.getByTestId('coding-multiple-workspaces').waitFor({ timeout: 30000 })
+    } finally {
+      await worker?.stop(); await ctx.close(); rmSync(work.root, { recursive: true, force: true })
+      errors = errors.filter(e => !/WebSocket connection to 'ws:\/\/127\.0\.0\.1:47867.*ERR_CONNECTION_REFUSED/.test(e))
+    }
+  },
+
+  async 'workspace-checkout'() {
+    // The real two-browser journey captures desktop/mobile comparisons in both themes.
+    const port = process.env.ONE_CHECKOUT_SHOT_PORT || '4549'
+    execFileSync(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '-c', 'playwright.cloud.config.ts', 'checkout.spec.ts'], {
+      env: { ...process.env, CLOUD_E2E_PORT: port, CLOUD_E2E_SKIP_BUILD: '' }, stdio: 'pipe', timeout: 240000,
+    })
+    await saveSideBySide('workspace-checkout', ['.shots/checkout-1440-light.png'])
+  },
+
+  async 'local-workspaces'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.workspace.getState().updateSettings({ workspaceName: 'Product lab' }))
+    await page.locator('aside.sb .sb-head__ws').click()
+    await page.getByRole('menuitem', { name: 'New local workspace…' }).click()
+    await page.getByRole('textbox', { name: 'Workspace name', exact: true }).fill('Client workspace')
+    await page.getByRole('button', { name: 'Create and open', exact: true }).click()
+    await page.waitForURL(/w=local%3A/)
+    await page.waitForFunction(() => !!window.__one)
+    await page.evaluate(() => { location.hash = '#/workspace/data' })
+    await page.getByTestId('workspace-package').waitFor()
+    await page.locator('aside.sb .sb-head__ws').click()
+    await rest(page)
+    await save(page, 'local-workspaces')
+    await ctx.close()
+  },
+
+  async 'copilot-workspace'(browser) {
+    const { startFakeWorker } = await import('../tests/e2e/helpers/fakeWorker.ts')
+    const { WORKER_CAN } = await import('../src/app/features/coding/protocol.ts')
+    const fake = await startFakeWorker(47415, { worker:'1.25.0',name:'Copilot worker',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null} })
+    fake.can=[...WORKER_CAN]
+    fake.textModels=[{provider:'copilot',model:'claude-opus-5.5',context:32768,chat:true,maxOutput:8192}]
+    let ctx
+    try {
+      const fresh=await freshPage(browser);ctx=fresh.ctx;const page=fresh.page
+      await page.evaluate(()=>{
+        const s=window.__one.workspace.getState()
+        s.updateSettings({aiApiKey:''})
+        s.setWorkspaceAI({policy:{providers:{copilot:{allow:['public','structure','selection','page','rows','workspace','people','transcript','files']}},restricted:[]}})
+        window.__one.ui.getState().openModal({type:'settings'})
+      })
+      await page.getByRole('tab',{name:/Coding worker/}).click()
+      await page.getByLabel('Port',{exact:true}).fill('47415');await page.getByLabel('Port',{exact:true}).press('Enter')
+      await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click()
+      await page.getByTestId('coding-conn').filter({hasText:'Copilot worker'}).waitFor()
+      await page.getByRole('tab',{name:/AI$/}).click()
+      await page.getByTestId('worker-model-settings').getByText(/claude-opus-5.5/).waitFor()
+      await page.keyboard.press('Escape')
+      const id=await createPage(page,'Simulation acceptance',{type:'doc',content:[para('Expected result: requirement 43 passes the configured simulation.')]})
+      await openPage(page,id)
+      let round=0
+      fake.onText=r=>{const n=round++;return {model:r.model,text:n===2?'Read the source and prepared a review. Apply it when you are ready.':'',calls:n===0?[{id:'r1',name:'read_page',arguments:{id}}]:n===1?[{id:'w1',name:'append_to_page',arguments:{id,markdown:'## Test evidence\nRequirement 43 is ready for simulation. Record the actual result before accepting it.'}}]:[],inputTokens:300,outputTokens:50,usd:null}}
+      await page.evaluate(async()=>{const rules=await window.__oneAI.rules();rules.setDeviceDefault([{p:'copilot',m:'claude-opus-5.5'}])})
+      await page.keyboard.press('Control+j')
+      const terminal=page.getByRole('region',{name:'AI terminal'}),prompt=terminal.getByRole('textbox',{name:'Task for the agent'})
+      await prompt.fill('Read this page and prepare a short review with the next test step.');await prompt.press('Enter')
+      await terminal.locator('.term-answer').filter({hasText:'prepared a review'}).waitFor()
+      await rest(page);await save(page,'copilot-workspace')
+    } finally { await ctx?.close();await fake.close() }
+  },
+
+  async 'request-models'(browser) {
+    const { startFakeWorker } = await import('../tests/e2e/helpers/fakeWorker.ts')
+    const { WORKER_CAN } = await import('../src/app/features/coding/protocol.ts')
+    const fake = await startFakeWorker(47488, { worker: '1.21.0', name: 'My worker', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0' } })
+    fake.can = [...WORKER_CAN]
+    fake.textModels = [{ provider: 'local', model: 'atlas-flow:latest', context: 32768 }, { provider: 'ollama', model: 'cloud-model', context: 65536 }, { provider: 'minimax', model: 'MiniMax-M3.1-Flash', context: 131072 }, { provider: 'codex', model: 'gpt-6.1-sol', context: 64000 }]
+    let ctx
+    try {
+      const fresh = await freshPage(browser); ctx = fresh.ctx; const page = fresh.page
+      await page.evaluate(() => {
+        window.__one.workspace.getState().setWorkspaceAI({ policy: { providers: Object.fromEntries(['local','ollama','minimax','codex'].map(p => [p, { allow: ['public','structure','selection','page','workspace'] }])), restricted: [] } })
+        window.__one.ui.getState().openModal({ type: 'settings' })
+      })
+      await page.getByRole('tab', { name: /Coding worker/ }).click()
+      await page.getByLabel('Port', { exact: true }).fill('47488')
+      await page.getByLabel('Port', { exact: true }).press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'My worker' }).waitFor()
+      await page.keyboard.press('Escape')
+      const line = 'Review the launch brief and make the acceptance criteria clear.'
+      const id = await createPage(page, 'Launch brief', { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: line }] }] })
+      await openPage(page, id); await selectRange(page, line)
+      await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+      await page.getByTestId('route-chip-provider').click()
+      await rest(page)
+      await save(page, 'request-models')
+    } finally { await ctx?.close(); await fake.close() }
+  },
+
+  async 'provider-model-picker'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const line = 'Review the launch brief and make the acceptance criteria clear.'
+    const id = await createPage(page, 'Launch brief', { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: line }] }] })
+    await openPage(page, id)
+    await selectRange(page, line)
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    await page.getByTestId('route-chip-provider').waitFor()
+    await rest(page)
+    await save(page, 'provider-model-picker')
+    await ctx.close()
+  },
+
+  async 'ollama-global-settings'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /AI$/ }).click()
+    await page.getByTestId('ollama-cloud-settings').scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'ollama-global-settings', await boxOf(page.getByRole('dialog', { name: 'Settings' })))
+    await ctx.close()
+  },
+
+  async 'navigation-back'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await openPage(page, 'Team wiki')
+    await openPage(page, 'Weekly sync — notes')
+    await page.locator('.tb').getByRole('button', { name: 'Back', exact: true }).waitFor()
+    await rest(page)
+    await save(page, 'navigation-back', { x: 0, y: 0, width: 1440, height: 640 })
+    await ctx.close()
+  },
+
+  async 'agent-page-activity'(browser) {
+    const { ctx, page } = await freshPage(browser, {claude:{turns:[() => sseTurn([{type:'text',text:'## Brief review\n\nThe objective is clear. Add acceptance criteria for each work package and confirm which source documents define the expected behavior.'}])]}})
+    const target = await openPage(page, 'Weekly sync — notes')
+    await page.evaluate(() => {
+      const now = Date.now()
+      window.__one.workspace.getState().upsertAgent({id:'ag-shot-page-review',name:'BA · Brief review',instructions:'Review the selected brief and report concrete gaps with the next useful action.',trigger:{type:'manual'},scope:{everything:true,pages:[],databases:[]},write:'none',output:null,mcpServers:[],runner:'browser',model:'claude-sonnet-5-5',maxRunUsd:2,enabled:false,createdAt:now,updatedAt:now})
+    })
+    await page.getByRole('button',{name:'Page options',exact:true}).click()
+    await page.getByRole('menuitem',{name:'Run an agent on this page…'}).click()
+    const dialog=page.getByRole('dialog',{name:'Run agent with an assignment'})
+    await dialog.getByLabel('Agent',{exact:true}).selectOption('ag-shot-page-review')
+    await dialog.getByLabel('One-time objective (optional)',{exact:true}).fill('Review this brief for missing acceptance criteria and source references.')
+    await dialog.getByRole('button',{name:'Start this run',exact:true}).click()
+    await page.getByTestId('page-agent-activity').getByRole('button',{name:'Save findings…'}).waitFor()
+    await rest(page)
+    await save(page,'agent-page-activity')
+    await ctx.close()
+  },
+
+  async 'coding-harness'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await openPage(page, 'Weekly sync — notes')
+    await rest(page)
+    await page.keyboard.press('?')
+    const help = page.getByRole('dialog', { name: 'Help' })
+    await help.waitFor()
+    await help.getByRole('searchbox').fill('Coding harness context quality')
+    await page.waitForTimeout(400)
+    await help.getByRole('searchbox').press('Enter')
+    await help.locator('.help-art__title', { hasText: 'Coding harness, context and quality' }).waitFor()
+    await rest(page)
+    await save(page, 'coding-harness')
+    await ctx.close()
+  },
+
+  async 'agent-assignments'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const target = await pageIdByTitle(page, 'Weekly sync — notes')
+    await page.evaluate(() => {
+      const now = Date.now()
+      window.__one.workspace.getState().upsertAgent({ id: 'ag-shot-brief', name: 'BA · Delivery planning', instructions: 'Analyse requirements, identify open questions and break the work into verifiable implementation packages. Keep source references and acceptance criteria.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'stage', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 2, enabled: false, createdBy: null, createdAt: now, updatedAt: now })
+      window.location.hash = '#/agents/ag-shot-brief'
+    })
+    await page.getByRole('button', { name: 'Assignment & target…', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Run agent with an assignment' })
+    await dialog.getByLabel('Target page', { exact: true }).selectOption(target)
+    await dialog.getByLabel('One-time objective (optional)', { exact: true }).fill('Review this brief. List missing requirements, then split it into three coding tasks with acceptance criteria and source references.')
+    await rest(page)
+    await save(page, 'agent-assignments')
+    await ctx.close()
+  },
+
+  async 'ollama-cloud'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await waitPreflight(page)
+    const pipe = await seedPipeline(page)
+    const id = pipe.tasks[1]
+    await page.evaluate(id => { window.location.hash = `#/p/${id}` }, id)
+    await page.getByTestId('coding-agent-select').selectOption('ollama')
+    await page.getByTestId('coding-agent-type').scrollIntoViewIfNeeded()
+    await rest(page)
+    await page.evaluate(() => {
+      const ui = window.__one.ui.getState()
+      for (const toast of ui.toasts) ui.dismissToast(toast.id)
+    })
+    await rest(page)
+    await save(page, 'ollama-cloud')
+    await ctx.close()
+  },
+
+  async 'coding-agent-labels'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await waitPreflight(page)
+    const pipe = await seedPipeline(page)
+    const id = pipe.tasks[1]
+    await page.evaluate((id) => { window.location.hash = `#/p/${id}` }, id)
+    await page.getByTestId('coding-agent-select').selectOption('codex')
+    await page.evaluate(({ id, other }) => {
+      const p = window.__onePreflight
+      p.stores.codingLocal.setState((s) => ({ tasks: { ...s.tasks, [`local:local|${id}`]: { state: 'question', question: 'Which source document defines the expected certificate behavior?', at: Date.now() } } }))
+      p.stores.coding.setState({ asks: { [other]: { id: 'a1b2c3d4e5f6a7b8c9d0e1f2', tool: 'Read', kind: 'read', what: 'Read the selected source document', repo: 'fixture', rule: null, at: Date.now(), until: Date.now() + 900000 } } })
+      const ui = window.__one.ui.getState()
+      for (const t of ui.toasts) ui.dismissToast(t.id)
+      window.location.hash = '#/'
+    }, { id, other: pipe.tasks[0] })
+    await flushLamps(page)
+    const cap = page.locator('.pf-cap[data-lamp="question"]')
+    await cap.focus()
+    await page.keyboard.press('Enter')
+    await page.locator('.pf-q article.pf-card[data-current]:not([aria-busy="true"])').waitFor()
+    await rest(page)
+    await save(page, 'coding-agent-labels')
+    await ctx.close()
+  },
+
+  /** Tool names are inserted into a draft; the fictional MCP connection is never called. */
+  async 'agent-tools'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'shot-atlas', name: 'atlas', url: 'https://atlas.example.com/mcp', enabled: true, token: '', prompt: '', tools: ['atlas_agent_list', 'atlas_project_get', 'atlas_record_search', 'atlas_agent_update'], checkedAt: Date.now() }] })
+      window.location.hash = '#/agents'
+    })
+    await page.locator('[data-recipe="blank"]').click()
+    const editor = page.locator('.agx-editor')
+    await editor.getByLabel('Name', { exact: true }).fill('Project check')
+    await editor.getByTestId('agx-job').locator('textarea').fill('Read the selected project records and report blockers. Use ')
+    await editor.getByRole('checkbox', { name: 'ATLAS', exact: true }).check()
+    await editor.getByRole('group', { name: 'Tools of ATLAS' }).getByRole('button', { name: 'Read-only tools' }).click()
+    await editor.getByTestId('agx-insert-tool').click()
+    await page.getByRole('menu').getByRole('textbox', { name: 'Search tools' }).fill('atlas')
+    await rest(page)
+    await save(page, 'agent-tools')
+    await ctx.close()
+  },
+
+  /** The built-in specialists, filtered by their category. */
+  async 'agent-catalog'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => { window.location.hash = '#/agents' })
+    const catalog = page.getByTestId('agx-catalog')
+    await catalog.waitFor()
+    await catalog.getByLabel('Category', { exact: true }).selectOption('coding')
+    await rest(page)
+    await save(page, 'agent-catalog')
+    await ctx.close()
+  },
+
   /** #/agents/<id>: a weekly agent, run once — its report and two proposals waiting for review. */
   async 'custom-agents'(browser) {
     const ids = {}
@@ -4508,7 +5123,7 @@ process.exit(1)
   },
 }
 
-const browser = await chromium.launch()
+const browser = await chromium.launch(process.env.ONE_SHOT_BROWSER ? { executablePath: process.env.ONE_SHOT_BROWSER } : {})
 let failed = 0
 for (const [name, run] of Object.entries(shots)) {
   if (ONLY.length && !ONLY.includes(name)) continue

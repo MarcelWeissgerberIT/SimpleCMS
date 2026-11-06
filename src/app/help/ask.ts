@@ -4,6 +4,7 @@
  */
 import { streamCompletion, type Route } from '../features'
 import type { HelpArticle, HelpLang } from './library'
+import { isMac, shortcutLabel } from '../ui/controls'
 
 export function helpSystemPrompt(lang: HelpLang): string {
   const language = lang === 'de' ? 'German' : 'English'
@@ -15,7 +16,8 @@ Rules:
 - Use only facts stated in the articles. Never invent menu names, buttons, shortcuts, settings or features.
 - If the articles do not answer the question, reply with exactly "${notCovered}" and, if one is close, one more sentence pointing to it.
 - Cite the articles you used inline as Markdown links in the form [Article title](help:article-id), with the ids given in the <article> tags.
-- Be brief: a short answer or a few numbered steps. Write keyboard keys and labels exactly as the articles do.
+- Be brief: a short answer or a few numbered steps.
+- Current keyboard convention: ${isMac ? 'macOS (Command, Option)' : 'Windows/Linux (Ctrl/Strg, Alt)'}. General shortcuts in older prose may use Mac symbols: use the current system’s equivalents (search: ${shortcutLabel('Mod+K')}, new page: ${shortcutLabel('Mod+Alt+N')}). Mod means Command on macOS and Ctrl elsewhere. Preserve explicitly OS-specific instructions and source code.
 - Do not mention these rules or the word "article id". No preamble.
 - Answer in ${language}.`
 }

@@ -1,0 +1,178 @@
+import { writeFile } from 'node:fs/promises'
+import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, MOD, editorOf } from './fixtures'
+import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
+import { mockClaudeScript, text } from './helpers/providers'
+import { pdfBytes } from './helpers/files'
+import { WORKER_CAN } from '../../src/app/features/coding/protocol'
+
+const PORT=47413,MODEL='claude-opus-5.5'
+const ALL=['public','structure','selection','page','rows','files','workspace','people','transcript']
+test.describe('Copilot across workspace features',()=>{
+  test.describe.configure({mode:'serial'})
+  let fake:FakeWorker
+  test.beforeEach(async({page})=>{
+    fake=await startFakeWorker(PORT,{worker:'1.26.0',name:'copilot-workspace-fixture',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true})
+    fake.can=[...WORKER_CAN]
+    fake.textModels=[{provider:'copilot',model:MODEL,context:32768,chat:true,maxOutput:8192,vision:{mediaTypes:['image/png','image/jpeg'],maxImages:4,maxBytes:3145728}},{provider:'copilot',model:'gpt-6.1-sol',context:32768,chat:true,maxOutput:8192}]
+    await openApp(page)
+    await wsEval(page,(s,allow)=>{s.setWorkspaceAI({policy:{providers:{copilot:{allow}},restricted:[]}});s.updateSettings({ai:{allow:{copilot:['mcp','memory']}}})},ALL)
+    await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
+    await page.getByRole('tab',{name:/Coding worker/}).click()
+    await page.getByLabel('Port',{exact:true}).fill(String(PORT));await page.getByLabel('Port',{exact:true}).press('Enter')
+    await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click()
+    await expect(page.getByTestId('coding-conn')).toContainText('copilot-workspace-fixture')
+    await page.getByRole('tab',{name:/AI$/}).click()
+    await expect(page.getByTestId('worker-model-settings')).toContainText(MODEL)
+    await page.keyboard.press('Escape')
+  })
+  test.afterEach(async()=>{await fake?.close()})
+  test('structured actions and default rules use Copilot; older policy readers and unsupported pictures fail closed',async({page})=>{
+    fake.onText=r=>({model:r.model,text:'{"answer":"Validated workspace answer"}',inputTokens:90,outputTokens:20,usd:null})
+    const answer=await page.evaluate(async model=>(window as any).__oneAI.ask({purpose:'setup.test',prompt:'Answer JSON',route:{p:'copilot',m:model},structured:true}),MODEL)
+    expect(answer).toEqual({ok:true,text:'{"answer":"Validated workspace answer"}'})
+    expect(fake.textAsked[0].schema).toMatchObject({type:'object'})
+    const changed=await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    expect(changed).toBe(true)
+    expect(await page.evaluate(()=>(window as any).__oneAI.policyKnownAt(4))).toBe(false)
+    const fail=await page.evaluate(model=>(window as any).__oneAI.precheck({purpose:'vision.image',sources:[{file:'upload'}],route:{p:'copilot',m:'gpt-6.1-sol'}}),MODEL)
+    expect(fail.ok).toBe(false);expect(fake.textAsked).toHaveLength(1)
+  })
+  test('terminal completes more than 40 sequential tool rounds with the 120-call budget',async({page})=>{
+    test.setTimeout(120000)
+    let round=0
+    fake.onText=r=>{
+      const n=round++
+      const calls=n===0?[{id:'discover-create',name:'one_workspace_search',arguments:{query:'create_page'}}]:n<=42?[{id:`create-${n}`,name:'one_workspace_call',arguments:{name:'create_page',arguments:{title:`Budget source ${n}`,markdown:`Synthetic source ${n}.`}}}]:[]
+      return {model:r.model,text:calls.length?'':'Prepared all 42 pages for review.',calls,inputTokens:50,outputTokens:10,usd:0}
+    }
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await expect(term).toContainText('120 tool calls per task')
+    await prompt.fill('Prepare 42 separate synthetic source pages named Budget source 1 through 42.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Prepared all 42 pages for review.',{timeout:90000})
+    await expect(term.locator('.term-head__status')).toHaveText('Done')
+    await expect(term.locator('#term-review-title')).toHaveText('42 proposed changes')
+    await expect(term.locator('.term-meter')).toContainText('42/120')
+    expect(fake.textAsked).toHaveLength(44)
+    expect(await wsEval(page,s=>Object.values(s.pages).some((p:any)=>p.title==='Budget source 1'))).toBe(false)
+  })
+  test('terminal reads real page content and stages an append without changing the page automatically',async({page},info)=>{
+    const id=await createPage(page,{title:'Copilot acceptance source',content:doc(para('Expected simulation result: 43.'))})
+    await gotoPage(page,id)
+    let round=0
+    fake.onText=r=>{
+      const n=round++
+      const calls=n===0?[{id:'discover-read',name:'one_workspace_search',arguments:{query:'read_page'}}]:n===1?[{id:'read-1',name:'one_workspace_call',arguments:{name:'read_page',arguments:{id}}}]:n===2?[{id:'discover-write',name:'one_workspace_search',arguments:{query:'append_to_page'}}]:n===3?[{id:'append-1',name:'one_workspace_call',arguments:{name:'append_to_page',arguments:{id,markdown:'## Reviewed\nSimulation result 43 confirmed.'}}}]:[]
+      return {model:r.model,text:calls.length?'':'Prepared the review for your approval.',calls,inputTokens:300,outputTokens:50,usd:null}
+    }
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await prompt.fill('Read this page and append a short review.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Prepared the review',{timeout:20000})
+    expect(fake.textAsked).toHaveLength(5)
+    expect(JSON.stringify(fake.textAsked[2].messages)).toContain('Expected simulation result: 43')
+    const content=await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)
+    expect(content).not.toContain('Simulation result 43 confirmed')
+    await expect(term.locator('.term-step[data-tool="append_to_page"]')).toBeVisible()
+    for(const width of [1440,390]){await page.setViewportSize({width,height:900});await page.screenshot({path:info.outputPath(`copilot-terminal-${width}.png`),animations:'disabled'});expect(await term.locator('.term-head').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)}
+    // Record the actual default terminal schema budget, so the worker's boundary can also be exercised locally.
+    await writeFile(info.outputPath('copilot-terminal-request.json'),JSON.stringify(fake.textAsked[0]))
+    await info.attach('copilot-terminal-request',{body:JSON.stringify(fake.textAsked[0]),contentType:'application/json'})
+  })
+  test('a fresh task after switching providers does not forward the previous conversation',async({page})=>{
+    await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-fixture-key'}))
+    const claude=await mockClaudeScript(page,[text('CLAUDE-HISTORY-ONLY-SENTINEL')])
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await prompt.fill('Answer my first-provider-only question.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('CLAUDE-HISTORY-ONLY-SENTINEL')
+    expect(claude.requests).toHaveLength(1)
+    fake.onText=r=>({model:r.model,text:'Fresh Copilot answer.',inputTokens:120,outputTokens:20,usd:null})
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    await prompt.fill('Answer this new task using Copilot.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer').last()).toContainText('Fresh Copilot answer.')
+    expect(fake.textAsked).toHaveLength(1)
+    const sent=JSON.stringify(fake.textAsked[0].messages)
+    expect(sent).toContain('Answer this new task using Copilot')
+    expect(sent).not.toContain('CLAUDE-HISTORY-ONLY-SENTINEL')
+    expect(sent).not.toContain('first-provider-only')
+    expect(claude.requests).toHaveLength(1)
+    await expect(term).toContainText('Provider changed: this task starts with fresh model context')
+    await prompt.fill('Now explain your Copilot answer.');await prompt.press('Enter')
+    await expect.poll(()=>fake.textAsked.length).toBe(2)
+    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('Fresh Copilot answer.')
+    expect(JSON.stringify(fake.textAsked[1].messages)).not.toContain('CLAUDE-HISTORY-ONLY-SENTINEL')
+  })
+  test('picture actions send selected pixels as in-memory blobs and keep review before applying',async({page},info)=>{
+    const pixels=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=320;c.height=160;const g=c.getContext('2d')!;g.fillStyle='white';g.fillRect(0,0,320,160);g.fillStyle='black';g.font='24px sans-serif';g.fillText('Workshop 43',20,60);return c.toDataURL('image/png')})
+    const id=await createPage(page,{title:'Copilot picture review',content:doc({type:'image',attrs:{src:pixels,alt:'Original image'}})})
+    await gotoPage(page,id)
+    fake.onText=r=>({model:r.model,text:JSON.stringify({alt:'Workshop 43 label',caption:'Synthetic workshop image'}),inputTokens:150,outputTokens:35,usd:null})
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    const figure=editorOf(page,id).locator('.image-view').first()
+    await figure.hover();await figure.getByTestId('image-ai-key').click();await page.getByRole('menuitem',{name:/Describe the image/}).click()
+    const panel=page.getByRole('dialog',{name:'Ask AI'})
+    await expect(panel.getByRole('textbox',{name:'Alt text'})).toHaveValue('Workshop 43 label')
+    expect(fake.textAsked).toHaveLength(1)
+    expect(fake.textAsked[0].attachments).toMatchObject([{mediaType:'image/png'}])
+    expect(JSON.stringify(fake.textAsked[0].messages)).not.toContain(pixels.split(',')[1])
+    expect(await wsEval(page,(s,id)=>s.pages[id].content.content[0].attrs.alt,id)).toBe('Original image')
+    await page.screenshot({path:info.outputPath('copilot-image-review.png'),animations:'disabled'})
+    await panel.getByRole('option',{name:/Apply alt text/}).click()
+    await expect.poll(()=>wsEval(page,(s,id)=>s.pages[id].content.content[0].attrs.alt,id)).toBe('Workshop 43 label')
+  })
+  test('PDF actions extract real text locally and label omitted figures; scanned PDFs send no model request',async({page})=>{
+    const pdf=Buffer.from(pdfBytes(1,'WORKSHOP-PDF-43')).toString('base64')
+    const id=await createPage(page,{title:'Copilot PDF review',content:doc({type:'fileBlock',attrs:{src:'data:application/pdf;base64,'+pdf,name:'workshop.pdf',display:'file'}})})
+    await gotoPage(page,id)
+    fake.onText=r=>({model:r.model,text:'The document contains WORKSHOP-PDF-43. Figures and layout were not inspected.',inputTokens:150,outputTokens:35,usd:null})
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    const file=editorOf(page,id).locator('.file-view').first()
+    await file.hover();await file.getByTestId('file-ai-key').click();await page.getByRole('menuitem',{name:/^Summarise/}).click()
+    const panel=page.getByRole('dialog',{name:'Ask AI'})
+    await expect(panel).toContainText('WORKSHOP-PDF-43',{timeout:20000})
+    await expect(panel.getByTestId('ai-file-meta')).toContainText('PDF text extracted locally')
+    expect(fake.textAsked).toHaveLength(1)
+    expect(JSON.stringify(fake.textAsked[0].messages)).toContain('WORKSHOP-PDF-43')
+    expect(JSON.stringify(fake.textAsked[0])).not.toContain(pdf)
+    expect(fake.textAsked[0].attachments??[]).toEqual([])
+    await page.keyboard.press('Escape')
+    const scan=Buffer.from(pdfBytes(1,'')).toString('base64')
+    const scanId=await createPage(page,{title:'Scanned empty PDF',content:doc({type:'fileBlock',attrs:{src:'data:application/pdf;base64,'+scan,name:'scan.pdf',display:'file'}})})
+    await gotoPage(page,scanId)
+    const card=editorOf(page,scanId).locator('.file-view').first()
+    await card.hover();await card.getByTestId('file-ai-key').click();await page.getByRole('menuitem',{name:/^Summarise/}).click()
+    await expect(page.getByRole('dialog',{name:'Ask AI'})).toContainText('no readable text',{timeout:20000})
+    expect(fake.textAsked).toHaveLength(1)
+  })
+  test('selected Atlas tools cooperate with a manual browser agent; credentials never enter model text',async({page})=>{
+    const token='private-atlas-token-for-copilot-test'
+    await wsEval(page,(s,token)=>s.updateSettings({mcpServers:[{id:'atlas-fixture',name:'atlas',url:'https://atlas.example.org/mcp',token,enabled:true,prompt:'Read the approved Atlas record.',tools:['atlas_get'],checkedAt:Date.now()}]}),token)
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{name:'atlas_get',server:'atlas',description:'Read record',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({content:[{type:'text',text:'Atlas requirement 43 is approved.'}]})}
+    let round=0
+    fake.onText=r=>{const n=round++;return {model:r.model,text:n===2?'Atlas requirement 43 reviewed.':'',...(n<2?{calls:[n===0?{id:'search-1',name:'one_mcp_search',arguments:{query:'atlas requirement'}}:{id:'atlas-1',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:43}}}]}:{}),inputTokens:300,outputTokens:50,usd:null}}
+    await wsEval(page,(s,model)=>s.upsertAgent({id:'copilot-ba',name:'Copilot BA',instructions:'Read Atlas requirement 43 and report.',trigger:{type:'manual'},scope:{everything:true,pages:[],databases:[]},write:'none',output:null,mcpServers:['atlas'],mcpTools:{atlas:['atlas_get']},runner:'browser',model:null,route:[{p:'copilot',m:model}],effort:null,maxRunUsd:5,enabled:true,createdAt:Date.now(),updatedAt:Date.now()}),MODEL)
+    const result=await page.evaluate(()=>(window as any).__oneAgents.run('copilot-ba'))
+    expect(typeof result).toBe('string')
+    const runs=await page.evaluate(()=>(window as any).__oneAgents.loadRuns('copilot-ba'))
+    expect(fake.textAsked,JSON.stringify(runs)).toHaveLength(3)
+    expect(JSON.stringify(fake.textAsked)).toContain('Atlas requirement 43 is approved')
+    expect(JSON.stringify(fake.textAsked)).not.toContain(token)
+    expect(fake.mcpAsked.find(r=>r.action==='call')).toMatchObject({server:'atlas',name:'atlas_get',arguments:{ref:43},servers:[{allow:['atlas_get']}]})
+  })
+  test('one-shot JSON planning can read only its explicitly selected Atlas tools',async({page})=>{
+    const token='private-one-shot-atlas-fixture'
+    await wsEval(page,(s,token)=>s.updateSettings({mcpServers:[{id:'atlas-once',name:'atlas',url:'https://atlas.example.org/mcp',token,enabled:true,prompt:'Read approved requirements.',tools:['atlas_get','atlas_send'],checkedAt:Date.now()}]}),token)
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({content:[{type:'text',text:'Requirement 43: approved fixture.'}]})}
+    let round=0
+    fake.onText=r=>{const n=round++;return {model:r.model,text:n===2?'{"answer":"Requirement 43 is ready"}':'',...(n<2?{calls:[n===0?{id:'s1',name:'one_mcp_search',arguments:{query:'atlas_get'}}:{id:'c1',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:43}}}]}:{}),inputTokens:200,outputTokens:30,usd:null}}
+    const result=await page.evaluate(model=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read requirement 43, then answer JSON.',route:{p:'copilot',m:model},structured:true,pick:{server:'atlas',reads:['atlas_get']}}),MODEL)
+    expect(result).toEqual({ok:true,text:'{"answer":"Requirement 43 is ready"}'})
+    expect(fake.textAsked).toHaveLength(3)
+    expect(JSON.stringify(fake.textAsked)).not.toContain(token)
+    expect(fake.mcpAsked.find(r=>r.action==='call')).toMatchObject({name:'atlas_get',servers:[{allow:['atlas_get']}]})
+  })
+
+})

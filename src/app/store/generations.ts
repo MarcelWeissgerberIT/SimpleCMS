@@ -25,11 +25,40 @@ import { diff, type Hunk } from './merge'
  * node type or attribute an older client would lose (and add the type below) — and raise the server's
  * MIN_CLIENT_SCHEMA one release later.
  *  1 = the task block (`workItem`)
+ *  2 = the Atlas design mock block (`designMock`)
+ *  3 = mock feedback and version journal
+ *  6 = free rectangle annotations in mock feedback (cloud editing waits for schema_min 6)
+ *  5 = multiple element targets in one mock note (cloud editing waits for schema_min 5)
+ *  4 = durable mock proposals and Markdown change receipts (cloud editing waits for schema_min 4)
  */
-export const DOC_SCHEMA_VERSION = 1
+export const DOC_SCHEMA_VERSION = 6
 
 /** Node types an older generation does not know: type → the generation that brought it. */
-export const NODE_GENERATIONS: Readonly<Record<string, number>> = { workItem: 1 }
+export const NODE_GENERATIONS: Readonly<Record<string, number>> = { workItem: 1, designMock: 6 }
+
+/** Older generations can edit a mock, but their spec parsers drop the extended journal.
+ * Preserve that opaque field by block id while retaining the older tab's preview/title edits.
+ * Explicit whole-page restores keep their existing history/restore semantics. */
+function retainMockJournals(before: JSONContent | null, after: JSONContent | null, gen: number): JSONContent | null {
+  if (gen >= 6 || !before || !after) return after
+  const spec = (raw: unknown): Record<string, unknown> | null => {
+    try { const value = typeof raw === 'string' ? JSON.parse(raw) : raw; return value && typeof value === 'object' ? value as Record<string, unknown> : null } catch { return null }
+  }
+  const journals = new Map<string, unknown>()
+  each(before, n => { const j = n.type === 'designMock' && n.attrs?.id ? spec(n.attrs.spec)?.journal : null; if (j) journals.set(n.attrs!.id, j) })
+  if (!journals.size) return after
+  const walk = bottomUp<JSONContent>((n, child) => {
+    let next = n
+    const j = n.type === 'designMock' ? journals.get(n.attrs?.id) : undefined, s = j ? spec(n.attrs?.spec) : null
+    if (j && s && JSON.stringify(s.journal) !== JSON.stringify(j)) {
+      const value = { ...s, journal: j }
+      next = { ...n, attrs: { ...n.attrs, spec: typeof n.attrs?.spec === 'string' ? JSON.stringify(value) : value } }
+    }
+    if (next.content) { const kids = next.content.map(c => child(c) ?? c); if (kids.some((c,i) => c !== next.content![i])) next = { ...next, content: kids } }
+    return next
+  })
+  return walk(after)
+}
 
 export type LossMode = 'drop' | 'unwrap'
 
@@ -69,6 +98,7 @@ export function asGeneration(doc: JSONContent, gen: number, mode: LossMode): JSO
  * edits and all, wrapped again). `after` itself when it lost nothing.
  */
 export function restoreNewer(before: JSONContent | null, after: JSONContent | null, gen: number, mode: LossMode): JSONContent | null {
+  after = retainMockJournals(before, after, gen)
   if (mode === 'unwrap') return rewrapNewer(before, after, gen).doc
   if (!before || !lostNewer(before, after, gen)) return after
   if (!after) return before
@@ -1251,6 +1281,7 @@ function suspects(B: Before, doc: JSONContent): Map<JSONContent, JSONContent | n
  * Idempotent: what it returns lacks nothing, so a second pass returns it as it is.
  */
 export function rewrapNewer(before: JSONContent | null, after: JSONContent | null, gen: number, opts: RewrapOptions = {}): Rewrapped {
+  if (!opts.whole) after = retainMockJournals(before, after, gen)
   if (!before) return { doc: after, dropped: [], missed: 0 }
   const B = readBefore(before, gen)
   if (!B.newer.length) return { doc: after, dropped: [], missed: 0 }

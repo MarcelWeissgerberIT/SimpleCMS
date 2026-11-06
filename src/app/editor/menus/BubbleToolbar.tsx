@@ -7,7 +7,7 @@ import { useEditorState } from '@tiptap/react'
 import { TextSelection } from '@tiptap/pm/state'
 import { useStore } from 'zustand'
 import Fuse from 'fuse.js'
-import { Bold, ChevronDown, Code, CornerDownLeft, Italic, Link2, MessageSquarePlus, Pi, SquareTerminal, Strikethrough, Underline, Unlink } from 'lucide-react'
+import { Bold, FileSearch, ChevronDown, Code, CornerDownLeft, Italic, Link2, MessageSquarePlus, Pi, SquareTerminal, Strikethrough, Underline, Unlink } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
@@ -25,7 +25,7 @@ import { useEscapeFirst } from '../lib/escape'
 import { BlockGlyph } from './SlashMenu'
 import { posAnchor } from './common'
 import { startComment } from '../comments/plugin'
-import { addSelectionToTerminal, AGENT_REF_SHORTCUT } from '../../features'
+import { requestCodeEvidence, addSelectionToTerminal, AGENT_REF_SHORTCUT } from '../../features'
 import { splitMenuEntries } from '../split/menu'
 
 const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches
@@ -320,6 +320,9 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
           <Btn label={t('features.agent.ref.add')} keys={AGENT_REF_SHORTCUT} onClick={() => addSelectionToTerminal(editor)} wide>
             <SquareTerminal size={15} strokeWidth={1.75} />
             <span className="bubble__long">{t('features.agent.ref.add')}</span>
+          </Btn>
+          <Btn label={t('editor.bubble.codeEvidence')} onClick={() => requestCodeEvidence(editor)}>
+            <FileSearch size={15} strokeWidth={1.75} />
           </Btn>
           <span className="bubble__sep" />
           <Btn

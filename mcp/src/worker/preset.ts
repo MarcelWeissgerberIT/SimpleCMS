@@ -41,7 +41,11 @@ export function readPreset(raw: unknown): { preset: WorkerPreset | null; problem
     if (!cloudOriginAllowed(origin)) return { preset: null, problem: 'a cloud worker needs an https origin (plain http only on this computer)' }
     cloud = { token: c.token }
   }
-  return { preset: { workspace, origin, port, pair, name, ...(raw.dev === true ? { dev: true } : {}), ...(cloud ? { cloud } : {}) }, problem: null }
+  let updateUrl: string | undefined
+  if (raw.updateUrl !== undefined) {
+    try { const u = new URL(String(raw.updateUrl)); if (u.origin !== origin || u.username || u.password || u.search || u.hash || !u.pathname.endsWith('/mcp/one-worker.mjs')) throw new Error(); updateUrl = u.href } catch { return { preset: null, problem: 'invalid same-origin update address' } }
+  }
+  return { preset: { workspace, origin, port, pair, name, ...(updateUrl ? { updateUrl } : {}), ...(raw.dev === true ? { dev: true } : {}), ...(cloud ? { cloud } : {}) }, problem: null }
 }
 
 /** The relay a cloud worker dials: https → wss, http (this computer only) → ws. */

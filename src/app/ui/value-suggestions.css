@@ -1,0 +1,16 @@
+.value-help{position:relative;display:block;min-width:0;width:100%}
+.value-help[data-help]>input,.value-help[data-help]>textarea{padding-right:34px}
+.value-help .value-help__toggle{position:absolute;right:1px;top:1px;min-height:30px;width:30px;padding:0;display:grid;place-items:center;border:0;border-left:1px solid var(--rule);border-radius:0;background:transparent;color:var(--ink-2);cursor:pointer}
+.value-help__toggle:hover,.value-help__toggle[aria-expanded=true]{color:var(--signal);background:var(--surface-2)}
+.value-help__popover.popover{min-width:min(240px,calc(100vw - 24px));max-width:420px;padding:0;overflow:hidden}
+.value-help__heading{padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--rule);color:var(--ink-2)}
+.value-help__list{max-height:224px;overflow:auto;overscroll-behavior:contain}
+.value-help__option{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);width:100%;padding:var(--sp-2) var(--sp-3);border:0;border-radius:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer;font:inherit;min-height:36px}
+.value-help__option:hover,.value-help__option[data-active=true]{background:var(--surface-2);box-shadow:inset 2px 0 var(--signal)}
+.value-help__option>span{min-width:0;display:grid;gap:var(--sp-1)}.value-help__option strong{font-weight:500;overflow-wrap:anywhere;white-space:pre-wrap}.value-help__option small,.value-help__option code{font-size:var(--text-xs);color:var(--ink-2);overflow-wrap:anywhere}
+.value-help__option svg{flex:none;color:var(--signal)}
+.value-help__hint,.value-help__empty{font:var(--text-xs)/1.5 var(--font-sans);color:var(--ink-2);padding:var(--sp-2) var(--sp-3);margin:0}.value-help__hint{border-top:1px solid var(--rule);background:var(--surface-2)}
+@media(pointer:coarse){.value-help .value-help__toggle{min-height:36px;width:36px}.value-help[data-help]>input,.value-help[data-help]>textarea{padding-right:40px}.value-help__option{min-height:44px}}
+
+.value-help__draft{display:block;margin:var(--sp-1) 0;color:var(--ink-2);font:var(--text-xs)/1.4 var(--font-sans);overflow-wrap:anywhere}
+.value-help__option .value-help__similar{color:var(--signal)}

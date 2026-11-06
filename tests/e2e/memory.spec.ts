@@ -165,6 +165,74 @@ async function setUpMemory(page: Page) {
 }
 
 test.describe('One memory', () => {
+  test('first-use offer drafts a local memory and saves only on confirmation', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const ai = await mockClaude(context)
+    await openTerminal(page)
+    const offer = page.getByTestId('memory-start')
+    await offer.getByRole('button', { name: 'Try remembering a sentence' }).click()
+    await expect(page.locator('.term-prompt__input')).toHaveValue('/remember For reviews, I prefer findings, evidence and the next check.')
+    expect(await memoryRows(page)).toBeNull()
+    await page.locator('.term-prompt__input').press('Enter')
+    const card = page.getByTestId('term-memory')
+    await expect(card).toBeVisible()
+    await expect(offer).toBeHidden()
+    expect(await memoryRows(page)).toBeNull()
+    await card.getByRole('button', { name: 'Save #1', exact: true }).click()
+    expect(await memoryRows(page)).toHaveLength(1)
+    expect(ai.stream).toHaveLength(0)
+    expect(ai.structured).toHaveLength(0)
+  })
+
+  test('first task offers extraction on a press and respects disabled memory and viewer access', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const ai = await mockClaude(context, ['Review complete.'], () => ({ memories: [PREF] }))
+    await openTerminal(page)
+    const offer = page.getByTestId('memory-start')
+    for (const memory of [{ proposals: false }, { enabled: false }]) {
+      await wsEval(page, (s, memory) => s.updateSettings({ memory }), memory)
+      await expect(offer).toBeHidden()
+    }
+    await wsEval(page, s => s.updateSettings({ memory: {} }))
+    await page.evaluate(() => (window as unknown as { __oneCloud: { set: (s: object) => void } }).__oneCloud.set({ readOnly: true }))
+    await expect(offer).toBeHidden()
+    await page.evaluate(() => (window as unknown as { __oneCloud: { set: (s: object) => void } }).__oneCloud.set({ readOnly: false }))
+    await run(page, 'Review our weekly report format')
+    await expect(offer.getByRole('button', { name: 'Suggest memories from this task' })).toBeVisible()
+    expect(ai.structured).toHaveLength(0)
+    expect(await memoryRows(page)).toBeNull()
+    await offer.getByRole('button', { name: 'Suggest memories from this task' }).click()
+    await expect(page.getByTestId('term-memory')).toContainText(PREF.text)
+    expect(ai.structured).toHaveLength(1)
+    expect(await memoryRows(page)).toBeNull()
+    await expect(offer).toBeHidden()
+  })
+
+  test('first-use offer fits phone and desktop in both themes and dismisses without changing settings', async ({ page, context }) => {
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir('.shots/memory-start', { recursive: true })
+    await openApp(page)
+    await setKey(page, 'de')
+    const ai = await mockClaude(context)
+    await openTerminal(page)
+    for (const width of [1440, 390]) for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      const offer = page.getByTestId('memory-start')
+      await offer.scrollIntoViewIfNeeded()
+      const box = (await offer.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(width)
+      await page.screenshot({ path: `.shots/memory-start/${width}-${theme}.png` })
+    }
+    await page.getByTestId('memory-start').getByRole('button', { name: 'Nicht jetzt' }).click()
+    await expect(page.getByTestId('memory-start')).toBeHidden()
+    expect(await wsEval(page, s => s.settings.memory)).toBeUndefined()
+    expect(ai.structured).toHaveLength(0)
+  })
+
   test('terminal: proposals after a task (y saves, n dismisses) → the database; the next task carries it; MEMORY · 1; a cited memory is logged', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)
@@ -431,7 +499,7 @@ test.describe('One memory', () => {
     await panel(page).getByRole('option', { name: /Use the memory for this request/ }).click()
     await expect(panel(page).getByTestId('ai-memory')).toContainText('MEMORY · OFF')
     await panel(page).getByTestId('ai-memory').click()
-    await page.keyboard.press('Enter')
+    await panel(page).locator('.ai-cmd__input').press('Enter')
     await expect(panel(page)).toContainText('Without memory.')
     expect(userText(claude.stream[1])).not.toContain('<one_memory>')
     expect((await logRows(page))!).toHaveLength(1)

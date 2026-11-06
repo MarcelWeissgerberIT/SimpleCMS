@@ -1,3 +1,4 @@
+import { linkInCurrentWorkspace, workspaceChoice } from './workspaceAddress'
 /**
  * Page permalinks — the address of a page anyone can type or paste: the app's own address with `#/p/<id>` (the hash
  * route, lib/router.ts). It works in the browser's address bar, as a link in a page, in a coding answer (coding/refs.ts
@@ -9,9 +10,9 @@
  */
 import type { ID, Page } from '../store/types'
 
-/** A page's permalink on this device's app: origin + path (no query) + `#/p/<id>`. */
+/** A page's permalink on this device's app: origin + path + workspace selector + `#/p/<id>`. */
 export function permalink(id: ID): string {
-  return `${window.location.origin}${window.location.pathname}#/p/${id}`
+  return `${window.location.origin}${window.location.pathname}?w=${encodeURIComponent(workspaceChoice())}#/p/${id}`
 }
 
 /** "ABCD·1234": the spec plate's short, readable form of a page id. */
@@ -50,7 +51,11 @@ const address = (id: string, query: string | undefined): PageAddress => {
 }
 
 export function parsePageAddress(input: string): PageAddress | null {
-  const text = decoded(input.trim())
+  const raw = input.trim()
+  if (/^https?:/i.test(raw)) {
+    try { if (!linkInCurrentWorkspace(new URL(raw))) return null } catch { return null }
+  }
+  const text = decoded(raw)
   if (!text) return null
   const short = SHORT.exec(text)
   if (short) return { kind: 'short', prefix: `${short[1]}${short[2]}`.toLowerCase() }
@@ -93,7 +98,7 @@ export function ownPermalink(url: string): { id: string; block?: string } | null
   } catch {
     return null
   }
-  if (u.origin !== window.location.origin || u.pathname !== window.location.pathname) return null
+  if (u.origin !== window.location.origin || u.pathname !== window.location.pathname || !linkInCurrentWorkspace(u)) return null
   const m = HASH.exec(u.hash)
   if (!m) return null
   const block = blockOf(m[2])

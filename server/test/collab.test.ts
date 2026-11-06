@@ -27,7 +27,7 @@ before(async () => {
     [member, 'member'],
     [viewer, 'viewer'],
   ] as const) {
-    const invite = await owner.post(`/api/workspaces/${wsId}/invites`, { role })
+    const invite = await owner.post(`/api/workspaces/${wsId}/invites`, { role, ...(role === 'viewer' ? {guest:true} : {}) })
     await client.post(`/api/invites/${invite.body.link.split('#/invite/')[1]}/accept`)
   }
   memberId = (await member.get('/api/me')).body.user.id
@@ -38,7 +38,7 @@ after(async () => {
   await server.stop()
 })
 
-test('members write to the meta document, viewers are read-only', async () => {
+test('members edit while guests receive live shared content and cannot write', async () => {
   const meta = `ws:${wsId}`
   const o = doc(owner, meta)
   const m = doc(member, meta)

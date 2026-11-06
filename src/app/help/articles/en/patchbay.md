@@ -88,3 +88,7 @@ The rack becomes **strands** — one card per processor with its sources and tar
 
 ## What stays on this device
 The day's run counts, what the Patchbay read on opening (ids only, never text), the setup's progress, the Patching switch and the rack's order stay in this browser — never synced, exported or backed up — and go with the device copy. Allowed paths belong to the workspace: shared in a team, carried by full backups, and never taken from a backup on restore.
+
+## Model for browser agents
+
+At the top of Patchbay, set a default model for saved browser agents on this device. An agent’s own model overrides it; running assignments keep their initial model. See [Custom agents](help:custom-agents) for details and limits.

@@ -11,8 +11,20 @@ Schreib auf, was geprüft werden soll — in einer Zeile der Datenbank **Prüfau
 
 Das alles braucht **Coding an auf diesem Gerät** und einen verbundenen [Coding-Worker](help:coding-pipeline). Einer deiner eigenen [MCP-Server](help:mcp-servers) kann Kontext beisteuern — als Option: ohne ihn plant One nur aus dem Auftrag und seinen Seiten.
 
+## Geführter Aufgabenstart bis zur Abnahme
+
+**Aufgabe geführt starten …** im Seitenmenü übernimmt die aktuelle Seite als Ausgangspunkt. Ein neuer Prüfauftrag bietet alternativ ein Zielfeld: **Kontext prüfen & Vorschlag vorbereiten**. Die Aufgabenbegleitung zeigt fünf Stationen: Ziel & Kontext, Vorschlag, Umsetzung, Nachweise und Abnahme. Sie lässt sich über ihre Kopfzeile einklappen; ONE merkt sich diese Ansicht in diesem Browser. Sie erzeugt keine zusätzlichen Benachrichtigungen oder Modellaufrufe.
+
+Der Planer nutzt erlaubte Quellen und vorhandene Antworten zuerst. Reversible Details stehen als **Arbeitsannahmen** im Plan und lassen sich dort einzeln entfernen. Sie werden mit dem Plan bestätigt und in die Arbeitspakete übernommen. Fachliche Entscheidungen, Berechtigungen und erfolgreiche Tests darf er nicht annehmen. Rückfragen sind für echte Blocker reserviert und sollen gebündelt werden. Deine bestehenden Pipeline-Freigaben, Datenregeln und Budgets gelten weiter.
+
+**Fertig in der Pipeline bedeutet noch nicht fachlich abgenommen.** Die Begleitung stellt die Nachweise auf dem ausführenden Gerät zusammen. Coding-Aufträge brauchen einen bestätigten Lieferumfang, abgeschlossene Arbeitspakete und einen erfolgreichen finalen QA-Lauf auf dem gemeinsamen Branch mit tatsächlich ausgeführtem Test (Exit-Code 0). Übersprungene Arbeit, geänderte ONE-Quellen oder seit der QA geänderte Coding-Pakete verhindern die Abnahme. Ältere Läufe ohne den neuen QA-Nachweis müssen erneut geprüft werden. Reine Analyse-Aufträge benötigen keinen erfundenen Coding-Test.
+
+**Ergebnis fachlich abnehmen** bestätigt genau den angezeigten Nachweisstand. ONE legt einen Bericht im Prüfauftrag ab und merkt die Entscheidung auf diesem Gerät. Änderungen am Nachweisstand machen diese Entscheidung in der Begleitung ungültig; der alte Bericht bleibt als historischer Nachweis erhalten. Das ist keine revisionssichere Serversignatur und keine Live-Prüfung späterer Änderungen im lokalen Repository.
+
+**Übergabe an … vorbereiten** nutzt den im Plan gewählten MCP-Server, zum Beispiel Atlas, und öffnet einen Entwurf im KI-Terminal. Es wird noch nichts gesendet. Nach deinem Start soll das Terminal aktuelle Ziel-Records, Workspace und Projekt prüfen, vorhandene Nachweise anhand der Nachweisstand-ID abgleichen und gemäß den bestehenden Freigaben arbeiten. Fehlende Ziele oder Rechte bleiben als konkrete Blocker sichtbar. Der Bericht allein behauptet keine erfolgreiche Atlas-Synchronisation. Ein bereits laufendes Terminal oder ein vorhandener Entwurf wird nicht überschrieben.
+
 ## Einen Auftrag schreiben
-- **Auf jeder Seite**: ⋯ → **Prüfen lassen** (auch im Menü der Seitenleisten-Zeile und in ⌘K). Beim ersten Mal legt One die Datenbank **Prüfaufträge** an — der Hinweis *Prüfaufträge angelegt · PA-1* hat **Rückgängig**. One legt eine Zeile mit dem Titel der Seite an, im Text *Seite: @die Seite*, und beginnt zu planen; die Seite selbst bleibt unverändert. **Prüfen lassen …** fragt vorher nach einem Satz (*Worauf soll geachtet werden?*), der über der Erwähnung steht.
+- **Auf jeder Seite**: ⋯ → **Prüfen lassen** (auch im Menü der Seitenleisten-Zeile und in ⌘K). Beim ersten Mal legt One die Datenbank **Prüfaufträge** an — der Hinweis *Prüfaufträge angelegt · PA-1* hat **Rückgängig**. One legt eine Zeile mit dem Titel der Seite an, im Text *Seite: @die Seite*, und beginnt zu planen; die Seite selbst bleibt unverändert. **Aufgabe geführt starten …** fragt vorher nach einem Satz (*Worauf soll geachtet werden?*), der über der Erwähnung steht.
 - Verlinkt schon ein offener Auftrag die Seite, öffnet sich dieser — *Schon in PA-3 (Planen)*, mit **Neuer Auftrag** im Hinweis.
 - **In der Datenbank**: eine neue Zeile bleibt **Entwurf**, solange du schreibst, etwa *prüfe, warum der Login nach 30 s abbricht, siehe @Supportfall 4711, Repo website*. Nichts plant von selbst.
 - **#/coding** hat neben den Pipelines eine Taste **Prüfaufträge · 2 offen** (<kbd>N</kbd> dort legt einen neuen Auftrag an); **Einstellungen → Coding-Worker → Prüfaufträge** legt die Datenbank an oder öffnet sie.
@@ -82,3 +94,17 @@ Die Datenbank Prüfaufträge ist privat. Planen, Starten und Weitergehen passier
 
 ## Was auf diesem Gerät bleibt
 Der Plan, der Eintrag der Kette (welche Aufgaben dazugehören, wer jede auf Fertig gesetzt hat), was sie ausgegeben hat, und der Schalter für Ohne Bestätigung starten liegen in diesem Browser — nie synchronisiert, exportiert oder im Backup — und gehen mit der Gerätekopie und dem lokalen Zurücksetzen. Vollständige Backups tragen die Einstellungen der Datenbank, nie einen Plan oder eine Kette. Der [Flugschreiber](help:flight-recorder) kann die Schritte einer Kette auswerfen: ein ausgeworfener Schritt hält seine Kette an, und <kbd>S</kbd> entscheidet.
+
+## Kontext und QA-Reparaturen
+Unter **Einstellungen → Automatische QA-Reparaturen** kannst du begrenzte Reparatur-Unterläufe zulassen. Standard ist Aus; die bestätigte Kette hält Auswahl und Coding-Agent fest. Ablauf, Grenzen, Modelltests und Atlas-Memory erklärt [Coding-Harness, Kontext und Qualität](help:coding-harness).
+
+
+## Copilot je Rolle
+In den Einstellungen unter **Pipelines** BA, Coding und QA unabhängig auf **GitHub Copilot** stellen und darunter Modell, Denkaufwand und Kontext wählen. Ab Worker **1.27.0** werden diese Werte bei Anlage in die Aufgaben übernommen; persönliche Aufgabenwahl geht vor. Automatische QA-Reparaturen nutzen die bestätigte Coding-Rolle, Nachprüfungen die QA-Rolle. Der Abnahmebericht enthält die beobachtete Copilot-Modell-/Token-Zusammenfassung. Siehe [GitHub Copilot in One](help:copilot-coding).
+
+## Nachweispaket und bestätigte Atlas-Übergabe
+Am Abschluss der Aufgabenbegleitung lässt sich der angezeigte Nachweis als JSON herunterladen oder unter einer bewusst gewählten gemeinsamen Seite ablegen. Das Paket enthält den begrenzten Bericht, Aufgaben-/Modellnachweise und tatsächlich gemeldete Host-Testdaten. Persönliche Auftragssteuerung und Secrets werden nicht übertragen. Prüfe den angezeigten Bericht vor dem Teilen; das Paket ist ein datierter Stand, kein laufender Gerätezugriff. Derselbe Stand erzeugt beim erneuten Ablegen kein Duplikat. Spätere Änderungen an der Aufgabe erfordern einen neuen Stand. Eine gemeinsame Seite bleibt auch auf einem anderen Gerät lesbar.
+
+Nach menschlicher Abnahme öffnet **Übergabe vorbereiten** weiterhin einen überprüfbaren Entwurf im KI-Terminal. Erst dessen freigegebene Ausführung kann Atlas ändern. Anschließend Projekt-Slug und tatsächliche Record-Nummer angeben und **Atlas-Nachweis lesend prüfen** wählen. ONE verwendet nur `atlas_get` über die ausgewählte persönliche Verbindung am Worker. Der Record muss im angegebenen Projekt liegen und im Text die genaue `ONE-EVIDENCE <SHA-256>`-Zeile dieses abgenommenen Stands enthalten. Ein Modelltext oder bloßer Link genügt nicht. Bestätigung verändert keine fachliche Entscheidung und keinen Atlas-Status. Fehlende Rechte, falscher Record, Fehler oder fehlende Kennung lassen die Übergabe offen; erneutes Prüfen schreibt nichts und legt keinen doppelten Atlas-Record an.
+
+Die Stufen sind **vorbereitet → übertragen → durch Lesezugriff bestätigt**. Der erfolgreiche Lesezugriff belegt die Ablage und bestätigt dann Projekt/Record/Kennung. Ein bereits veröffentlichtes Nachweispaket erhält einen sichtbaren Atlas-Nachtrag. Seine ursprünglichen Snapshot-Daten bleiben erhalten. In einem anderen Browser werden weder der private Lauf noch seine Berechtigungen wiederhergestellt. Für die Prüfung wird Worker **1.30.0 oder neuer** empfohlen; dieser besitzt auch die erweiterten Host-Nachweise.

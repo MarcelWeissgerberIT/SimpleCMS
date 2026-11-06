@@ -40,9 +40,9 @@ import { modelLabel } from '../tasks'
 import { stepNo } from './words'
 import { HandKey } from './HandKey'
 import { kindProjects, type KindProject } from './facts'
-import { readOrderConfig } from './config'
+import { readOrderConfig, orderAgent } from './config'
 import { olderParked, planHashNow, startChain } from './confirm'
-import { editStep, moveStep, removeStep, restoreDraft, setDraftBudget, type EditOutcome, type StepPatch } from './edit'
+import { editAssumptions, editStep, moveStep, removeStep, restoreDraft, setDraftBudget, type EditOutcome, type StepPatch } from './edit'
 import { endsAtGate, holdsOf, checkpointAfter, stopsOf, type StopStep } from './stops'
 import { projectAvgCost, COST_SAMPLE } from './costs'
 import { pageShown, quoteTitleOf, requestNow } from './fingerprint'
@@ -473,6 +473,7 @@ function RequestPanel({ rowId, draft }: { rowId: ID; draft: OrderDraft }) {
  * it stops under this device's Approvals, the next step, a QA branch shared with a coding step, its key in the seen book.
  */
 export function useStations(rowId: ID, rec: OrderRecord, draft: OrderDraft) {
+  const t = useT()
   const databases = useWorkspace((s) => s.databases)
   const db = useWorkspace((s) => (s.pages[rowId]?.databaseId ? s.databases[s.pages[rowId]!.databaseId!] : undefined))
   const read = readOrderConfig(db)
@@ -493,7 +494,9 @@ export function useStations(rowId: ID, rec: OrderRecord, draft: OrderDraft) {
       list: steps.map((st, i): StationFacts => {
         const kp = projects.find((p) => p.kind === st.kind)
         const coding = st.kind === 'qa' && !st.branch && st.repo ? steps.slice(0, i).map((s, j) => ({ s, j })).reverse().find((x) => x.s.kind === 'coding' && x.s.repo === st.repo) : undefined
-        const model = kp?.pipeline.find((s) => CLAUDE_STAGES.has(s.kind) && s.model)?.model ?? null
+        const agent = config ? orderAgent(config,st.kind) ?? 'claude' : 'claude'
+        const choice = config?.copilot?.[st.kind]
+        const model = agent === 'copilot' ? `Copilot · ${choice?.model ?? t('features.coding.copilotOptions.worker')}${choice?.reasoningEffort ? ` · ${choice.reasoningEffort}` : ''}` : agent === 'claude' ? kp?.pipeline.find((s) => CLAUDE_STAGES.has(s.kind) && s.model)?.model ?? null : agent
         return {
           n: base + i + 1,
           step: st,
@@ -507,7 +510,7 @@ export function useStations(rowId: ID, rec: OrderRecord, draft: OrderDraft) {
         }
       }),
     }
-  }, [steps, projects, approvals, checkpoint, base])
+  }, [steps, projects, approvals, checkpoint, base, config, t])
   return { stations, projects, base, config, databases }
 }
 
@@ -742,6 +745,13 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
           <span className="label">{t(`${O}.plan.understood`)}</span> {draft.plan.summary}
         </p>
       )}
+      {!!draft.plan.assumptions?.length && <details className="orc-lines" data-testid="order-assumptions"><summary>{t('features.coding.guide.assumptions')}</summary><ul>{draft.plan.assumptions.map((s, i) => <li key={i}>{s}{!viewer && !elsewhere && <button type="button" className="btn btn--ghost btn--sm" aria-label={t('features.coding.guide.dropAssumption')} onClick={() => void editAssumptions(rowId, draft.plan.assumptions!.filter((_, n) => n !== i)).then(out => onNote(said(out)))}>×</button>}</li>)}</ul></details>}
+      {draft.plan.delivery && <div className="orc-lines" data-testid="order-delivery">
+        <p className="label">{t(`${O}.chain.delivery`)}</p>
+        {draft.plan.delivery.requirements.map(r => <p className="orc-line" key={r.id}><strong>{r.id}</strong> {r.text}</p>)}
+        <p className="label">{t(`${O}.chain.acceptance`)}</p>
+        <ul>{draft.plan.delivery.acceptance.map((s, i) => <li key={i}>{s}</li>)}</ul>
+      </div>}
       {(draft.notes ?? []).length > 0 && (
         <ul className="orc-notes" data-testid="order-notes">
           {(draft.notes ?? []).map((n, i) => (
@@ -813,6 +823,7 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
         {costs.length ? `${t(`${O}.plan.cost.head`)} ${costs.join(' · ')} ${t(`${O}.plan.cost.last`, { n: COST_SAMPLE })} · ${t(`${O}.plan.cost.notCapped`)}` : t(`${O}.plan.costNone`)}
       </p>
       <BudgetField rowId={rowId} draft={draft} configUsd={config?.budgetUsd} viewer={viewer} />
+      {!!config?.qaRepairs && <p className="orc-line" data-testid="order-repair-consent">{t(`${O}.settings.repairs`)}: {config.qaRepairs} · {t(`features.coding.agent.${orderAgent(config, 'coding') ?? 'claude'}`)}. {t(`${O}.settings.repairsHint`)}</p>}
       {elsewhere && (
         <p className="orc-line orc-line--warn" data-testid="order-elsewhere">
           {t(`${O}.why.elsewhere`)}

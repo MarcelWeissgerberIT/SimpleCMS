@@ -3,6 +3,17 @@ import type { Messages } from '@/shared/i18n'
 /** Common strings shared by all areas. Area-specific strings live in <area>/messages.ts. */
 export const messages: Messages = {
   en: {
+    'common.values.show': 'Show suggested values: {field}',
+    'common.values.list': 'Suggested values: {field}',
+    'common.values.shortcut': 'Show values · Alt + ↓ · own values remain possible',
+    'common.values.used': 'Used in this column · {count}×',
+    'common.values.similar': 'Similar spelling already exists',
+    'common.values.own': 'Own value · save as usual',
+    'common.values.ownSimilar': 'Similar value available · your spelling stays as entered',
+    'common.values.available': 'Suggested values',
+    'common.values.free': 'Choose a suggestion or enter your own value.',
+    'common.values.noMatch': 'No matching suggestion. Keep typing your own value.',
+
     'common.untitled': 'Untitled',
     'common.cancel': 'Cancel',
     'common.confirm': 'Confirm',
@@ -74,6 +85,17 @@ export const messages: Messages = {
     'color.red': 'Red',
   },
   de: {
+    'common.values.show': 'Wertvorschläge anzeigen: {field}',
+    'common.values.list': 'Wertvorschläge: {field}',
+    'common.values.shortcut': 'Werte anzeigen · Alt + ↓ · eigene Werte bleiben möglich',
+    'common.values.used': 'In dieser Spalte verwendet · {count}×',
+    'common.values.similar': 'Ähnliche Schreibweise vorhanden',
+    'common.values.own': 'Eigener Wert · wie gewohnt speichern',
+    'common.values.ownSimilar': 'Ähnlicher Wert vorhanden · deine Schreibweise bleibt erhalten',
+    'common.values.available': 'Wertvorschläge',
+    'common.values.free': 'Vorschlag wählen oder einen eigenen Wert eingeben.',
+    'common.values.noMatch': 'Kein passender Vorschlag. Eigenen Wert einfach weiterschreiben.',
+
     'common.untitled': 'Ohne Titel',
     'common.cancel': 'Abbrechen',
     'common.confirm': 'Bestätigen',

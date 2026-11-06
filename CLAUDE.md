@@ -119,6 +119,26 @@ the public APIs stable — other areas are built against them in parallel.
 
 ## Data rules
 
+- Copilot coding (`mcp/src/worker/copilot.ts`): worker 1.25.0 / capabilities `agent:copilot` and `copilot-chat` uses Copilot CLI >=1.0.102 as
+  a text-only JSON-RPC model transport for the shared local harness. Every model round has an isolated temporary cwd,
+  native tools/config discovery/hooks/skills/session store off; no task text or tokens in argv. CLI login belongs to
+  the worker account. Exact model IDs are availability-checked; never silently fall back. Subscription usage is
+  unmetered in USD, never free. `copilot.json` stores only a model; the setup check sends no model prompt. Task-scoped
+  personal MCP proxies work for Claude and Copilot; personal tokens never reach model prompts/CLI environment.
+  Copilot is also a worker-backed AI provider: browser-owned scoped One tools, schema validation and selected HTTPS
+  MCP, with OUT deny-lists and no model-visible credentials. Policy generation GEN.copilot blocks older tabs.
+  Native image/PDF, media generation, Jev decisions and unattended server agents are not supported by this path.
+
+- Native workspace translations (`features/translation`, `store/localization.ts`): optional `Page.localization` holds
+  source language plus reviewed EN/DE string dictionaries and a source signature. Canonical text, block/page IDs,
+  relations, option values, formulas and permissions never change. Content language follows the UI by default;
+  an override is per device/workspace (`lib/contentLanguage.ts`), never synced or exported. Translated prose/views
+  are read-only; source edits make the document variant stale. `workspace.translate` uses normal routing/metering,
+  MCP off, bounded batches, editable preview and explicit save with source checks. Workspace → Data and the page
+  controls are entry points. Standard share/document export remains canonical; workspace backups retain variants.
+  Database projections must query/filter/order/evaluate formulas against the ORIGINAL schema/values; translate only
+  display labels and scalar text at the outer display boundary (`database/translation.ts`).
+
 - All persistent data goes through `useWorkspace` actions in `src/app/store/store.ts`. Never mutate state directly.
 - Page content is TipTap JSON. Write it ONLY with `setContent(pageId, json, origin)`; `origin` is the writer
   (editor instance id, 'history', 'ai', 'sync', 'import', 'synced' = synced-block service, 'file' = folder / GitHub
@@ -408,6 +428,14 @@ the public APIs stable — other areas are built against them in parallel.
   origin 'ai'; the terminal stages ChangeKind 'media'. CORS refused → Open / Upload a copy; team: `POST
   /api/workspaces/:id/files/fetch` (SSRF guard, docs/API.md). `/generate image|video` = a forced request to ONE server
   (no memory, no page text unless ticked); the chosen server per device in localStorage `one.generate.server`.
+- Hand-drawn blocks (`editor/handdrawn`, `/handdrawn`): a lazy preview window inserts ordinary `mermaid` or `image`
+  nodes, with optional `drawing` provenance (v1, one-sketch, original prompt, aspect, context, serverId, local reference).
+  Diagrams keep a fixed Mermaid handDrawn front matter, including in Markdown exports; the diagram request is
+  `drawing.diagram` (structured, interactive, at most one parse repair). Illustrations use the existing forced-MCP
+  generation and media cards — no remote fetch before Save. References are described through the gated vision route;
+  the description, never original pixels, goes to the image service. Context is opt-in and route-shaped. Apply locates
+  existing blocks by stable id and refuses concurrent source edits. Covers are explicit snapshots. `stripButtonActions`
+  also removes `drawing` metadata at the share/export boundary; workspace backups keep it and its referenced files.
 - MCP sign-in (mcp-servers/oauth.ts, `McpServerConfig.oauth`): protected-resource metadata → the first listed
   authorization server that is CORS-readable with PKCE S256 (self-registration preferred; the host's own only when none
   is listed) → DCR → PKCE in a window → return to `<app>/?oauth=mcp` (no `#`; main.tsx → `#/oauth/mcp`); state + verifier
@@ -522,7 +550,8 @@ the public APIs stable — other areas are built against them in parallel.
 - Capture (shell/capture): share target POST → service worker → IndexedDB `one-share` → `#/clip?share=<id>`, always asked
   (ClipConfirm), a Clippings page via `saveFile()`, origin 'clip' (the old GET share flow stays for older installs); quick
   capture (Mod+Shift+K, phone floating key, ⌘K, `?launch=capture`) writes only through quick.ts (draft per device in
-  localStorage `one.capture.draft`); "Install One" via install.ts; manifest shortcuts `?launch=capture|new-page|search|
+  localStorage `one.capture.draft`); "Install One" via shared/install.ts (early native-prompt capture + platform guide,
+  shared by landing and app; React subscription in capture/install.ts); manifest shortcuts `?launch=capture|new-page|search|
   terminal`; `Toast.more` = extra toast keys.
 - Foreign links (lib/foreignLinks.ts): a relative href in page content ("/r/11900", copied by Claude from an MCP result)
   never opens One's own site — it resolves against the first enabled MCP server's `linkBase`, else the only enabled
@@ -597,7 +626,11 @@ the public APIs stable — other areas are built against them in parallel.
   page with origin 'coding'; logs, diffs and trust per device in IndexedDB `one-coding`, never synced. One sends the worker
   only task data and the fixed verbs in GIT_VERBS — never a path or a command; the worker runs git as argument lists,
   only on repos in its own config, creates / cleans only its own branches + worktrees, never skips Claude Code's
-  permissions. Programs start ONLY through mcp/src/worker/exec.ts (no other worker file value-imports `node:child_process`
+  permissions. From worker 1.22 a paired local download also hosts explicitly enrolled workspace contexts
+  (worker/workspaces.ts): owner proof only on a user action, one per-workspace key; virtual Worker/WorkerLink instances
+  isolate sockets, queues, outcomes, task tokens, state, memory and worktrees. The original workspace keeps its state.
+  Config/credentials/MCP connections stay device-wide; repository locks, concurrency and day limits span contexts.
+  Cloud relay workers and unpaired configs keep their one-workspace binding. Programs start ONLY through mcp/src/worker/exec.ts (no other worker file value-imports `node:child_process`
   — guard in exec.test.ts; never `shell: true`; on Windows a bare name from PATH only, never the cwd, system tools by
   absolute path, git only as git.exe, `.cmd` shims read, not run): Claude Code, git, gh and glab never run through
   cmd.exe — only the person's own worker.json `testCommand` / `analyzeCommand` and `ONE_WORKER_BROWSER` /
@@ -1509,7 +1542,10 @@ doneAt (done only), frozen = { people names, blockedBy n, related n } only in do
 field line (a hard break in the title = `\` + the next quoted line), the reader off (`WORK_ITEMS_FROM_MARKDOWN`);
 `stripPrivate()` → `freezeWorkItems()`: no ids, names frozen; parses from HTML only with the clip key; P1: created only by
 the editor and by copies, see Data rules), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
-array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace),
+array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace;
+`worker_setup` opens the existing personal coding settings only, never registers/downloads/executes. Authorized live
+translated pages opt into navigation/setup actions via `ReadOnlyDoc.pageActions`; writes, guests, locked pages and
+static previews stay inert),
 `tabs` (container of `tab`, no tabs inside tabs; the shown tab is editor view state) / `tab` (attrs: title; content:
 blocks), `icon` (inline atom; attrs: kind 'asset'|'lucide', name, color — glyphs only; editor/schema/icon.ts),
 `spreadsheet` (atom; attrs: id, title, sheets = [{ id, name, rows, cols, cells: { A1: { v = raw input, fmt, b, i,

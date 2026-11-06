@@ -3,20 +3,21 @@
  * the block is selected) runs its actions in order; "Edit" (or ⇧↵) opens the configuration. Read-only renders
  * (share view, history, presentation) get StaticButtonView: a disabled key that never runs.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy,Suspense,useEffect, useMemo, useRef, useState } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Settings2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { toast } from '../../store/ui'
 import { useT } from '../../i18n'
-import { isMac } from '../../ui/controls'
+import { shortcutLabel } from '../../ui/controls'
 import { asVariant, normalizeActions, type ButtonAction, type ButtonVariant } from '../schema/button'
 import { consumeFreshButton, runButton } from '../lib/buttonRun'
 import { ButtonConfig, type ButtonDraft } from './ButtonConfig'
 import './button.css'
 
 type RunState = 'idle' | 'busy' | 'ok' | 'error'
+const PreparedTaskModel=lazy(()=>import('../../features/ai/routing/PreparedTaskModel'))
 
 export function ButtonKey({ label, variant, state = 'idle', disabled, onClick, title }: { label: string; variant: ButtonVariant; state?: RunState; disabled?: boolean; onClick?: () => void; title?: string }) {
   return (
@@ -32,6 +33,8 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
   const label = String(node.attrs.label ?? '').trim() || t('editor.button.default')
   const variant = asVariant(node.attrs.variant)
   const actions = useMemo(() => normalizeActions(node.attrs.actions), [node.attrs.actions])
+  const aiTask=actions.some(a=>a.type==='ai_task')
+  const caption=aiTask&&/^(Mit (Frankfurt|Claude) vorbereiten|Prepare with (Frankfurt|Claude))$/.test(label)?t('editor.button.aiTask.prepare'):label
   const pageId = editor.view.dom.getAttribute('data-page-id')
   const trashed = useWorkspace((s) => !!pageId && !!s.pages[pageId] && isEffectivelyTrashed(s.pages, pageId))
   const locked = useWorkspace((s) => !!pageId && !!s.pages[pageId]?.settings.locked)
@@ -61,7 +64,7 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
     setState('busy')
     let ok = false
     try {
-      ok = await runButton({ editor, getPos, label, actions, pageId })
+      ok = await runButton({ editor, getPos, label:caption, actions, pageId })
     } finally {
       running.current = false
     }
@@ -79,7 +82,7 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
   const count = actions.length
   return (
     <NodeViewWrapper className={`ob ob--${variant}${selected ? ' is-selected' : ''}${config ? ' is-configuring' : ''}`} data-type="button" contentEditable={false}>
-      <ButtonKey label={label} variant={variant} state={state} disabled={trashed} onClick={run} />
+      <ButtonKey label={caption} variant={variant} state={state} disabled={trashed} onClick={run} />
       {canEdit && (
         <span className="ob__tools">
           <button type="button" className="ob-edit" onClick={() => setConfig(true)} aria-label={t('editor.button.configure')} aria-haspopup="dialog">
@@ -89,11 +92,12 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
           <span className={`ob__count label${count ? '' : ' is-empty'}`}>{count ? t(count === 1 ? 'editor.button.count.one' : 'editor.button.count', { count }) : t('editor.button.none')}</span>
           {selected && (
             <span className="ob__keys label" aria-hidden>
-              <kbd className="kbd">{isMac ? '⌘↵' : 'Ctrl ↵'}</kbd> {t('editor.button.hint.run')} <kbd className="kbd">⇧↵</kbd> {t('editor.button.hint.edit')}
+              <kbd className="kbd">{shortcutLabel('Mod+↵')}</kbd> {t('editor.button.hint.run')} <kbd className="kbd">{shortcutLabel('Shift+↵')}</kbd> {t('editor.button.hint.edit')}
             </span>
           )}
         </span>
       )}
+      {aiTask&&<Suspense fallback={null}><PreparedTaskModel/></Suspense>}
       {config && <ButtonConfig initial={{ label: String(node.attrs.label ?? ''), variant, actions }} pageId={pageId} onDone={save} />}
     </NodeViewWrapper>
   )
@@ -109,4 +113,12 @@ export function StaticButtonView({ node }: ReactNodeViewProps) {
       <ButtonKey label={label} variant={variant} disabled title={t('editor.button.readOnly')} />
     </NodeViewWrapper>
   )
+}
+
+/** Live translated pages keep navigation/setup usable; previews and every writing action stay inert. */
+export function ReadOnlyPageButtonView(props: ReactNodeViewProps) {
+  const actions = normalizeActions(props.node.attrs.actions)
+  return actions.length > 0 && actions.every(a => a.type === 'open' || a.type === 'worker_setup')
+    ? <ButtonView {...props} />
+    : <StaticButtonView {...props} />
 }

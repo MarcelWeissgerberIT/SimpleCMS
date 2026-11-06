@@ -7,7 +7,42 @@ keywords: coding, pipeline, claude code, worker, permalink, seitenadresse, link 
 related: pipelines, workorders, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, freigeben, umsetzen, testen, ausliefern — und verfolge jeden Schritt in One.
 ---
-**#/coding** (⌘K *Coding-Pipeline*). One verwaltet die Aufgaben, die Freigaben, das Log und den Diff; ein kleiner Worker auf **deinem** Rechner führt Git und Claude Code aus. Dein Code verlässt deinen Rechner nie.
+**#/coding** (⌘K *Coding-Pipeline*). One verwaltet die Aufgaben, die Freigaben, das Log und den Diff; ein kleiner Worker auf **deinem** Rechner führt Git und Claude Code aus. Der Worker läuft auf deinem Rechner. Ausgewählter Code und Werkzeugergebnisse gehen an den gewählten Modellanbieter; Lokal · Ollama führt das Modell lokal aus.
+
+
+## Fest installieren und sicher aktualisieren
+
+**Schon heruntergeladen, aber nicht verbunden?** Kein zweites Mal herunterladen. In Schritt 2 zuerst den festen Starter ausführen und **Verbindung erneut prüfen** wählen. Falls noch nicht installiert: **Noch nicht installiert? Vorhandenen Download nutzen** öffnen und die vorhandene `.mjs`-Datei in Downloads auswählen. ONE liest nur ihre Kopplungsdaten lokal und zeigt den Installationsbefehl mit dem tatsächlichen Dateinamen, einschließlich `(1)`. Die Datei wird nicht hochgeladen. Ein falscher Workspace oder eine veraltete lokale Kopplung wird zurückgewiesen. **Neu koppeln / weiteres Gerät** erstellt erst nach ausdrücklicher Bestätigung eine weitere Datei und neue Kopplung.
+
+Bei **Verbinde…** wartet ONE höchstens zwölf Sekunden auf die erste Worker-Antwort und prüft danach beim Wiederverbinden die Browser-Freigabe. In Chrome kann **Apps auf dem Gerät** für die ONE-Seite erforderlich sein. Ein Download ersetzt diese Freigabe nicht.
+
+Ein weiterer freigegebener Workspace zeigt **Fest installiert**, wenn er die Installation des Geräte-Workers nutzt. Updates bleiben beim ursprünglichen Workspace beziehungsweise beim lokalen Starter mit `update`; die zusätzliche Workspace-Freigabe gibt keine Verwaltungsrechte.
+
+
+**Worker bereits verbunden?** Nutze **Bestehende Verbindung übernehmen → Installer laden · Kopplung behalten**. Die angezeigte Zeile verwendet `install --from <vorhandene-worker-datei.mjs>`; sie liest ausschließlich die JSON-Kopplung aus deiner vorhandenen Datei und führt deren Code nicht aus. Bei einer eigenen `worker.json` zusätzlich `--config <bisheriger-pfad>` angeben. Dabei wird kein Cloud-Token erstellt und kein Browser-Kopplungsschlüssel ersetzt. Die folgenden Download-Schritte sind für eine neue Verbindung.
+
+
+Ab Worker **1.32** gibt es einen festen Starter pro Worker-Konfiguration auf macOS und Windows. Einmal den aktuellen, persönlich gekoppelten Worker herunterladen. Laufende Aufgaben abschließen und den bisherigen Worker mit **Ctrl+C** beenden. Die Datei installieren: `node <heruntergeladene-datei.mjs> install`. Bei einem Browser-Zusatz wie `(1)` genau diesen Dateinamen verwenden und den Pfad in Anführungszeichen setzen.
+
+Der Installer legt den Starter **ONE Worker – Workspace-Name** im Installationsordner und, wenn beschreibbar, auf dem Schreibtisch an. Er gibt den genauen Startbefehl aus. Der feste Programmordner liegt neben der bestehenden `worker.json` unter `installed-worker`; Repositories, Modellschlüssel, Memory und Freigaben bleiben an ihrem bisherigen Ort. Für den normalen lokalen Worker lautet der Startbefehl `node ~/.config/one/installed-worker/start.cjs`. Cloud-Worker erhalten ihren eigenen Starter je Workspace. Das Terminal offen lassen; ein automatischer Hintergrund- oder Anmeldedienst wird nicht eingerichtet.
+
+Danach in **Einstellungen → Coding-Worker → Fest installiert → Update prüfen und installieren** aktualisieren. Neue Arbeit pausiert, laufende Aufgaben, Modellanfragen und ausstehende Ergebnisse werden abgewartet. **Update später · Arbeit fortsetzen** hebt das Warten auf. Software und Prüfsumme kommen ausschließlich von der ursprünglichen ONE-Seite über HTTPS; Kopplung und Token werden weder erneuert noch im Download-Request mitgeschickt. Eine neue Version wird zunächst auf Syntax und Start geprüft. Bei einem fehlgeschlagenen Start kehrt der Starter zur vorherigen Programmversion zurück. **Vorherige Version** wechselt nach aktueller Arbeit zurück; das stellt keine alten Workspace-Inhalte oder Einstellungen wieder her.
+
+**Neu koppeln / weiteres Gerät** ist davon getrennt: Ein weiterer Download erstellt neue Zugangsdaten. Eine abweichende Kopplung überschreibt die Installation nicht unbemerkt. Ein bewusstes Umkoppeln erfolgt bei gestopptem Worker mit `node <neue-datei.mjs> install --replace-pairing`. Dabei bleibt die bestehende Konfiguration erhalten; ein Rückwechsel auf die alte Identität wird nicht angeboten. Bereits laufende, ältere Worker ohne Installationsfunktion müssen für die einmalige Umstellung beendet werden.
+
+Wird eine kompatible ältere Downloadkopie gestartet, verweist sie auf die feste Installation. Ein erneuter Starter-Aufruf öffnet die vorhandene Worker-Verwaltung, statt einen zweiten Worker zu starten. Sehr alte Downloads vor Version 1.32 kennen diese Weiterleitung noch nicht: archivieren oder entfernen, sobald die feste Installation funktioniert.
+
+## Ein Geräte-Worker für mehrere Workspaces
+
+Ab Worker **1.22** kannst du dieselbe lokale Worker-Verbindung für mehrere ausdrücklich freigegebene Workspaces verwenden. Den aktualisierten Worker zuerst im ursprünglichen Workspace starten. Im weiteren Workspace unter **Einstellungen → Coding-Worker** auf **Diesen Workspace am Geräte-Worker freigeben** klicken. Verwende dasselbe Browser-Profil, mit dem der ursprüngliche Worker heruntergeladen wurde. Danach verbindet sich One beim Workspace-Wechsel automatisch mit dem passenden Kontext.
+
+Jeder zusätzliche Workspace erhält einen eigenen Kopplungsschlüssel, Auftragsstand, Memory-, Scratch- und Worktree-Ordner sowie eigene automatisch angelegte Branches. Auch gleichlautende Aufgaben-IDs bleiben getrennt. Modelle, API-Schlüssel, persönliche MCP-Verbindungen und die auf dem Gerät freigegebenen Repositories werden gemeinsam verwendet. Zugangsschlüssel und Worker-Freigaben werden nicht in Workspace-Pakete exportiert oder mit dem Team synchronisiert.
+
+Aufträge behalten beim Wechsel ihre Zuordnung. Ergebnisse warten auf die Rückkehr des zugehörigen One-Tabs; ein anderer Workspace erhält sie nicht. Wenn ein Auftrag Daten oder eine Freigabe aus One braucht, muss sein Tab erreichbar sein. Dasselbe Repository bearbeitet der Geräte-Worker nur in einem Workspace gleichzeitig; die Parallelitäts- und Tageslimits gelten übergreifend. Kosten werden je Workspace angezeigt, soweit der Anbieter sie meldet.
+
+Unter **Repositories ändern** öffnest du die geschützte Einrichtungsseite des Workers. Dort kannst du unter **Weitere Arbeitsbereiche auf diesem Gerät** eine Freigabe entziehen. Das stoppt die Aufträge dieses Workspace; gespeicherte Arbeitsstände bleiben erhalten. Ein neuer Download mit einem neuen ursprünglichen Kopplungsschlüssel widerruft bisherige zusätzliche Freigaben; die Workspaces anschließend erneut freigeben. Modelle und persönliche Verbindungen werden dabei nicht gelöscht.
+
+Diese Freigaben gelten für die **lokale Verbindung**, auch zu einem Team-Workspace. Ein Cloud-Worker über den Team-Relay bleibt an seinen eigenen Workspace und sein Mitglieds-Token gebunden.
 
 ## In drei Schritten einrichten
 Du brauchst Node.js 22 oder neuer, Git und die **Claude-Code**-CLI, einmal angemeldet (`claude`) — unter macOS, Linux oder Windows 10 / 11 (siehe *Windows* unten). Dann **Einstellungen → Coding-Worker** (oder **#/coding**):
@@ -15,12 +50,15 @@ Du brauchst Node.js 22 oder neuer, Git und die **Claude-Code**-CLI, einmal angem
 1. **Lade den Worker für diesen Arbeitsbereich herunter.** Die Datei ist schon mit diesem Browser und diesem Arbeitsbereich gekoppelt — nichts einzustellen. One schaltet die Verbindung selbst ein.
 2. **Starte ihn** in einem Terminal und lass ihn laufen. Die Karte zeigt die Zeile für deinen Rechner — Schalter **Windows | macOS · Linux**. macOS und Linux:
 ```
-node ~/Downloads/one-worker.mjs
+node ~/Downloads/one-worker.mjs install
+node ~/.config/one/installed-worker/start.cjs
 ```
 Windows — in PowerShell (erste Zeile) oder der Eingabeaufforderung (zweite Zeile); die Anführungszeichen halten einen Benutzerordner mit Leerzeichen zusammen:
 ```
-node "$env:USERPROFILE\Downloads\one-worker.mjs"
-node "%USERPROFILE%\Downloads\one-worker.mjs"
+node "$env:USERPROFILE\Downloads\one-worker.mjs" install
+node "$env:USERPROFILE\.config\one\installed-worker\start.cjs"
+node "%USERPROFILE%\Downloads\one-worker.mjs" install
+node "%USERPROFILE%\.config\one\installed-worker\start.cjs"
 ```
 Die Zeilen erwarten den üblichen Downloads-Ordner. Hat dein Browser die Datei woanders gespeichert (oder liegt Downloads woanders, z. B. in OneDrive)? `node` und ein Leerzeichen tippen, den Pfad der Datei einfügen — im Explorer: Umschalt + Rechtsklick auf die Datei → **Als Pfad kopieren** — und Enter drücken.
 3. **Hak deine Repositories auf der Seite an, die sich öffnet.** Der Worker findet die Git-Repositories auf deinem Rechner und öffnet eine Seite in deinem Browser: Hak die an, in denen One arbeiten darf, prüf Basis-Branch und Testbefehl (z. B. `npm test`), dann **Speichern & starten**. Die Karte zeigt *Verbunden · laptop · 2 Repos*, und die **WORKER**-LED in der Statusleiste wird grün.
@@ -33,7 +71,7 @@ Neuer Code? Dieselbe Seite klont von **GitLab / GitHub** (eine Adresse oder ein 
 
 Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wieder auf deinem Rechner. One erfährt immer nur die Namen der Repos; Pfade und Befehle bleiben in `~/.config/one/worker.json` auf deinem Rechner.
 
-> Tipp: Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
+> Für Software-Updates „Update prüfen und installieren“ verwenden. Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
 
 ## Wenn sich der Worker nicht verbindet
 Die **WORKER**-LED bleibt dunkel; **Einstellungen → Coding-Worker** und die Lampe *Worker offline* im [Vorflug-Check](help:preflight) sagen, warum:
@@ -45,7 +83,7 @@ Die **WORKER**-LED bleibt dunkel; **Einstellungen → Coding-Worker** und die La
 In einem **Team-Arbeitsbereich auf einem One-Server** bietet **Einstellungen → Coding-Worker → Wo der Worker läuft** die Wahl **Lokal | Cloud**. Mit **Cloud** läuft der Worker auf einem beliebigen Rechner — Build-Server, VM, der Rechner im Büro — und verbindet sich selbst mit deinem One-Server: kein Port, kein VPN.
 
 1. **one-worker-cloud.mjs herunterladen.** Die Datei enthält einen Worker-Token nur für dich und nur für diesen Arbeitsbereich und einen Schlüssel, den nur dieser Browser hat.
-2. **Auf den Rechner kopieren und dort starten**: `node one-worker-cloud.mjs` (laufen lassen — tmux oder ein Dienst). Die Datei ist der Schlüssel: Behandle sie vertraulich (`chmod 600`; unter Windows `icacls`, siehe unten).
+2. **Auf den Rechner kopieren und dort starten**: `node one-worker-cloud.mjs install`, danach den ausgegebenen festen Starter nutzen. Die Datei ist der Schlüssel: Behandle sie vertraulich (`chmod 600`; unter Windows `icacls`, siehe unten).
 3. **Dort die Repositories anhaken** — die Einrichtungsseite öffnet sich auf jenem Rechner, oder `node one-worker-cloud.mjs setup --no-browser` fragt in seinem Terminal.
 
 Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles andere funktioniert wie mit einem lokalen Worker.
@@ -155,3 +193,29 @@ Frag das [KI-Terminal](help:agent) (<kbd>Mod+J</kbd>) *„Was wartet in den Pipe
 Der Worker fasst nur die Repos an, die du angehakt hast; One kann ihm Aufgabentext und feste Git-Aktionen schicken — nie einen Befehl, und selbst nie ein Repo anhaken. Ein heruntergeladener Worker nimmt nur diesen Browser und diesen Arbeitsbereich an; die Nachrichten eines Cloud-Workers sind zwischen diesem Browser und dem Worker versiegelt — der Server reicht sie nur weiter. Claude Code behält seine Berechtigungsregeln, und Aufgabentext geht als Daten mit, nicht als Anweisung. Eine Kostengrenze pro Aufgabe stellst du auf der Seite des Workers ein, eine pro Tag in der `worker.json`. Für die Notiz erfährt One die Web-Adresse des Repositorys (Host und Projekt) – nie einen Pfad. In einem Team-Arbeitsbereich nimmt dein Worker nur Aufgaben, die du auf diesem Gerät geschrieben oder bestätigt hast (**Auf diesem Gerät bestätigen**) — eine Stufe (auch ihr Modell), ein Repo oder ein Branch, auf einem anderen Gerät geändert, fragt erneut. Eine Aufgabe, die einer deiner eigenen Agenten geschrieben hat, wartet auf dieselbe Bestätigung, auch in deinem lokalen Arbeitsbereich. Das KI-Terminal bestätigt nie eine Aufgabe: Seine Aktionen sind Vorschläge, die du übernimmst, die den Worker startenden einzeln, und sie werden für eine Aufgabe abgelehnt, die auf die Bestätigung wartet. Eine Aufgaben-Datei, die der [Ordner- / GitHub-Sync](help:sync) aufnimmt, verschiebt nie eine Aufgabe — Stufe, Repo, Branch und die übrigen Pipeline-Felder bleiben, wie One sie hat, und die Datei wird neu geschrieben —, und eine Aufgabe, deren Text aus der Datei kam, wartet auf **Auf diesem Gerät bestätigen**, auch in deinem lokalen Arbeitsbereich.
 
 > Tipp: Die vollständige Referenz — Konfiguration, Protokoll, Fehlersuche — steht in `docs/CODING.md` im Repository.
+
+
+## MiniMax M3.1 Flash
+Unter **Typ → MiniMax · API** oder je Rolle BA / Coding / QA im Prüfauftrag wählen. Worker **1.18.0** ergänzt diesen Adapter um die gemeinsamen Dateiwerkzeuge, Aufgaben-MCP von One, ausgewählte externe MCP-Server (auch Atlas), Aufgabengedächtnis und Prüfungen. Ein Worker ohne `agent:minimax` übernimmt die Aufgabe nicht als Claude.
+
+**Einstellungen → Coding-Worker → Repositories ändern** öffnen, dann den Abschnitt **MiniMax M3.1 Flash · API**. Dort deinen Key eingeben, Denktiefe und Kontextbudget wählen und speichern. Der Key liegt in `minimax.json` neben der Worker-Konfiguration, auf macOS/Linux nur für den Besitzer lesbar. Er wird weder Arbeitsbereichseigenschaft noch Werkzeugargument. `MINIMAX_API_KEY` in der Worker-Umgebung hat Vorrang; das Entfernen der gespeicherten Datei widerruft keinen Umgebungs-Key.
+
+Kontextbudgets: 65.536, 131.072 (Standard), 262.144 oder 1.000.000 Tokens. Denktiefe standardmäßig `high`, Antwortbudget 16.384 Tokens einschließlich Denken. Gedächtnis-Komprimierung und Fortschrittsgrenzen gelten weiter. Ausgewählter Code, Prompts und Werkzeugergebnisse gehen an die MiniMax-Cloud-API. Das Speichern des Keys sendet keine Modellanfrage.
+
+Kostenschätzungen verwenden die veröffentlichten Preise vom 19. Oktober 2026: 0,15 US-Dollar je Million Eingabetokens, 0,015 für gecachte Eingaben und 0,60 für Ausgaben einschließlich Denken. Verbrauch wird zur Aufgabe gebucht; Aufgaben- und Tagesbudgets begrenzen weitere Anfragen. Bei einer ungewissen Antwort bleibt eine konservative obere Schätzung bestehen, ohne automatische Wiederholung. Das ist kein Abrechnungsbeleg. Siehe [MiniMax-Ankündigung](https://www.minimax.io/blog/minimax-m31f) und [API-Dokumentation](https://platform.minimax.io/docs/guides/text-generation).
+
+Nach dem Hinterlegen eines Keys lässt sich ein kleiner synthetischer Vergleich ausdrücklich mit `node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1` starten. Das US-Dollar-Budget gilt für diesen Lauf. `--agent local` nutzt das lokale Modell. Diese kleinen Programmierfälle belegen keine Gleichwertigkeit mit einem Spitzenmodell; dafür reale Arbeitspakete und Abnahmekriterien vergleichen.
+
+## Ollama Cloud
+
+Wähle **Ollama Cloud** unter Typ oder getrennt für jede Rolle eines Prüfauftrags. Ab Worker **1.19.0** öffnest du **Ollama Cloud einrichten**, gibst deinen eigenen Ollama-Key im Passwortfeld ein und speicherst. Der Key bleibt beim Worker dieses Rechners und wird nicht mit One synchronisiert. Verwende den API-Namen eines werkzeugfähigen Cloud-Modells, anfangs `minimax-m3.1-flash`. Das Kontextbudget kann das eigene Limit des Modells nicht vergrößern.
+
+Speichern sendet keine Cloud-Anfrage. Die eigene Schaltfläche **Verbindung testen (Cloud-Anfrage)** prüft gespeicherten Key und Modell. Ausgewählter Code und Werkzeugergebnisse gehen an Ollama. Dessen Tariflimits gelten; One kann bei diesem Abotarif keine Dollarbudgets durchsetzen. Aufgabenberechtigungen, Schrittlimits, Atlas-/MCP-Werkzeuge und Prüfungen gelten weiter. Lokales Ollama bleibt separat.
+
+## Ollama Cloud zentral für Coding einrichten
+
+Öffne **Einstellungen → KI → Ollama Cloud → API-Key und Modell einrichten …**. Dieselbe Karte steht unter **Coding-Worker**. Sie öffnet die geschützte Einrichtungsseite des Workers. Dort den Key einmal eintragen und speichern; alle Coding-Aufgaben mit Ollama Cloud auf diesem Worker teilen sich Key und Modell. Ist der Worker offline, führt die Karte zuerst zu seinen Verbindungseinstellungen. One liest und synchronisiert diesen Key nicht. Einstellungen öffnen und speichern sendet keine Modellanfrage; **Verbindung testen (Cloud-Anfrage)** ist eine eigene Aktion. Die Anbieterwahl für KI-Terminal und Browser-Agenten bleibt separat.
+
+
+## Copilot-Modell und Laufnachweis
+Bei **GitHub Copilot** ab Worker **1.27.0** Modell, unterstützten Denkaufwand und Kontextbudget direkt an der Aufgabe wählen. Prüfaufträge bieten getrennte Vorgaben für BA, Coding und QA. Die Aufgabenwahl geht der bei Anlage übernommenen Rolle und dem Worker-Standard vor. **Laufnachweise** zeigen gemeldete Modelle, Tokens und verfügbare Kontingentdaten; fehlende Geldbeträge bleiben unbekannt. Einrichtung und Grenzen: [GitHub Copilot in One](help:copilot-coding).

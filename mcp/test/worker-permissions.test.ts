@@ -159,6 +159,8 @@ describe('permissions: the repo\'s rules, else the person in One', () => {
     assert.deepEqual([ask.tool, ask.kind, ask.what, ask.rule, ask.repo], ['Bash', 'bash', 'npm run lint', 'Bash(npm run lint:*)', 'demo'])
     assert.ok(ask.until > ask.at)
     // a tab that connects now sees it too: the busy list carries it
+    // Permission and status are separate WebSocket frames; receiving one does not imply the other arrived yet.
+    await waitFor(() => tab.messages.some(m => m.type === 'status' && m.busy.some(b => b.taskId === 'perm1abc' && b.ask?.id === ask.id)), 10_000, () => JSON.stringify(tab.messages.slice(-4)))
     const status = [...tab.messages].reverse().find((m) => m.type === 'status') as Extract<WorkerMessage, { type: 'status' }>
     assert.equal(status.busy[0]?.ask?.id, ask.id)
     // a wrong id is no answer; a verb outside the three is refused

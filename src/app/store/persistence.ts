@@ -1,3 +1,4 @@
+import { sanitizeLocalization } from './localization'
 /**
  * IndexedDB persistence + live cross-tab sync.
  *
@@ -41,6 +42,7 @@
  *   deleted only where one may be stored (mayShadow).
  */
 import { createStore, type UseStore } from 'idb-keyval'
+import { localChannel, localDatabase } from '../lib/localWorkspace'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
 import type { Database, ID, Page, PropertyDef, Settings, Workspace } from './types'
 import { sanitizePropFlags } from './keys'
@@ -75,14 +77,14 @@ const OLDER_SHADOW_PREFIXES = Array.from({ length: DOC_SCHEMA_VERSION }, (_, g) 
 /** The stamp on every page record this build writes: { g: generation, f: the fingerprint of the content written }. */
 const STAMP = '_schema'
 /** localStorage: pages (and databases) that were not saved yet when the page went away. */
-const UNSAVED_KEY = 'one.unsaved'
+const UNSAVED_KEY = localChannel('one.unsaved')
 /** Epoch of workspaces stored before epochs existed. */
 const LEGACY_EPOCH = 'legacy'
 const SAVE_DELAY = 400
 const RETRY_MAX = 30_000
 
 const TAB_ID = newId()
-const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-sync') : null
+const channel: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(localChannel('one-sync')) : null
 
 type SyncStatus = 'idle' | 'saving' | 'saved' | 'error'
 let status: SyncStatus = 'idle'
@@ -124,6 +126,7 @@ function normalizePage(id: ID, v: unknown, now: number): { page: Page; repaired:
   p.id = fix(v.id === id, id, v.id)
   p.kind = fix(v.kind === 'page' || v.kind === 'database', 'page', v.kind)
   p.title = fix(typeof v.title === 'string', '', v.title)
+  if (v.localization !== undefined) { const l = sanitizeLocalization(v.localization); if (l) p.localization = l; else { delete p.localization; repaired = true } }
   p.parentId = fix(isIdOrNull(v.parentId), null, v.parentId)
   p.databaseId = fix(isIdOrNull(v.databaseId), null, v.databaseId)
   p.properties = fix(isObj(v.properties), {}, v.properties)
@@ -666,7 +669,7 @@ function takeStash(ws: Workspace, stash: Stash, keepDbs?: Set<ID>): { pages: ID[
 
 let kvStore: UseStore | null = null
 /** idb-keyval's default database and store (where the workspace always lived). */
-const kv = (): UseStore => (kvStore ??= createStore('keyval-store', 'keyval'))
+const kv = (): UseStore => (kvStore ??= createStore(localDatabase(), 'keyval'))
 const prefixRange = (prefix: string) => IDBKeyRange.bound(prefix, `${prefix}\uffff`)
 
 /**

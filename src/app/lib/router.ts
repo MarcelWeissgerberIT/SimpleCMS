@@ -31,6 +31,9 @@ import { useSyncExternalStore } from 'react'
 
 export type Route =
   | { name: 'home' }
+  | { name: 'programs' }
+  /** Recipient-only cloud preparation; never redirects to a configured workspace start page. */
+  | { name: 'personal-guides'; id?: string }
   | { name: 'page'; id: string; block?: string }
   | { name: 'graph' }
   | { name: 'journal' }
@@ -39,7 +42,7 @@ export type Route =
   /** #/inbox → this device's inbox (see features/inbox, shell/inbox) */
   | { name: 'inbox' }
   /** #/agents → custom agents · #/agents/<id> → one agent (see features/agents) */
-  | { name: 'agents'; id?: string }
+  | { name: 'agents'; id?: string; run?: string }
   /** #/scripts → scripts and queries · #/scripts/<id> → one script (see features/script) */
   | { name: 'scripts'; id?: string }
   /** #/coding → the coding pipeline (see features/coding); kind: the Business analysis / QA pipeline */
@@ -87,12 +90,17 @@ export function parseHash(hash: string): Route {
   const params = new URLSearchParams(query)
   const parts = path.split('/').filter(Boolean)
   if (parts.length === 0) return { name: 'home' }
+  if (parts[0] === 'compilates') return { name: 'programs' }
   if (parts[0] === 'p' && parts[1]) return { name: 'page', id: parts[1], block: params.get('b') ?? undefined }
+  if (parts[0] === 'my-start') return { name: 'personal-guides', ...(parts[1] ? { id: parts[1] } : {}) }
   if (parts[0] === 'graph') return { name: 'graph' }
   if (parts[0] === 'journal') return { name: 'journal' }
   if (parts[0] === 'agenda') return { name: 'agenda' }
   if (parts[0] === 'inbox') return { name: 'inbox' }
-  if (parts[0] === 'agents') return parts[1] ? { name: 'agents', id: parts[1] } : { name: 'agents' }
+  if (parts[0] === 'agents') {
+    const run = params.get('run')
+    return parts[1] ? { name: 'agents', id: parts[1], ...(run && /^[A-Za-z0-9_-]{1,80}$/.test(run) ? { run } : {}) } : { name: 'agents' }
+  }
   if (parts[0] === 'scripts') return parts[1] ? { name: 'scripts', id: parts[1] } : { name: 'scripts' }
   if (parts[0] === 'outbox') return parts[1] && /^out_[A-Za-z0-9]{10}$/.test(parts[1]) ? { name: 'outbox', slip: parts[1] } : { name: 'outbox' }
   if (parts[0] === 'coding') return parts[1] === 'spec' || parts[1] === 'qa' ? { name: 'coding', kind: parts[1] } : { name: 'coding' }
@@ -142,6 +150,8 @@ export function routeHref(r: Route): string {
   switch (r.name) {
     case 'home':
       return '#/'
+    case 'personal-guides':
+      return r.id ? `#/my-start/${encodeURIComponent(r.id)}` : '#/my-start'
     case 'page':
       return `#/p/${r.id}${r.block ? `?b=${r.block}` : ''}`
     case 'graph':
@@ -153,7 +163,7 @@ export function routeHref(r: Route): string {
     case 'inbox':
       return '#/inbox'
     case 'agents':
-      return r.id ? `#/agents/${r.id}` : '#/agents'
+      return r.id ? `#/agents/${r.id}${r.run ? `?run=${encodeURIComponent(r.run)}` : ''}` : '#/agents'
     case 'scripts':
       return r.id ? `#/scripts/${r.id}` : '#/scripts'
     case 'coding':
@@ -166,6 +176,8 @@ export function routeHref(r: Route): string {
       return '#/discover'
     case 'regler':
       return '#/regler'
+    case 'programs':
+      return '#/compilates'
     case 'mcp':
       return '#/mcp'
     case 'patchbay': {
@@ -203,9 +215,11 @@ export function pageHref(id: string, block?: string): string {
 }
 
 export function navigate(r: Route | string, opts: { replace?: boolean } = {}): void {
+  initNavigation()
   const href = typeof r === 'string' ? r : routeHref(r)
   if (opts.replace) {
-    history.replaceState(null, '', href)
+    history.replaceState(history.state, '', href)
+    stampNavigation()
     window.dispatchEvent(new HashChangeEvent('hashchange'))
   } else if (window.location.hash !== href) {
     window.location.hash = href
@@ -233,5 +247,58 @@ function getSnapshot(): Route {
 }
 
 export function useRoute(): Route {
+  initNavigation()
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+// An app-local boundary, rather than history.length (which also counts the site before One).
+// Native entry state survives reload and browser Back/Forward. No page content is stored here.
+const NAV_KEY = 'one.navigation.v1'
+let navigationReady = false
+let navigationDepth = 0
+const navigationListeners = new Set<() => void>()
+
+function savedNavigation(): { depth: number; hash: string; path: string } | null {
+  const n = history.state?.[NAV_KEY]
+  return n && Number.isSafeInteger(n.depth) && n.depth >= 0 && n.path === location.pathname && n.hash === location.hash ? n : null
+}
+
+function stampNavigation() {
+  history.replaceState({ ...history.state, [NAV_KEY]: { depth: navigationDepth, path: location.pathname, hash: location.hash } }, '')
+}
+
+function setNavigationDepth(depth: number) {
+  navigationDepth = depth
+  for (const cb of navigationListeners) cb()
+}
+
+function initNavigation() {
+  if (navigationReady) return
+  navigationReady = true
+  navigationDepth = savedNavigation()?.depth ?? 0
+  stampNavigation()
+  window.addEventListener('popstate', () => {
+    const saved = savedNavigation()
+    if (saved) setNavigationDepth(saved.depth)
+  })
+  window.addEventListener('hashchange', () => {
+    const saved = savedNavigation()
+    const depth = saved?.depth ?? navigationDepth + 1
+    navigationDepth = depth
+    if (!saved) stampNavigation()
+    setNavigationDepth(depth)
+  })
+}
+
+export function useCanGoBack(): boolean {
+  initNavigation()
+  return useSyncExternalStore(cb => {
+    navigationListeners.add(cb)
+    return () => { navigationListeners.delete(cb) }
+  }, () => navigationDepth > 0, () => false)
+}
+
+export function goBack(): void {
+  initNavigation()
+  if (navigationDepth > 0) history.back()
 }

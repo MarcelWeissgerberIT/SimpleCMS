@@ -49,6 +49,8 @@ export interface FileMeta {
   clipped?: boolean
   /** went to Claude (false: converted on this device) */
   sent: boolean
+  /** Copilot receives locally extracted PDF text, never its figures or layout. */
+  textOnly?: true
 }
 
 /**
@@ -82,7 +84,7 @@ export async function runFileRequest(
   let material: FileMaterial
   if (req.fileKind === 'pdf') {
     const pdf = await loadPdfForClaude(req.src, maxPdfPages(pre.caps), signal)
-    opts.onFile?.({ kind: 'pdf', bytes: pdf.bytes, pages: pdf.pages, sent: true })
+    opts.onFile?.({ kind: 'pdf', bytes: pdf.bytes, pages: pdf.pages, sent: true, ...(pre.route?.p === 'copilot' ? {textOnly:true as const} : {}) })
     material = { type: 'pdf', name: req.name, data: pdf.data, pages: pdf.pages }
   } else {
     const { bytes } = await fileData(req.src, readMax, signal)

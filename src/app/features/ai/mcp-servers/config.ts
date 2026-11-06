@@ -1,3 +1,6 @@
+import {atlasTenantHint} from '@/shared/mcp/scope'
+import { assertMcpFlow } from '../core/dataFlow'
+import type { WorkerMcpServer } from '@/shared/ai/worker'
 /**
  * Remote MCP servers for One's built-in Claude — the Messages API MCP connector: Anthropic connects
  * to the server (Streamable HTTP / SSE over https) while it answers, so nothing runs in this browser
@@ -118,7 +121,9 @@ export function deriveName(url: string, others: string[]): string {
 
 /** The stored list, sanitized (bad entries are left out, never "fixed" into something else). */
 export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspace.getState().settings): McpServerConfig[] {
-  const list = Array.isArray(settings.mcpServers) ? settings.mcpServers : []
+  const active = useWorkspace.getState()
+  const scoped = active.ai?.onboarding && settings.mcpServers === active.settings.mcpServers
+  const list = scoped ? (active.settings.workspaceMcpServers ?? []) : Array.isArray(settings.mcpServers) ? settings.mcpServers : []
   const seen = new Set<string>()
   const words: string[] = []
   const out: McpServerConfig[] = []
@@ -154,7 +159,8 @@ export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspac
 
 /** Write the list (a plaintext `token` on an entry is sealed by the store; markers stay as they are). */
 export function writeServers(list: McpServerConfig[]): void {
-  useWorkspace.getState().updateSettings({ mcpServers: list })
+  const s = useWorkspace.getState()
+  s.updateSettings(s.ai?.onboarding ? { workspaceMcpServers: list } : { mcpServers: list })
 }
 
 /** Change one server. */
@@ -300,6 +306,7 @@ export function allowFor(allow: McpToolAllow | undefined, server: Pick<McpServer
 
 /** What one request sends for MCP. */
 export interface McpAttachment {
+  worker?: WorkerMcpServer[]
   servers: BetaRequestMCPServerURLDefinition[]
   toolsets: BetaMCPToolset[]
   /** appended to the request's system prompt */
@@ -316,6 +323,14 @@ export interface McpSetup {
 /** The enabled servers and the template of `settings` (default: right now). */
 export function currentSetup(settings: Pick<Settings, 'mcpServers' | 'mcpInstructions'> = useWorkspace.getState().settings): McpSetup {
   return { servers: readServers(settings).filter((s) => s.enabled), instructions: instructionsText(settings) }
+}
+
+/** A token renewal keeps the same signed-in person. Manual token replacement first signs out. */
+export function mcpAccessIdentity(s: McpServerConfig) {
+  const renewable=!!s.token&&!!s.oauth?.at&&!!s.oauth.refresh
+  return {id:s.id,name:s.name,url:s.url,enabled:s.enabled,scope:s.scope,
+    token:renewable?undefined:s.token,
+    oauth:s.oauth?{...s.oauth,expiresAt:undefined}:undefined}
 }
 
 /**
@@ -420,7 +435,7 @@ export function onRefusedChanged(fn: () => void): () => void {
   refusedListeners.add(fn)
   if (!refusedWatch) {
     refusedWatch = useWorkspace.subscribe((s, prev) => {
-      if (s.settings.mcpServers !== prev.settings.mcpServers) forgetStale()
+      if (s.settings.mcpServers !== prev.settings.mcpServers || s.settings.workspaceMcpServers !== prev.settings.workspaceMcpServers) forgetStale()
     })
   }
   return () => {
@@ -479,6 +494,7 @@ export async function attachMcp(
     const off = outToolsFor(s)
     // an allow-list without a tool (or only OUT tools): the server has nothing to offer
     if (lockedOnly(allowedTools(allow, s.name), off)?.length === 0) continue
+    assertMcpFlow([s.url])
     // a signed-in server's access token is refreshed shortly before it expires (oauth.ts)
     const token = await tokenFor(s)
     if (token === null) continue
@@ -487,9 +503,12 @@ export async function attachMcp(
   }
   if (!usable.length) return null
   const names = usable.map(({ s }) => s.name)
+  const onboarding=useWorkspace.getState().ai?.onboarding
+  const tenantHint=onboarding?.tenant&&usable.some(({s})=>s.name===onboarding.mcpName&&s.url===onboarding.mcpUrl)?'\n\n'+atlasTenantHint(onboarding.tenant):''
   // a picked tool that is OUT is never named to Claude (pickedTool does not pick one either)
   const picked = opts.picked && !(out[opts.picked.server] ?? []).includes(opts.picked.tool) ? opts.picked : null
   return {
+    worker: usable.map(({ s, token }) => ({ name: s.name, url: s.url, token, allow: allowedTools(allow, s.name), deny: out[s.name] ?? [] })),
     servers: usable.map(({ s, token }) => ({ type: 'url', url: s.url, name: s.name, ...(token ? { authorization_token: token } : {}) })),
     toolsets: usable.map(({ s }) => toolsetFor(s.name, allowedTools(allow, s.name), out[s.name])),
     system: mcpSystemText(
@@ -499,7 +518,7 @@ export async function attachMcp(
       picked,
       allow,
       out,
-    ),
+    )+tenantHint,
     names,
   }
 }

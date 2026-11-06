@@ -3,33 +3,41 @@
  * after the amount, kept on its line with a no-break space); less than a cent reads "< $0.01" / "< 0,01 $" — except on
  * receipts (fmtCost), which show the small amounts themselves.
  */
-import type { Lang } from '@/shared/i18n'
+import type { Lang } from '../../shared/i18n.ts'
 
-const formats: Partial<Record<Lang, Intl.NumberFormat>> = {}
-
-const format = (lang: Lang): Intl.NumberFormat =>
-  (formats[lang] ??= new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2 }))
-
-export function fmtUsd(usd: number, lang: Lang): string {
-  if (usd > 0 && usd < 0.01) return `< ${format(lang).format(0.01)}`
-  return format(lang).format(usd)
+export interface MoneyDisplay { currency: 'USD' | 'EUR'; eurPerUsd?: number; date?: string; source?: 'ecb' | 'manual' }
+let preferences: () => MoneyDisplay | undefined = () => undefined
+/** Store-owned preferences; keeping this formatter independent also lets Node tests use it. */
+export const registerMoneyDisplay = (read: () => MoneyDisplay | undefined) => { preferences = read }
+export function displayCurrency(): 'USD' | 'EUR' {
+  const p = preferences()
+  return p?.currency === 'EUR' && Number.isFinite(p.eurPerUsd) && p.eurPerUsd! > 0 ? 'EUR' : 'USD'
 }
-
-/** Does the sign come after the amount in this language ("3,00 $")? For a field with the sign beside it. */
+export const displayAmount = (usd: number): number => displayCurrency() === 'EUR' ? usd * preferences()!.eurPerUsd! : usd
+export const moneySymbol = (): string => displayCurrency() === 'EUR' ? '€' : '$'
+const formats = new Map<string, Intl.NumberFormat>()
+export function formatMoney(usd: number, lang: Lang, digits = 2): string {
+  const currency = displayCurrency()
+  const key = `${lang}:${currency}:${digits}`
+  let f = formats.get(key)
+  if (!f) {
+    f = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency, currencyDisplay: 'narrowSymbol', minimumFractionDigits: digits, maximumFractionDigits: digits })
+    formats.set(key, f)
+  }
+  return f.format(displayAmount(usd))
+}
+/** Input is always USD; only its presentation follows this device's preference. */
+export function fmtUsd(usd: number, lang: Lang): string {
+  const v = displayAmount(usd)
+  if (v > 0 && v < 0.01) return `< ${formatMoney(displayCurrency() === 'EUR' ? 0.01 / preferences()!.eurPerUsd! : 0.01, lang)}`
+  return formatMoney(usd, lang)
+}
 export const usdSignAfter = (lang: Lang): boolean => lang === 'de'
-
-const precise: Partial<Record<Lang, Intl.NumberFormat>> = {}
-const tiny: Partial<Record<Lang, Intl.NumberFormat>> = {}
-
-/**
- * What one request (or a run of them) cost, as a receipt shows it: two decimals from a dollar on, four below
- * ("$0.0046" · "0,0046 $"), one significant digit below a hundredth of a cent ("$0.00004").
- */
 export function fmtCost(usd: number, lang: Lang): string {
-  const loc = lang === 'de' ? 'de-DE' : 'en-US'
-  if (!(usd > 0) || usd >= 1) return format(lang).format(Math.max(0, usd || 0))
-  if (usd >= 0.0001) return (precise[lang] ??= new Intl.NumberFormat(loc, { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 4, maximumFractionDigits: 4 })).format(usd)
-  return (tiny[lang] ??= new Intl.NumberFormat(loc, { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', maximumSignificantDigits: 1 })).format(usd)
+  const v = displayAmount(usd)
+  if (!(v > 0) || v >= 1) return formatMoney(Math.max(0, usd || 0), lang)
+  if (v >= 0.0001) return formatMoney(usd, lang, 4)
+  return new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: displayCurrency(), currencyDisplay: 'narrowSymbol', maximumSignificantDigits: 1 }).format(v)
 }
 
 /** An amount for a text field in the UI's language, without the sign: "1.50" · "1,50" ('' when not a number). */
@@ -52,7 +60,7 @@ export function parseAmount(text: string, lang: string): number | null {
   // grouped thousands: "1.000" · "1.000,5" (German) · "1,000" · "1,000.5" (English)
   const grouped = de ? /^([1-9]\d{0,2}(?:\.\d{3})+)(?:,(\d*))?$/ : /^([1-9]\d{0,2}(?:,\d{3})+)(?:\.(\d*))?$/
   const g = grouped.exec(s)
-  const plain = g ? `${g[1].replace(/[.,]/g, '')}.${g[2] ?? ''}` : s
+  const plain = g ? `${g[1]!.replace(/[.,]/g, '')}.${g[2] ?? ''}` : s
   const ok = de ? /^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/ : /^(?:\d+(?:\.\d*)?|\.\d+)$/
   if (!ok.test(plain)) return null
   const n = Number(plain.replace(',', '.'))

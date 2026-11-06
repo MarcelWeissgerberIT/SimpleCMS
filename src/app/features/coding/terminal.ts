@@ -411,6 +411,8 @@ const readOnlyText = 'This workspace is read-only for the person: pipeline tasks
 export type { NewTaskInput }
 
 export interface NewTaskPlan {
+  copilotRole?: NewTask['copilotRole']
+  agent?: NewTask['agent']
   kind: PipelineKind
   projectId: ID | null
   project: string
@@ -595,6 +597,8 @@ export async function applyNewTask(plan: NewTaskPlan, writer: Writer): Promise<{
   // the pages that go along: none the review did not list (a staged page it listed may exist by now)
   if (newRefs(refPagesOf(taskBody({ goal: '', goalDoc: plan.goalDoc, criteria: plan.criteria, lead: plan.lead, extra: plan.extra ?? [] })), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
   const id = await createTask({
+    ...(plan.agent ? { agent: plan.agent } : {}),
+    ...(plan.copilotRole ? { copilotRole: plan.copilotRole } : {}),
     ...(plan.id ? { id: plan.id } : {}),
     ...(plan.order ? { order: plan.order } : {}),
     ...(plan.lead?.length ? { lead: plan.lead } : {}),

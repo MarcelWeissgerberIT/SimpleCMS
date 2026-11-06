@@ -40,7 +40,7 @@ export interface OverlayState {
    * `typed`: opened by a Space typed on an empty line — that Space's place, followed through every change until the menu
    * shows (lib/typedAt.ts; without AI set up, more typing goes back into the page)
    */
-  ai: { mode: 'selection' | 'block'; redo?: string[]; transform?: TransformPick; open?: 'todb' | 'transform'; generate?: 'image' | 'video'; typed?: TypedAt } | null
+  ai: { mode: 'selection' | 'block'; redo?: string[]; transform?: TransformPick; open?: 'todb' | 'transform' | 'skills'; generate?: 'image' | 'video'; typed?: TypedAt } | null
   /** URL pasted on an empty line → offer Link / Bookmark / Embed */
   urlPaste: { url: string; from: number; to: number } | null
   /** Mod+K / link button: bubble toolbar in link-input mode */
@@ -57,6 +57,7 @@ export interface OverlayState {
   inlinePicker: InlinePicker | null
   /** a task's picker / card (editor/workitem/ItemPickers.tsx) */
   itemPicker: ItemPickerState | null
+  drawing: { blockId?: string; mode?: 'diagram' | 'image' } | null
 }
 
 /**
@@ -108,6 +109,7 @@ export function createBridge(): Bridge {
     comments: { active: null, via: null, draft: null, panel: false, showResolved: false },
     inlinePicker: null,
     itemPicker: null,
+    drawing: null,
   })) as Bridge
   store.keyHandlers = {}
   return store
