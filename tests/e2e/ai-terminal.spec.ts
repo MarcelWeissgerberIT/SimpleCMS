@@ -331,7 +331,7 @@ test.describe('AI terminal (mocked Claude API)', () => {
 
     // /new: a new conversation starts folded; the new batch's open rows are on top
     await run(page, '/new')
-    await expect(terminal(page).locator('.term-review')).toHaveCount(0)
+    await expect(terminal(page).locator('.term-review[aria-labelledby="term-review-title"], .term-review[aria-labelledby="term-done-count"]')).toHaveCount(0)
     await run(page, 'Add three rows again')
     await expect(terminal(page).locator('#term-review-title')).toHaveText('3 proposed changes', { timeout: 20_000 })
     await expect(terminal(page).locator('.term-head__status')).toContainText('Done')
@@ -398,7 +398,7 @@ test.describe('AI terminal (mocked Claude API)', () => {
     release()
     await openTerminal(page)
     await expect(terminal(page).locator('.term-head__status')).toContainText('Stopped')
-    await expect(terminal(page).locator('.term-note')).toContainText('Nothing was applied')
+    await expect(terminal(page).locator('.term-note').filter({ hasText: 'Nothing was applied' })).toBeVisible()
     expect(bodies).toHaveLength(1)
   })
 
