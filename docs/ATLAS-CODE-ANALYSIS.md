@@ -17,3 +17,9 @@ Skills have local, theme-aware SVG thumbnails with document, alignment, code-evi
 ## Validation
 
 Unit coverage checks effects, pagination, denied/missing metadata, revocation, complete citation receipts and skill import. Cloud bridge tests verify refusal before code execution and human-only actions. Browser tests cover saving/selecting the template, provider payloads with allowed/disabled code, and light/dark layouts on desktop and mobile. Mock area regression is included because its browser geometry and comparison helpers were moved out of the shared Node-compatible model.
+
+## Readable terminal activity
+
+MCP rows show the operation, observed repository name, branch/short commit, file, line range and search term. Names come from successful responses in the current task, scoped by connection and repository; no additional lookups are sent. Unknown names stay generic. Exact identifiers and bounded parameters remain under Technical details. Existing receipt-backed code rows can show their file and range even without the newer display metadata.
+
+A fixed Current activity strip shows up to three executing calls while the log scrolls. Between tool calls it reports processing results, streaming an answer, or waiting for a decision. It does not estimate progress or invent model reasoning. Retained-source reads keep their source label during the same task and remain explicitly marked as retained reads. The change affects display only, not tool dispatch, source permissions or provider payloads.

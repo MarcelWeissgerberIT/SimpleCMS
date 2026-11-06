@@ -8,6 +8,7 @@ import {atlasReceipt,type AtlasReceipt,type AtlasFacts} from '@/shared/mcp/facts
 import {mcpConnectionMessage} from '@/shared/ai/connection-problem'
 
 export interface McpCall {
+  display?:import('@/shared/mcp/activityDisplay').McpDisplay
   contract?:import('@/shared/quandprofile/task').TaskReport
   /** the mcp_tool_use id */
   id: string

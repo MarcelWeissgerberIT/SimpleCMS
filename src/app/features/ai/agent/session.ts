@@ -604,7 +604,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       if(call.state==='ok')failedMcp.delete(key)
       if (!here()) return
       const step = get().steps.find((x) => x.mcp?.id === call.id)
-      const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error, notExecuted:call.notExecuted, receipt:call.receipt }
+      const mcp = { display:call.display, id: call.id, server: call.server, tool: call.tool, error: call.error, notExecuted:call.notExecuted, receipt:call.receipt }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
       else set((s) => ({ calls: s.calls + (call.skipped ? 0 : 1), steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'mcp', arg: call.arg, state: call.state, startedAt: Date.now(), mcp }] }))
       saveRecovery()

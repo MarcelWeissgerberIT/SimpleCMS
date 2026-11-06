@@ -1,3 +1,4 @@
+import {McpActivityNames} from '@/shared/mcp/activityDisplay'
 import {guardedAtlasCodeCall,codeHumanOnly} from '@/shared/mcp/atlasCode'
 import {McpReadReuse,reusableMcpRead} from '@/shared/mcp/readReuse'
 import {retryMcpRead} from '@/shared/mcp/readRetry'
@@ -36,6 +37,7 @@ const connectionProblem=(e:unknown)=>mcpConnectionMessage(e)
 export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void,maxChars=12000,audit?:LiveAudit,task?:TaskSession,mockSources?:MockSources,resultSession?:McpResultSession) {
   if (!workerOnline()&&!cloudAtlasMcpReady(servers)) throw new AIError('capability','features.ai.local.mcpWorker')
   const schemas=new Map<string,DiscoveredMcpTool>(),discovered=new Set<string>(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
+  const activityNames=new McpActivityNames()
   const readBodies=new Set<string>(),bodyKey=(server:string,args:Record<string,unknown>)=>JSON.stringify([server,args.tenant??null,args.ref])
   const request=async(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>{
     let waiting:McpCall|undefined
@@ -73,7 +75,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     assertMcpFlow(servers.map(s => s.url))
     if(signal?.aborted)throw new AIError('aborted')
     if(name==='one_mcp_read_result'||name==='one_mcp_find_result'||name==='one_mcp_list_results'){
-      const activity:McpCall={id,server:'MCP',tool:name,arg:String(args.path??''),state:'run'};event(activity)
+      const activity:McpCall={id,server:'MCP',tool:name,arg:String(args.path??''),display:activityNames.describe('MCP',name,args),state:'run'};event(activity)
       const read=()=>name==='one_mcp_list_results'?results.catalogue(args):name==='one_mcp_find_result'?results.find(args):results.read(args)
       try{const result=audit?await audit.tool('MCP',name,args,read):read();event({...activity,state:'ok'});return result}catch(e){if(e instanceof LiveAuditError)throw e;const error='Source page unavailable. Use one_mcp_list_results to find retained sources, then a returned result_id, path and next_offset.';event({...activity,state:'err',error});throw new AIError('mcp',error)}
     }
@@ -81,7 +83,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     if(name==='one_mcp_search'){
       if(typeof args.query!=='string'||args.query.length>200)throw new AIError('mcp','Invalid discovery query.')
       const query=task?.discoveryQuery(args.query)??args.query
-      const activity:McpCall={id,server:'MCP',tool:'one_mcp_search',arg:query,state:'run'}
+      const activity:McpCall={id,server:'MCP',tool:'one_mcp_search',arg:query,display:activityNames.describe('MCP',name,{query}),state:'run'}
       event(activity)
       try {
         const cacheKey=query.trim().toLowerCase(),cached=discoveryCache.get(cacheKey)
@@ -110,7 +112,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       // call after real discovery is the first execution of that operation.
       return JSON.stringify({isError:true,oneNotExecuted:true,error:'Discover the permitted exact tool with one_mcp_search before calling it. No MCP call was dispatched. Then use its returned native function or one_mcp_call with the exact server, name and schema-valid arguments. Do not ask the person to load tools.'})
     }
-    const activity:McpCall={id,server:args.server,tool:args.name,arg:JSON.stringify(args.arguments).slice(0,100),input:args.arguments as Record<string,unknown>,state:'run'}
+    const activity:McpCall={id,server:args.server,tool:args.name,arg:JSON.stringify(args.arguments).slice(0,100),input:args.arguments as Record<string,unknown>,display:activityNames.describe(args.server,args.name,args.arguments as Record<string,unknown>),state:'run'}
     event(activity)
     let dispatched=false
     try{
@@ -155,6 +157,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       // of source evidence, just like an explicit MCP isError response.
       const failed=JSON.parse(out.result).isError===true||(actual.name.startsWith('atlas_')&&atlasReceipt(actual.name,out.result).outcome==='error')
       task?.observe(args.name.startsWith('atlas_')?'atlas':'other',!failed,effect==='read'&&(actual.name!=='atlas_whoami'||task.identityOnly()),false,(!['atlas_whoami','atlas_record_kinds','atlas_setup_bootstrap','atlas_setup_changelog'].includes(actual.name)||actual.name==='atlas_whoami'&&task?.identityOnly()===true),actual.name)
+      if(!failed){activityNames.observe(actual.server,actual.name,actual.arguments,out.result);activity.display=activityNames.describe(actual.server,actual.name,actual.arguments)}
       if(!failed&&actual.name==='atlas_get'&&atlasReceipt(actual.name,out.result).outcome==='ok'){const item=atlasData(out.result)?.item;if(item&&Number.isSafeInteger(item.ref)&&typeof item.body==='string'){if(item.body.trim())task?.observeSource('atlas',String(item.ref));readBodies.add(bodyKey(actual.server,{...actual.arguments,ref:item.ref}))}}
       if(!failed&&actual.name==='atlas_code_read'){const data=atlasData(out.result);if(data?.citation&&typeof data.text==='string')task?.observeSource('atlas',String(data.repo)+':'+String(data.snapshot)+':'+String(data.path))}
       if(!failed){const schema=schemas.get(JSON.stringify([actual.server,actual.name]));if(schema&&['read','write','execute'].includes(effect))task?.capture({kind:'tool',server:actual.server,endpoint:selected.url,tool:actual.name,schema:schema.inputSchema,args:actual.arguments,effect:effect as 'read'|'write'|'execute'})}
@@ -186,6 +189,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const mockSource=!failed?mockSources?.observe(actual.server,new URL(selected.url).origin,actual.name,actual.arguments,out.result):null
       const {packed,sourceError}=packObservedMcpResult(results,failed?JSON.stringify({...JSON.parse(out.result),isError:true}):out.result,effect==='read',failed)
       if(!failed&&args.name.startsWith('atlas_')){const server=servers.find(s=>s.name===args.server);if(server)evidence.observe(out.result,new URL(server.url).origin,{server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>})}
+      if(!failed&&!sourceError&&activity.display)activityNames.retain(packed,activity.display)
       event({...activity,state:failed||sourceError&&effect==='read'?'err':'ok',...(failed?{error:mcpConnectionMessage(out.result,'call')}:sourceError?{error:sourceError}:{}),resultBytes:new TextEncoder().encode(out.result).length,...(receipt?{receipt}:{})})
       const searchEvidence=['atlas_search','atlas_query'].includes(args.name)?evidence.searchResult():null
       const response=receipt||evidence.hint()||mockSource?JSON.stringify({...JSON.parse(packed),...(mockSource?{oneMockSource:mockSource}:{}),...(receipt?{oneObservedFacts:modelAtlasReceipt(receipt)}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed

@@ -2506,3 +2506,15 @@
 .term-saved-work { margin: 12px 16px; padding: 12px; border: 1px solid var(--rule); overflow-wrap: anywhere; }
 .term-saved-work summary { cursor: pointer; }
 .term-saved-work > div { margin-block: 12px; }
+
+/* Keep the current observed action visible independently of the history scroll. */
+.term-activity {display:flex;gap:12px;flex:none;padding:8px 14px;border-bottom:1px solid var(--rule);border-left:3px solid var(--signal);font-size:calc(12px * var(--text-scale));max-height:140px;overflow:auto;}
+.term-activity__label {color:var(--signal-ink);white-space:nowrap;}
+.term-activity > div {min-width:0;overflow-wrap:anywhere;}
+.term-activity strong {font-weight:600;}
+.term-activity span:not(.term-activity__label) {color:var(--ink-2);}
+.term-step__description {white-space:normal;overflow-wrap:anywhere;}
+.term-step__technical {grid-column:2 / -1;min-width:0;color:var(--ink-3);font-size:calc(10px * var(--text-scale));}
+.term-step__technical summary {cursor:pointer;}
+.term-step__technical pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;margin:4px 0;}
+@media(max-width:640px){.term-activity{flex-direction:column;gap:3px;max-height:160px;}.term-step--mcp{grid-template-columns:14px minmax(0,1fr) auto;}.term-step--mcp .term-step__description{grid-column:2/-1;grid-row:2;}.term-step--mcp .term-step__res{grid-column:3;grid-row:1;}.term-step--mcp .term-step__chip{max-width:100%;}}

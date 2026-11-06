@@ -1,3 +1,5 @@
+import {CurrentActivity} from './CurrentActivity'
+import {mcpActivityText} from '@/shared/mcp/activityDisplay'
 import {SavedWork} from './SavedWork'
 import {openSkills} from '../skills/dialog'
 import {openReviewProfiles} from '../profiles/dialog'
@@ -244,6 +246,7 @@ export default function AgentSheet() {
       <div className="term__panel">
         <Grip />
         <Head />
+        <CurrentActivity />
         <div
           className="term-scroll"
           ref={scrollRef}
@@ -797,7 +800,10 @@ function StepRow({ step }: { step: AgentStep }) {
 /** A tool call of an external MCP server ("KB · search_records"), run by Anthropic. */
 function McpRow({ step }: { step: AgentStep }) {
   const t = useT()
+  const lang=useLang()
   const call = step.mcp!
+  const citation=call.receipt?.code?.citation
+  const display=mcpActivityText(call.tool,call.display??(citation?{path:citation.path,lines:citation.lines.join('–'),version:citation.commit.slice(0,8)}:undefined),step.arg,lang)
   const result = step.state === 'run' ? t('features.ai.mcp.res.run') : step.state === 'err' ? t('features.ai.mcp.res.err') : t('features.ai.mcp.res.ok')
   const server = call.server.toUpperCase()
   return (
@@ -806,12 +812,13 @@ function McpRow({ step }: { step: AgentStep }) {
         {step.state === 'err' ? '✗' : '⇄'}
       </span>
       <span className="term-step__chip" title={callLabel(call)}>
-        {callLabel(call)}
+        {display.action}
       </span>
-      <span className="term-step__arg" title={step.arg}>
-        {step.arg}
+      <span className="term-step__arg term-step__description" title={display.detail}>
+        {display.detail}
       </span>
       <span className="term-step__res">{result}</span>
+      <details className="term-step__technical"><summary>{lang==='de'?'Technische Details':'Technical details'} · {call.server}</summary><div>{callLabel(call)}</div><pre>{call.display?.technical&&call.display.technical!=='{}'?call.display.technical:step.arg}</pre></details>
       {call.receipt&&<AtlasFactsView receipt={call.receipt}/>}
       {step.state === 'err' && (
         <p className="term-step__err">
