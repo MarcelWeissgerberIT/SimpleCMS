@@ -32,7 +32,7 @@ export function checkAtlasMcp(v:unknown):v is WorkerMcpRequest{
  return true
 }
 
-export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,createClient=()=>new Client({name:'one-personal-atlas',version:'1.0.0'}),defaultTenant?:string){
+export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,createClient=()=>new Client({name:'one-personal-atlas',version:'1.0.0'}),defaultTenant?:string,human?:'code-change-publish'){
  if(!checkAtlasMcp(request))throw badRequest('invalid_mcp','Use the prepared personal AJ-Atlas connection.')
  if(request.action==='call'){const problem=atlasQueryProblem(request.name??'',request.arguments??{});if(problem)throw badRequest('mcp_query',problem)}
  const selected=request.servers[0]!,client=createClient(),endpoint=new URL(ENDPOINT)
@@ -66,7 +66,7 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
    const result=await guardedAtlasCodeCall(request.name,args!,async(name,input)=>{
     const actual=tools.find(t=>t.name===name);if(!actual||!new AjvJsonSchemaValidator().getValidator(actual.inputSchema)(input).valid)throw badRequest('mcp_arguments_invalid','Repository permission tool unavailable or incompatible.')
     return client.callTool({name,arguments:input},undefined,{signal})
-   },name=>tools.some(t=>t.name===name))
+   },name=>tools.some(t=>t.name===name),human)
    const raw=JSON.stringify(result);if(Buffer.byteLength(raw)>(request.name==='atlas_get'?MCP_SOURCE_BYTES:180000))throw new ApiError(502,'mcp_response_limit','Atlas result exceeds the bounded download size; request fewer sections or records.')
    return {result:scrub(raw)}
   }
@@ -100,18 +100,19 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
 
 export function atlasMcpRoutes(s:Services){
  const app=new Hono<AppEnv>()
- app.post('/:id/atlas-mcp',async c=>{
+ for(const human of [false,true])app.post(human?'/:id/atlas-code-change-publish':'/:id/atlas-mcp',async c=>{
   const {workspace,auth}=access(s,c,'member')
   const policy=await s.collab.read('ws:'+workspace.id,doc=>sanitizeWorkspaceAI(doc.getMap('workspace').get('ai')))
   const setup=policy?.onboarding
   if(!mcpDestinationAllowed(ENDPOINT,policy?.dataFlow))throw forbidden('mcp_destination','Atlas is excluded by this workspace data-flow rule.')
   if(setup?.mcpUrl!==ENDPOINT)throw forbidden('atlas_not_prepared','This workspace has no prepared personal AJ-Atlas connection.')
   const input=await body(c,z.custom<WorkerMcpRequest>(checkAtlasMcp))
+  if(human&&(input.action!=='call'||input.name!=='atlas_code_change_publish'))throw badRequest('code_change_action','This route only publishes an explicitly reviewed code change.')
   if(input.servers[0]!.name!==setup.mcpName)throw badRequest('mcp_scope','Use this workspace’s prepared Atlas connection.')
   const wait=s.limiter.hit('atlas-mcp:'+workspace.id+':'+auth.user.id,60,60000);if(wait)throw rateLimited(wait/1000)
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000)
   const disconnected=()=>controller.abort();c.req.raw.signal.addEventListener('abort',disconnected,{once:true})
-  try{return c.json(await runAtlasMcp(input,controller.signal,undefined,setup.tenant))}finally{clearTimeout(timer);c.req.raw.signal.removeEventListener('abort',disconnected)}
+  try{return c.json(await runAtlasMcp(input,controller.signal,undefined,setup.tenant,human?'code-change-publish':undefined))}finally{clearTimeout(timer);c.req.raw.signal.removeEventListener('abort',disconnected)}
  })
  return app
 }

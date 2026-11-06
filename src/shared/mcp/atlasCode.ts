@@ -1,8 +1,8 @@
 /** Atlas repository calls carry confidential code. The host checks the repository's
  * current model switch before a content call and again before releasing its result. */
 export const ATLAS_CODE_READ_TOOLS=['atlas_code_repos','atlas_code_versions','atlas_code_files','atlas_code_search','atlas_code_read','atlas_code_compare','atlas_code_verify','atlas_code_drafts'] as const
-const guarded=new Set<string>([...ATLAS_CODE_READ_TOOLS.filter(n=>n!=='atlas_code_repos'),'atlas_code_propose'])
-export const codeHumanOnly=(name:string)=>['atlas_code_review','atlas_code_repo_create','atlas_code_repo_update'].includes(name)
+const guarded=new Set<string>([...ATLAS_CODE_READ_TOOLS.filter(n=>n!=='atlas_code_repos'),'atlas_code_propose','atlas_code_change_save','atlas_code_change_get','atlas_code_change_publish'])
+export const codeHumanOnly=(name:string)=>['atlas_code_change_publish','atlas_code_review','atlas_code_repo_create','atlas_code_repo_update'].includes(name)
 const object=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 export function codeData(raw:unknown):Record<string,any>|null{
  try{const v=typeof raw==='string'?JSON.parse(raw):raw;if(!object(v)||v.isError===true)return null
@@ -15,8 +15,8 @@ export class AtlasCodePolicyError extends Error{}
 export const codeRefusal=(error:string)=>({isError:true,oneNotExecuted:true,content:[{type:'text',text:JSON.stringify({error})}]})
 /** Returns a safe refusal; no denied result or code is included in errors. Metadata
  * must come from a fresh permitted catalogue call, never model-supplied assertions. */
-export async function guardedAtlasCodeCall(name:string,args:Record<string,unknown>,call:(name:string,args:Record<string,unknown>)=>Promise<unknown>,allowed:(name:string)=>boolean):Promise<unknown>{
- if(codeHumanOnly(name))return codeRefusal('Repository imports, model-switch changes and code-draft reviews require the person to act in Atlas. This agent operation was not executed.')
+export async function guardedAtlasCodeCall(name:string,args:Record<string,unknown>,call:(name:string,args:Record<string,unknown>)=>Promise<unknown>,allowed:(name:string)=>boolean,human?:'code-change-publish'):Promise<unknown>{
+ if(codeHumanOnly(name)&&!(name==='atlas_code_change_publish'&&human==='code-change-publish'))return codeRefusal('Repository imports, model-switch changes and code-draft reviews require the person to act in Atlas. This agent operation was not executed.')
  if(!guarded.has(name))return call(name,args)
  const repo=name==='atlas_code_verify'?args.citation&&object(args.citation)?args.citation.repo:undefined:args.repo
  if(typeof repo!=='string'||!repo.trim())return codeRefusal('An explicit repository identity is required for this Atlas code operation.')

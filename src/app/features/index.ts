@@ -691,3 +691,7 @@ export {requestCodeEvidence} from './ai/agent/CodeEvidenceRequest'
 export {UIStudio} from './ui-studio/UIStudio'
 export {CodeAnalysis} from './code-analysis/CodeAnalysis'
 export {runCodeAnalysis} from './ai/code-analysis/run'
+
+export {CodeChange} from './code-change/CodeChange'
+export {generateCodeChange,verifyChangeSources} from './ai/code-change/run'
+export {attachCodeChange,nativeCodeChange} from './ai/code-change/atlas'

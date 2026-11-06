@@ -1,0 +1,101 @@
+import type { Messages } from '@/shared/i18n'
+const p: Record<string, [string, string]> = {
+  publishTarget: ['Repository destination', 'Repository-Ziel'],
+  project: ['Project', 'Projekt'],
+  published: ['Draft merge request created', 'Draft-Merge-Request erstellt'],
+  publishing: ['Publishing; check status before retrying', 'Wird veröffentlicht; vor Wiederholung Status prüfen'],
+  nativeSave: ['Save code proposal in Atlas', 'Codevorschlag in Atlas speichern'],
+  nativeGet: ['Refresh Atlas status', 'Atlas-Status aktualisieren'],
+  publish: ['Create branch and draft merge request', 'Branch und Draft-Merge-Request erstellen'],
+  nativeUnavailable: [
+    'Atlas has not enabled the code-change API yet, or the exact package was not confirmed.',
+    'Atlas hat die Codeänderungs-API noch nicht aktiviert oder das exakte Paket nicht bestätigt.',
+  ],
+  nativeHint: [
+    'Publish uses the configured GitLab target. It creates a separate branch and draft merge request; merging remains a separate action.',
+    'Veröffentlichen nutzt das konfigurierte GitLab-Ziel. Es entstehen ein separater Branch und Draft-Merge-Request; Zusammenführen bleibt eine eigene Aktion.',
+  ],
+  title: ['Code change', 'Codeänderung'],
+  create: ['Create change', 'Änderung erstellen'],
+  scope: ['Choose source ranges', 'Quellbereiche auswählen'],
+  load: ['Load and save selected source ranges', 'Gewählte Quellbereiche laden und speichern'],
+  storage: [
+    'The selected code excerpts will be saved in this One page. Up to three non-overlapping ranges from one snapshot, with at most 120 lines each.',
+    'Die gewählten Codeausschnitte werden in dieser One-Seite gespeichert. Bis zu drei überschneidungsfreie Bereiche aus einem Snapshot mit jeweils höchstens 120 Zeilen.',
+  ],
+  instruction: ['Requested change', 'Gewünschte Änderung'],
+  generate: ['Draft with One model', 'Mit One-Modell entwerfen'],
+  generating: ['Drafting the scoped change', 'Begrenzte Änderung entwerfen'],
+  verifying: ['Verifying pinned source', 'Festgelegte Quelle prüfen'],
+  budget: ['Total model budget for this change (USD)', 'Gesamtbudget des Modells für diese Änderung (USD)'],
+  save: ['Save edited proposal', 'Bearbeiteten Vorschlag speichern'],
+  reason: ['Reason', 'Begründung'],
+  stop: ['Stop', 'Stoppen'],
+  accept: ['Verify sources and accept proposal', 'Quellen prüfen und Vorschlag annehmen'],
+  accepted: ['Accepted proposal', 'Angenommener Vorschlag'],
+  draft: ['Proposal for review', 'Vorschlag zur Prüfung'],
+  before: ['Original range', 'Ursprünglicher Bereich'],
+  after: ['Replacement range', 'Ersatz für diesen Bereich'],
+  diff: ['Line changes', 'Zeilenänderungen'],
+  versions: ['Saved proposals', 'Gespeicherte Vorschläge'],
+  checks: ['Recommended checks (not executed)', 'Empfohlene Prüfungen (nicht ausgeführt)'],
+  noExecution: [
+    'One drafts source changes without executing code. Build and tests have not run.',
+    'One entwirft Quellcodeänderungen ohne Codeausführung. Build und Tests wurden nicht ausgeführt.',
+  ],
+  export: ['Download change package', 'Änderungspaket herunterladen'],
+  atlas: ['Save package in Atlas', 'Paket in Atlas speichern'],
+  destination: ['Existing Atlas record number', 'Nummer des bestehenden Atlas-Records'],
+  uploading: ['Attaching change package', 'Änderungspaket anhängen'],
+  delivery: ['Atlas delivery', 'Atlas-Ablage'],
+  confirmed: ['Exact package confirmed', 'Exaktes Paket bestätigt'],
+  pending: ['Delivery started; check Atlas before any retry', 'Ablage begonnen; vor erneutem Versuch Atlas prüfen'],
+  uncertain: [
+    'Atlas did not confirm the exact package. Check the target record before retrying; no automatic retry.',
+    'Atlas hat das exakte Paket nicht bestätigt. Zielrecord vor erneutem Versuch prüfen; keine automatische Wiederholung.',
+  ],
+  repository: [
+    'Repository transfer requires an Atlas code-patch endpoint. This saves the reviewed package as an attachment.',
+    'Die Repository-Übernahme benötigt einen Atlas-Schreibweg für Code-Patches. Hier wird das geprüfte Paket als Anhang abgelegt.',
+  ],
+  format: [
+    'The change package is invalid or exceeds the small-change limits.',
+    'Das Änderungspaket ist ungültig oder überschreitet die Grenzen für kleine Änderungen.',
+  ],
+  changed: [
+    'The page, source or access changed. Reopen the change before continuing.',
+    'Seite, Quelle oder Zugriff wurden geändert. Änderung vor dem Fortsetzen erneut öffnen.',
+  ],
+  connection: [
+    'A permitted personal Atlas cloud connection and One model are required.',
+    'Eine erlaubte persönliche Atlas-Cloud-Verbindung und ein One-Modell werden benötigt.',
+  ],
+  context: ['More source context is needed.', 'Mehr Quellkontext wird benötigt.'],
+  acceptFirst: [
+    'Accept the exact proposal and select a valid Atlas record first.',
+    'Zuerst den genauen Vorschlag annehmen und einen gültigen Atlas-Record wählen.',
+  ],
+  deliveryExists: [
+    'This proposal already has a delivery to that record. Check its receipt in Atlas.',
+    'Für diesen Vorschlag besteht bereits eine Ablage an diesen Record. Beleg in Atlas prüfen.',
+  ],
+  noChange: ['The proposal contains no changes.', 'Der Vorschlag enthält keine Änderungen.'],
+  historyFull: [
+    'Ten proposals reached. Keep this block as history and create a new change.',
+    'Zehn Vorschläge erreicht. Diesen Block als Historie behalten und eine neue Änderung erstellen.',
+  ],
+  unsaved: [
+    'Save your edits as a new proposal before accepting or exporting.',
+    'Bearbeitungen vor Annahme oder Export als neuen Vorschlag speichern.',
+  ],
+  server: ['Atlas connection', 'Atlas-Verbindung'],
+  empty: [
+    'Create this block from a code-analysis finding with source evidence.',
+    'Diesen Block aus einem Codeanalyse-Finding mit Quellbelegen erstellen.',
+  ],
+  manual: ['Manual edit', 'Manuelle Bearbeitung'],
+}
+export const messages: Messages = {
+  en: Object.fromEntries(Object.entries(p).map(([k, v]) => ['codeChange.' + k, v[0]])),
+  de: Object.fromEntries(Object.entries(p).map(([k, v]) => ['codeChange.' + k, v[1]])),
+}

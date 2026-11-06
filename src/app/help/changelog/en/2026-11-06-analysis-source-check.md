@@ -1,7 +1,7 @@
 ---
 id: 2026-11-06-analysis-source-check
 date: 2026-11-06
-order: 2
+order: 3
 title: Document analysis uses the required sources
 summary: A connected Atlas account no longer forces an extra read in every document stage.
 image: assets/shots/changelog/analysis-source-check.webp

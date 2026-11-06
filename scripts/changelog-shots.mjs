@@ -943,6 +943,13 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'code-changes'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const reference={server:'aj-atlas',repoName:'ui-components',citation:{repo:'repo-a',snapshot:'snapshot-a',commit:'a'.repeat(40),path:'src/SaveButton.tsx',lines:[12,14],digest:'d'.repeat(64)},finding:'The icon button needs a readable label.',highlight:[12,14]}
+    const raw=JSON.stringify({format:'one-code-change',version:1,id:'shot-change',origin:{analysis:'analysis',revision:'v1',finding:'f1',title:'Name the save action'},references:[reference],files:[{id:'file-0',reference,before:['<button type="button" onClick={save}>','  <SaveIcon />','</button>'],checkedAt:1793966400000}],proposals:[{id:'p1',at:1793966400000,instruction:'Give the save action an accessible name.',reason:'A visible label explains the action to everyone.',checks:['Check the accessible name and keyboard activation.'],edits:[{file:'file-0',after:['<button type="button" onClick={save}>','  <SaveIcon aria-hidden="true" /> Save','</button>']}],author:'ai'}],accepted:null,deliveries:[],remote:[]})
+    const id=await createPage(page,'Review a small UI change',doc({type:'codeBlock',attrs:{language:'code-change'},content:[{type:'text',text:raw}]},para('')))
+    await page.setViewportSize({width:1440,height:1250});await openPage(page,id);const block=page.getByRole('region',{name:'Code change',exact:true});await block.waitFor();await scrollToTop(block,20);await rest(page);await save(page,'code-changes');await ctx.close()
+  },
   async 'code-analysis'(browser) {
     const {ctx,page}=await freshPage(browser)
     const raw=JSON.stringify(analysisFixture(true))

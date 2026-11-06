@@ -143,3 +143,13 @@ test('Atlas code bridge checks the model switch before reading and preserves ver
  const review:any=await runAtlasMcp({...request,name:'atlas_code_review',arguments:{draft:'draft-a',decision:'accept'}},signal,factory)
  assert.equal(JSON.parse(review.result).oneNotExecuted,true);assert.deepEqual(calls,[])
 })
+
+test('code publication requires the separate human path and fresh model permission',async()=>{
+ let enabled=true;const called:string[]=[];
+ const factory=()=>({connect:async()=>{},listTools:async()=>({tools:['atlas_code_repos','atlas_code_change_publish'].map(name=>({name,inputSchema:{type:'object'}}))}),callTool:async(v:any)=>{called.push(v.name);return {content:[{type:'text',text:JSON.stringify(v.name==='atlas_code_repos'?{items:[{id:'repo-a',modelProcessing:enabled}],next:null}:{ok:true})}]}},close:async()=>{}})as any
+ const req={...request,name:'atlas_code_change_publish',arguments:{repo:'repo-a',change:'c',hash:'a'.repeat(64),targetHash:'b'.repeat(64)}} as WorkerMcpRequest,signal=new AbortController().signal;
+ const denied:any=await runAtlasMcp(req,signal,factory);assert.equal(JSON.parse(denied.result).oneNotExecuted,true);assert.deepEqual(called,[]);
+ await runAtlasMcp(req,signal,factory,undefined,'code-change-publish');assert.deepEqual(called,['atlas_code_repos','atlas_code_change_publish','atlas_code_repos']);
+ called.length=0;enabled=false;await runAtlasMcp(req,signal,factory,undefined,'code-change-publish');assert.deepEqual(called,['atlas_code_repos']);
+ const app=await startServer();try{const owner=await signIn(app,'change-owner@test.invalid'),alien=await signIn(app,'change-alien@test.invalid'),ws=(await owner.post('/api/workspaces',{name:'Changes'})).body.id;assert.equal((await owner.post(`/api/workspaces/${ws}/atlas-code-change-publish`,req)).status,403);assert.equal((await alien.post(`/api/workspaces/${ws}/atlas-code-change-publish`,req)).status,404)}finally{await app.stop()}
+})

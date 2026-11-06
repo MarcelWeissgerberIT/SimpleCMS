@@ -1,7 +1,7 @@
 ---
 id: 2026-11-06-code-analysis
 date: 2026-11-06
-order: 1
+order: 2
 title: Codeanalyse mit Findings und Zwischenständen
 summary: Code in One mit Gegenprüfung, verknüpften Belegen und geprüften Versionen untersuchen.
 image: assets/shots/changelog/code-analysis.webp

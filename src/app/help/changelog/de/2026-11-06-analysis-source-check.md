@@ -1,7 +1,7 @@
 ---
 id: 2026-11-06-analysis-source-check
 date: 2026-11-06
-order: 2
+order: 3
 title: Dokumentanalyse prüft die benötigten Quellen
 summary: Ein verbundener Atlas-Zugang erzwingt nicht mehr in jeder Dokument-Stufe einen zusätzlichen Abruf.
 image: assets/shots/changelog/analysis-source-check.webp

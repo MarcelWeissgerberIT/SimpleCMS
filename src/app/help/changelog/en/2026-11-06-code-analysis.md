@@ -1,7 +1,7 @@
 ---
 id: 2026-11-06-code-analysis
 date: 2026-11-06
-order: 1
+order: 2
 title: Code analysis with findings and checkpoints
 summary: Investigate code in One with counterchecks, linked evidence and reviewed versions.
 image: assets/shots/changelog/code-analysis.webp
