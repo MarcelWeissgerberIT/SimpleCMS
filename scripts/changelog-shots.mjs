@@ -942,6 +942,19 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'ui-studio-evidence'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const manifest={version:1,definitions:[{id:'C001',name:'Protocol list',kind:'DataTable',evidence:'dom'},{id:'C002',name:'Status badge',kind:'Badge',evidence:'image'}],trees:[{id:'T1',name:'Protocols',width:1440,nodes:[{id:'N1',componentId:'C001',parentId:null,label:'Table with search and status filter'},{id:'N2',componentId:'C002',parentId:'N1',label:'Ready / In review / Draft'}]}]}
+    const contracts={C001:'# Protocol list\n\nKomponenten-ID: C001\n\n## Responsibility\nShow protocols with their device, modification date and status.\n\n## One integration\nReuse the existing table, search and select components. Use One typography, spacing and color tokens.\n\n## Open questions\nConfirm empty, loading and permission-denied states.',C002:'# Status badge\n\nKomponenten-ID: C002\n\nUse the existing One badge. Image-derived appearance is an estimate.'}
+    const markdown=Object.entries(contracts).map(([id,text])=>`<!-- ui-component:${id}:start -->\n${text}\n<!-- ui-component:${id}:end -->`).join('\n\n')+'\n<!-- ui-manifest:start -->\n```json\n'+JSON.stringify(manifest)+'\n```\n<!-- ui-manifest:end -->'
+    const raw=JSON.stringify({format:'component-studio-project',version:1,settings:{project:'Protocol UI · Component library'},markdown})
+    const id=await createPage(page,'UI Instructions in One',doc({type:'codeBlock',attrs:{language:'ui-instructions'},content:[{type:'text',text:raw}]},para('')))
+    await openPage(page,id)
+    const studio=page.getByRole('region',{name:'UI Studio'})
+    await studio.waitFor();await scrollToTop(studio,60);await rest(page)
+    await save(page,'ui-studio-evidence')
+    await ctx.close()
+  },
   async 'atlas-connection-stability'(browser) {
     const {ctx,page}=await freshPage(browser,{setup:async ctx=>{
       await ctx.route(`${LOCAL}/api/config`,r=>r.fulfill({json:{version:'shot',signup:{mode:'open',domains:[]},max_upload_mb:20,dev_mode:false,source_url:'',schema_min:2,supports:['ai','providers']}}))

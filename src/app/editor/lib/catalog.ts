@@ -323,6 +323,7 @@ export const BLOCKS: BlockItem[] = [
   },
   { id: 'dbLinked', group: 'database', icon: Link2, keywords: 'linked database existing verknüpfte datenbank', picker: 'database', run: (ctx) => ctx.pickDatabase?.() },
   // ---------------- advanced
+  { id: 'uiStudio', group: 'advanced', icon: Code, md: '/ui-studio', keywords: 'ui instructions components studio design referenz html analyse komponenten', run: ctx => insertBlock(ctx.editor, {type:'codeBlock',attrs:{language:'ui-instructions'},content:[{type:'text',text:'{}'}]},ctx.range) },
   { id: 'codeReference', group: 'advanced', icon: Code, md: '/quellcode', keywords: 'atlas code evidence reference source finding quellcode beleg referenz datei', run: ctx => insertBlock(ctx.editor, {type:'codeBlock',attrs:{language:'atlas-code'},content:[{type:'text',text:'{}'}]},ctx.range) },
   { id: 'code', group: 'advanced', icon: Code, md: '```', keys: 'Mod+Alt+C', keywords: 'code snippet programming quellcode', turnInto: 'codeBlock', run: turn('codeBlock') },
   {

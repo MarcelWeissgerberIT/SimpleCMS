@@ -685,3 +685,7 @@ export { MockReviewPanel } from './ai/agent/MockReviewPanel'
 export {MockSourcePanel} from './ai/agent/MockSourcePanel'
 
 export { CodeEvidence } from './code-evidence/CodeEvidence'
+
+export {requestCodeEvidence} from './ai/agent/CodeEvidenceRequest'
+
+export {UIStudio} from './ui-studio/UIStudio'

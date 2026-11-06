@@ -11,3 +11,19 @@ Atlas verifies the original citation before reading. The returned snapshot, comm
 Source content is held only in the open viewer. Closing, cancellation, changing the reference, connection, workspace or access scope discards it and aborts pending work. Static shared documents show the reference but cannot load code unless the referenced page is available in the current workspace and the person has their own permitted connection. No repository execution, edit, import or Atlas write is offered.
 
 The Atlas code-analysis template and current MCP tool guidance describe this output format so requested analyses can create source cards directly. Previously saved skill versions retain their pinned instructions; select and save a new template version to replace those instructions explicitly.
+
+## Request evidence for a passage
+
+Select text in the editor and choose **Quellcode-Belege nachfordern / Request
+source-code evidence** (file/search icon). The dialog retains the selected passage
+and its source page, with optional repository and version fields. It prepares an
+unstarted terminal task. The normal model route, permissions and metering apply
+when the user presses Start. Existing terminal drafts/runs are never overwritten;
+reference overflow and selections above 8,000 characters are reported, not silently
+truncated. Workspace changes close the pending request.
+
+The task requires repository/version discovery, modelProcessing permission,
+read-only code reads and citation verification, and reports supporting,
+contradicting, partial or absent evidence. Results use the existing atlas-code
+cards. The passage is not automatically rewritten. This is an investigation
+instruction for the existing reviewed terminal, not a new autonomous worker.

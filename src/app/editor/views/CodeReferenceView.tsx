@@ -18,6 +18,6 @@ export function CodeReferenceView({node,editor,getPos}:ReactNodeViewProps){
  }
  return <NodeViewWrapper className="code-reference-block">
   <div contentEditable={false}><Suspense fallback={<span>Atlas …</span>}><Evidence raw={node.textContent} editable={editable} canRead={!!page&&!page.trashedAt} onSave={save}/></Suspense></div>
-  <div hidden><NodeViewContent as="code"/></div>
+  <div hidden><NodeViewContent/></div>
  </NodeViewWrapper>
 }
