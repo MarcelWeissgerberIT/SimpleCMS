@@ -25,7 +25,7 @@ export function readMockJournal(raw:unknown,readPreview:(raw:unknown)=>MockBlock
   if(!n||!validId(n.id)||!versions.some(v=>v.key===n.version)||!n.element||!['check','fix','replace'].includes(n.intent)||!['check','mock','design-system'].includes(n.scope))return []
   const e=n.element,a=n.assessment
   const cleanElement=(e:MockElement):MockElement=>({path:short(e.path,1200),tag:short(e.tag,40),text:short(e.text,500),component:short(e.component,160),requirement:short(e.requirement,80),snippet:short(e.snippet,2000)})
-  if(n.elements!==undefined&&(!Array.isArray(n.elements)||!n.elements.length||n.elements.length>MOCK_SELECTION_LIMIT||n.elements.some(e=>!e||typeof e.path!=='string'||typeof e.tag!=='string')||new Set(n.elements.map(e=>e.path)).size!==n.elements.length||n.elements[0].path!==n.element.path))return []
+  if(n.elements!==undefined&&(!Array.isArray(n.elements)||!n.elements.length||n.elements.length>MOCK_SELECTION_LIMIT||n.elements.some(e=>!e||typeof e.path!=='string'||typeof e.tag!=='string')||new Set(n.elements.map(e=>e.path)).size!==n.elements.length||n.elements[0]?.path!==n.element.path))return []
   const region=readMockRegion(n.region);if(n.region!==undefined&&!region)return []
   const elements=n.elements?.map(cleanElement)
   const assessment:MockAssessment|undefined=a&&a.id===n.id&&['mock','design-system','unclear'].includes(a.scope)&&Array.isArray(a.refs)?{id:n.id,scope:a.scope,reason:short(a.reason,1600),proposal:short(a.proposal,3000),refs:a.refs.filter(r=>Number.isSafeInteger(r)&&r>0).slice(0,8)}:undefined

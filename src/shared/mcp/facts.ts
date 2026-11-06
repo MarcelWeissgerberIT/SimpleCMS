@@ -1,6 +1,8 @@
+import {ATLAS_CODE_READ_TOOLS,readCodeCitation,type AtlasCodeCitation} from './atlasCode.ts'
 import {type QuantumProof} from '../quandprofile/runtime.ts'
 /** Run-local facts from tool responses. Model prose, discovery and document bodies cannot mint facts. */
 export type AtlasReceipt = {
+  code?:{citation:AtlasCodeCitation;verified:boolean}
   quantum?: QuantumProof
   server?: string
   tool: string
@@ -21,8 +23,8 @@ export type FactIssue = { kind: 'reference' | 'count' | 'effect' | 'outcome'; de
 export function modelAtlasReceipt({quantum,...receipt}:AtlasReceipt){return {...receipt,...(quantum?{quantum:{gate:quantum.gate,status:quantum.status}}:{})}}
 type Call = { server: string; name: string; arguments: Record<string, unknown> }
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
-const READ = new Set(['atlas_whoami','atlas_project_list','atlas_tenant_search','atlas_record_kinds','atlas_get','atlas_search','atlas_query','atlas_constraints','atlas_children','atlas_graph','atlas_sprint_report','atlas_code_resolve','atlas_setup_bootstrap','atlas_setup_changelog','atlas_similar','atlas_context','atlas_briefing','atlas_agent_list','atlas_flow_list','atlas_agent_inbox','atlas_agent_approvals','atlas_my_agent_jobs','atlas_polarion_status','atlas_polarion_resolve','atlas_polarion_read','atlas_polarion_inspect','atlas_polarion_search'])
-const WRITE = new Set(['atlas_create','atlas_update','atlas_comment','atlas_log_work','atlas_bulk_update','atlas_sprint_commit','atlas_delete','atlas_restore','atlas_attach','atlas_attach_link','atlas_setup_checkup','atlas_assess','atlas_health_scan','atlas_project_delete','atlas_tenant_select','atlas_agent_create','atlas_agent_propose','atlas_agent_flow','atlas_agent_trigger','atlas_flow_start','atlas_agent_job_claim','atlas_agent_job_done','atlas_agent_job_approve','atlas_agent_update','atlas_agent_token','atlas_agent_token_revoke','atlas_agent_revoke','atlas_agent_block','atlas_memory_save'])
+const READ = new Set<string>([...ATLAS_CODE_READ_TOOLS,'atlas_whoami','atlas_project_list','atlas_tenant_search','atlas_record_kinds','atlas_get','atlas_search','atlas_query','atlas_constraints','atlas_children','atlas_graph','atlas_sprint_report','atlas_code_resolve','atlas_setup_bootstrap','atlas_setup_changelog','atlas_similar','atlas_context','atlas_briefing','atlas_agent_list','atlas_flow_list','atlas_agent_inbox','atlas_agent_approvals','atlas_my_agent_jobs','atlas_polarion_status','atlas_polarion_resolve','atlas_polarion_read','atlas_polarion_inspect','atlas_polarion_search'])
+const WRITE = new Set(['atlas_code_propose','atlas_create','atlas_update','atlas_comment','atlas_log_work','atlas_bulk_update','atlas_sprint_commit','atlas_delete','atlas_restore','atlas_attach','atlas_attach_link','atlas_setup_checkup','atlas_assess','atlas_health_scan','atlas_project_delete','atlas_tenant_select','atlas_agent_create','atlas_agent_propose','atlas_agent_flow','atlas_agent_trigger','atlas_flow_start','atlas_agent_job_claim','atlas_agent_job_done','atlas_agent_job_approve','atlas_agent_update','atlas_agent_token','atlas_agent_token_revoke','atlas_agent_revoke','atlas_agent_block','atlas_memory_save'])
 /** Host classification; model-supplied annotations do not grant an effect. Unknown tools fail closed. */
 export function atlasTaskEffect(name:string,args:Record<string,unknown>):'read'|'write'|'execute'|'authenticate'|'forbidden'{
   if(READ.has(name)||name==='atlas_agent_flow'&&['list','get'].includes(String(args.action)))return 'read'
@@ -70,7 +72,7 @@ export function atlasReceipt(tool: string, raw: unknown, failed = false): AtlasR
   if (!error) walk(data)
   const counts: AtlasReceipt['counts'] = []
   if (!error && data) {
-    for (const [key, unit] of Object.entries(COUNTS)) if (Array.isArray(data[key])) counts.push({ unit, value:data[key].length, ...(['atlas_search','atlas_query'].includes(tool)&&unit==='records'?{scope:'returned' as const}:{}) })
+    for (const [key, unit] of Object.entries(COUNTS)) if (Array.isArray(data[key])) counts.push({ unit:tool.startsWith('atlas_code_')?({atlas_code_repos:'repositories',atlas_code_versions:'snapshots',atlas_code_files:'files',atlas_code_drafts:'drafts',atlas_code_compare:'files'} as Record<string,string>)[tool]??unit:unit, value:data[key].length, ...(['atlas_search','atlas_query'].includes(tool)&&unit==='records'?{scope:'returned' as const}:{}) })
     if (['atlas_search','atlas_query'].includes(tool)) for (const key of ['count','total']) if (Number.isSafeInteger(data[key]) && data[key] >= 0) counts.push({ unit:'records', value:data[key], scope:key==='count'?'returned':'total' })
     if(tool==='atlas_project_list'&&Array.isArray(data.projects)){
       const groups=new Map<string,number>()
@@ -86,7 +88,8 @@ export function atlasReceipt(tool: string, raw: unknown, failed = false): AtlasR
   let effect: AtlasReceipt['effect'] = READ.has(tool) ? 'read' : WRITE.has(tool) ? 'write_accepted' : 'unknown'
   if (tool === 'atlas_agent_flow' && data?.flow === undefined) effect = 'unknown'
   if (['atlas_flow_start','atlas_agent_trigger'].includes(tool) && data?.job?.status !== 'done') effect = 'queued'
-  return { tool, outcome:error ? 'error' : Number(data?.failed) > 0 ? 'partial' : 'ok', effect, refs:[...refs].slice(0,200), ...(linkedRefs.size?{linkedRefs:[...linkedRefs].slice(0,200)}:{}), ids:[...ids].slice(0,200), counts,
+  const citation=!error&&['atlas_code_read','atlas_code_verify'].includes(tool)?readCodeCitation(data?.citation):undefined
+  return { ...(citation?{code:{citation,verified:tool==='atlas_code_verify'&&data?.valid===true}}:{}),tool, outcome:error ? 'error' : Number(data?.failed) > 0 ? 'partial' : 'ok', effect, refs:[...refs].slice(0,200), ...(linkedRefs.size?{linkedRefs:[...linkedRefs].slice(0,200)}:{}), ids:[...ids].slice(0,200), counts,
     ...(typeof data?.person === 'string' ? { person:data.person.slice(0,120) } : {}),
     ...(typeof (data?.job?.status ?? data?.proposal?.status ?? data?.chain?.status) === 'string' ? { status:String(data?.job?.status ?? data?.proposal?.status ?? data?.chain?.status).slice(0,60) } : {}),
     ...(effect === 'write_accepted' ? { verification:'not_checked' as const } : {}) }
@@ -102,7 +105,7 @@ export class AtlasFacts {
   private otherWrite = false
   private discovery = new Map<string,boolean>()
   noteDiscovery(server:string,ok:boolean) { this.discovery.set(server,ok) }
-  sourceChecks() { return [...this.discovery].map(([server,ok])=>({server,discovery:ok?'available':'failed',contentRead:this.receipts.some(r=>r.server===server&&r.outcome==='ok'&&['atlas_search','atlas_query','atlas_get','atlas_context','atlas_briefing'].includes(r.tool))})) }
+  sourceChecks() { return [...this.discovery].map(([server,ok])=>({server,discovery:ok?'available':'failed',contentRead:this.receipts.some(r=>r.server===server&&r.outcome==='ok'&&['atlas_search','atlas_query','atlas_get','atlas_context','atlas_briefing','atlas_code_read'].includes(r.tool))})) }
   noteOtherWrite() { this.otherWrite=true }
   observedTargets(server:string) { return [...this.targets.get(server)??[]] }
   observe(call: Call, raw: unknown, failed = false) {

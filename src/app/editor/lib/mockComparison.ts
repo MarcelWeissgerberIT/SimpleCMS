@@ -1,7 +1,7 @@
 /** Browser-owned comparison of inert snapshots. Model claims are never comparison evidence. */
 import DOMPurify from 'dompurify'
-import {mockBlockFrame,type MockBlockPreview} from './mockBlock'
-import {mockColorStyle} from './mockBlockProvenance'
+import {mockBlockFrame,type MockBlockPreview} from '@/shared/ai/mockBlock'
+import {mockColorStyle} from '@/shared/ai/mockBlockProvenance'
 
 export function safeMockPreview(p:MockBlockPreview){return mockBlockFrame(DOMPurify.sanitize(p.document,{WHOLE_DOCUMENT:true,ADD_TAGS:['style'],FORBID_TAGS:['meta','base','script','link','iframe','object','embed','form'],FORBID_ATTR:['src','srcset','action','formaction','href','poster','background']})+mockColorStyle(p.colors??{}))}
 export type MockDifference={id:string;label:string;beforePath?:string;afterPath?:string;kind:'added'|'removed'|'changed';details:Array<{property:string;before:string;after:string}>}
@@ -37,7 +37,7 @@ function differences(a:Entry[],b:Entry[]):MockDifference[]{
   const details:MockDifference['details']=[]
   const add=(property:string,before:string,after:string)=>{if(before!==after)details.push({property,before,after})}
   add('component',old.component,next.component);add('element',old.tag,next.tag);add('text',old.text,next.text);add('attributes',old.attributes,next.attributes);add('position / size',old.box,next.box)
-  for(const p of Object.keys(old.styles))add(p,old.styles[p],next.styles[p])
+  for(const p of Object.keys(old.styles))add(p,old.styles[p]??'',next.styles[p]??'')
   if(old.allStyles!==next.allStyles&&!details.length){const [oldCss,oldPseudo]=JSON.parse(old.allStyles),[newCss,newPseudo]=JSON.parse(next.allStyles),values=Object.fromEntries(newCss);for(const [key,value]of oldCss)add(key,value,values[key]??'');if(JSON.stringify(oldPseudo)!==JSON.stringify(newPseudo))add('other pseudo styles','previous pseudo-element styles','changed pseudo-element styles')}
   if(details.length)out.push({id:'changed-'+old.path,label:next.label,beforePath:old.path,afterPath:next.path,kind:'changed',details})
  }

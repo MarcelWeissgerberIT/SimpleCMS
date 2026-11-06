@@ -1,4 +1,4 @@
-import {compareMockPreviews} from '@/shared/ai/mockComparison'
+import {compareMockPreviews} from '@/app/editor/lib/mockComparison'
 import {mockPreviewFromArtifact} from '@/shared/ai/mockBlock'
 import {mergeMockRegion} from './mockEvolution'
 import {persistMockProposal} from './MockRevisionActions'

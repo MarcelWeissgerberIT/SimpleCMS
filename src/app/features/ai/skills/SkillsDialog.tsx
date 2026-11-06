@@ -1,3 +1,5 @@
+import {SkillThumbnail} from './SkillThumbnail'
+import {ATLAS_CODE_ANALYSIS_SKILL} from '@/shared/ai/atlas-code-skill'
 import {AtlasSkills} from './AtlasSkills'
 import {ATLAS_ALIGNMENT_SKILL} from '@/shared/ai/atlas-skills'
 import {useEffect,useRef,useState} from 'react'
@@ -31,11 +33,11 @@ export default function SkillsDialog({onUse,initialQuery=''}:{onUse:(skill:Skill
   <p className="programs__intro">{t('features.ai.skills.intro')}</p><p>{t('features.ai.skills.scope')}</p><p><a href="https://aj-atlas.com/sdd-skills.html" target="_blank" rel="noreferrer">{t('features.ai.skills.atlas.sdd')}</a> · {t('features.ai.skills.atlas.sddHelp')}</p>
   {error&&<p role="alert" className="programs__error">{error}</p>}{notice&&<p role="status">{notice}</p>}
   <div className="programs__layout"><aside>
-   <div className="programs__actions"><button className="btn" onClick={()=>pick(null)}>{t('features.ai.skills.new')}</button><button className="btn" onClick={()=>{pick(null);setSpec(ATLAS_ALIGNMENT_SKILL)}}>{t('features.ai.skills.atlas.template')}</button><button className="btn" onClick={()=>file.current?.click()}>{t('features.ai.skills.import')}</button></div>
+   <div className="programs__actions"><button className="btn" onClick={()=>pick(null)}>{t('features.ai.skills.new')}</button><button className="btn skills__template" onClick={()=>{pick(null);setSpec(ATLAS_ALIGNMENT_SKILL)}}><SkillThumbnail name={ATLAS_ALIGNMENT_SKILL.name}/><span>{t('features.ai.skills.atlas.template')}</span></button><button className="btn skills__template" onClick={()=>{pick(null);setSpec(ATLAS_CODE_ANALYSIS_SKILL)}}><SkillThumbnail name={ATLAS_CODE_ANALYSIS_SKILL.name}/><span>{t('features.ai.skills.atlas.codeTemplate')}</span></button><button className="btn" onClick={()=>file.current?.click()}>{t('features.ai.skills.import')}</button></div>
    <input hidden ref={file} type="file" accept=".md,text/markdown,text/plain" aria-label={t('features.ai.skills.import')} onChange={e=>void importFile(e.currentTarget)}/>
    <input type="search" className="skills__search" aria-label={t('features.ai.skills.search')} placeholder={t('features.ai.skills.search')} value={query} onChange={e=>setQuery(e.target.value)}/>
    {!rows.length&&<p>{t('features.ai.skills.empty')}</p>}{!!rows.length&&!latest.length&&<p role="status">{t('features.ai.skills.noMatch')}</p>}
-   {latest.map(s=><button className="skills__row" key={s.id} aria-pressed={selected?.id===s.id} onClick={()=>pick(s)}><strong>{s.spec.name}</strong><span>{s.spec.description}</span><small>V{s.version} · {s.spec.tags.join(' · ')}</small></button>)}
+   {latest.map(s=><button className="skills__row" key={s.id} aria-pressed={selected?.id===s.id} onClick={()=>pick(s)}><SkillThumbnail name={s.spec.name} tags={s.spec.tags}/><div className="skills__row-copy"><strong>{s.spec.name}</strong><span>{s.spec.description}</span><small>V{s.version} · {s.spec.tags.join(' · ')}</small></div></button>)}
   </aside><main>
    {selected?.source&&<p className="skills__source">{t('features.ai.skills.atlas.source')} · {selected.source.origin} · {selected.source.tenant}/{selected.source.project} · Ref {selected.source.ref}<br/>{dirty?t('features.ai.skills.atlas.edited'):selected.source.hash}<br/><button className="btn btn--sm" disabled={dirty} onClick={()=>setView('atlas')}>{t('features.ai.skills.atlas.check')}</button></p>}
    {selected&&<label className="programs__field">{t('features.ai.skills.version')}<select aria-label={t('features.ai.skills.version')} value={selected.version} onChange={e=>pick(rows.find(s=>s.id===selected.id&&s.version===Number(e.target.value))??null)}>{rows.filter(s=>s.id===selected.id).map(s=><option key={s.version} value={s.version}>V{s.version} · {s.hash.slice(0,12)}</option>)}</select></label>}

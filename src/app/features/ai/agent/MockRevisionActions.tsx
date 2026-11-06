@@ -1,4 +1,4 @@
-import {compareMockPreviews} from '@/shared/ai/mockComparison'
+import {compareMockPreviews} from '@/app/editor/lib/mockComparison'
 import {MockComparison} from '../../../editor/views/MockComparison'
 import {Modal} from '../../../ui/Modal'
 import {useMemo,useState} from 'react'

@@ -9,6 +9,7 @@ test.describe('Instruction skills',()=>{
  test.describe.configure({mode:'default'})
  let fake:FakeWorker
  test.beforeEach(async({page})=>{
+  await page.route('**/api/config',r=>r.fulfill({json:{version:'fixture',signup:{mode:'open',domains:[]},max_upload_mb:20,dev_mode:false,source_url:'',schema_min:6,supports:['ai','providers'],coding_relay:false}}));await page.route('**/api/session',r=>r.fulfill({json:{user:null,workspaces:[]}}))
   fake=await startFakeWorker(PORT,{worker:'1.35.3',name:'skills-fixture',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true});fake.can=[...WORKER_CAN]
   fake.textModels=[{provider:'local',model:LOCAL,context:32768,chat:true,maxOutput:8192},{provider:'copilot',model:COPILOT,context:65536,chat:true,maxOutput:8192}]
   await openApp(page)
@@ -16,6 +17,37 @@ test.describe('Instruction skills',()=>{
   await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}));await page.getByRole('tab',{name:/Coding worker/}).click();await page.getByLabel('Port',{exact:true}).fill(String(PORT));await page.getByLabel('Port',{exact:true}).press('Enter');await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click();await expect(page.getByTestId('coding-conn')).toContainText('skills-fixture');await page.getByRole('tab',{name:/AI$/}).click();await expect(page.getByTestId('worker-model-settings')).toContainText(LOCAL);await page.keyboard.press('Escape')
  })
  test.afterEach(async()=>{await fake?.close()})
+ test('Atlas code analysis template is selectable, versioned and reaches the model without automatic writes',async({page},info)=>{
+  await page.evaluate(async m=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'anthropic',m}]),DEFAULT_CLAUDE_MODEL)
+  const host=await mockClaudeScript(page,[text('Die Methode ist vorbereitet. Es wurden keine Daten verändert.')])
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'})
+  await term.getByRole('button',{name:'AI skills',exact:true}).click();const library=page.getByRole('dialog',{name:'AI skills'})
+  await library.getByRole('button',{name:'Template: Atlas code analysis',exact:true}).click()
+  await expect(library.getByLabel('Skill name',{exact:true})).toHaveValue('atlas-code-analyse-one')
+  await expect(library.getByLabel('Instructions',{exact:true})).toHaveValue(/repo, snapshot, commit, path, lines und digest/)
+  await library.getByRole('button',{name:'Save new version',exact:true}).click()
+  for(const theme of ['light','dark'])for(const width of [1440,390]){await page.setViewportSize({width,height:width===390?844:1000});await wsEval(page,(s:any,theme:any)=>s.updateSettings({theme}),theme);expect(await library.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);await library.screenshot({path:info.outputPath(`code-skill-${theme}-${width}.png`),animations:'disabled'})}
+  await page.setViewportSize({width:1440,height:1000})
+  await library.getByRole('button',{name:'Add to request',exact:true}).click()
+  const input=term.getByRole('textbox',{name:'Task for the agent'});await expect(input).toHaveValue(/\$atlas-code-analyse-one@1/)
+  await input.fill('Nur in ONE: Beschreibe kurz diese Methode, führe noch keine Analyse und keine Änderungen aus. $atlas-code-analyse-one@1');await input.press('Enter')
+  await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
+  const payload=JSON.stringify(host.requests[0]);expect(payload).toContain('modelProcessing');expect(payload).toContain('one_workspace_search');expect(payload).toContain('digest');expect(fake.mcpAsked).toHaveLength(0)
+ })
+ for(const allowed of [false,true])test('Atlas code model permission '+allowed+' is enforced before source bytes reach the provider',async({page})=>{
+  await page.evaluate(async m=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'anthropic',m}]),DEFAULT_CLAUDE_MODEL)
+  await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'code-fixture',name:'atlas',codeword:'atlas',url:'https://atlas.example.org/mcp',scope:'free',token:'private-code-fixture',enabled:true,prompt:'Use actual code citations.',tools:['atlas_code_repos','atlas_code_read'],checkedAt:Date.now()}]}))
+  const envelope=(data:unknown)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(data)}]})
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_code_read',inputSchema:{type:'object',properties:{repo:{type:'string'},snapshot:{type:'string'},path:{type:'string'}},required:['repo','snapshot','path'],additionalProperties:false}}]}:{result:envelope(r.name==='atlas_code_repos'?{items:[{id:'repo-a',modelProcessing:allowed}],next:null}:{repo:'repo-a',snapshot:'snapshot-a',path:'src/run.ts',text:'CONFIDENTIAL_CODE_SENTINEL',citation:{repo:'repo-a',snapshot:'snapshot-a',commit:'a'.repeat(40),path:'src/run.ts',lines:[2,8],digest:'d'.repeat(64)}})}
+  const call=(id:string,name:string,input:any)=>({blocks:[{type:'tool_use' as const,id,name,input}]})
+  const host=await mockClaudeScript(page,[call('discover','one_mcp_search',{query:'atlas_code_read'}),call('read','one_mcp_call',{server:'atlas',name:'atlas_code_read',arguments:{repo:'repo-a',snapshot:'snapshot-a',path:'src/run.ts'}}),text(allowed?'Die Quellstelle wurde gelesen; ihre fachliche Prüfung ist noch offen.':'Die Modellfreigabe fehlt. Es wurde kein Code gelesen.')])
+  await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('atlas: Lies ausschließlich die Code-Quellstelle src/run.ts aus repo-a, snapshot-a, und melde den Lesestatus. Keine Änderungen.');await input.press('Enter')
+  await expect.poll(()=>host.requests.length,{timeout:25000}).toBeGreaterThanOrEqual(3)
+  const payload=JSON.stringify(host.requests[2]);expect(payload.includes('CONFIDENTIAL_CODE_SENTINEL')).toBe(allowed)
+  expect(fake.mcpAsked.filter(r=>r.action==='call'&&r.name==='atlas_code_read')).toHaveLength(allowed?1:0)
+  if(allowed){expect(payload).toContain('d'.repeat(64));expect(payload).toContain('snapshot-a')}
+ })
  for(const provider of ['local','copilot','anthropic'] as const)test(provider+': selected versions reach the model and receipt without granting effects',async({page},info)=>{
   const route={p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL};await page.evaluate(async r=>(await (window as any).__oneAI.rules()).setDeviceDefault([r]),route)
   fake.onText=r=>({model:r.model,text:'A concise proposal, ready for human review.',calls:[],inputTokens:200,outputTokens:40,usd:0})

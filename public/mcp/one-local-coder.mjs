@@ -7849,10 +7849,10 @@ var util;
       return obj[e];
     });
   };
-  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object5) => {
+  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object6) => {
     const keys = [];
-    for (const key in object5) {
-      if (Object.prototype.hasOwnProperty.call(object5, key)) {
+    for (const key in object6) {
+      if (Object.prototype.hasOwnProperty.call(object6, key)) {
         keys.push(key);
       }
     }
@@ -12171,9 +12171,9 @@ function floatSafeRemainder2(val, step) {
   return ratio - roundedRatio;
 }
 var EVALUATING = /* @__PURE__ */ Symbol("evaluating");
-function defineLazy(object5, key, getter) {
+function defineLazy(object6, key, getter) {
   let value = void 0;
-  Object.defineProperty(object5, key, {
+  Object.defineProperty(object6, key, {
     get() {
       if (value === EVALUATING) {
         return void 0;
@@ -12185,7 +12185,7 @@ function defineLazy(object5, key, getter) {
       return value;
     },
     set(v) {
-      Object.defineProperty(object5, key, {
+      Object.defineProperty(object6, key, {
         value: v
         // configurable: true,
       });
@@ -27252,8 +27252,8 @@ function foldObjects(members2) {
   }
   const properties = {};
   const required2 = /* @__PURE__ */ new Set();
-  for (const object5 of objects) {
-    for (const key in object5.properties) {
+  for (const object6 of objects) {
+    for (const key in object6.properties) {
       if (Object.prototype.hasOwnProperty.call(properties, key))
         continue;
       const parts = [];
@@ -27267,18 +27267,18 @@ function foldObjects(members2) {
       const merged = parts.length === 1 ? parts[0] : foldObjects(parts) ?? { allOf: parts };
       assignProp(properties, key, merged);
     }
-    for (const key of object5.required ?? [])
+    for (const key of object6.required ?? [])
       required2.add(key);
   }
   const folded = { type: "object", properties };
   if (required2.size)
     folded.required = [...required2];
-  if (objects.every((object5) => object5.additionalProperties === false)) {
+  if (objects.every((object6) => object6.additionalProperties === false)) {
     folded.additionalProperties = false;
   } else {
     const constraints = [];
-    for (const object5 of objects) {
-      const constraint = undeclaredConstraint(object5);
+    for (const object6 of objects) {
+      const constraint = undeclaredConstraint(object6);
       if (constraint && !constraints.some((seen) => JSON.stringify(seen) === JSON.stringify(constraint)))
         constraints.push(constraint);
     }
@@ -33875,11 +33875,11 @@ function parseMapDef(def, refs) {
 
 // node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
 function parseNativeEnumDef(def) {
-  const object5 = def.values;
+  const object6 = def.values;
   const actualKeys = Object.keys(def.values).filter((key) => {
-    return typeof object5[object5[key]] !== "number";
+    return typeof object6[object6[key]] !== "number";
   });
-  const actualValues = actualKeys.map((key) => object5[key]);
+  const actualValues = actualKeys.map((key) => object6[key]);
   const parsedTypes = Array.from(new Set(actualValues.map((values) => typeof values)));
   return {
     type: parsedTypes.length === 1 ? parsedTypes[0] === "string" ? "string" : "number" : ["string", "number"],
@@ -39972,9 +39972,71 @@ ${textFile.slice(0, 3500)}
   }
 };
 
+// ../src/shared/mcp/atlasCode.ts
+var ATLAS_CODE_READ_TOOLS = ["atlas_code_repos", "atlas_code_versions", "atlas_code_files", "atlas_code_search", "atlas_code_read", "atlas_code_compare", "atlas_code_verify", "atlas_code_drafts"];
+var guarded = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS.filter((n) => n !== "atlas_code_repos"), "atlas_code_propose"]);
+var codeHumanOnly = (name) => ["atlas_code_review", "atlas_code_repo_create", "atlas_code_repo_update"].includes(name);
+var object4 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+function codeData(raw) {
+  try {
+    const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!object4(v) || v.isError === true) return null;
+    if (object4(v.structuredContent)) return v.structuredContent;
+    if (Array.isArray(v.content)) {
+      if (v.content.length !== 1 || v.content[0]?.type !== "text") return null;
+      const data = JSON.parse(v.content[0].text);
+      return object4(data) ? data : null;
+    }
+    return v;
+  } catch {
+    return null;
+  }
+}
+var AtlasCodePolicyError = class extends Error {
+};
+var codeRefusal = (error62) => ({ isError: true, oneNotExecuted: true, content: [{ type: "text", text: JSON.stringify({ error: error62 }) }] });
+async function guardedAtlasCodeCall(name, args, call, allowed) {
+  if (codeHumanOnly(name)) return codeRefusal("Repository imports, model-switch changes and code-draft reviews require the person to act in Atlas. This agent operation was not executed.");
+  if (!guarded.has(name)) return call(name, args);
+  const repo = name === "atlas_code_verify" ? args.citation && object4(args.citation) ? args.citation.repo : void 0 : args.repo;
+  if (typeof repo !== "string" || !repo.trim()) return codeRefusal("An explicit repository identity is required for this Atlas code operation.");
+  if (!allowed("atlas_code_repos")) return codeRefusal("Allow atlas_code_repos on this connection to check repository model-processing permission. No code operation was executed.");
+  const check2 = async () => {
+    let offset;
+    const seen = /* @__PURE__ */ new Set();
+    for (let page = 0; page < 100; page++) {
+      const data = codeData(await call("atlas_code_repos", offset === void 0 ? {} : { offset }));
+      if (!data || data.error || !Array.isArray(data.items)) throw new AtlasCodePolicyError("Repository model-processing permission could not be verified. No code is released to the model.");
+      const rows = data.items.filter((r) => object4(r) && r.id === repo);
+      if (rows.length) {
+        if (rows.length !== 1 || rows[0].modelProcessing !== true) throw new AtlasCodePolicyError("Model processing is disabled or unknown for this repository. Ask its owner to check the Atlas setting; no code is released to the model.");
+        return;
+      }
+      if (data.next === null) return false;
+      if (!Number.isSafeInteger(data.next) || data.next < 0 || seen.has(data.next)) throw new AtlasCodePolicyError("Repository pagination could not be verified. No code is released to the model.");
+      seen.add(data.next);
+      offset = data.next;
+    }
+    throw new AtlasCodePolicyError("Repository permission lookup reached its page limit. No code is released to the model.");
+  };
+  try {
+    if (await check2() === false) return codeRefusal("Repository not found or not accessible in the current token tenant. No code operation was executed.");
+    const result = await call(name, args);
+    try {
+      if (await check2() === false) throw new AtlasCodePolicyError("Repository access changed. The result was withheld from the model.");
+    } catch {
+      return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: "Repository model permission could not be confirmed after the operation. Its result was withheld. A proposal may already exist; inspect drafts before retrying." }) }] };
+    }
+    return result;
+  } catch (e) {
+    if (e instanceof AtlasCodePolicyError) return codeRefusal(e.message);
+    throw e;
+  }
+}
+
 // ../src/shared/mcp/sourceLimits.ts
 var MCP_SOURCE_BYTES = 8 * 1024 * 1024;
-var MCP_CACHE_BYTES = 24 * 1024 * 1024;
+var MCP_CACHE_BYTES = 128 * 1024 * 1024;
 var sourceBytes = (text2) => new TextEncoder().encode(text2).byteLength;
 
 // ../src/shared/ai/connection-problem.ts
@@ -43672,12 +43734,12 @@ var noteCertificateFailure = (name, failed) => {
 };
 
 // src/worker/local-mcp.ts
-var object4 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-var strings = (v) => object4(v) && Object.values(v).every((s) => typeof s === "string");
+var object5 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var strings = (v) => object5(v) && Object.values(v).every((s) => typeof s === "string");
 var expand = (s, env) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => {
   throw new Error("Required MCP environment variable is missing.");
 })());
-var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
+var ATLAS_READ = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS, "atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
 var LocalMcp = class {
   clients = /* @__PURE__ */ new Map();
   tools = [];
@@ -43703,7 +43765,7 @@ var LocalMcp = class {
       const text2 = await readFile2(configFile, "utf8");
       if (text2.length > 2e6) throw new Error("Large MCP configuration");
       const parsed = JSON.parse(text2);
-      if (!object4(parsed) || !object4(parsed.mcpServers)) throw new Error("Invalid MCP configuration");
+      if (!object5(parsed) || !object5(parsed.mcpServers)) throw new Error("Invalid MCP configuration");
       config2 = parsed.mcpServers;
     } catch {
       throw new Error("Cannot read the personal MCP configuration. Use ONE_CODER_MCP_CONFIG for a JSON file with mcpServers.");
@@ -43715,7 +43777,7 @@ var LocalMcp = class {
       let transport = null;
       try {
         const entry = config2[name];
-        if (!object4(entry) || entry.disabled === true) throw new Error("Missing server");
+        if (!object5(entry) || entry.disabled === true) throw new Error("Missing server");
         if (this.origins && (typeof entry.url !== "string" || !mcpDestinationAllowed(expand(entry.url, env), { mcpOrigins: this.origins }))) throw new Error("MCP destination is outside the task data-flow rule.");
         if (strings(entry.oneMemoryProjects)) this.memoryProjects.set(name, entry.oneMemoryProjects);
         if (entry.oneTaskMemoryOnly === true) this.memoryOnly.add(name);
@@ -43856,7 +43918,7 @@ var LocalMcp = class {
     throw new Error("Atlas returned no verifiable checkpoint reference.");
   }
   async call(server, name, args, signal, taskMemory = false, fullResult = false) {
-    if (typeof server !== "string" || typeof name !== "string" || !object4(args) || JSON.stringify(args).length > 2e4) throw new Error("Supply a known server/tool and an arguments object up to 20,000 characters.");
+    if (typeof server !== "string" || typeof name !== "string" || !object5(args) || JSON.stringify(args).length > 2e4) throw new Error("Supply a known server/tool and an arguments object up to 20,000 characters.");
     if (this.readOnly && name === "atlas_agent_flow" && !["list", "get"].includes(String(args.action))) throw new Error("This read-only stage allows only list/get for Atlas flows.");
     const client = this.clients.get(server);
     if (this.memoryOnly.has(server) && !taskMemory) throw new Error("This connection is reserved for private task memory. Use the scoped memory tools.");
@@ -43867,7 +43929,7 @@ var LocalMcp = class {
         const selected = await client.callTool({ name: "atlas_tenant_select", arguments: { tenant } }, void 0, { timeout: 8e3, signal });
         if (selected.isError) throw new Error("Memory tenant selection refused.");
       }
-      const result = await client.callTool({ name, arguments: args }, void 0, { timeout: 6e4, signal });
+      const result = await guardedAtlasCodeCall(name, args, (name2, input2) => client.callTool({ name: name2, arguments: input2 }, void 0, { timeout: 6e4, signal }), (name2) => this.tools.some((t) => t.server === server && t.tool.name === name2));
       const text2 = this.redact(JSON.stringify(result));
       if (fullResult) {
         if (sourceBytes(text2) > (name === "atlas_get" ? MCP_SOURCE_BYTES : 18e4)) throw new RangeError("MCP result exceeds the bounded download size; request fewer sections or records.");

@@ -1,8 +1,8 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import type {MockBlockPreview} from '@/shared/ai/mockBlock'
 import {mockNoteElements,type MockFeedback,type MockReviewResult} from '@/shared/ai/mockReview'
-import {compareMockPreviews,safeMockPreview,type MockComparisonResult,type MockDifference,mockElementPath} from '@/shared/ai/mockComparison'
-export {safeMockPreview} from '@/shared/ai/mockComparison'
+import {compareMockPreviews,safeMockPreview,type MockComparisonResult,type MockDifference,mockElementPath} from '@/app/editor/lib/mockComparison'
+export {safeMockPreview} from '@/app/editor/lib/mockComparison'
 const propertyNames:Record<string,string>={component:'Komponente',element:'Element',text:'Text',attributes:'Eigenschaften','position / size':'Position / Größe (x, y, Breite, Höhe)','original viewport':'Ursprüngliche Ansichtsgröße',color:'Textfarbe','background-color':'Hintergrundfarbe','background-image':'Hintergrund','font-family':'Schrift','font-size':'Schriftgröße','font-weight':'Schriftstärke','line-height':'Zeilenhöhe','padding-top':'Innenabstand oben','padding-right':'Innenabstand rechts','padding-bottom':'Innenabstand unten','padding-left':'Innenabstand links','margin-top':'Außenabstand oben','margin-bottom':'Außenabstand unten',gap:'Abstand','border-radius':'Eckenradius','::before':'Symbol / Inhalt davor','::after':'Symbol / Inhalt danach','other computed styles':'Weitere Darstellungseigenschaften'}
 const relative=(a:string,b:string)=>a===b||a.startsWith(b+' > ')
 export function MockComparison({before,after,de,notes=[],review}:{before:MockBlockPreview;after:MockBlockPreview;de:boolean;notes?:MockFeedback[];review?:MockReviewResult}){

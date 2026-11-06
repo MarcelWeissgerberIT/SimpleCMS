@@ -1,3 +1,4 @@
+import {guardedAtlasCodeCall} from '../../../src/shared/mcp/atlasCode.ts'
 import {MCP_SOURCE_BYTES} from '../../../src/shared/mcp/sourceLimits.ts'
 import {mcpArgumentsWithinLimit} from '../../../src/shared/mcp/attachment.ts'
 import {atlasQueryProblem} from '../../../src/shared/mcp/aql.ts'
@@ -62,7 +63,10 @@ export async function runAtlasMcp(request:WorkerMcpRequest,signal:AbortSignal,cr
    const args=tool?atlasScopedArgs(request.arguments??{},tool.inputSchema,defaultTenant):request.arguments
    if(!tool)throw badRequest('mcp_tool_unavailable','Tool unavailable or not permitted; nothing was executed.')
    if(!new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(args).valid)throw badRequest('mcp_arguments_invalid','MCP arguments do not match the current tool schema; nothing was executed.')
-   const result=await client.callTool({name:request.name,arguments:args},undefined,{signal})
+   const result=await guardedAtlasCodeCall(request.name,args!,async(name,input)=>{
+    const actual=tools.find(t=>t.name===name);if(!actual||!new AjvJsonSchemaValidator().getValidator(actual.inputSchema)(input).valid)throw badRequest('mcp_arguments_invalid','Repository permission tool unavailable or incompatible.')
+    return client.callTool({name,arguments:input},undefined,{signal})
+   },name=>tools.some(t=>t.name===name))
    const raw=JSON.stringify(result);if(Buffer.byteLength(raw)>(request.name==='atlas_get'?MCP_SOURCE_BYTES:180000))throw new ApiError(502,'mcp_response_limit','Atlas result exceeds the bounded download size; request fewer sections or records.')
    return {result:scrub(raw)}
   }

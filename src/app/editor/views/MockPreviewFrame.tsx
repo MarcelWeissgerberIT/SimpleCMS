@@ -1,4 +1,5 @@
-import {captureMockRegion,type MockRegion} from '@/shared/ai/mockRegion'
+import type {MockRegion} from '@/shared/ai/mockRegion'
+import {captureMockRegion} from '../lib/mockRegionCapture'
 import {useEffect,useRef} from 'react'
 import type {MockElement} from '@/shared/ai/mockReview'
 /** The host handles selection. Imported markup never receives script permission. */

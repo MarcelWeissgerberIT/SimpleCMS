@@ -125,3 +125,21 @@ test('large atlas_get bodies are downloaded whole; other tools and oversize resu
  await assert.rejects(runAtlasMcp(request,new AbortController().signal,factory(raw)),(e:any)=>e.code==='mcp_response_limit')
  await assert.rejects(runAtlasMcp({...request,name:'atlas_get'},new AbortController().signal,factory({content:[{type:'text',text:'x'.repeat(8*1024*1024)}]})),(e:any)=>e.code==='mcp_response_limit')
 })
+
+
+test('Atlas code bridge checks the model switch before reading and preserves verified citation bytes',async()=>{
+ const citation={repo:'repo-a',snapshot:'snapshot-a',commit:'a'.repeat(40),path:'src/run.ts',lines:[2,8],digest:'d'.repeat(64)}
+ let modelProcessing=false;const calls:string[]=[]
+ const factory=()=>({connect:async()=>{},listTools:async()=>({tools:['atlas_code_repos','atlas_code_read','atlas_code_verify','atlas_code_review'].map(name=>({name,inputSchema:{type:'object'}}))}),callTool:async(v:any)=>{calls.push(v.name);const data=v.name==='atlas_code_repos'?{items:[{id:'repo-a',modelProcessing}],next:null}:v.name==='atlas_code_verify'?{valid:true,citation}:{text:'PRIVATE_CODE',citation};return {content:[{type:'text',text:JSON.stringify(data)}]}},close:async()=>{}})as any
+ const signal=new AbortController().signal
+ const denied:any=await runAtlasMcp({...request,name:'atlas_code_read',arguments:{repo:'repo-a',snapshot:'snapshot-a'}},signal,factory)
+ assert.equal(JSON.parse(denied.result).isError,true);assert.deepEqual(calls,['atlas_code_repos']);assert.ok(!denied.result.includes('PRIVATE_CODE'))
+ modelProcessing=true;calls.length=0
+ const read:any=await runAtlasMcp({...request,name:'atlas_code_read',arguments:{repo:'repo-a',snapshot:'snapshot-a'}},signal,factory)
+ assert.deepEqual(calls,['atlas_code_repos','atlas_code_read','atlas_code_repos']);assert.ok(read.result.includes('PRIVATE_CODE'))
+ const verified:any=await runAtlasMcp({...request,name:'atlas_code_verify',arguments:{citation}},signal,factory)
+ assert.deepEqual(JSON.parse(JSON.parse(verified.result).content[0].text),{valid:true,citation})
+ calls.length=0
+ const review:any=await runAtlasMcp({...request,name:'atlas_code_review',arguments:{draft:'draft-a',decision:'accept'}},signal,factory)
+ assert.equal(JSON.parse(review.result).oneNotExecuted,true);assert.deepEqual(calls,[])
+})

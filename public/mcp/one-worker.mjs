@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.8 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.9 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -18904,24 +18904,27 @@ function fitLocalToolContext(messages, fits, history) {
   const candidates = results.map((result, index) => ({ result, index })).sort((a, b) => Number(b.result.text.length > 4096) - Number(a.result.text.length > 4096) || a.index - b.index);
   for (const { index, result } of candidates) {
     const minimum = index === results.length - 1 ? 512 : 128;
-    let pointers;
+    let pointers, sourceText = result.text;
     try {
       const value2 = JSON.parse(result.text);
       if (value2 && typeof value2 === "object" && !Array.isArray(value2)) {
-        const kept = Object.fromEntries(["oneMockSource", "result_id", "isError", "oneSourceLinks"].filter((k) => Object.hasOwn(value2, k)).map((k) => [k, value2[k]]));
-        if (Object.keys(kept).length) pointers = kept;
+        const kept = Object.fromEntries(["oneMockSource", "result_id", "isError", "oneNotExecuted", "oneReadReuse", "oneObservedFacts", "oneSourceLinks"].filter((k) => Object.hasOwn(value2, k)).map((k) => [k, value2[k]]));
+        if (Object.keys(kept).length) {
+          pointers = kept;
+          sourceText = JSON.stringify(Object.fromEntries(Object.entries(value2).filter(([k]) => !Object.hasOwn(kept, k))));
+        }
       }
     } catch {
     }
     if (result.text.length <= minimum + OMITTED.length) continue;
     const excerpt = (end) => {
-      if (end > 0 && /[\uD800-\uDBFF]/.test(result.text.charAt(end - 1))) end--;
-      const excerpt2 = result.text.slice(0, end);
+      if (end > 0 && /[\uD800-\uDBFF]/.test(sourceText.charAt(end - 1))) end--;
+      const excerpt2 = sourceText.slice(0, end);
       return pointers ? JSON.stringify({ ...pointers, oneContextExcerpt: true, excerpt: excerpt2, note: OMITTED.trim() }) : excerpt2 + OMITTED;
     };
     result.set(excerpt(minimum));
     if (!fits(next)) continue;
-    let low = minimum, high = result.text.length - OMITTED.length;
+    let low = Math.min(minimum, sourceText.length), high = sourceText.length;
     while (low < high) {
       const mid = Math.ceil((low + high) / 2);
       result.set(excerpt(mid));
@@ -18932,7 +18935,7 @@ function fitLocalToolContext(messages, fits, history) {
     return next;
   }
   if (history && Number.isSafeInteger(history.completedBefore) && history.completedBefore > 1 && history.completedBefore < messages.length) {
-    const ids = /* @__PURE__ */ new Set(), earlier = [];
+    const ids = /* @__PURE__ */ new Set(), earlier = [], retained = [];
     for (const message of messages.slice(0, history.completedBefore)) {
       let parsed;
       try {
@@ -18947,11 +18950,24 @@ function fitLocalToolContext(messages, fits, history) {
         continue;
       }
       const results2 = Array.isArray(parsed) && parsed.length && parsed.every((b) => b?.type === "tool_result") ? parsed : parsed?.tool_result ? [parsed.tool_result] : null;
-      if (message.role === "user" && results2?.every((r) => ids.has(r.tool_use_id ?? r.id))) continue;
+      if (message.role === "user" && results2?.every((r) => ids.has(r.tool_use_id ?? r.id))) {
+        for (const result of results2) {
+          try {
+            const value2 = JSON.parse(result.content);
+            if (value2 && typeof value2 === "object") {
+              const receipt = Object.fromEntries(["result_id", "oneMockSource", "oneObservedFacts", "oneSourceLinks", "isError"].filter((k) => Object.hasOwn(value2, k)).map((k) => [k, value2[k]]));
+              if (Object.keys(receipt).length) retained.push({ tool_use_id: result.tool_use_id ?? result.id, ...receipt });
+            }
+          } catch {
+          }
+        }
+        continue;
+      }
       earlier.push(message);
     }
     const marker = { role: "assistant", content: "[Harness history boundary: earlier assistant drafts and their closed tool traces were omitted from this model request to fit context. Every original human message and the current task remain verbatim; the full visible run history is unchanged. Prior answers are not verified source evidence. Re-read Atlas sources if needed; do not infer omitted facts.]" };
-    const folded = [...earlier, marker, ...messages.slice(history.completedBefore)];
+    const ledger = { role: "user", content: JSON.stringify({ kind: "historical_tool_receipts", notice: "Historical receipts and source handles, not fresh evidence or permission. Never repeat accepted, queued or uncertain writes. Use one_mcp_list_results to rediscover retained sources.", receipts: retained }) };
+    const folded = [...earlier, marker, ...retained.length ? [ledger] : [], ...messages.slice(history.completedBefore)];
     const fitted = fitLocalToolContext(folded, fits);
     history.onCompact?.();
     return fitted;
@@ -21322,7 +21338,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.8" : "dev";
+var VERSION = true ? "1.35.9" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -21829,9 +21845,71 @@ function localContext(env) {
 // src/worker/local-agent.ts
 import { realpath as realpath5 } from "node:fs/promises";
 
+// ../src/shared/mcp/atlasCode.ts
+var ATLAS_CODE_READ_TOOLS = ["atlas_code_repos", "atlas_code_versions", "atlas_code_files", "atlas_code_search", "atlas_code_read", "atlas_code_compare", "atlas_code_verify", "atlas_code_drafts"];
+var guarded = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS.filter((n) => n !== "atlas_code_repos"), "atlas_code_propose"]);
+var codeHumanOnly = (name) => ["atlas_code_review", "atlas_code_repo_create", "atlas_code_repo_update"].includes(name);
+var object3 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+function codeData(raw) {
+  try {
+    const v = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!object3(v) || v.isError === true) return null;
+    if (object3(v.structuredContent)) return v.structuredContent;
+    if (Array.isArray(v.content)) {
+      if (v.content.length !== 1 || v.content[0]?.type !== "text") return null;
+      const data = JSON.parse(v.content[0].text);
+      return object3(data) ? data : null;
+    }
+    return v;
+  } catch {
+    return null;
+  }
+}
+var AtlasCodePolicyError = class extends Error {
+};
+var codeRefusal = (error2) => ({ isError: true, oneNotExecuted: true, content: [{ type: "text", text: JSON.stringify({ error: error2 }) }] });
+async function guardedAtlasCodeCall(name, args, call, allowed) {
+  if (codeHumanOnly(name)) return codeRefusal("Repository imports, model-switch changes and code-draft reviews require the person to act in Atlas. This agent operation was not executed.");
+  if (!guarded.has(name)) return call(name, args);
+  const repo = name === "atlas_code_verify" ? args.citation && object3(args.citation) ? args.citation.repo : void 0 : args.repo;
+  if (typeof repo !== "string" || !repo.trim()) return codeRefusal("An explicit repository identity is required for this Atlas code operation.");
+  if (!allowed("atlas_code_repos")) return codeRefusal("Allow atlas_code_repos on this connection to check repository model-processing permission. No code operation was executed.");
+  const check = async () => {
+    let offset;
+    const seen = /* @__PURE__ */ new Set();
+    for (let page = 0; page < 100; page++) {
+      const data = codeData(await call("atlas_code_repos", offset === void 0 ? {} : { offset }));
+      if (!data || data.error || !Array.isArray(data.items)) throw new AtlasCodePolicyError("Repository model-processing permission could not be verified. No code is released to the model.");
+      const rows = data.items.filter((r) => object3(r) && r.id === repo);
+      if (rows.length) {
+        if (rows.length !== 1 || rows[0].modelProcessing !== true) throw new AtlasCodePolicyError("Model processing is disabled or unknown for this repository. Ask its owner to check the Atlas setting; no code is released to the model.");
+        return;
+      }
+      if (data.next === null) return false;
+      if (!Number.isSafeInteger(data.next) || data.next < 0 || seen.has(data.next)) throw new AtlasCodePolicyError("Repository pagination could not be verified. No code is released to the model.");
+      seen.add(data.next);
+      offset = data.next;
+    }
+    throw new AtlasCodePolicyError("Repository permission lookup reached its page limit. No code is released to the model.");
+  };
+  try {
+    if (await check() === false) return codeRefusal("Repository not found or not accessible in the current token tenant. No code operation was executed.");
+    const result = await call(name, args);
+    try {
+      if (await check() === false) throw new AtlasCodePolicyError("Repository access changed. The result was withheld from the model.");
+    } catch {
+      return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: "Repository model permission could not be confirmed after the operation. Its result was withheld. A proposal may already exist; inspect drafts before retrying." }) }] };
+    }
+    return result;
+  } catch (e) {
+    if (e instanceof AtlasCodePolicyError) return codeRefusal(e.message);
+    throw e;
+  }
+}
+
 // ../src/shared/mcp/sourceLimits.ts
 var MCP_SOURCE_BYTES = 8 * 1024 * 1024;
-var MCP_CACHE_BYTES = 24 * 1024 * 1024;
+var MCP_CACHE_BYTES = 128 * 1024 * 1024;
 var sourceBytes = (text2) => new TextEncoder().encode(text2).byteLength;
 
 // ../src/shared/ai/connection-problem.ts
@@ -21948,10 +22026,10 @@ var util;
       return obj2[e];
     });
   };
-  util2.objectKeys = typeof Object.keys === "function" ? (obj2) => Object.keys(obj2) : (object7) => {
+  util2.objectKeys = typeof Object.keys === "function" ? (obj2) => Object.keys(obj2) : (object8) => {
     const keys = [];
-    for (const key in object7) {
-      if (Object.prototype.hasOwnProperty.call(object7, key)) {
+    for (const key in object8) {
+      if (Object.prototype.hasOwnProperty.call(object8, key)) {
         keys.push(key);
       }
     }
@@ -25953,9 +26031,9 @@ function floatSafeRemainder2(val, step) {
   return ratio - roundedRatio;
 }
 var EVALUATING = /* @__PURE__ */ Symbol("evaluating");
-function defineLazy(object7, key, getter) {
+function defineLazy(object8, key, getter) {
   let value2 = void 0;
-  Object.defineProperty(object7, key, {
+  Object.defineProperty(object8, key, {
     get() {
       if (value2 === EVALUATING) {
         return void 0;
@@ -25967,7 +26045,7 @@ function defineLazy(object7, key, getter) {
       return value2;
     },
     set(v) {
-      Object.defineProperty(object7, key, {
+      Object.defineProperty(object8, key, {
         value: v
         // configurable: true,
       });
@@ -30414,8 +30492,8 @@ function foldObjects(members2) {
   }
   const properties = {};
   const required2 = /* @__PURE__ */ new Set();
-  for (const object7 of objects) {
-    for (const key in object7.properties) {
+  for (const object8 of objects) {
+    for (const key in object8.properties) {
       if (Object.prototype.hasOwnProperty.call(properties, key))
         continue;
       const parts = [];
@@ -30429,18 +30507,18 @@ function foldObjects(members2) {
       const merged = parts.length === 1 ? parts[0] : foldObjects(parts) ?? { allOf: parts };
       assignProp(properties, key, merged);
     }
-    for (const key of object7.required ?? [])
+    for (const key of object8.required ?? [])
       required2.add(key);
   }
   const folded = { type: "object", properties };
   if (required2.size)
     folded.required = [...required2];
-  if (objects.every((object7) => object7.additionalProperties === false)) {
+  if (objects.every((object8) => object8.additionalProperties === false)) {
     folded.additionalProperties = false;
   } else {
     const constraints = [];
-    for (const object7 of objects) {
-      const constraint = undeclaredConstraint(object7);
+    for (const object8 of objects) {
+      const constraint = undeclaredConstraint(object8);
       if (constraint && !constraints.some((seen) => JSON.stringify(seen) === JSON.stringify(constraint)))
         constraints.push(constraint);
     }
@@ -31508,7 +31586,7 @@ var ZodMiniObject = /* @__PURE__ */ $constructor("ZodMiniObject", (inst, def) =>
   installLazyProp(inst, "shape", (self2) => self2._zod.def.shape, false);
 });
 // @__NO_SIDE_EFFECTS__
-function object3(shape, params) {
+function object4(shape, params) {
   const def = {
     type: "object",
     shape: shape ?? {},
@@ -31525,11 +31603,11 @@ function isZ4Schema(s) {
 function objectFromShape(shape) {
   const values = Object.values(shape);
   if (values.length === 0)
-    return object3({});
+    return object4({});
   const allV4 = values.every(isZ4Schema);
   const allV3 = values.every((s) => !isZ4Schema(s));
   if (allV4)
-    return object3(shape);
+    return object4(shape);
   if (allV3)
     return objectType(shape);
   throw new Error("Mixed Zod versions detected in object shape.");
@@ -32427,7 +32505,7 @@ var ZodObject2 = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
     return util_exports.required(ZodNonOptional, this, args[0]);
   }
 });
-function object4(shape, params) {
+function object5(shape, params) {
   const def = {
     type: "object",
     shape: shape ?? {},
@@ -32844,10 +32922,10 @@ var TaskCreationParamsSchema = looseObject({
    */
   pollInterval: number2().optional()
 });
-var TaskMetadataSchema = object4({
+var TaskMetadataSchema = object5({
   ttl: number2().optional()
 });
-var RelatedTaskMetadataSchema = object4({
+var RelatedTaskMetadataSchema = object5({
   taskId: string2()
 });
 var RequestMetaSchema = looseObject({
@@ -32860,7 +32938,7 @@ var RequestMetaSchema = looseObject({
    */
   [RELATED_TASK_META_KEY]: RelatedTaskMetadataSchema.optional()
 });
-var BaseRequestParamsSchema = object4({
+var BaseRequestParamsSchema = object5({
   /**
    * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
    */
@@ -32878,18 +32956,18 @@ var TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
   task: TaskMetadataSchema.optional()
 });
 var isTaskAugmentedRequestParams = (value2) => TaskAugmentedRequestParamsSchema.safeParse(value2).success;
-var RequestSchema = object4({
+var RequestSchema = object5({
   method: string2(),
   params: BaseRequestParamsSchema.loose().optional()
 });
-var NotificationsParamsSchema = object4({
+var NotificationsParamsSchema = object5({
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
   _meta: RequestMetaSchema.optional()
 });
-var NotificationSchema = object4({
+var NotificationSchema = object5({
   method: string2(),
   params: NotificationsParamsSchema.loose().optional()
 });
@@ -32901,18 +32979,18 @@ var ResultSchema = looseObject({
   _meta: RequestMetaSchema.optional()
 });
 var RequestIdSchema = union([string2(), number2().int()]);
-var JSONRPCRequestSchema = object4({
+var JSONRPCRequestSchema = object5({
   jsonrpc: literal(JSONRPC_VERSION),
   id: RequestIdSchema,
   ...RequestSchema.shape
 }).strict();
 var isJSONRPCRequest = (value2) => JSONRPCRequestSchema.safeParse(value2).success;
-var JSONRPCNotificationSchema = object4({
+var JSONRPCNotificationSchema = object5({
   jsonrpc: literal(JSONRPC_VERSION),
   ...NotificationSchema.shape
 }).strict();
 var isJSONRPCNotification = (value2) => JSONRPCNotificationSchema.safeParse(value2).success;
-var JSONRPCResultResponseSchema = object4({
+var JSONRPCResultResponseSchema = object5({
   jsonrpc: literal(JSONRPC_VERSION),
   id: RequestIdSchema,
   result: ResultSchema
@@ -32929,10 +33007,10 @@ var ErrorCode;
   ErrorCode2[ErrorCode2["InternalError"] = -32603] = "InternalError";
   ErrorCode2[ErrorCode2["UrlElicitationRequired"] = -32042] = "UrlElicitationRequired";
 })(ErrorCode || (ErrorCode = {}));
-var JSONRPCErrorResponseSchema = object4({
+var JSONRPCErrorResponseSchema = object5({
   jsonrpc: literal(JSONRPC_VERSION),
   id: RequestIdSchema.optional(),
-  error: object4({
+  error: object5({
     /**
      * The error type that occurred.
      */
@@ -32972,7 +33050,7 @@ var CancelledNotificationSchema = NotificationSchema.extend({
   method: literal("notifications/cancelled"),
   params: CancelledNotificationParamsSchema
 });
-var IconSchema = object4({
+var IconSchema = object5({
   /**
    * URL or data URI for the icon.
    */
@@ -32997,7 +33075,7 @@ var IconSchema = object4({
    */
   theme: _enum(["light", "dark"]).optional()
 });
-var IconsSchema = object4({
+var IconsSchema = object5({
   /**
    * Optional set of sized icons that the client can display in a user interface.
    *
@@ -33011,7 +33089,7 @@ var IconsSchema = object4({
    */
   icons: array(IconSchema).optional()
 });
-var BaseMetadataSchema = object4({
+var BaseMetadataSchema = object5({
   /** Intended for programmatic or logical use, but used as a display name in past specs or fallback */
   name: string2(),
   /**
@@ -33041,7 +33119,7 @@ var ImplementationSchema = BaseMetadataSchema.extend({
    */
   description: string2().optional()
 });
-var FormElicitationCapabilitySchema = intersection(object4({
+var FormElicitationCapabilitySchema = intersection(object5({
   applyDefaults: boolean2().optional()
 }), record(string2(), unknown()));
 var ElicitationCapabilitySchema = preprocess((value2) => {
@@ -33051,7 +33129,7 @@ var ElicitationCapabilitySchema = preprocess((value2) => {
     }
   }
   return value2;
-}, intersection(object4({
+}, intersection(object5({
   form: FormElicitationCapabilitySchema.optional(),
   url: AssertObjectSchema.optional()
 }), record(string2(), unknown()).optional()));
@@ -33103,7 +33181,7 @@ var ServerTasksCapabilitySchema = looseObject({
     }).optional()
   }).optional()
 });
-var ClientCapabilitiesSchema = object4({
+var ClientCapabilitiesSchema = object5({
   /**
    * Experimental, non-standard capabilities that the client supports.
    */
@@ -33111,7 +33189,7 @@ var ClientCapabilitiesSchema = object4({
   /**
    * Present if the client supports sampling from an LLM.
    */
-  sampling: object4({
+  sampling: object5({
     /**
      * Present if the client supports context inclusion via includeContext parameter.
      * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
@@ -33129,7 +33207,7 @@ var ClientCapabilitiesSchema = object4({
   /**
    * Present if the client supports listing roots.
    */
-  roots: object4({
+  roots: object5({
     /**
      * Whether the client supports issuing notifications for changes to the roots list.
      */
@@ -33156,7 +33234,7 @@ var InitializeRequestSchema = RequestSchema.extend({
   method: literal("initialize"),
   params: InitializeRequestParamsSchema
 });
-var ServerCapabilitiesSchema = object4({
+var ServerCapabilitiesSchema = object5({
   /**
    * Experimental, non-standard capabilities that the server supports.
    */
@@ -33172,7 +33250,7 @@ var ServerCapabilitiesSchema = object4({
   /**
    * Present if the server offers any prompt templates.
    */
-  prompts: object4({
+  prompts: object5({
     /**
      * Whether this server supports issuing notifications for changes to the prompt list.
      */
@@ -33181,7 +33259,7 @@ var ServerCapabilitiesSchema = object4({
   /**
    * Present if the server offers any resources to read.
    */
-  resources: object4({
+  resources: object5({
     /**
      * Whether this server supports clients subscribing to resource updates.
      */
@@ -33194,7 +33272,7 @@ var ServerCapabilitiesSchema = object4({
   /**
    * Present if the server offers any tools to call.
    */
-  tools: object4({
+  tools: object5({
     /**
      * Whether this server supports issuing notifications for changes to the tool list.
      */
@@ -33232,7 +33310,7 @@ var PingRequestSchema = RequestSchema.extend({
   method: literal("ping"),
   params: BaseRequestParamsSchema.optional()
 });
-var ProgressSchema = object4({
+var ProgressSchema = object5({
   /**
    * The progress thus far. This should increase every time progress is made, even if the total is unknown.
    */
@@ -33246,7 +33324,7 @@ var ProgressSchema = object4({
    */
   message: optional(string2())
 });
-var ProgressNotificationParamsSchema = object4({
+var ProgressNotificationParamsSchema = object5({
   ...NotificationsParamsSchema.shape,
   ...ProgressSchema.shape,
   /**
@@ -33276,7 +33354,7 @@ var PaginatedResultSchema = ResultSchema.extend({
   nextCursor: CursorSchema.optional()
 });
 var TaskStatusSchema = _enum(["working", "input_required", "completed", "failed", "cancelled"]);
-var TaskSchema = object4({
+var TaskSchema = object5({
   taskId: string2(),
   status: TaskStatusSchema,
   /**
@@ -33333,7 +33411,7 @@ var CancelTaskRequestSchema = RequestSchema.extend({
   })
 });
 var CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
-var ResourceContentsSchema = object4({
+var ResourceContentsSchema = object5({
   /**
    * The URI of this resource.
    */
@@ -33369,7 +33447,7 @@ var BlobResourceContentsSchema = ResourceContentsSchema.extend({
   blob: Base64Schema
 });
 var RoleSchema = _enum(["user", "assistant"]);
-var AnnotationsSchema = object4({
+var AnnotationsSchema = object5({
   /**
    * Intended audience(s) for the resource.
    */
@@ -33383,7 +33461,7 @@ var AnnotationsSchema = object4({
    */
   lastModified: iso_exports2.datetime({ offset: true }).optional()
 });
-var ResourceSchema = object4({
+var ResourceSchema = object5({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -33416,7 +33494,7 @@ var ResourceSchema = object4({
    */
   _meta: optional(looseObject({}))
 });
-var ResourceTemplateSchema = object4({
+var ResourceTemplateSchema = object5({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -33495,7 +33573,7 @@ var ResourceUpdatedNotificationSchema = NotificationSchema.extend({
   method: literal("notifications/resources/updated"),
   params: ResourceUpdatedNotificationParamsSchema
 });
-var PromptArgumentSchema = object4({
+var PromptArgumentSchema = object5({
   /**
    * The name of the argument.
    */
@@ -33509,7 +33587,7 @@ var PromptArgumentSchema = object4({
    */
   required: optional(boolean2())
 });
-var PromptSchema = object4({
+var PromptSchema = object5({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -33546,7 +33624,7 @@ var GetPromptRequestSchema = RequestSchema.extend({
   method: literal("prompts/get"),
   params: GetPromptRequestParamsSchema
 });
-var TextContentSchema = object4({
+var TextContentSchema = object5({
   type: literal("text"),
   /**
    * The text content of the message.
@@ -33562,7 +33640,7 @@ var TextContentSchema = object4({
    */
   _meta: record(string2(), unknown()).optional()
 });
-var ImageContentSchema = object4({
+var ImageContentSchema = object5({
   type: literal("image"),
   /**
    * The base64-encoded image data.
@@ -33582,7 +33660,7 @@ var ImageContentSchema = object4({
    */
   _meta: record(string2(), unknown()).optional()
 });
-var AudioContentSchema = object4({
+var AudioContentSchema = object5({
   type: literal("audio"),
   /**
    * The base64-encoded audio data.
@@ -33602,7 +33680,7 @@ var AudioContentSchema = object4({
    */
   _meta: record(string2(), unknown()).optional()
 });
-var ToolUseContentSchema = object4({
+var ToolUseContentSchema = object5({
   type: literal("tool_use"),
   /**
    * The name of the tool to invoke.
@@ -33625,7 +33703,7 @@ var ToolUseContentSchema = object4({
    */
   _meta: record(string2(), unknown()).optional()
 });
-var EmbeddedResourceSchema = object4({
+var EmbeddedResourceSchema = object5({
   type: literal("resource"),
   resource: union([TextResourceContentsSchema, BlobResourceContentsSchema]),
   /**
@@ -33648,7 +33726,7 @@ var ContentBlockSchema = union([
   ResourceLinkSchema,
   EmbeddedResourceSchema
 ]);
-var PromptMessageSchema = object4({
+var PromptMessageSchema = object5({
   role: RoleSchema,
   content: ContentBlockSchema
 });
@@ -33663,7 +33741,7 @@ var PromptListChangedNotificationSchema = NotificationSchema.extend({
   method: literal("notifications/prompts/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
-var ToolAnnotationsSchema = object4({
+var ToolAnnotationsSchema = object5({
   /**
    * A human-readable title for the tool.
    */
@@ -33702,7 +33780,7 @@ var ToolAnnotationsSchema = object4({
    */
   openWorldHint: boolean2().optional()
 });
-var ToolExecutionSchema = object4({
+var ToolExecutionSchema = object5({
   /**
    * Indicates the tool's preference for task-augmented execution.
    * - "required": Clients MUST invoke the tool as a task
@@ -33713,7 +33791,7 @@ var ToolExecutionSchema = object4({
    */
   taskSupport: _enum(["required", "optional", "forbidden"]).optional()
 });
-var ToolSchema = object4({
+var ToolSchema = object5({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
@@ -33724,7 +33802,7 @@ var ToolSchema = object4({
    * A JSON Schema 2020-12 object defining the expected parameters for the tool.
    * Must have type: 'object' at the root level per MCP spec.
    */
-  inputSchema: object4({
+  inputSchema: object5({
     type: literal("object"),
     properties: record(string2(), AssertObjectSchema).optional(),
     required: array(string2()).optional()
@@ -33734,7 +33812,7 @@ var ToolSchema = object4({
    * returned in the structuredContent field of a CallToolResult.
    * Must have type: 'object' at the root level per MCP spec.
    */
-  outputSchema: object4({
+  outputSchema: object5({
     type: literal("object"),
     properties: record(string2(), AssertObjectSchema).optional(),
     required: array(string2()).optional()
@@ -33810,7 +33888,7 @@ var ToolListChangedNotificationSchema = NotificationSchema.extend({
   method: literal("notifications/tools/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
-var ListChangedOptionsBaseSchema = object4({
+var ListChangedOptionsBaseSchema = object5({
   /**
    * If true, the list will be refreshed automatically when a list changed notification is received.
    * The callback will be called with the updated list.
@@ -33859,13 +33937,13 @@ var LoggingMessageNotificationSchema = NotificationSchema.extend({
   method: literal("notifications/message"),
   params: LoggingMessageNotificationParamsSchema
 });
-var ModelHintSchema = object4({
+var ModelHintSchema = object5({
   /**
    * A hint for a model name.
    */
   name: string2().optional()
 });
-var ModelPreferencesSchema = object4({
+var ModelPreferencesSchema = object5({
   /**
    * Optional hints to use for model selection.
    */
@@ -33883,7 +33961,7 @@ var ModelPreferencesSchema = object4({
    */
   intelligencePriority: number2().min(0).max(1).optional()
 });
-var ToolChoiceSchema = object4({
+var ToolChoiceSchema = object5({
   /**
    * Controls when tools are used:
    * - "auto": Model decides whether to use tools (default)
@@ -33892,11 +33970,11 @@ var ToolChoiceSchema = object4({
    */
   mode: _enum(["auto", "required", "none"]).optional()
 });
-var ToolResultContentSchema = object4({
+var ToolResultContentSchema = object5({
   type: literal("tool_result"),
   toolUseId: string2().describe("The unique identifier for the corresponding tool call."),
   content: array(ContentBlockSchema).default([]),
-  structuredContent: object4({}).loose().optional(),
+  structuredContent: object5({}).loose().optional(),
   isError: boolean2().optional(),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -33912,7 +33990,7 @@ var SamplingMessageContentBlockSchema = discriminatedUnion("type", [
   ToolUseContentSchema,
   ToolResultContentSchema
 ]);
-var SamplingMessageSchema = object4({
+var SamplingMessageSchema = object5({
   role: RoleSchema,
   content: union([SamplingMessageContentBlockSchema, array(SamplingMessageContentBlockSchema)]),
   /**
@@ -34012,13 +34090,13 @@ var CreateMessageResultWithToolsSchema = ResultSchema.extend({
    */
   content: union([SamplingMessageContentBlockSchema, array(SamplingMessageContentBlockSchema)])
 });
-var BooleanSchemaSchema = object4({
+var BooleanSchemaSchema = object5({
   type: literal("boolean"),
   title: string2().optional(),
   description: string2().optional(),
   default: boolean2().optional()
 });
-var StringSchemaSchema = object4({
+var StringSchemaSchema = object5({
   type: literal("string"),
   title: string2().optional(),
   description: string2().optional(),
@@ -34027,7 +34105,7 @@ var StringSchemaSchema = object4({
   format: _enum(["email", "uri", "date", "date-time"]).optional(),
   default: string2().optional()
 });
-var NumberSchemaSchema = object4({
+var NumberSchemaSchema = object5({
   type: _enum(["number", "integer"]),
   title: string2().optional(),
   description: string2().optional(),
@@ -34035,24 +34113,24 @@ var NumberSchemaSchema = object4({
   maximum: number2().optional(),
   default: number2().optional()
 });
-var UntitledSingleSelectEnumSchemaSchema = object4({
+var UntitledSingleSelectEnumSchemaSchema = object5({
   type: literal("string"),
   title: string2().optional(),
   description: string2().optional(),
   enum: array(string2()),
   default: string2().optional()
 });
-var TitledSingleSelectEnumSchemaSchema = object4({
+var TitledSingleSelectEnumSchemaSchema = object5({
   type: literal("string"),
   title: string2().optional(),
   description: string2().optional(),
-  oneOf: array(object4({
+  oneOf: array(object5({
     const: string2(),
     title: string2()
   })),
   default: string2().optional()
 });
-var LegacyTitledEnumSchemaSchema = object4({
+var LegacyTitledEnumSchemaSchema = object5({
   type: literal("string"),
   title: string2().optional(),
   description: string2().optional(),
@@ -34061,26 +34139,26 @@ var LegacyTitledEnumSchemaSchema = object4({
   default: string2().optional()
 });
 var SingleSelectEnumSchemaSchema = union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
-var UntitledMultiSelectEnumSchemaSchema = object4({
+var UntitledMultiSelectEnumSchemaSchema = object5({
   type: literal("array"),
   title: string2().optional(),
   description: string2().optional(),
   minItems: number2().optional(),
   maxItems: number2().optional(),
-  items: object4({
+  items: object5({
     type: literal("string"),
     enum: array(string2())
   }),
   default: array(string2()).optional()
 });
-var TitledMultiSelectEnumSchemaSchema = object4({
+var TitledMultiSelectEnumSchemaSchema = object5({
   type: literal("array"),
   title: string2().optional(),
   description: string2().optional(),
   minItems: number2().optional(),
   maxItems: number2().optional(),
-  items: object4({
-    anyOf: array(object4({
+  items: object5({
+    anyOf: array(object5({
       const: string2(),
       title: string2()
     }))
@@ -34105,7 +34183,7 @@ var ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
    * A restricted subset of JSON Schema.
    * Only top-level properties are allowed, without nesting.
    */
-  requestedSchema: object4({
+  requestedSchema: object5({
     type: literal("object"),
     properties: record(string2(), PrimitiveSchemaDefinitionSchema),
     required: array(string2()).optional()
@@ -34161,14 +34239,14 @@ var ElicitResultSchema = ResultSchema.extend({
    */
   content: preprocess((val) => val === null ? void 0 : val, record(string2(), union([string2(), number2(), boolean2(), array(string2())])).optional())
 });
-var ResourceTemplateReferenceSchema = object4({
+var ResourceTemplateReferenceSchema = object5({
   type: literal("ref/resource"),
   /**
    * The URI or URI template of the resource.
    */
   uri: string2()
 });
-var PromptReferenceSchema = object4({
+var PromptReferenceSchema = object5({
   type: literal("ref/prompt"),
   /**
    * The name of the prompt or prompt template
@@ -34180,7 +34258,7 @@ var CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
   /**
    * The argument's information
    */
-  argument: object4({
+  argument: object5({
     /**
      * The name of the argument
      */
@@ -34190,7 +34268,7 @@ var CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     value: string2()
   }),
-  context: object4({
+  context: object5({
     /**
      * Previously-resolved variables in a URI template or prompt.
      */
@@ -34229,7 +34307,7 @@ var CompleteResultSchema = ResultSchema.extend({
     hasMore: optional(boolean2())
   })
 });
-var RootSchema = object4({
+var RootSchema = object5({
   /**
    * The URI identifying the root. This *must* start with file:// for now.
    */
@@ -35093,11 +35171,11 @@ function parseMapDef(def, refs) {
 
 // node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
 function parseNativeEnumDef(def) {
-  const object7 = def.values;
+  const object8 = def.values;
   const actualKeys = Object.keys(def.values).filter((key) => {
-    return typeof object7[object7[key]] !== "number";
+    return typeof object8[object8[key]] !== "number";
   });
-  const actualValues = actualKeys.map((key) => object7[key]);
+  const actualValues = actualKeys.map((key) => object8[key]);
   const parsedTypes = Array.from(new Set(actualValues.map((values) => typeof values)));
   return {
     type: parsedTypes.length === 1 ? parsedTypes[0] === "string" ? "string" : "number" : ["string", "number"],
@@ -37817,13 +37895,13 @@ var OpenIdProviderMetadataSchema = looseObject({
   op_tos_uri: SafeUrlSchema.optional(),
   client_id_metadata_document_supported: boolean2().optional()
 });
-var OpenIdProviderDiscoveryMetadataSchema = object4({
+var OpenIdProviderDiscoveryMetadataSchema = object5({
   ...OpenIdProviderMetadataSchema.shape,
   ...OAuthMetadataSchema.pick({
     code_challenge_methods_supported: true
   }).shape
 });
-var OAuthTokensSchema = object4({
+var OAuthTokensSchema = object5({
   access_token: string2(),
   id_token: string2().optional(),
   // Optional for OAuth 2.1, but necessary in OpenID Connect
@@ -37837,13 +37915,13 @@ var OAuthTokensSchema = object4({
    */
   issuer: string2().optional().catch(void 0)
 }).strip();
-var OAuthErrorResponseSchema = object4({
+var OAuthErrorResponseSchema = object5({
   error: string2(),
   error_description: string2().optional(),
   error_uri: string2().optional()
 });
 var OptionalSafeUrlSchema = SafeUrlSchema.optional().or(literal("").transform(() => void 0));
-var OAuthClientMetadataSchema = object4({
+var OAuthClientMetadataSchema = object5({
   redirect_uris: array(SafeUrlSchema),
   token_endpoint_auth_method: string2().optional(),
   grant_types: array(string2()).optional(),
@@ -37861,7 +37939,7 @@ var OAuthClientMetadataSchema = object4({
   software_version: string2().optional(),
   software_statement: string2().optional()
 }).strip();
-var OAuthClientInformationSchema = object4({
+var OAuthClientInformationSchema = object5({
   client_id: string2(),
   client_secret: string2().optional(),
   client_id_issued_at: number2().optional(),
@@ -37873,11 +37951,11 @@ var OAuthClientInformationSchema = object4({
   issuer: string2().optional().catch(void 0)
 }).strip();
 var OAuthClientInformationFullSchema = OAuthClientMetadataSchema.merge(OAuthClientInformationSchema);
-var OAuthClientRegistrationErrorSchema = object4({
+var OAuthClientRegistrationErrorSchema = object5({
   error: string2(),
   error_description: string2().optional()
 }).strip();
-var OAuthTokenRevocationRequestSchema = object4({
+var OAuthTokenRevocationRequestSchema = object5({
   token: string2(),
   token_type_hint: string2().optional()
 }).strip();
@@ -39934,12 +40012,12 @@ async function configureCertificates(config2, self2, args) {
 }
 
 // src/worker/local-mcp.ts
-var object5 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-var strings2 = (v) => object5(v) && Object.values(v).every((s) => typeof s === "string");
+var object6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var strings2 = (v) => object6(v) && Object.values(v).every((s) => typeof s === "string");
 var expand = (s, env) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => {
   throw new Error("Required MCP environment variable is missing.");
 })());
-var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
+var ATLAS_READ = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS, "atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
 var LocalMcp = class {
   clients = /* @__PURE__ */ new Map();
   tools = [];
@@ -39965,7 +40043,7 @@ var LocalMcp = class {
       const text2 = await readFile3(configFile2, "utf8");
       if (text2.length > 2e6) throw new Error("Large MCP configuration");
       const parsed = JSON.parse(text2);
-      if (!object5(parsed) || !object5(parsed.mcpServers)) throw new Error("Invalid MCP configuration");
+      if (!object6(parsed) || !object6(parsed.mcpServers)) throw new Error("Invalid MCP configuration");
       config2 = parsed.mcpServers;
     } catch {
       throw new Error("Cannot read the personal MCP configuration. Use ONE_CODER_MCP_CONFIG for a JSON file with mcpServers.");
@@ -39977,7 +40055,7 @@ var LocalMcp = class {
       let transport = null;
       try {
         const entry = config2[name];
-        if (!object5(entry) || entry.disabled === true) throw new Error("Missing server");
+        if (!object6(entry) || entry.disabled === true) throw new Error("Missing server");
         if (this.origins && (typeof entry.url !== "string" || !mcpDestinationAllowed(expand(entry.url, env), { mcpOrigins: this.origins }))) throw new Error("MCP destination is outside the task data-flow rule.");
         if (strings2(entry.oneMemoryProjects)) this.memoryProjects.set(name, entry.oneMemoryProjects);
         if (entry.oneTaskMemoryOnly === true) this.memoryOnly.add(name);
@@ -40118,7 +40196,7 @@ var LocalMcp = class {
     throw new Error("Atlas returned no verifiable checkpoint reference.");
   }
   async call(server, name, args, signal, taskMemory = false, fullResult = false) {
-    if (typeof server !== "string" || typeof name !== "string" || !object5(args) || JSON.stringify(args).length > 2e4) throw new Error("Supply a known server/tool and an arguments object up to 20,000 characters.");
+    if (typeof server !== "string" || typeof name !== "string" || !object6(args) || JSON.stringify(args).length > 2e4) throw new Error("Supply a known server/tool and an arguments object up to 20,000 characters.");
     if (this.readOnly && name === "atlas_agent_flow" && !["list", "get"].includes(String(args.action))) throw new Error("This read-only stage allows only list/get for Atlas flows.");
     const client = this.clients.get(server);
     if (this.memoryOnly.has(server) && !taskMemory) throw new Error("This connection is reserved for private task memory. Use the scoped memory tools.");
@@ -40129,7 +40207,7 @@ var LocalMcp = class {
         const selected = await client.callTool({ name: "atlas_tenant_select", arguments: { tenant } }, void 0, { timeout: 8e3, signal });
         if (selected.isError) throw new Error("Memory tenant selection refused.");
       }
-      const result = await client.callTool({ name, arguments: args }, void 0, { timeout: 6e4, signal });
+      const result = await guardedAtlasCodeCall(name, args, (name2, input) => client.callTool({ name: name2, arguments: input }, void 0, { timeout: 6e4, signal }), (name2) => this.tools.some((t) => t.server === server && t.tool.name === name2));
       const text2 = this.redact(JSON.stringify(result));
       if (fullResult) {
         if (sourceBytes(text2) > (name === "atlas_get" ? MCP_SOURCE_BYTES : 18e4)) throw new RangeError("MCP result exceeds the bounded download size; request fewer sections or records.");
@@ -41868,16 +41946,16 @@ function selectMcpSchemas(tools, budget) {
 }
 
 // src/worker/model-mcp.ts
-var object6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var object7 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var names = (v) => Array.isArray(v) && v.length <= 600 && v.every((n) => typeof n === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(n));
 function checkModelMcp(raw) {
-  if (!object6(raw) || !["list", "search", "call"].includes(raw.action) || Object.keys(raw).some((k) => !["servers", "action", "server", "name", "arguments", "query"].includes(k)) || !Array.isArray(raw.servers) || !raw.servers.length || raw.servers.length > 12) throw new Error("Invalid MCP request.");
+  if (!object7(raw) || !["list", "search", "call"].includes(raw.action) || Object.keys(raw).some((k) => !["servers", "action", "server", "name", "arguments", "query"].includes(k)) || !Array.isArray(raw.servers) || !raw.servers.length || raw.servers.length > 12) throw new Error("Invalid MCP request.");
   for (const s of raw.servers) {
-    if (!object6(s) || Object.keys(s).some((k) => !["name", "url", "token", "allow", "deny"].includes(k)) || typeof s.name !== "string" || !/^[a-z][a-z0-9_-]{0,31}$/.test(s.name) || ["one", "one-task"].includes(s.name) || typeof s.url !== "string" || s.url.length > 500 || !connectionUrl(s.url) || typeof s.token !== "string" || s.token.length > 8192 || /[\r\n]/.test(s.token) || s.allow !== null && !names(s.allow) || !names(s.deny)) throw new Error("Invalid selected MCP connection.");
+    if (!object7(s) || Object.keys(s).some((k) => !["name", "url", "token", "allow", "deny"].includes(k)) || typeof s.name !== "string" || !/^[a-z][a-z0-9_-]{0,31}$/.test(s.name) || ["one", "one-task"].includes(s.name) || typeof s.url !== "string" || s.url.length > 500 || !connectionUrl(s.url) || typeof s.token !== "string" || s.token.length > 8192 || /[\r\n]/.test(s.token) || s.allow !== null && !names(s.allow) || !names(s.deny)) throw new Error("Invalid selected MCP connection.");
   }
   if (new Set(raw.servers.map((s) => s.name)).size !== raw.servers.length) throw new Error("Duplicate MCP connection.");
   if (raw.action === "search" && (typeof raw.query !== "string" || raw.query.length > 200)) throw new Error("Invalid MCP search.");
-  if (raw.action === "call" && (typeof raw.server !== "string" || typeof raw.name !== "string" || !object6(raw.arguments) || JSON.stringify(raw.arguments).length > 2e4)) throw new Error("Invalid MCP call.");
+  if (raw.action === "call" && (typeof raw.server !== "string" || typeof raw.name !== "string" || !object7(raw.arguments) || JSON.stringify(raw.arguments).length > 2e4)) throw new Error("Invalid MCP call.");
   return raw;
 }
 async function modelMcp(raw, signal) {
@@ -50388,7 +50466,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.8" : "dev";
+var VERSION2 = true ? "1.35.9" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

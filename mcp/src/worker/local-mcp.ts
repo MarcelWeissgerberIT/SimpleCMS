@@ -1,3 +1,4 @@
+import {ATLAS_CODE_READ_TOOLS,guardedAtlasCodeCall} from '../../../src/shared/mcp/atlasCode.ts'
 import {MCP_SOURCE_BYTES,sourceBytes} from '../../../src/shared/mcp/sourceLimits.ts'
 import {mcpConnectionMessage} from '../../../src/shared/ai/connection-problem.ts'
 import {discoverMcpTools} from '../../../src/shared/mcp/discovery.ts'
@@ -18,7 +19,7 @@ const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'ob
 const strings = (v: unknown): v is Record<string, string> => object(v) && Object.values(v).every(s => typeof s === 'string')
 const expand = (s: string, env: NodeJS.ProcessEnv) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => { throw new Error('Required MCP environment variable is missing.') })())
 // Older Atlas deployments omit MCP annotations. Only these known reading operations are admitted in a plan.
-const ATLAS_READ = new Set(['atlas_whoami', 'atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search', 'atlas_agent_list', 'atlas_project_list', 'atlas_record_kinds', 'atlas_graph', 'atlas_similar', 'atlas_flow_list', 'atlas_agent_inbox', 'atlas_agent_approvals', 'atlas_my_agent_jobs', 'atlas_polarion_status', 'atlas_polarion_resolve', 'atlas_polarion_read', 'atlas_polarion_inspect', 'atlas_polarion_search'])
+const ATLAS_READ = new Set<string>([...ATLAS_CODE_READ_TOOLS,'atlas_whoami', 'atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search', 'atlas_agent_list', 'atlas_project_list', 'atlas_record_kinds', 'atlas_graph', 'atlas_similar', 'atlas_flow_list', 'atlas_agent_inbox', 'atlas_agent_approvals', 'atlas_my_agent_jobs', 'atlas_polarion_status', 'atlas_polarion_resolve', 'atlas_polarion_read', 'atlas_polarion_inspect', 'atlas_polarion_search'])
 
 /** Named personal MCP connections only. Never loads a repository's executable .mcp.json. */
 export class LocalMcp {
@@ -190,7 +191,7 @@ export class LocalMcp {
         const selected = await client.callTool({ name: 'atlas_tenant_select', arguments: { tenant } }, undefined, { timeout: 8000, signal })
         if (selected.isError) throw new Error('Memory tenant selection refused.')
       }
-      const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 60000, signal })
+      const result = await guardedAtlasCodeCall(name,args,(name,input)=>client.callTool({name,arguments:input},undefined,{timeout:60000,signal}),name=>this.tools.some(t=>t.server===server&&t.tool.name===name)) as {isError?:boolean}
       const text = this.redact(JSON.stringify(result))
       if (fullResult) {
         if (sourceBytes(text) > (name === 'atlas_get' ? MCP_SOURCE_BYTES : 180000)) throw new RangeError('MCP result exceeds the bounded download size; request fewer sections or records.')

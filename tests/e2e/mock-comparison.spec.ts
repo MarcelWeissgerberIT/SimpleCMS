@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test'
 import {build} from '../../server/node_modules/esbuild/lib/main.js'
 let bundle:string
 // Exercise the actual browser comparison module without a model, Atlas, or production test hooks.
-test.beforeAll(async()=>{const result=await build({entryPoints:['src/shared/ai/mockComparison.ts'],bundle:true,write:false,format:'iife',globalName:'MockCompare',platform:'browser',tsconfig:'tsconfig.app.json'});bundle=result.outputFiles[0].text})
+test.beforeAll(async()=>{const result=await build({entryPoints:['src/app/editor/lib/mockComparison.ts'],bundle:true,write:false,format:'iife',globalName:'MockCompare',platform:'browser',tsconfig:'tsconfig.app.json'});bundle=result.outputFiles[0].text})
 test.beforeEach(async({page})=>{await page.goto('about:blank');await page.addScriptTag({content:bundle})})
 async function compare(page:any,before:string,after:string,options:any={}){return page.evaluate(async({before,after,options}:any)=>{const p=(document:string)=>({title:'Fixture',document,width:960,height:640,createdAt:'now',htmlHash:'0'.repeat(64),targetUrl:''});return (window as any).MockCompare.compareMockPreviews({...p(before),...options.before},{...p(after),...options.after})},{before,after,options})}
 const doc=(body:string,css='')=>`<!doctype html><html><head><style>body{margin:0;font:16px sans-serif}${css}</style></head><body>${body}</body></html>`

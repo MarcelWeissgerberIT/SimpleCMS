@@ -17,4 +17,4 @@ export class McpReadReuse {
  clear(){this.entries.clear();this.bytes=0}
 }
 /** Identity, access checks and mutable job status must always reach the service. */
-export const reusableMcpRead=(name:string,effect:string)=>effect==='read'&&!/whoami|identity|auth|permission|constraint|status|job|poll|setup|session/i.test(name)
+export const reusableMcpRead=(name:string,effect:string)=>effect==='read'&&!name.startsWith('atlas_code_')&&!/whoami|identity|auth|permission|constraint|status|job|poll|setup|session/i.test(name)

@@ -1,3 +1,4 @@
+import {guardedAtlasCodeCall,codeHumanOnly} from '@/shared/mcp/atlasCode'
 import {McpReadReuse,reusableMcpRead} from '@/shared/mcp/readReuse'
 import {retryMcpRead} from '@/shared/mcp/readRetry'
 import type {MockSources} from '@/shared/ai/designMock'
@@ -41,7 +42,13 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     try{
       const result=await retryMcpRead(async()=>{
         if(signature()!==pinned)throw new AIError('policy','features.ai.mcp.sessionChanged')
-        return audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},()=>requestWorkerMcp(input,signal),proof):requestWorkerMcp(input,signal)
+        const send=(request:typeof input)=>requestWorkerMcp(request,signal)
+        const guarded=async()=>{if(input.action!=='call'||!input.name.startsWith('atlas_code_')||!workerOnline())return send(input)
+          const selected=input.servers.find(s=>s.name===input.server)!
+          const result=await guardedAtlasCodeCall(input.name,input.arguments,async(name,args)=>{const out=await send({...input,name,arguments:args}) as {result:string};return JSON.parse(out.result)},name=>(selected.allow===null||selected.allow.includes(name))&&!selected.deny.includes(name))
+          return {result:JSON.stringify(result)}
+        }
+        return audit?audit.tool(input.action==='call'?input.server:'MCP',input.action==='search'?'one_mcp_search':input.action==='call'?input.name:'list',input.action==='search'?{query:input.query}:input.action==='call'?input.arguments:{},guarded,proof):guarded()
       },{read:input.action!=='call'||mcpTaskEffect(input.name,input.arguments,schemas.get(JSON.stringify([input.server,input.name])))==='read',signal,waiting:(ms,attempt)=>{
         waiting={id:waiting?.id??'mcp-retry:'+crypto.randomUUID(),server:input.action==='call'?input.server:'MCP',tool:input.action==='call'?input.name:input.action,arg:'Abfragelimit · weiter in '+Math.ceil(ms/1000)+' s · Versuch '+attempt+' / '+MCP_READ_RETRIES+' · Ergebnisse bleiben erhalten',state:'run'};event(waiting)
       }})
@@ -110,10 +117,11 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const actual={server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}
       const effect=mcpTaskEffect(actual.name,actual.arguments,schemas.get(JSON.stringify([actual.server,actual.name])))
       if(task&&!actual.name.startsWith('atlas_')&&effect==='forbidden'){const error='The selected catalogue does not identify a supported effect for '+actual.server+'/'+actual.name+'. The connection may be available, but this operation was not executed. For generic source reads, the server must declare readOnlyHint=true. Do not invent a read-only claim or retry an unknown action.';event({...activity,state:'err',error,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error})}
+      if(codeHumanOnly(actual.name)){const error='This operation requires the person to act in Atlas; the agent cannot import repositories, change their model switch or review code drafts.';event({...activity,state:'err',error,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error})}
       const queryProblem=atlasQueryProblem(actual.name,actual.arguments)
       if(queryProblem){event({...activity,state:'err',error:queryProblem,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error:queryProblem})}
       const report=task?.report(),mode=report&&atlasTransferChoice(report.compiled.contract.goal)
-      const intent=task?.writeIntent(),actualKind=({atlas_create:'create',atlas_update:'update',atlas_comment:'comment'} as Record<string,string>)[actual.name]
+      const intent=task?.writeIntent(),actualKind=actual.name==='atlas_code_propose'?(actual.arguments.requirement?'update':'create'):({atlas_create:'create',atlas_update:'update',atlas_comment:'comment'} as Record<string,string>)[actual.name]
       if(intent&&atlasTaskEffect(actual.name,actual.arguments)==='write'&&actualKind!==intent){const error='The current human request authorizes '+intent+' only. Choose a discovered function with that effect or ask about the missing prerequisite. No alternate operation was executed.';event({...activity,state:'err',error,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error})}
       const wrongMode=mode&&!atlasTransferEffectAllowed(mode,actual.name,atlasTaskEffect(actual.name,actual.arguments))
       const needsBody=mode&&['atlas_update','atlas_comment'].includes(actual.name)&&!readBodies.has(bodyKey(actual.server,actual.arguments))
@@ -148,6 +156,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const failed=JSON.parse(out.result).isError===true||(actual.name.startsWith('atlas_')&&atlasReceipt(actual.name,out.result).outcome==='error')
       task?.observe(args.name.startsWith('atlas_')?'atlas':'other',!failed,effect==='read'&&(actual.name!=='atlas_whoami'||task.identityOnly()),false,(!['atlas_whoami','atlas_record_kinds','atlas_setup_bootstrap','atlas_setup_changelog'].includes(actual.name)||actual.name==='atlas_whoami'&&task?.identityOnly()===true),actual.name)
       if(!failed&&actual.name==='atlas_get'&&atlasReceipt(actual.name,out.result).outcome==='ok'){const item=atlasData(out.result)?.item;if(item&&Number.isSafeInteger(item.ref)&&typeof item.body==='string'){if(item.body.trim())task?.observeSource('atlas',String(item.ref));readBodies.add(bodyKey(actual.server,{...actual.arguments,ref:item.ref}))}}
+      if(!failed&&actual.name==='atlas_code_read'){const data=atlasData(out.result);if(data?.citation&&typeof data.text==='string')task?.observeSource('atlas',String(data.repo)+':'+String(data.snapshot)+':'+String(data.path))}
       if(!failed){const schema=schemas.get(JSON.stringify([actual.server,actual.name]));if(schema&&['read','write','execute'].includes(effect))task?.capture({kind:'tool',server:actual.server,endpoint:selected.url,tool:actual.name,schema:schema.inputSchema,args:actual.arguments,effect:effect as 'read'|'write'|'execute'})}
       const receipt=args.name.startsWith('atlas_')?facts.observe(actual,out.result,failed):undefined
       if(receipt)receipt.quantum=proof
