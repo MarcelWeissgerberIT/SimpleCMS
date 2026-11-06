@@ -683,3 +683,5 @@ export { DesignMockCard } from './ai/agent/DesignMockCard'
 export { MockReviewPanel } from './ai/agent/MockReviewPanel'
 
 export {MockSourcePanel} from './ai/agent/MockSourcePanel'
+
+export { CodeEvidence } from './code-evidence/CodeEvidence'

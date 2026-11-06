@@ -13,6 +13,9 @@ export const messages: Messages = {
   en: {
     'editor.button.aiTask.prepare': 'Prepare AI task',
     'editor.button.aiTask.claudePrepare': 'Prepare with Claude',
+    'editor.code.sourceReference': 'Show as source reference',
+    'editor.block.codeReference': 'Source code reference',
+    'editor.block.codeReference.desc': 'Link an Atlas source file and open its highlighted finding read-only.',
     'editor.block.designMock': 'UI mock from Atlas',
     'editor.block.designMock.desc': 'Prepare a mock from an Atlas design MD and keep a chosen preview in this block.',
     'editor.mock.title': 'New UI proposal',
@@ -597,6 +600,9 @@ export const messages: Messages = {
   de: {
     'editor.button.aiTask.prepare': 'KI-Aufgabe vorbereiten',
     'editor.button.aiTask.claudePrepare': 'Mit Claude vorbereiten',
+    'editor.code.sourceReference': 'Als Quellbeleg anzeigen',
+    'editor.block.codeReference': 'Quellcode-Beleg',
+    'editor.block.codeReference.desc': 'Atlas-Datei verknüpfen und ihre markierte Fundstelle nur lesend öffnen.',
     'editor.block.designMock': 'UI-Mock aus Atlas',
     'editor.block.designMock.desc': 'Mock aus einer Atlas-Design-MD vorbereiten und eine gewählte Vorschau in diesem Block behalten.',
     'editor.mock.title': 'Neuer UI-Entwurf',

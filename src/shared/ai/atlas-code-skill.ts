@@ -35,7 +35,7 @@ Repo, Snapshot-ID, vollständiger Commit und Analysedatum; bei Vergleich für be
 ### Antwort
 2–6 Sätze, Code-Aussagen mit [1], [2] usw. Nicht belegte Interpretationen als solche kennzeichnen.
 ### Belege
-Tabelle: Nummer, Datei, Zeilen, getragene Aussage, Prüfergebnis und Prüfzeitpunkt. Darunter je Nummer die vollständige unveränderte citation als JSON mit repo, snapshot, commit, path, lines und digest. Diese Daten müssen beim Bearbeiten der Seite erhalten bleiben.
+Tabelle: Nummer, Datei, Zeilen, getragene Aussage, Prüfergebnis und Prüfzeitpunkt. Darunter je Nummer die vollständige unveränderte citation als JSON mit repo, snapshot, commit, path, lines und digest. Diese Daten müssen beim Bearbeiten der Seite erhalten bleiben. Für ladbare Quellcode-Belege in One einen fenced code block mit Sprache atlas-code verwenden. Inhalt ist JSON: {"server":"<tatsächlich genutzter MCP-Verbindungsname>","repoName":"<Repo-Name>","finding":"<getragene Aussage>","citation":<vollständiger unveränderter Beleg>,"highlight":[<erste Finding-Zeile>,<letzte Finding-Zeile>]}. highlight muss vollständig innerhalb citation.lines liegen; ohne highlight wird der gesamte belegte Bereich markiert. Keine Code-Inhalte, Tokens oder erfundene Atlas-URLs einbetten. atlasUrl nur hinzufügen, wenn Atlas selbst eine passende HTTPS-Quell-URL geliefert hat. One zeigt diesen Block als Quellenkarte und lädt Code erst auf Klick über die persönliche Atlas-Verbindung, ausschließlich lesend und am gepinnten Snapshot. Bestehende JSON-Belege können in One über „Als Quellbeleg anzeigen“ umgestellt werden.
 ### Auffälligkeiten
 Widersprüche, tote Pfade und instruktive Kommentare nur mit gelesenen Belegen nennen.
 ### Offene Punkte
