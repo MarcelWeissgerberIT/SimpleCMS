@@ -646,7 +646,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <AnswerPageAction turn={turn} last={last}/>
         </div>
       )}
-      {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock}/>)}
+      {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock} workspaceEpoch={turn.mockWorkspaceEpoch}/>)}
       <TurnMedia n={turn.n} />
       <TurnHalt n={turn.n} />
       <AtlasTransferSummary turn={turn} steps={steps}/>

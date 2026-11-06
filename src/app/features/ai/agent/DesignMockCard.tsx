@@ -5,8 +5,9 @@ import {useWorkspace} from '../../../store/store'
 import {attachMockToAtlas,type MockAttachment} from './mockAtlas'
 import {useT} from '../../../i18n'
 import './design-mock.css'
+import {MockRevisionActions} from './MockRevisionActions'
 const download=(blob:Blob,name:string)=>{const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-export function DesignMockCard({artifact:a,embedded=false,onPersist,savedCurrent}:{artifact:DesignMock;embedded?:boolean;savedCurrent?:boolean;onPersist?:(artifact:DesignMock,saved:boolean)=>void}){
+export function DesignMockCard({artifact:a,embedded=false,onPersist,savedCurrent,workspaceEpoch}:{artifact:DesignMock;embedded?:boolean;savedCurrent?:boolean;workspaceEpoch?:string;onPersist?:(artifact:DesignMock,saved:boolean)=>void}){
  const t=useT(),pending=useRef<AbortController|null>(null),[phase,setPhase]=useState<'rendering'|'checking'|'uploading'|null>(null),[uploadTarget,setUploadTarget]=useState<number|null>(null)
  useEffect(()=>()=>pending.current?.abort(),[])
  const de=useWorkspace(s=>s.settings.language==='de'),frame=useRef<HTMLIFrameElement>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState(savedCurrent??!!a.atlasSaved),[uploads,setUploads]=useState<MockAttachment[]>([]),[pngReceipt,setPngReceipt]=useState<{sha256:string;bytes:number;renderedAt:string}|null>(null)
@@ -30,7 +31,9 @@ export function DesignMockCard({artifact:a,embedded=false,onPersist,savedCurrent
  }catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=null;setBusy(false);setPhase(null)}}
  return <section className={'design-mock'+(embedded?' design-mock--embedded':'')} aria-label={de?'Design-Mock':'Design mock'}>
   {!embedded&&<header><div><span className="label">BA / PO · {de?'Entwurf · Abnahme offen':'Proposal · review open'}</span><h3>{a.title}</h3></div><span>{a.width} × {a.height}</span></header>}
+  {!embedded&&<MockRevisionActions artifact={a} workspaceEpoch={workspaceEpoch}/>}
   <div className="design-mock__viewport"><iframe ref={frame} title={a.title} sandbox="allow-same-origin" srcDoc={a.document} width={a.width} height={a.height} tabIndex={-1}/></div>
+  {!embedded&&a.feedbackReview&&<MockRevisionActions artifact={a} workspaceEpoch={workspaceEpoch}/>}
   <div className="design-mock__actions"><button className="btn btn--sm" disabled={busy} onClick={()=>{check();download(new Blob([a.document],{type:'text/html'}),name+'.html')}}>HTML {de?'herunterladen':'download'}</button><button className="btn btn--sm" disabled={busy} onClick={()=>void act('png')}>PNG {de?'erstellen':'render'}</button><button className="btn btn--primary btn--sm" disabled={busy||saved||(!validDestination&&!a.atlasContext)} onClick={()=>void act('save')}>{busy?t('features.agent.mock.'+(phase??'rendering')):saved?(de?'In Atlas gespeichert':'Saved in Atlas'):(a.atlasContext&&!validDestination?(de?'Als neuen Mock im Epic speichern':'Save new mock in epic'):(de?'Am Atlas-Record ablegen':'Attach to Atlas record'))}</button></div>
   <label>{de?'Atlas-Ziel zum Speichern (optional, #Record): ':'Atlas destination for saving (optional, #record): '}<input value={destination} onChange={e=>setDestination(e.target.value)} disabled={busy||saved} inputMode="numeric" placeholder="#12345"/></label>
   {a.atlasContext&&<p>{de?'Design-Kontext: ':'Design context: '}<a href={a.atlasContext.url} target="_blank" rel="noreferrer">{a.atlasContext.title} · #{a.atlasContext.ref}</a> · {a.atlasContext.tag}{!validDestination&&(de?' · Beim Speichern entsteht automatisch ein verknüpfter Mock-Record.':' · Saving creates a linked mock record automatically.')}</p>}

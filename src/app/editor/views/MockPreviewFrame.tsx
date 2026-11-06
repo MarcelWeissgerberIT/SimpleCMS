@@ -1,12 +1,12 @@
 import {useEffect,useRef} from 'react'
 import type {MockElement} from '@/shared/ai/mockReview'
 /** The host handles selection. Imported markup never receives script permission. */
-export function MockPreviewFrame({document:html,title,width,height,marking,onSelect,highlight}:{document:string;title:string;width:number;height:number;marking:boolean;highlight?:string;onSelect:(element:MockElement)=>void}){
+export function MockPreviewFrame({document:html,title,width,height,marking,onSelect,highlight,locate}:{document:string;title:string;width:number;height:number;marking:boolean;highlight?:string;locate?:number;onSelect:(element:MockElement)=>void}){
  const frame=useRef<HTMLIFrameElement>(null),cleanup=useRef<(()=>void)|null>(null)
  const bind=()=>{
   cleanup.current?.();cleanup.current=null
   const doc=frame.current?.contentDocument;if(!doc?.body)return
-  if(!marking){if(highlight)try{const el=doc.querySelector(highlight) as HTMLElement|null;if(el){el.style.outline='3px solid #ff5a00';el.style.outlineOffset='2px';el.scrollIntoView({block:'center'})}}catch{/* Stored selectors are data, never executable. */}return}
+  if(!marking){if(highlight)try{const el=doc.querySelector(highlight) as HTMLElement|null;if(el){const outline=el.style.outline,offset=el.style.outlineOffset;el.style.outline='3px solid #ff5a00';el.style.outlineOffset='2px';el.scrollIntoView({block:'center',inline:'center'});cleanup.current=()=>{el.style.outline=outline;el.style.outlineOffset=offset}}}catch{/* Stored selectors are data, never executable. */}return}
   const body=doc.body,wasInert=body.hasAttribute('inert');body.removeAttribute('inert')
   let outlined:HTMLElement|null=null,oldOutline='',oldOffset=''
   const clear=()=>{if(outlined){outlined.style.outline=oldOutline;outlined.style.outlineOffset=oldOffset;outlined=null}}
@@ -19,6 +19,6 @@ export function MockPreviewFrame({document:html,title,width,height,marking,onSel
   doc.addEventListener('pointermove',move,true);doc.addEventListener('click',click,true);doc.addEventListener('pointerdown',block,true);doc.addEventListener('keydown',block,true);doc.addEventListener('submit',block,true)
   cleanup.current=()=>{clear();if(wasInert)body.setAttribute('inert','');doc.removeEventListener('pointermove',move,true);doc.removeEventListener('click',click,true);doc.removeEventListener('pointerdown',block,true);doc.removeEventListener('keydown',block,true);doc.removeEventListener('submit',block,true)}
  }
- useEffect(()=>{bind();return()=>cleanup.current?.()},[html,marking,onSelect,highlight])
- return <iframe ref={frame} title={title} sandbox="allow-same-origin" referrerPolicy="no-referrer" tabIndex={marking?0:-1} srcDoc={html} onLoad={bind} style={{width,height,minHeight:320,pointerEvents:marking?'auto':'none'}}/>
+ useEffect(()=>{bind();return()=>cleanup.current?.()},[html,marking,onSelect,highlight,locate])
+ return <iframe ref={frame} title={title} sandbox="allow-same-origin" referrerPolicy="no-referrer" tabIndex={0} srcDoc={html} onLoad={bind} style={{width,height,minHeight:320,pointerEvents:'auto'}}/>
 }

@@ -10,7 +10,7 @@
 .mock-block__preview[hidden]{display:none}
 .mock-block__preview{margin-top:16px;display:grid;gap:10px}
 .mock-block__viewport{overflow:auto;max-height:650px;max-width:100%;border:1px solid var(--rule);border-radius:5px;background:white}
-.mock-block__viewport iframe{display:block;border:0;pointer-events:none;max-width:none;background:white}
+.mock-block__viewport iframe{display:block;border:0;pointer-events:auto;max-width:none;background:white}
 .mock-block-modal .modal__body{height:calc(100dvh - 120px);overflow:auto}
 .mock-block-modal .mock-block__viewport{height:100%;max-height:none}
 @media(max-width:600px){.mock-block{padding:10px}.mock-block__actions .btn{min-height:40px}}
@@ -50,3 +50,21 @@
 .mock-review__notes>li,.mock-review__versions>li{border:1px solid var(--rule);padding:14px;border-radius:4px;overflow-wrap:anywhere}
 .mock-review__assessment{border-left:3px solid var(--signal);padding-left:12px;margin-top:12px}
 .mock-review small{color:var(--ink-2)}
+
+.mock-block__revision{border:1px solid var(--signal);border-radius:4px;padding:12px;margin:0 0 16px;overflow-wrap:anywhere}
+.mock-block__revision .mock-block__actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.mock-block__revision p{margin:8px 0 0}
+
+.mock-components__layout{display:flex;gap:16px;align-items:flex-start;min-width:0}
+.mock-components__layout>nav{flex:0 0 250px;max-height:650px;overflow:auto;border:1px solid var(--rule);border-radius:4px;padding:8px}
+.mock-components__layout>.mock-block__viewport{flex:1;min-width:0}
+.mock-components ul{list-style:none;padding:0;margin:0}
+.mock-components li::before{display:none}
+.mock-components ul ul{padding-left:16px;border-left:1px solid var(--rule);margin-left:12px}
+.mock-components__row{display:flex;align-items:flex-start;gap:4px;margin:3px 0}
+.mock-components__toggle{flex:0 0 24px;width:24px;min-height:32px;background:none;border:0;color:var(--ink);cursor:pointer}
+.mock-components__item{display:grid;gap:4px;text-align:left;flex:1;min-width:0;padding:8px;background:transparent;color:var(--ink);border:1px solid transparent;border-radius:4px;font:inherit;cursor:pointer;overflow-wrap:anywhere}
+.mock-components__item small{color:var(--ink-2);font-size:11px}
+.mock-components__item:hover{background:var(--surface-2)}
+.mock-components__item[aria-current=true]{border-color:var(--signal);background:var(--surface-2)}
+@media(max-width:800px){.mock-components__layout{flex-direction:column}.mock-components__layout>nav{flex:auto;max-height:240px;width:100%;box-sizing:border-box}.mock-components__layout>.mock-block__viewport{width:100%}}

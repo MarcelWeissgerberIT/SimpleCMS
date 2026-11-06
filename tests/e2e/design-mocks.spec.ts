@@ -201,8 +201,27 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   await wsEval(page,s=>s.setWorkspaceAI({policy:{restricted:[],providers:{local:{allow:['public','structure','selection','page','rows','workspace','people','transcript']}}}}))
   await page.keyboard.press(`${MOD}+j`);await block.getByRole('button',{name:'Revise with AI',exact:true}).click();await input.press('Enter')
   await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:30000});expect(revised).toBe(true);expect(assessed).toBe(true)
-  await page.keyboard.press(`${MOD}+j`);await block.getByRole('tab',{name:'Mock',exact:true}).click();await block.locator('.mock-block__panel > details > summary').click()
-  await block.getByLabel('Result from the AI terminal',{exact:true}).selectOption({index:1});await block.getByRole('button',{name:'Use preview in block',exact:true}).click()
+  // A proposal leaves the original block untouched until the user accepts it.
+  await expect.poll(()=>wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),target)).not.toContain('Reviewed status')
+  const accept=term.getByRole('button',{name:'Adopt version',exact:true}).first()
+  await expect(accept).toBeEnabled()
+  await wsEval(page,(s,id)=>s.updatePageSettings(id,{locked:true}),target);await expect(accept).toBeDisabled()
+  await wsEval(page,(s,id)=>s.updatePageSettings(id,{locked:false}),target)
+  if(legacy){await accept.click();await expect(term.getByRole('button',{name:'Version adopted',exact:true}).first()).toBeDisabled();await page.keyboard.press(`${MOD}+j`)}
+  else{
+   await page.keyboard.press(`${MOD}+j`)
+   // A newer user edit must not be overwritten, even with an older result in the terminal.
+   const original=await ed.evaluate((el:any)=>el.editor.getJSON())
+   await ed.evaluate((el:any)=>{const editor=el.editor;editor.state.doc.descendants((node:any,pos:number)=>{if(node.type.name!=='designMock')return;const spec=structuredClone(node.attrs.spec);spec.preview.document+='<p>Newer user edit</p>';editor.view.dispatch(editor.state.tr.setNodeMarkup(pos,undefined,{...node.attrs,spec}));return false})})
+   await expect(block.getByRole('button',{name:'Adopt version',exact:true})).toBeDisabled()
+   await ed.evaluate((el:any,content)=>el.editor.commands.setContent(content),original)
+   await expect(block.getByRole('button',{name:'Adopt version',exact:true})).toBeEnabled()
+   await block.getByRole('button',{name:'Adopt version',exact:true}).click()
+  }
+  await expect(page.frameLocator('.mock-block__preview iframe').getByRole('button',{name:'Reviewed status',exact:true})).toBeVisible()
+  await expect(block.getByRole('button',{name:'Version adopted',exact:true})).toBeDisabled()
+  await expect.poll(()=>wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),target)).toContain('Reviewed status')
+  await reloadApp(page);await gotoPage(page,target)
   await expect(page.frameLocator('.mock-block__preview iframe').getByRole('button',{name:'Reviewed status',exact:true})).toBeVisible()
   await block.getByRole('tab',{name:'Notes',exact:true}).click();await expect(block).toContainText('MD change queued')
   await block.getByRole('button',{name:'Mark mock resolved',exact:true}).click();await expect(block).toContainText('MD change queued')
