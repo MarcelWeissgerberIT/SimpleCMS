@@ -68,3 +68,16 @@ Frontend source `c05116f7` corrects the One-model document pipeline's source con
 - All 1,585 release-manifest files verified in the image and running container. Public app HTML and 88 referenced JS/CSS assets hash-verified over HTTPS; health passed and schema minimum remains 6.
 - Backend SHA-256 remains `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`. Atomic frontend publication retained compatibility assets and the existing container start time (`2026-11-06T12:18:51.708916279Z`). Compose pins the new runtime for future starts.
 - Rollback HTML and compose: `/opt/one/rollback-ba-sources-c05116f7`. Only redundant `dist`, `static-assets` and `entries` folders from the previous release staging directory were removed, after every file matched its retained SHA-256-verified archive. Data, volumes, release archives and rollback images remain intact. Final free server space: 604 MB.
+
+## 2026-11-06 · Evidence-led code analysis
+
+Frontend source `ef2a8254` adds the native `/code-analysis` block: scoped, read-only Atlas investigation using the One model, with four durable phases, supporting and contradicting evidence, source-linked flows, requirement/test-source mapping, explicit review and version acceptance. New snapshot investigations retain earlier evidence and compare stable findings. The Atlas code-analysis template now includes the same investigation method. Own run budgets now apply without a workspace budget and retain previously spent amounts between rounds.
+
+- Twenty code-analysis/source-reference browser checks, four existing governor regressions, twenty unit checks, TypeScript and the production build passed. Desktop/mobile light/dark layouts and the changelog screenshot were visually inspected. Provider and Atlas calls used synthetic fixtures; no paid/private investigation was started.
+- Image: `one-workshop:code-analysis-ef2a8254`; archive SHA-256: `647f11d7fb9f6ac50b2d44dbc894cf6ec2b801bd8349d71913ca347b681ad060`.
+- Public entry SHA-256: `0ced845a1aaaa3da939c048905c3dea803901969e8b7c80aaa4664a68bd21b47`.
+- All 1,747 release-manifest files verified in the new image and running container. Public app HTML and 88 referenced JS/CSS assets hash-verified over HTTPS. Health passed; schema minimum remains 6.
+- Backend SHA-256 remains `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`. Atomic frontend publication retained compatibility assets and the container start time (`2026-11-06T12:18:51.708916279Z`). Compose pins the new runtime.
+- Rollback HTML and compose: `/opt/one/rollback-code-analysis-ef2a8254`. Duplicate `dist`, `static-assets` and `entries` folders from the prior and current staging directories were removed only after matching every file against their retained hash-verified release archives. Data, volumes, archives and rollback images were retained. Final free disk: 524 MB.
+
+Source authenticity and model interpretation remain distinct. Test references identify source code, not executed tests. Scope and flow reports are bounded model investigations, not compiler-derived completeness proofs. Actual provider cost may exceed a pre-request estimate by the current response; completed phases survive a budget hold or error.
