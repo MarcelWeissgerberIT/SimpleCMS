@@ -103,3 +103,8 @@ Generation 5 retains the additional targets through serialization and older-gene
 ## Citation freshness after source reuse
 
 Cached complete bodies remain eligible only after a successful live Atlas metadata read confirms permission, the same service revision and unchanged lifecycle/scope metadata, with the saved snapshot hash intact. `readAt` retains the original body-read timestamp; `validatedAt` records the current verification. The citation freshness window uses that verification for reused bodies, so an unchanged cache older than 15 minutes does not spuriously block a revision. Unknown run-local IDs, invented quotes and expired verification still fail. Errors identify the citation field and distinguish missing sources, quote mismatches and expired verification. Regression coverage advances the browser clock by one hour between source reads, then checks changed revisions and access denial.
+
+
+### Continuous multi-selection
+
+Marking no longer jumps to Notes after the first target. The toolbar displays the selected count and **Write note for selection** opens the shared composer. Switching between Mock and Notes keeps marking active and retains typed note text; other tabs end marking so normal interaction remains available. Full-screen previews share the same selection and support adding/removing targets before returning to the note. Regression tests cover returning to Mock mid-note, full-screen selection, reload persistence and grouped AI revisions.
