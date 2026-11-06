@@ -45,3 +45,14 @@ Frontend source `78245d77` adds portable `atlas-code` reference cards, verified 
 - All 1,274 manifest files verified in the image and running container; public HTML and 88 referenced JS/CSS assets verified over HTTPS. Health passed and schema minimum remains 6.
 - The backend artifact remains `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`. No container restart; old hashed assets retained for open tabs. Compose pins the new runtime image.
 - Rollback HTML and compose: `/opt/one/rollback-code-evidence-78245d77`. Final free disk space: about 1.4 GB; no data, volumes or rollback images removed for this release.
+
+## 2026-11-06 · UI Instructions and evidence requests
+
+Frontend source `a6e41711` adds a native UI Studio block (project/Markdown/verified ZIP-part import, component contracts and dependencies, local static HTML measurement and prepared One-model image/document analysis) and source-evidence requests from selected page text. The integration retains the existing code-block schema. Dynamic authenticated URL capture and full HTML/asset archive rendering remain in the local analyzer.
+
+- Fourteen browser journeys, six format/reference unit checks, TypeScript and production build passed. Atlas/provider tests used synthetic fixtures; no paid/private model investigation was executed. Desktop/mobile light/dark layout and the changelog screenshot were visually inspected.
+- Image: `one-workshop:ui-studio-a6e41711`; archive SHA-256: `9bf47f06e53cab671cf6cd994bc654b25d253eecc9b118065db8f044ee818371`.
+- Public entry SHA-256: `30adbf03201da9b59eb7fa231799381edf04f726a2694016f68cf3196d6b89f7`.
+- All 1,436 release-manifest files verified in the new image and running container. Public app HTML and 88 referenced JS/CSS assets hash-verified over HTTPS; health passed and schema minimum remains 6.
+- Backend SHA-256 remains `b670150d8b2678218a0c9d655a1e58b511a35fa289798be54f9adb665576278d`. Atomic frontend publication, compatibility assets retained, no container restart (start time remains `2026-11-06T12:18:51.708916279Z`). Compose pins the new runtime.
+- Rollback HTML and compose: `/opt/one/rollback-ui-studio-a6e41711`. Free server disk after publication: 894 MB. No data, volumes, archives or rollback images were removed.
