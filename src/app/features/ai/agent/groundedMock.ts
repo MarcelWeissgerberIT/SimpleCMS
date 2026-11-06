@@ -1,3 +1,5 @@
+import {mergeMockRegion} from './mockEvolution'
+import {persistMockProposal} from './MockRevisionActions'
 import {t} from '../../../i18n'
 import {mcpWorkScope,readMcpWork,saveMcpWork} from '../core/localMcpWork'
 import {sourceRecord,sourceRevision,revalidatedSource,type SourceSnapshot} from '@/shared/mcp/sourceSnapshot'
@@ -77,6 +79,8 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
      if(!Array.isArray(refs)||refs.some(ref=>!catalogue.some(m=>m.ref===ref)))throw new ToolInputError('Epic component selection did not return valid indexed references.')
      await remember(selectionKey,refs)
     }
+    const feedbackRefs=feedback?.snapshot.notes.flatMap((n:any)=>n.assessment?.refs??[])??[]
+    refs=[...new Set([...feedbackRefs.filter((ref:number)=>catalogue.some(m=>m.ref===ref)),...refs])].slice(0,8)
     const selected=epicSelection(epic,refs)
     for(const [i,member] of selected.entries()){
      o.hooks.note('Designbibliothek lesen · '+(i+1)+' / '+selected.length+' · '+member.name)
@@ -86,9 +90,12 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
    if(plan.requirement)sources.selectedTarget=(await read(plan.requirement)).id
   }
   else for(const ref of plan.refs)await read({ref})
+  if(feedback&&/^One mock markdown: true$/m.test(o.typed??'')){
+   const {prepareMockMarkdown}=await import('./mockMarkdownRevision');answer=await prepareMockMarkdown(o,prepared,sources,feedback,audit);task.finish(answer);o.hooks.text(answer);o.hooks.textDone('answer');o.hooks.history([...o.history,o.user,{role:'assistant',content:answer}]);state='done';return 'done' as const
+  }
   const artifact=await checkedMockDraft(
-   (input,error,repair)=>repairDesignMock(o,prepared,sources,input,error,{phase:repair?'repair':'draft',audit,revision:feedback?.prompt}),
-   draft=>({...compileMock(draft,sources),request:(o.typed??'').split(/^Atlas design (?:source|epic):/m)[0]!.replace(/^\/mock\s*/i,'')}),
+   (input,error,repair)=>repairDesignMock(o,prepared,sources,input,error,{phase:repair?'repair':'draft',audit,revision:feedback?.prompt,focused:!!feedback?.region}),
+   draft=>({...((feedback?.region)?mergeMockRegion(feedback.snapshot.preview,feedback.region,compileMock(draft,sources),draft):compileMock(draft,sources)),request:(o.typed??'').split(/^Atlas design (?:source|epic):/m)[0]!.replace(/^\/mock\s*/i,'')}),
    ()=>o.hooks.note('Der Mock-Entwurf wird einmal gegen echte Quellenausschnitte und das vollständige Schema korrigiert.'))
   if(feedback){feedback.check();artifact.feedbackReview={journal:feedback.request.journal,base:feedback.request.base,notes:feedback.request.notes,assessments:[]};artifact.colorAdjustments=feedback.snapshot.preview.colors;artifact.document=artifact.document.replace('</head>',mockColorStyle(artifact.colorAdjustments??{})+'</head>');artifact.htmlHash=sha256Hex(artifact.document);try{artifact.feedbackReview=await assessMockFeedback(o,prepared,sources,feedback,audit)}catch(e){if(o.signal.aborted)throw e;feedback.check();o.hooks.note('Mock erstellt; die Designsystem-Einschätzung ist noch offen: '+String(e instanceof Error?e.message:e))}}
   task.dispatch('create_design_mock','read');task.finish('Statischer Design-Mock mit tatsächlich gelesenen Quellen erstellt. Diese Entwurfsphase hat Atlas nur gelesen.')
@@ -99,8 +106,10 @@ export async function runGroundedMock(o:Parameters<typeof runAgent>[0],prepared:
    catch(e){if(o.signal.aborted)throw e;deliveryNote=' Die Vorschau ist fertig, die Atlas-Ablage ist unvollständig: '+String(e instanceof Error?e.message:e)+(artifact.atlasDestination?' · '+artifact.atlasDestination.url:'')+'. Über die Mock-Karte fortsetzen; vorhandene Records werden wiederverwendet.';o.hooks.note(deliveryNote)}
   }
   assertPreparedFlow(prepared);sources.created++;o.hooks.mock?.(artifact)
+  if(feedback){try{persistMockProposal(artifact);o.hooks.note('Änderungsvorschlag am Mock gespeichert. Vorschau vergleichen und anschließend übernehmen oder verwerfen.')}catch(e){o.hooks.note('Vorschlag im KI-Ergebnis; am Block noch nicht gespeichert: '+String(e instanceof Error?e.message:e))}}
   await audit.tool('ONE','create_design_mock',{target:artifact.target?.ref??null},()=>({htmlHash:artifact.htmlHash,sources:artifact.sources,checks:'quote origin, static markup and token mechanics; semantic and visual review open',png:artifact.atlasSaved?'rendered and attached':'not confirmed',atlasPersistence:artifact.atlasSaved?'complete':artifact.atlasDestination?'partial':'not confirmed',atlasDestination:artifact.atlasDestination??null}))
   answer='Statischer Design-Mock zur Prüfung erstellt. ONE hat die ausdrücklich genannten Atlas-Quellen tatsächlich gelesen und Quellenzitate, statisches HTML sowie Token-Verweise geprüft. HTML-Vorschau und PNG-Export stehen in der Mock-Karte. PNG wird erst beim Export gerendert. Fachliche und visuelle Prüfung bleiben offen; nichts wurde in ONE oder Atlas gespeichert.'
+  if(feedback)answer='Änderungsvorschlag erstellt. Die bisherige Vorschau bleibt bis zur Annahme aktiv. Am Mock kannst du Vorher/Nachher vergleichen. Atlas wurde nicht verändert.'
   if(deliveryNote)answer='Statischer Design-Mock mit geprüften Quellenzitaten erstellt. Fachliche und visuelle Prüfung bleiben offen.'+deliveryNote
   o.hooks.text(answer);o.hooks.textDone('answer');o.hooks.history([...o.history,o.user,{role:'assistant',content:answer}]);state='done'
   await audit.tool('ONE','compiled_task',{phase:'result'},()=>task.report());return 'done' as const

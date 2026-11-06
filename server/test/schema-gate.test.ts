@@ -124,10 +124,10 @@ test('a newer client than the server knows writes as usual', async () => {
 })
 
 
-test('a generation-2 tab cannot delete a persisted generation-3 mock block', async () => {
-  assert.equal(MIN_CLIENT_SCHEMA, 3)
+test('a generation-3 tab cannot delete a persisted generation-4 mock proposal', async () => {
+  assert.equal(MIN_CLIENT_SCHEMA, 4)
   const name = `ws:${wsId}:p:mockgate0001`
-  const current = doc(owner, name, 3)
+  const current = doc(owner, name, 4)
   assert.equal(await current.ready, 'read-write')
   await current.synced
   const mock = new Y.XmlElement('designMock')
@@ -137,16 +137,16 @@ test('a generation-2 tab cannot delete a persisted generation-3 mock block', asy
   mock.insert(0, [title])
   current.doc.getXmlFragment('default').insert(0, [mock])
   await flushed(current)
-  const old = doc(member, name, 2)
+  const old = doc(member, name, 3)
   const got = notices(old)
   assert.equal(await old.ready, 'readonly')
   await old.synced
-  await waitFor(() => got.length > 0, 5000, 'reload notice for generation 2')
-  assert.equal(JSON.parse(got[0]!).min, 3)
+  await waitFor(() => got.length > 0, 5000, 'reload notice for generation 3')
+  assert.equal(JSON.parse(got[0]!).min, 4)
   ;(old.doc.getXmlFragment('default').get(0) as Y.XmlElement).setAttribute('spec', '{}')
   old.doc.getXmlFragment('default').delete(0, 1)
   await sleep(400)
-  const fresh = doc(owner, name, 3)
+  const fresh = doc(owner, name, 4)
   await fresh.synced
   assert.equal((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).nodeName, 'designMock')
   assert.match(fresh.doc.getXmlFragment('default').toString(), /CyBio head selector/)

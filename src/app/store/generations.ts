@@ -26,18 +26,19 @@ import { diff, type Hunk } from './merge'
  * MIN_CLIENT_SCHEMA one release later.
  *  1 = the task block (`workItem`)
  *  2 = the Atlas design mock block (`designMock`)
- *  3 = mock feedback and version journal (cloud editing waits for schema_min 3)
+ *  3 = mock feedback and version journal
+ *  4 = durable mock proposals and Markdown change receipts (cloud editing waits for schema_min 4)
  */
-export const DOC_SCHEMA_VERSION = 3
+export const DOC_SCHEMA_VERSION = 4
 
 /** Node types an older generation does not know: type → the generation that brought it. */
-export const NODE_GENERATIONS: Readonly<Record<string, number>> = { workItem: 1, designMock: 3 }
+export const NODE_GENERATIONS: Readonly<Record<string, number>> = { workItem: 1, designMock: 4 }
 
-/** Generation 2 can still edit a mock, but its spec parser drops the new journal.
+/** Older generations can edit a mock, but their spec parsers drop the extended journal.
  * Preserve that opaque field by block id while retaining the older tab's preview/title edits.
  * Explicit whole-page restores keep their existing history/restore semantics. */
 function retainMockJournals(before: JSONContent | null, after: JSONContent | null, gen: number): JSONContent | null {
-  if (gen >= 3 || !before || !after) return after
+  if (gen >= 4 || !before || !after) return after
   const spec = (raw: unknown): Record<string, unknown> | null => {
     try { const value = typeof raw === 'string' ? JSON.parse(raw) : raw; return value && typeof value === 'object' ? value as Record<string, unknown> : null } catch { return null }
   }

@@ -12,9 +12,10 @@
  * Raise MIN_CLIENT_SCHEMA one release after the app's DOC_SCHEMA_VERSION grew — once every tab can load it.
  *   1 = the task block (`workItem`)
  *   2 = Atlas mock blocks (`designMock`).
- *   3 = mock feedback/version journal; deploy the generation-3 frontend before activation.
+ *   3 = mock feedback/version journal.
+ *   4 = durable mock proposals and Markdown change receipts; deploy generation-4 readers before activation.
  */
-export const MIN_CLIENT_SCHEMA = 3
+export const MIN_CLIENT_SCHEMA = 4
 
 export type SchemaAccess = 'current' | 'missing' | 'outdated'
 

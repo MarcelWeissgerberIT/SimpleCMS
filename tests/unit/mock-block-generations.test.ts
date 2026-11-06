@@ -2,8 +2,8 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {DOC_SCHEMA_VERSION,NODE_GENERATIONS,asGeneration,restoreNewer} from '../../src/app/store/generations.ts'
 const paragraph=(text:string)=>({type:'paragraph',content:[{type:'text',text}]})
-for(const gen of [1,2])for(const mode of ['drop','unwrap'] as const)test('generation '+gen+' '+mode+' copy preserves the mock while keeping the older tab edits',()=>{
- assert(DOC_SCHEMA_VERSION>=3);assert.equal(NODE_GENERATIONS.designMock,3)
+for(const gen of [1,2,3])for(const mode of ['drop','unwrap'] as const)test('generation '+gen+' '+mode+' copy preserves the mock while keeping the older tab edits',()=>{
+ assert(DOC_SCHEMA_VERSION>=3);assert.equal(NODE_GENERATIONS.designMock,4)
  const mock={type:'designMock',content:[paragraph('Mock preview')],attrs:{id:'mock-id',spec:{request:'CyBio head',source:'https://aj-atlas.com/r/12'}}}
  const before={type:'doc',content:[paragraph('Before'),mock,paragraph('After')]}
  const older=asGeneration(before,gen,mode)

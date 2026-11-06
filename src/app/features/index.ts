@@ -681,3 +681,5 @@ export { MockBlockComposer } from './ai/agent/MockBlockComposer'
 
 export { DesignMockCard } from './ai/agent/DesignMockCard'
 export { MockReviewPanel } from './ai/agent/MockReviewPanel'
+
+export {MockSourcePanel} from './ai/agent/MockSourcePanel'

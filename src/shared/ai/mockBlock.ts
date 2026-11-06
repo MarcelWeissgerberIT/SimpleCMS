@@ -34,7 +34,7 @@ export const STATIC_MOCK_CSP = "default-src 'none'; style-src 'unsafe-inline'; s
 export const mockBlockFrame = (document: string) => `<meta http-equiv="Content-Security-Policy" content="${STATIC_MOCK_CSP}">${document}`
 
 /** Phase one: readers ship first; cloud creation waits until old clients are write-gated. */
-export const MOCK_BLOCK_GENERATION = 3
+export const MOCK_BLOCK_GENERATION = 4
 export function mockBlocksAllowed(c: {active:{kind:string}; readOnly:boolean; outdated?:boolean; schemaMin:number|null}) {
  return !c.readOnly && !c.outdated && (c.active.kind === 'local' || (c.schemaMin ?? 0) >= MOCK_BLOCK_GENERATION)
 }

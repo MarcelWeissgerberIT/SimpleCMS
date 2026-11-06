@@ -68,3 +68,10 @@
 .mock-components__item:hover{background:var(--surface-2)}
 .mock-components__item[aria-current=true]{border-color:var(--signal);background:var(--surface-2)}
 @media(max-width:800px){.mock-components__layout{flex-direction:column}.mock-components__layout>nav{flex:auto;max-height:240px;width:100%;box-sizing:border-box}.mock-components__layout>.mock-block__viewport{width:100%}}
+
+.mock-comparison__columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;min-width:0}
+.mock-comparison__columns>div{min-width:0}.mock-comparison .mock-block__viewport{max-height:60vh}
+.mock-markdown pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;padding:12px;background:var(--surface-2);border:1px solid var(--rule);font-size:12px}
+.mock-component-detail,.mock-source-check,.mock-markdown{padding:12px;border:1px solid var(--rule);border-radius:4px;margin-bottom:12px}
+.mock-block__actions select{max-width:180px;background:var(--surface);color:var(--ink);border:1px solid var(--rule);padding:6px;font:inherit}
+@media(max-width:800px){.mock-comparison__columns{grid-template-columns:1fr}}

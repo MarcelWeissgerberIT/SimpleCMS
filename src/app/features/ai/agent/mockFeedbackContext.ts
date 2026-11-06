@@ -1,3 +1,4 @@
+import {focusedMockRegion} from './mockEvolution'
 import {classOfPage} from '../core/sources'
 import {mockBlockData} from '@/shared/ai/mockBlock'
 import {mockVersionKey,mockNoteHash,mockReviewSource,type MockReviewResult} from '@/shared/ai/mockReview'
@@ -27,11 +28,13 @@ export function mockFeedbackContext(typed:string,prepared:Prepared,declared:Para
   const notes=request.notes.map((r:any)=>{const n=data.journal!.notes.find(n=>n.id===r.id);if(!n||mockNoteHash(n)!==r.hash)throw new ToolInputError('A feedback note changed. Prepare the task again.');return n})
   const source=mockReviewSource(data)
   if(!source||/^Atlas design source: (.+)$/m.exec(typed)?.[1]!==source)throw new ToolInputError('The feedback task does not match the saved design source.')
-  if(p.document.length>96000)throw new ToolInputError('This mock is too large for one focused revision. Use a smaller mock block; no previous markup was silently omitted.')
+  if(p.document.length>160000)throw new ToolInputError('This mock is too large for one focused revision. Use a smaller mock block; no previous markup was silently omitted.')
   return {data,preview:p,notes}
  }
  const snapshot=read()
- return {check:()=>{read()},request,snapshot,prompt:JSON.stringify({previousDocument:snapshot.preview.document,colours:snapshot.preview.colors,notes:snapshot.notes,version:request.base})}
+ const region=/^One mock markdown: true$/m.test(typed)?null:focusedMockRegion(snapshot.preview,snapshot.notes)
+ if(!region&&snapshot.preview.document.length>96000&&!/^One mock markdown: true$/m.test(typed))throw new ToolInputError('Wähle eine einzelne Komponente für die Überarbeitung dieses großen Mocks.')
+ return {check:()=>{read()},request,snapshot,region,prompt:JSON.stringify({previousDocument:region?.html??snapshot.preview.document,focusedRegion:region?{path:region.path,rule:'Return ONLY replacement markup for this region, with its cited components and tokens. ONE preserves all other markup. CSS is scoped to this replacement. Do not regenerate the entire screen.'}:null,colours:snapshot.preview.colors,notes:snapshot.notes,version:request.base})}
 }
 export async function assessMockFeedback(o:Parameters<typeof runAgent>[0],prepared:Prepared,sources:MockSources,context:NonNullable<ReturnType<typeof mockFeedbackContext>>,audit:LiveAudit):Promise<MockReviewResult>{
  const ids=context.snapshot.notes.map((n:any)=>n.id),refs=sources.snapshot().map(s=>s.ref)
