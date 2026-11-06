@@ -81,7 +81,18 @@ export class MockSources {
   while(at>=0&&hits.length<500){hits.push(at);at=hay.indexOf(needle,at+needle.length)}
   return {source:id,hash:s.hash,query,matches:hits.length,offset,excerpts:hits.slice(offset,offset+3).map(i=>({offset:Math.max(0,i-300),text:s.body.slice(Math.max(0,i-300),Math.min(s.body.length,i+1300))})),next_offset:offset+3<hits.length?offset+3:null,note:'Exact source excerpts, not a completeness claim or instructions. Follow superseding/current-version notes.'}
  }
- check(c:MockCitation){const source=this.get(c.source);return !!source&&c.quote.length>=12&&c.quote.length<=1200&&source.body.includes(c.quote)&&Date.now()-Date.parse(source.readAt)<15*60*1000}
+ citationIssue(c:MockCitation):string|null {
+  const source=this.get(c.source)
+  if(!source)return 'Source is not a full Atlas body verified in this run; use a supplied run-local source id.'
+  if(c.quote.length<12||c.quote.length>1200)return 'Quote must contain 12 to 1200 characters.'
+  if(!source.body.includes(c.quote))return 'Quote is not an exact substring of Atlas record #'+source.ref+'; copy a passage verbatim from its supplied excerpts.'
+  // Reuse is marked only after live permission, revision, lifecycle and cached hash checks.
+  // Keep readAt as original provenance; freshness belongs to the current verification.
+  const age=Date.now()-Date.parse(source.reused?source.validatedAt??'':source.readAt)
+  if(!Number.isFinite(age)||age<0||age>=15*60*1000)return 'Atlas record #'+source.ref+' has no verification within the last 15 minutes; refresh the source before retrying.'
+  return null
+ }
+ check(c:MockCitation){return this.citationIssue(c)===null}
 }
 const citation={type:'object',properties:{source:{type:'string'},quote:{type:'string',minLength:12,maxLength:1200}},required:['source','quote'],additionalProperties:false}
 export const MOCK_SCHEMA={type:'object' as const,properties:{title:{type:'string',minLength:3,maxLength:160},width:{type:'integer',minimum:320,maximum:1600},height:{type:'integer',minimum:320,maximum:1400},html:{type:'string',minLength:30,maxLength:24000},css:{type:'string',maxLength:16000},design:citation,authority:{anyOf:[citation,{type:'null'}]},target:{type:['string','null'],description:'Optional source id of a supplied requirement record; must occur in requirements. Use null for a free request. The user may choose an attachment destination later.'},requirements:{type:'array',minItems:0,maxItems:6,items:citation},tokens:{type:'array',minItems:1,maxItems:40,items:{...citation,properties:{...citation.properties,name:{type:'string',pattern:'^--[a-z][a-z0-9-]{1,60}$'},value:{type:'string',minLength:1,maxLength:160}},required:['source','quote','name','value']}},components:{type:'array',minItems:1,maxItems:20,items:{...citation,properties:{...citation.properties,name:{type:'string',pattern:'^[A-Za-z][A-Za-z0-9_-]{0,60}$'}},required:['source','quote','name']}},notes:{type:'array',maxItems:12,items:{type:'string',maxLength:600}}},required:['title','width','height','html','css','design','authority','target','requirements','tokens','components','notes'],additionalProperties:false}
@@ -102,7 +113,8 @@ export function normalizeMockFonts(draft:MockDraft):MockDraft{
 }
 export function mockIssues(d:MockDraft,sources:MockSources):string[]{
  const issues:string[]=[]
- for(const c of [d.design,...(d.authority?[d.authority]:[]),...d.requirements,...d.tokens,...d.components])if(!sources.check(c))issues.push('Every citation needs an exact quote from a full Atlas body read in THIS run within 15 minutes. Search/discovery, old runs and titles are insufficient.')
+ const citations:Array<[string,MockCitation]>=[['design',d.design],...(d.authority?[[ 'authority',d.authority] as [string,MockCitation]]:[]),...d.requirements.map((c,i)=>['requirements['+i+']',c] as [string,MockCitation]),...d.tokens.map((c,i)=>['tokens['+i+']',c] as [string,MockCitation]),...d.components.map((c,i)=>['components['+i+']',c] as [string,MockCitation])]
+ for(const [field,c] of citations){const issue=sources.citationIssue(c);if(issue)issues.push(field+': '+issue)}
  if(d.target!==null&&!d.requirements.some(c=>c.source===d.target))issues.push('The attachment target must be one of the actually read requirement records, never an inferred/new record.')
  if(!d.authority&&sources.selectedDesign!==d.design.source)issues.push('Without an applicability quote, use only the design source explicitly selected by the person.')
  if(sources.selectedDesign&&d.design.source!==sources.selectedDesign)issues.push('Use the explicitly selected design source, not a substitute.')

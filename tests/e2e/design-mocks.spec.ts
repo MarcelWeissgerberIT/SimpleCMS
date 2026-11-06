@@ -50,6 +50,9 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
   const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'}),prompt='/mock Create a dialog for Atlas-Record 14. Read ref 12 and ref 13. Preview only.'
   const run=async(count:number)=>{await input.fill(prompt);await input.press('Enter');await expect(term.getByRole('region',{name:'Design mock',exact:true})).toHaveCount(count,{timeout:30000});await expect(term.locator('.term-head__status')).toHaveText('Done')}
   await run(1);expect(fake.mcpAsked.filter(r=>r.action==='call'&&r.arguments.parts?.includes('body'))).toHaveLength(3)
+  // The cache is an hour old: a live metadata check must refresh eligibility,
+  // while preserving the original body-read timestamp (the production regression).
+  await page.clock.setFixedTime(new Date(Date.now()+60*60*1000))
   await run(2);expect(fake.mcpAsked.filter(r=>r.action==='call'&&r.arguments.parts?.includes('body'))).toHaveLength(3);expect(fake.mcpAsked.filter(r=>r.action==='call'&&r.arguments.parts?.length===0)).toHaveLength(3)
   await expect(term).toContainText('Saved body reused after a live version check')
   revision='v2';await run(3);expect(fake.mcpAsked.filter(r=>r.action==='call'&&r.arguments.parts?.includes('body'))).toHaveLength(6)

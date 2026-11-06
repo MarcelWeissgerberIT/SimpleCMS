@@ -94,3 +94,30 @@ test('CSS syntax support still checks every declaration and disallows resource a
   'button{color:var(--primary)} </style><script>alert(1)</script>',
  ]){const {s,draft}=fontFixture();draft.css=css;assert(mockIssues(draft,s).length,css)}
 })
+
+
+test('freshly revalidated cache keeps original provenance and accepts exact citations',()=>{
+ const {s,d,draft}=fixture(),original=Date.now()-60*60*1000
+ s.markReused(d.id,original)
+ assert.equal(Date.parse(s.get(d.id)!.readAt),original)
+ assert(s.get(d.id)!.validatedAt)
+ assert.deepEqual(mockIssues(draft,s),[])
+ assert.equal(s.check({source:d.id,quote:'A fabricated quotation from an old mock.'}),false)
+ assert.equal(new MockSources().check(draft.design),false)
+})
+test('expired, future and invalid verifications remain blocked, including revalidated cache',()=>{
+ for(const reused of [false,true])for(const date of [new Date(Date.now()-16*60*1000).toISOString(),new Date(Date.now()+60000).toISOString(),'invalid']){
+  const {s,d,draft}=fixture(),source=s.get(d.id)!
+  if(reused){s.markReused(d.id,Date.now()-3600000);source.validatedAt=date}else source.readAt=date
+  assert.equal(s.check(draft.design),false)
+  assert(mockIssues(draft,s).some(i=>i.startsWith('design: Atlas record #12')&&i.includes('refresh')))
+ }
+})
+test('citation diagnostics identify the affected field and distinguish missing source from quote mismatch',()=>{
+ const {s,draft}=fixture()
+ draft.components[0].quote='A fabricated component definition.'
+ draft.requirements[0].source='previous-run'
+ const issues=mockIssues(draft,s)
+ assert(issues.some(i=>i.startsWith('components[0]: Quote is not an exact substring of Atlas record #12')))
+ assert(issues.some(i=>i.startsWith('requirements[0]: Source is not a full Atlas body verified in this run')))
+})
