@@ -11,7 +11,7 @@ import { CodeReferenceView } from './CodeReferenceView'
  */
 import { useMemo, useState, useSyncExternalStore } from 'react'
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
-import { Check, ChevronDown, Copy, ListOrdered, WrapText } from 'lucide-react'
+import { Check, ChevronDown, Copy, FileCode2, ListOrdered, WrapText } from 'lucide-react'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { jsonError } from '../../ui/code/tokenizers/json'
@@ -158,7 +158,7 @@ function PlainCodeBlockView({ node, updateAttributes, editor, getPos }: ReactNod
         ) : (
           <span className="code-block__lines">{t('editor.code.lines', { count: lines })}</span>
         )}
-        {editor.isEditable&&sourceReference&&<button type="button" className="code-block__tool" onMouseDown={e=>e.preventDefault()} onClick={()=>updateAttributes({language:'atlas-code'})}>{t('editor.code.sourceReference')}</button>}
+        {editor.isEditable&&sourceReference&&<button type="button" className="code-block__tool" aria-label={t('editor.code.sourceReference')} title={t('editor.code.sourceReference')} onMouseDown={e=>e.preventDefault()} onClick={()=>updateAttributes({language:'atlas-code'})}><FileCode2 size={14} strokeWidth={1.7} aria-hidden /></button>}
         <span className="code-block__spacer" />
         <button
           type="button"
