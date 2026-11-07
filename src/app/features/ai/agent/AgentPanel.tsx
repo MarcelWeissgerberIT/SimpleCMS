@@ -10,6 +10,7 @@ import type { Editor } from '@tiptap/core'
 import { stopAgent, toggleAgent, useAgent } from './state'
 import {CodeEvidenceRequestHost} from './CodeEvidenceRequest'
 import {AtlasTransferChoiceHost} from './AtlasTransferChoice'
+import {ActiveWorkDock} from './ActiveWorkDock'
 
 const AgentSheet = lazy(() => import('./AgentSheet'))
 
@@ -73,6 +74,6 @@ export function AgentPanel() {
   }, [])
 
   return (
-    <><CodeEvidenceRequestHost/><AtlasTransferChoiceHost/>{open&&<Suspense fallback={null}><AgentSheet /></Suspense>}</>
+    <><CodeEvidenceRequestHost/><AtlasTransferChoiceHost/>{open?<Suspense fallback={null}><AgentSheet /></Suspense>:<ActiveWorkDock/>}</>
   )
 }

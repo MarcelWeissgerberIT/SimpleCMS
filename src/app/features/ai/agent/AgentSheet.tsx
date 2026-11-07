@@ -127,6 +127,30 @@ export default function AgentSheet() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const stickRef = useRef(true)
+  const [following,setFollowing]=useState(true)
+  const [unread,setUnread]=useState(false)
+  const logContentRef=useRef<HTMLDivElement>(null)
+  const latestTurn=turns.at(-1)
+  const taskKey=latestTurn?`${latestTurn.n}:${latestTurn.startedAt}`:''
+  const previousTask=useRef(taskKey)
+  const previousEcho=useRef(echo.length)
+  const followLatest=useCallback(()=>{
+    const scroll=scrollRef.current
+    // Select by turn number: echo entries can also be sections.
+    const end=scroll?.querySelector<HTMLElement>('.term-turn[data-turn="'+useAgent.getState().turns.at(-1)?.n+'"] .term-current-end')
+    if(scroll&&end)scroll.scrollTop+=end.getBoundingClientRect().bottom-scroll.getBoundingClientRect().bottom+12
+  },[])
+  const goToCurrent=useCallback((where:'task'|'latest'|'result')=>{
+    const scroll=scrollRef.current,n=useAgent.getState().turns.at(-1)?.n
+    const turn=scroll?.querySelector<HTMLElement>('.term-turn[data-turn="'+n+'"]')
+    if(!scroll||!turn)return
+    const decision=turn.querySelector<HTMLElement>('.task-contract__decision,.gv-halt')
+    const target=where==='task'?turn:where==='result'?turn.querySelector<HTMLElement>('.term-answer'):decision
+    stickRef.current=where==='latest'&&!decision
+    setFollowing(stickRef.current);setUnread(false)
+    if(target){scroll.scrollTop+=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top;target.tabIndex=-1;target.focus({preventScroll:true})}
+    else followLatest()
+  },[followLatest])
   const waitingTurn=[...turns].reverse().find(turn=>turn.status==='running'&&turn.contract?.phase==='decision')
   const waitingQuestion=waitingTurn?.contract?.questions.find(question=>question.state==='open')?.id
   const lastQuestion=useRef<string|undefined>(undefined)
@@ -139,9 +163,9 @@ export default function AgentSheet() {
     }
   }, [])
   useEffect(() => {
-    const id = requestAnimationFrame(focusPrompt)
+    const id = requestAnimationFrame(()=>{if(useAgent.getState().focusWork)goToCurrent(useAgent.getState().status==='running'?'latest':'result');else focusPrompt()})
     return () => cancelAnimationFrame(id)
-  }, [focusTick])
+  }, [focusTick,goToCurrent])
 
   // opened from the AI menu with a task: run it
   useEffect(() => {
@@ -170,23 +194,41 @@ export default function AgentSheet() {
     }
   }, [])
 
-  // keep the log scrolled to the newest line while the reader is at the bottom
-  const steps = useAgent((s) => s.steps.length)
-  const live = useAgent((s) => s.live.length)
+  // Follow this task, not old proposals beneath it. Reading history pauses following.
+  const steps = useAgent((s) => s.steps)
+  const live = useAgent((s) => s.live)
   useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight
-  }, [steps, live, turns.length, status, changes.length, echo.length])
+    const newEcho=echo.length>previousEcho.current
+    previousEcho.current=echo.length
+    if(newEcho&&status!=='running'){
+      stickRef.current=false;setFollowing(false);setUnread(false)
+      const scroll=scrollRef.current;if(scroll)scroll.scrollTop=scroll.scrollHeight
+      return
+    }
+    if(previousTask.current!==taskKey){
+      previousTask.current=taskKey;stickRef.current=true;setFollowing(true);setUnread(false)
+    }
+    if(stickRef.current)followLatest()
+    else if(taskKey)setUnread(true)
+  }, [steps, live, turns, status, changes, echo, taskKey, followLatest])
+  // Deferred previews and streamed Markdown may resize without another tool call.
+  useLayoutEffect(()=>{
+    const el=logContentRef.current
+    if(!el)return
+    const observer=new ResizeObserver(()=>{if(stickRef.current)followLatest()})
+    observer.observe(el)
+    return()=>observer.disconnect()
+  },[followLatest])
 
   // A live question takes the reader to its answer controls, rather than the bottom of the tool log.
   useLayoutEffect(()=>{
     const previous=lastQuestion.current
     lastQuestion.current=waitingQuestion
     if(!waitingQuestion){
-      if(previous){stickRef.current=true;const el=scrollRef.current;if(el)el.scrollTop=el.scrollHeight}
+      if(previous){stickRef.current=true;setFollowing(true);setUnread(false);followLatest()}
       return
     }
-    stickRef.current=false
+    stickRef.current=false;setFollowing(false)
     const frame=requestAnimationFrame(()=>{
       const form=rootRef.current?.querySelector<HTMLElement>('.term-turn[data-turn="'+waitingTurn!.n+'"] .task-contract__decision')
       const scroll=scrollRef.current
@@ -194,13 +236,14 @@ export default function AgentSheet() {
       form?.focus({preventScroll:true})
     })
     return()=>cancelAnimationFrame(frame)
-  },[waitingQuestion,waitingTurn?.n])
+  },[waitingQuestion,waitingTurn?.n,followLatest])
 
   const focusReview = useCallback(() => {
     // open memory proposals first ("REMEMBER? · 2"), then the review list
     const mem = rootRef.current?.querySelector<HTMLElement>('.term-mem .term-change[data-status="pending"]')
     const el = mem ?? listRef.current?.querySelector<HTMLElement>('[data-cursor]') ?? listRef.current?.querySelector<HTMLElement>('li')
     if (!el) return false
+    stickRef.current=false;setFollowing(false)
     el.scrollIntoView({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' })
     el.focus({ preventScroll: true })
     return true
@@ -250,15 +293,20 @@ export default function AgentSheet() {
       <div className="term__panel">
         <Grip />
         <Head />
-        <CurrentActivity />
+        <CurrentActivity following={following} unread={unread} onTask={()=>goToCurrent('task')} onLatest={()=>goToCurrent('latest')} onResult={()=>goToCurrent('result')} />
         <div
           className="term-scroll"
           ref={scrollRef}
           onScroll={(e) => {
             const el = e.currentTarget
-            stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32
+            const end=el.querySelector<HTMLElement>('.term-turn[data-turn="'+latestTurn?.n+'"] .term-current-end')
+            const distance=end?end.getBoundingClientRect().bottom-el.getBoundingClientRect().bottom:el.scrollHeight-el.scrollTop-el.clientHeight
+            stickRef.current = Math.abs(distance)<40
+            setFollowing(stickRef.current)
+            if(stickRef.current)setUnread(false)
           }}
         >
+          <div ref={logContentRef} className="term-log-content">
           {turns.length === 0 && echo.length === 0 && <Standby disabled={!hasKey} />}
           {/* below the intro: the scroll keeps to the bottom, so the card is what shows */}
           {!hasKey && <NoKey />}
@@ -266,6 +314,7 @@ export default function AgentSheet() {
           <Timeline />
           {changes.length > 0 && <Review listRef={listRef} readOnly={readOnly} />}
           <MemoryStart />
+          </div>
         </div>
         {pending > 0 && (
           <div className="term-bar" role="region" aria-label={tn('features.agent.review.title', pending)}>
@@ -669,6 +718,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       {turn.status === 'limit' && <p className="term-turn__limit">{t('features.agent.limitEnd',{max:MAX_TOOL_CALLS})}</p>}
       {turn.status === 'error' && turn.error && !last && <TurnError error={turn.error} n={turn.n} last={false} />}
       {turn.status === 'done' && last && turn.signIn?.length ? <SignInOffer turn={turn} /> : null}
+      <div className="term-current-end" aria-hidden="true" />
     </section>
   )
 }

@@ -830,3 +830,9 @@ test.describe('AI terminal: /clear and /clear-history', () => {
     expect(bodies).toHaveLength(0)
   })
 })
+
+// The root-hosted browser fixture has no team server; keep boot requests local and explicit.
+test.beforeEach(async ({page}) => {
+  await page.route('**/api/config', r => r.fulfill({json:{schema_min:6}}))
+  await page.route('**/api/session', r => r.fulfill({json:{}}))
+})

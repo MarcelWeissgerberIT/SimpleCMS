@@ -524,8 +524,16 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     // the status bar's REGLER cell: a task waits at the line → ROTLINIE · PAUSE (below the line itself)
     await expect(page.locator('.status .gv-cell')).toHaveAttribute('data-level', 'red')
     await expect(page.locator('.status .gv-cell')).toContainText('Red line · pause')
+    // Returning from page work targets the actual keyboard-enabled decision card.
+    await page.keyboard.press(`${MOD}+j`)
+    const taskBar=page.getByRole('region',{name:'Background AI task'})
+    await expect(taskBar).toContainText('Your decision')
+    await taskBar.getByRole('button',{name:'Return to task'}).click()
+    await expect(terminal(page).getByRole('region',{name:'Current task',exact:true})).toContainText('Your decision')
     // the card holds the keyboard: E sends round 3 (+1 $ for this task, today)
     await expect(halt(page)).toBeFocused()
+    // Reopening remounts the existing 350 ms accidental-key guard.
+    await page.waitForTimeout(500)
     await page.keyboard.press('e')
     // the card goes — the keyboard goes back to the prompt, never to the body
     await expect(halt(page)).toHaveCount(0)
@@ -1676,4 +1684,10 @@ test.describe('the status cell, VERBRAUCH, receipts (B9)', () => {
     expect(await ask(b, Q)).toMatchObject({ ok: true })
     await b.close()
   })
+})
+
+// The root-hosted browser fixture has no team server; keep boot requests local and explicit.
+test.beforeEach(async ({page}) => {
+  await page.route('**/api/config', r => r.fulfill({json:{schema_min:6}}))
+  await page.route('**/api/session', r => r.fulfill({json:{}}))
 })
