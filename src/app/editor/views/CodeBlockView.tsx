@@ -73,6 +73,7 @@ function PlainCodeBlockView({ node, updateAttributes, editor, getPos }: ReactNod
   const lang = (node.attrs.language as string | null) ?? ''
   const current = languageId(lang)
   const text = node.textContent
+  const sourceReference = useMemo(() => codeReference(text), [text])
   const lines = text.split('\n').length
   const blockId = (node.attrs.id as string | null) ?? null
   const own = blockId ? all[blockId] : undefined
@@ -157,7 +158,7 @@ function PlainCodeBlockView({ node, updateAttributes, editor, getPos }: ReactNod
         ) : (
           <span className="code-block__lines">{t('editor.code.lines', { count: lines })}</span>
         )}
-        {current==='json'&&editor.isEditable&&codeReference(text)&&<button type="button" className="code-block__tool" onClick={()=>updateAttributes({language:'atlas-code'})}>{t('editor.code.sourceReference')}</button>}
+        {editor.isEditable&&sourceReference&&<button type="button" className="code-block__tool" onMouseDown={e=>e.preventDefault()} onClick={()=>updateAttributes({language:'atlas-code'})}>{t('editor.code.sourceReference')}</button>}
         <span className="code-block__spacer" />
         <button
           type="button"

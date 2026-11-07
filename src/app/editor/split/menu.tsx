@@ -8,6 +8,7 @@ import { FileStack } from 'lucide-react'
 import type { MenuEntry } from '../../ui/Menu'
 import { shortcutLabel } from '../../ui/controls'
 import type { Translate } from '@/shared/i18n'
+import { codeReference } from '@/shared/mcp/codeReference'
 import { BLOCKS } from '../lib/catalog'
 import { BlockGlyph } from '../menus/SlashMenu'
 import { readSplit, splitRange, type SplitRange } from './range'
@@ -54,9 +55,24 @@ export function splitMenuEntries(editor: Editor, t: Translate, opts: { range?: S
   const range = opts.range !== undefined ? opts.range : splitRange(editor.state.doc, sel.from, sel.to)
   const n = countOf(editor, range)
   if (!n) return []
-  const label = opts.inTurnInto ? (n > 1 ? t('editor.split.pageN', { n }) : t('editor.block.page')) : t('editor.split.toPage')
+  const selected = range && readSplit(editor.state.doc, range)
+  const code = selected?.nodes.length === 1 && selected.nodes[0].type.name === 'codeBlock' ? selected.nodes[0] : null
+  const reference = code && code.attrs.language !== 'atlas-code' && codeReference(code.textContent)
+  const label = code ? t('editor.split.codeToPage') : opts.inTurnInto ? (n > 1 ? t('editor.split.pageN', { n }) : t('editor.block.page')) : t('editor.split.toPage')
   return [
     ...(opts.inTurnInto ? [{ kind: 'separator' } as const] : []),
+    ...(reference && range ? [{
+      id: 'show-code-reference',
+      label: t('editor.code.sourceReference'),
+      keywords: 'atlas source code reference citation quellcode beleg referenz',
+      onSelect: () => {
+        if (!editor.isEditable || editor.isDestroyed) return
+        const current = readSplit(editor.state.doc, range)
+        // A menu may outlive a collaborative edit. Never convert a replacement block.
+        if (current?.nodes.length !== 1 || !current.nodes[0].eq(code!)) return
+        editor.view.dispatch(editor.state.tr.setNodeMarkup(range.from, undefined, {...code!.attrs, language:'atlas-code'}))
+      },
+    }] : []),
     {
       id: 'split-to-page',
       label,
