@@ -7,3 +7,6 @@
 .active-work-dock__return {font-size:11px;flex:none;}
 .active-work-dock__dismiss {border:0;background:none;color:var(--ink-2);font:inherit;cursor:pointer;padding:8px 14px;}
 @media(max-width:640px){.active-work-dock__open{flex-wrap:wrap;gap:4px 10px;padding:8px 10px;}.active-work-dock__task{flex-basis:70%;}.active-work-dock__return{display:none;}}
+
+.active-work-dock__actions {display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 10px;}
+@media(max-width:640px){.active-work-dock{flex-wrap:wrap;}.active-work-dock__open{flex-basis:100%;}.active-work-dock__actions{flex:1;padding-top:0;}.active-work-dock__dismiss{padding-top:0;}}

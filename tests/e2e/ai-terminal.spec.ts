@@ -70,7 +70,8 @@ const toolResult = (body: AnyState, id: string): AnyState | undefined =>
 async function openTerminal(page: Page) {
   await page.keyboard.press(`${MOD}+j`)
   await expect(terminal(page)).toBeVisible()
-  await expect(prompt(page)).toBeFocused()
+  if (await terminal(page).locator('.term-turn').count()) await expect(terminal(page).locator('.term-scroll')).toBeFocused()
+  else await expect(prompt(page)).toBeFocused()
 }
 
 async function run(page: Page, task: string) {

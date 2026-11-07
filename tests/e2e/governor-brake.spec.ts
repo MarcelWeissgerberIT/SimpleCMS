@@ -528,7 +528,7 @@ test.describe('loops: the halt card, H, Mod+. (B6 · case 5)', () => {
     await page.keyboard.press(`${MOD}+j`)
     const taskBar=page.getByRole('region',{name:'Background AI task'})
     await expect(taskBar).toContainText('Your decision')
-    await taskBar.getByRole('button',{name:'Return to task'}).click()
+    await taskBar.getByRole('button',{name:'Answer question'}).click()
     await expect(terminal(page).getByRole('region',{name:'Current task',exact:true})).toContainText('Your decision')
     // the card holds the keyboard: E sends round 3 (+1 $ for this task, today)
     await expect(halt(page)).toBeFocused()

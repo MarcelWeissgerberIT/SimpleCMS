@@ -25,6 +25,7 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { WorkerConnectionHelp } from '../mcp-servers/WorkerConnectionHelp'
 import { createPortal } from 'react-dom'
 import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, RotateCw, Search, Settings2, Square, Undo2, X } from 'lucide-react'
+import { useMediaQuery } from '../../../shell/lib/hooks'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
@@ -36,7 +37,7 @@ import { RouteChip } from '../routing/RouteChip'
 import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
-import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
+import { closeAgent, clampHeight, removeRef, setTermHeight, setTermLayout, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
 import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
@@ -111,6 +112,10 @@ export default function AgentSheet() {
   const autorun = useAgent((s) => s.autorun)
   const height = useAgent((s) => s.height)
   const max = useAgent((s) => s.max)
+  const layout = useAgent(s => s.layout)
+  const wide = useMediaQuery('(min-width: 1100px)')
+  const side = layout === 'side' && wide
+  const [savedReader] = useState(() => useAgent.getState().reader)
   const focusTick = useAgent((s) => s.focusTick)
   const running = status === 'running'
   const pending = changes.filter((c) => c.status === 'pending').length
@@ -121,13 +126,14 @@ export default function AgentSheet() {
   const applying = useAgent((s) => s.applying)
   const readOnly = useCloud((s) => s.readOnly)
   // the dock lives in the content column (below the page); without it (signed out …) it floats
-  const [host] = useState<HTMLElement | null>(() => document.querySelector<HTMLElement>('.app-main'))
+  const [host] = useState<HTMLElement | null>(() => document.querySelector<HTMLElement>('.app-work-area') ?? document.querySelector<HTMLElement>('.app-main'))
 
+  const restoreAnchor = useRef<{turn:number;offset:number}|undefined>(undefined)
   const rootRef = useRef<HTMLElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLOListElement>(null)
-  const stickRef = useRef(true)
-  const [following,setFollowing]=useState(true)
+  const stickRef = useRef(savedReader?.following ?? true)
+  const [following,setFollowing]=useState(savedReader?.following ?? true)
   const [unread,setUnread]=useState(false)
   const logContentRef=useRef<HTMLDivElement>(null)
   const latestTurn=turns.at(-1)
@@ -140,7 +146,14 @@ export default function AgentSheet() {
     const end=scroll?.querySelector<HTMLElement>('.term-turn[data-turn="'+useAgent.getState().turns.at(-1)?.n+'"] .term-current-end')
     if(scroll&&end)scroll.scrollTop+=end.getBoundingClientRect().bottom-scroll.getBoundingClientRect().bottom+12
   },[])
+  // Restore relative to the read turn: the saved-work shelf loads asynchronously above it.
+  const restoreReading=useCallback(()=>{
+    const scroll=scrollRef.current,anchor=restoreAnchor.current
+    const turn=anchor&&scroll?.querySelector<HTMLElement>('.term-turn[data-turn="'+anchor.turn+'"]')
+    if(scroll&&turn&&anchor)scroll.scrollTop+=turn.getBoundingClientRect().top-scroll.getBoundingClientRect().top+anchor.offset
+  },[])
   const goToCurrent=useCallback((where:'task'|'latest'|'result')=>{
+    restoreAnchor.current=undefined
     const scroll=scrollRef.current,n=useAgent.getState().turns.at(-1)?.n
     const turn=scroll?.querySelector<HTMLElement>('.term-turn[data-turn="'+n+'"]')
     if(!scroll||!turn)return
@@ -153,7 +166,7 @@ export default function AgentSheet() {
   },[followLatest])
   const waitingTurn=[...turns].reverse().find(turn=>turn.status==='running'&&turn.contract?.phase==='decision')
   const waitingQuestion=waitingTurn?.contract?.questions.find(question=>question.state==='open')?.id
-  const lastQuestion=useRef<string|undefined>(undefined)
+  const lastQuestion=useRef<string|undefined>(savedReader?.question)
 
   // focus the prompt on open (and when asked again: ⌘⇧J); give focus back on hide
   useEffect(() => {
@@ -164,10 +177,44 @@ export default function AgentSheet() {
       if (prev?.isConnected && !rootRef.current?.contains(prev)) prev.focus?.({ preventScroll: true })
     }
   }, [])
+  // Keep the reader position in this session only; it is cleared with the conversation.
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current
+    return () => {
+      if (!scroll) return
+      const state = useAgent.getState(), turn = state.turns.at(-1)
+      const y=scroll.getBoundingClientRect().top
+      const visibleTurn=[...scroll.querySelectorAll<HTMLElement>('.term-turn[data-turn]')].reverse().find(el=>el.getBoundingClientRect().top<=y)
+      const anchor=visibleTurn?{turn:Number(visibleTurn.dataset.turn),offset:y-visibleTurn.getBoundingClientRect().top}:undefined
+      useAgent.setState({reader: {top: scroll.scrollTop, anchor, following: stickRef.current,
+        task: turn ? `${turn.n}:${turn.startedAt}` : '', steps: state.steps.length,
+        revision: `${state.status}:${turn?.answer.length ?? 0}:${state.live.length}`,
+        question: lastQuestion.current, halt: state.halt?.n}})
+    }
+  }, [])
   useEffect(() => {
-    const id = requestAnimationFrame(()=>{if(useAgent.getState().focusWork)goToCurrent(useAgent.getState().status==='running'?'latest':'result');else focusPrompt()})
+    const id = requestAnimationFrame(() => {
+      const state = useAgent.getState(), target = state.focusTarget, scroll = scrollRef.current
+      restoreAnchor.current=undefined
+      if (target === 'resume' && savedReader && savedReader.task === taskKey && scroll) {
+        stickRef.current = savedReader.following; setFollowing(savedReader.following)
+        setUnread(state.steps.length > savedReader.steps || savedReader.revision !== `${state.status}:${state.turns.at(-1)?.answer.length ?? 0}:${state.live.length}`)
+        if (savedReader.following) followLatest()
+        else {restoreAnchor.current=savedReader.anchor;scroll.scrollTop=savedReader.top;restoreReading()}
+        scroll.focus({preventScroll:true})
+      } else if (target === 'review') {
+        const row = rootRef.current?.querySelector<HTMLElement>('.term-change[data-status="pending"]')
+        if (row && scroll) {stickRef.current=false;setFollowing(false);scroll.scrollTop+=row.getBoundingClientRect().top-scroll.getBoundingClientRect().top;row.focus({preventScroll:true})}
+        else goToCurrent('result')
+      } else if (target === 'latest' || target === 'decision') goToCurrent('latest')
+      else if (target === 'result') goToCurrent('result')
+      else {
+        if (target === 'resume') {stickRef.current=true;setFollowing(true);followLatest()}
+        focusPrompt()
+      }
+    })
     return () => cancelAnimationFrame(id)
-  }, [focusTick,goToCurrent])
+  }, [focusTick,goToCurrent]) // opening/focus request only; streamed changes must not move the reader
 
   // opened from the AI menu with a task: run it
   useEffect(() => {
@@ -177,9 +224,11 @@ export default function AgentSheet() {
   // Make room for a newly opened page on every screen. In-page anchors keep the terminal open.
   // Closing the view never stops the task or changes its captured source context.
   useEffect(() => {
-    const openedAt = window.location.hash.split('?')[0]
+    let previousPath = window.location.hash.split('?')[0]
     const onHash = () => {
-      if (window.location.hash.split('?')[0] !== openedAt) closeAgent()
+      const nextPath=window.location.hash.split('?')[0],changed=nextPath!==previousPath
+      previousPath=nextPath
+      if (changed && !(useAgent.getState().layout === 'side' && window.matchMedia('(min-width:1100px)').matches)) closeAgent()
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
@@ -190,7 +239,7 @@ export default function AgentSheet() {
     const el = rootRef.current
     if (!el) return
     const root = document.documentElement
-    const publish = () => root.style.setProperty('--term-dock', `${isPhone() ? (el.querySelector('.term-prompt')?.getBoundingClientRect().height ?? 0) + 30 : el.getBoundingClientRect().height}px`)
+    const publish = () => root.style.setProperty('--term-dock', `${side ? 0 : isPhone() ? (el.querySelector('.term-prompt')?.getBoundingClientRect().height ?? 0) + 30 : el.getBoundingClientRect().height}px`)
     publish()
     const ro = new ResizeObserver(publish)
     ro.observe(el)
@@ -198,7 +247,7 @@ export default function AgentSheet() {
       ro.disconnect()
       root.style.removeProperty('--term-dock')
     }
-  }, [])
+  }, [side])
 
   // Follow this task, not old proposals beneath it. Reading history pauses following.
   const steps = useAgent((s) => s.steps)
@@ -221,10 +270,10 @@ export default function AgentSheet() {
   useLayoutEffect(()=>{
     const el=logContentRef.current
     if(!el)return
-    const observer=new ResizeObserver(()=>{if(stickRef.current)followLatest()})
+    const observer=new ResizeObserver(()=>{if(stickRef.current)followLatest();else restoreReading()})
     observer.observe(el)
     return()=>observer.disconnect()
-  },[followLatest])
+  },[followLatest,restoreReading])
 
   // A live question takes the reader to its answer controls, rather than the bottom of the tool log.
   useLayoutEffect(()=>{
@@ -234,6 +283,7 @@ export default function AgentSheet() {
       if(previous){stickRef.current=true;setFollowing(true);setUnread(false);followLatest()}
       return
     }
+    if(previous===waitingQuestion)return
     stickRef.current=false;setFollowing(false)
     const frame=requestAnimationFrame(()=>{
       const form=rootRef.current?.querySelector<HTMLElement>('.term-turn[data-turn="'+waitingTurn!.n+'"] .task-contract__decision')
@@ -292,16 +342,22 @@ export default function AgentSheet() {
       role="region"
       aria-labelledby="term-title"
       data-status={status}
+      data-side={side || undefined}
       data-max={max || undefined}
       style={style}
       onKeyDown={onKeyDown}
+      onKeyDownCapture={()=>{restoreAnchor.current=undefined}}
+      onPointerDownCapture={()=>{restoreAnchor.current=undefined}}
+      onWheelCapture={()=>{restoreAnchor.current=undefined}}
+      onTouchStartCapture={()=>{restoreAnchor.current=undefined}}
     >
       <div className="term__panel">
         <Grip />
-        <Head />
+        <Head side={side} wide={wide} />
         <CurrentActivity following={following} unread={unread} onTask={()=>goToCurrent('task')} onLatest={()=>goToCurrent('latest')} onResult={()=>goToCurrent('result')} />
         <div
           className="term-scroll"
+          tabIndex={-1}
           ref={scrollRef}
           onScroll={(e) => {
             const el = e.currentTarget
@@ -436,7 +492,8 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
   return <>{fmtMs(Math.max(0, (end ?? now) - start))}</>
 }
 
-function Head() {
+function Head({side,wide}: {side:boolean;wide:boolean}) {
+  const [optionsOpen,setOptionsOpen]=useState(false)
   const [workOpen,setWorkOpen]=useState(false)
   const t = useT()
   const lang = useLang()
@@ -462,12 +519,39 @@ function Head() {
       <button
         type="button"
         className="term-key term-key--label term-head__pages"
-        onClick={() => { closeAgent(); useUI.getState().openPalette() }}
+        onClick={() => { if(!side)closeAgent(); useUI.getState().openPalette() }}
         title={lang === 'de' ? 'Seite suchen oder zuletzt geöffnete Seite wählen. Der Auftrag läuft weiter.' : 'Find a page or choose a recent page. The task keeps running.'}
       >
         <Search size={13} aria-hidden />
         {lang === 'de' ? 'Seite wechseln' : 'Switch page'}
       </button>
+      {halted ? (
+        <span className="term-head__regler" data-testid="term-regler">
+          <span className="led term-head__regler-led" aria-hidden />
+          {t('features.governor.status.cell')}
+        </span>
+      ) : null}
+      <span className="term-head__status" aria-live="polite">
+        {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
+      </span>
+      <button type="button" className="term-key" aria-label={lang==='de'?'Einstellungen und Werkzeuge':'Settings and tools'} aria-expanded={optionsOpen} aria-controls="term-options" onClick={()=>setOptionsOpen(!optionsOpen)}><Settings2 size={15} aria-hidden /></button>
+      {wide&&<button type="button" className="term-key term-key--label" aria-pressed={side} onClick={()=>setTermLayout(side?'bottom':'side')}>{side?(lang==='de'?'Unter Seite':'Below page'):(lang==='de'?'Neben Seite':'Beside page')}</button>}
+      <span className="term-spacer" />
+      <button
+        type="button"
+        className="term-key term-key--max"
+        onClick={() => useAgent.setState({ max: !max })}
+        aria-pressed={max}
+        aria-label={t('features.agent.maximise')}
+        title={t('features.agent.maximise')}
+      >
+        {max ? <Minimize2 size={13} strokeWidth={1.75} aria-hidden /> : <Maximize2 size={13} strokeWidth={1.75} aria-hidden />}
+      </button>
+      <button type="button" className="term-key" onClick={closeAgent} aria-label={t('features.agent.close')} title={`${t('features.agent.close')} (Esc · ${shortcutLabel(AGENT_SHORTCUT)})`}>
+        <ChevronDown size={15} strokeWidth={1.75} className="term-key__hide" aria-hidden />
+        <X size={15} strokeWidth={1.75} className="term-key__x" aria-hidden />
+      </button>
+      <div id="term-options" className="term-head__options" hidden={!optionsOpen} role="region" aria-label={lang==='de'?'Einstellungen und Werkzeuge':'Settings and tools'}>
       <span className="term-head__sep" aria-hidden>
         ·
       </span>
@@ -485,37 +569,14 @@ function Head() {
           {meterUsd(usage.usd, usage.byModel, lang)}
         </span>
       )}
-      {halted ? (
-        <span className="term-head__regler" data-testid="term-regler">
-          <span className="led term-head__regler-led" aria-hidden />
-          {t('features.governor.status.cell')}
-        </span>
-      ) : null}
-      <span className="term-head__status" aria-live="polite">
-        {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
-      </span>
 <button type="button" className="term-key term-key--label" onClick={()=>openSkills(skill=>{useAgent.setState(s=>({draft:s.draft.trimEnd()+' $'+skill.spec.name+'@'+skill.version}));focusPrompt()})} aria-label={t('features.ai.skills.title')}>{t('features.ai.skills.short')}</button>
 <button type="button" className="term-key term-key--label" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
 <button type="button" className="term-key term-key--label" onClick={()=>setWorkOpen(true)}>{lang==='de'?'Arbeitsübersicht':'Work overview'}</button>
 <button type="button" className="term-key term-key--label" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
-      <span className="term-spacer" />
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
         <RotateCcw size={13} strokeWidth={1.75} aria-hidden />
       </button>
-      <button
-        type="button"
-        className="term-key term-key--max"
-        onClick={() => useAgent.setState({ max: !max })}
-        aria-pressed={max}
-        aria-label={t('features.agent.maximise')}
-        title={t('features.agent.maximise')}
-      >
-        {max ? <Minimize2 size={13} strokeWidth={1.75} aria-hidden /> : <Maximize2 size={13} strokeWidth={1.75} aria-hidden />}
-      </button>
-      <button type="button" className="term-key" onClick={closeAgent} aria-label={t('features.agent.close')} title={`${t('features.agent.close')} (Esc · ${shortcutLabel(AGENT_SHORTCUT)})`}>
-        <ChevronDown size={15} strokeWidth={1.75} className="term-key__hide" aria-hidden />
-        <X size={15} strokeWidth={1.75} className="term-key__x" aria-hidden />
-      </button>
+      </div>
     </header>
   )
 }
@@ -753,14 +814,18 @@ function haltAnswerKey(c: Parameters<typeof haltKey>[0]) {
  */
 function TurnHalt({ n }: { n: number }) {
   const t = useT()
+  const [resumeReading] = useState(() => {
+    const s = useAgent.getState()
+    return s.focusTarget === 'resume' && s.reader?.halt === n && !s.reader.following
+  })
   const halt = useAgent((s) => (s.halt?.n === n ? s.halt : null))
   if (!halt) return null
   const fallback = <p className="term-note term-note--regler">■ {t(isMac ? 'features.governor.halt.prompt.mac' : 'features.governor.halt.prompt.pc')}</p>
   return (
     <div className="term-halt">
       <Suspense fallback={fallback}>
-        <EndInView>
-          <HaltCard {...halt.view} onAllow={() => haltAnswerKey('allow')} onCheaper={() => haltAnswerKey('cheaper')} onStop={() => haltAnswerKey('stop')} onEscape={focusPrompt} />
+        <EndInView enabled={!resumeReading}>
+          <HaltCard {...halt.view} autoFocus={!resumeReading} onAllow={() => haltAnswerKey('allow')} onCheaper={() => haltAnswerKey('cheaper')} onStop={() => haltAnswerKey('stop')} onEscape={focusPrompt} />
         </EndInView>
       </Suspense>
     </div>
@@ -768,10 +833,10 @@ function TurnHalt({ n }: { n: number }) {
 }
 
 /** Scrolls the log so the halt card's keys are in view once it is there (the dock may be shorter than the card). */
-function EndInView({ children }: { children: ReactNode }) {
+function EndInView({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    ref.current?.scrollIntoView({ block: 'end', inline: 'nearest' })
+    if (enabled) ref.current?.scrollIntoView({ block: 'end', inline: 'nearest' })
   }, [])
   return <div ref={ref}>{children}</div>
 }
@@ -1695,6 +1760,13 @@ function ChangeItem({
 /* Prompt: chips, completion, history                                  */
 /* ------------------------------------------------------------------ */
 
+function NextContext() {
+ const de=useLang()==='de',route=useRoute(),off=useAgent(s=>s.pageOff)
+ const page=useWorkspace(s=>route.name==='page'?s.pages[route.id]:undefined)
+ const title=page&&!page.trashed&&page.id!==off?(page.title.trim()||(de?'Ohne Titel':'Untitled')):(de?'Keine Seite ausgewählt':'No page selected')
+ return <div className="term-next-context" aria-label={de?'Kontext der nächsten Anfrage':'Next request context'}><strong>{de?'Nächste Anfrage: ':'Next request: '}</strong>{title}</div>
+}
+
 function Chips() {
   const t = useT()
   const refs = useAgent((s) => s.refs)
@@ -2021,6 +2093,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       }}
     >
       <FailureDock />
+      <NextContext />
       <Chips />
       <RunPreflight/>
       <RepoFilesControl value={draft} onChange={v=>setDraft(v)} disabled={running} />

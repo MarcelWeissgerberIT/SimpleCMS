@@ -26,7 +26,7 @@ test('page switching retains task identity; background completion returns to its
    await page.screenshot({path:info.outputPath(`background-${theme}-${width}.png`)})
   }
   pending.release();await expect(dock).toContainText('Result ready')
-  await dock.getByRole('button',{name:'Return to task'}).click()
+  await dock.getByRole('button',{name:'View result',exact:true}).click()
   await expect(terminal(page).locator('.term-answer')).toContainText('Timeout analysis is ready for review.')
   await expect(terminal(page).locator('.term-answer')).toBeFocused()
   await expect(page).toHaveURL(new RegExp('#/p/'+other+'$'))
@@ -94,7 +94,7 @@ for(const width of [1440,390])test(`switch pages directly from the terminal with
   await expect(page.getByRole('heading',{name:'Navigation destination',exact:true})).toBeVisible()
   await expect(dock).toContainText('Navigation source');await expect(dock).not.toContainText('Navigation destination')
   pending.release();await expect(dock).toContainText('Result ready')
-  await dock.getByRole('button',{name:'Return to task'}).click()
+  await dock.getByRole('button',{name:'View result',exact:true}).click()
   await expect(terminal(page).locator('.term-answer')).toBeFocused()
   await expect(terminal(page).locator('.term-answer')).toContainText('Navigation did not interrupt')
   await expect(page).toHaveURL(new RegExp('#/p/'+other+'$'));expect(mock.bodies).toHaveLength(2)
