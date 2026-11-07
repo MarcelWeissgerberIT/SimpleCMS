@@ -98,6 +98,17 @@ export interface EchoAsk {
   result?: { key: string; vars?: Record<string, string | number> }
 }
 
+export type TerminalTarget = 'resume' | 'prompt' | 'latest' | 'result' | 'review' | 'decision'
+export interface TerminalReader {
+  top: number
+  anchor?: { turn: number; offset: number }
+  following: boolean
+  task: string
+  steps: number
+  revision: string
+  question?: string
+  halt?: number
+}
 export interface AgentState {
   route: Route | null
   open: boolean
@@ -136,6 +147,9 @@ export interface AgentState {
   /** bumped to move focus to the prompt (Mod+Shift+J while open) */
   focusTick: number
   focusWork: boolean
+  focusTarget: TerminalTarget
+  reader: TerminalReader | null
+  layout: 'bottom' | 'side'
   /** One memory: proposal cards in the log */
   memCards: MemCard[]
   /** /no-memory: the next task goes without the One memory */
@@ -150,8 +164,9 @@ export interface AgentState {
   doneShown: boolean
 }
 
-export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'pageTree' | 'answerPageHintDismissed' | 'doneShown'> => ({
+export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'pageTree' | 'answerPageHintDismissed' | 'doneShown' | 'reader'> => ({
   pageTree: null,
+  reader: null,
   answerPageHintDismissed: false,
   route: null,
   status: 'idle',
@@ -200,6 +215,14 @@ export function setTermHeight(h: number) {
   }
 }
 
+function storedLayout(): 'bottom' | 'side' {
+  try { return window.localStorage.getItem('one.term.layout') === 'side' ? 'side' : 'bottom' } catch { return 'bottom' }
+}
+export function setTermLayout(layout: 'bottom' | 'side') {
+  useAgent.setState({layout, max: false})
+  try { window.localStorage.setItem('one.term.layout', layout) } catch { /* session only */ }
+}
+
 export const useAgent = create<AgentState>()(() => ({
   open: false,
   draft: '',
@@ -211,6 +234,8 @@ export const useAgent = create<AgentState>()(() => ({
   max: false,
   focusTick: 0,
   focusWork: false,
+  focusTarget: 'resume',
+  layout: storedLayout(),
   ...initialAgentState(),
 }))
 
@@ -258,7 +283,7 @@ export function stopAgent(): boolean {
 }
 
 /** Open the terminal, optionally with a task (run: start it right away). */
-export function openAgent(opts: { task?: string; run?: boolean; focusWork?: boolean } = {}) {
+export function openAgent(opts: { task?: string; run?: boolean; focusWork?: boolean; target?: TerminalTarget } = {}) {
   const task = opts.task?.trim()
   useAgent.setState((s) => ({
     open: true,
@@ -267,6 +292,7 @@ export function openAgent(opts: { task?: string; run?: boolean; focusWork?: bool
     autorun: !!task && !!opts.run && s.status !== 'running',
     focusTick: s.focusTick + 1,
     focusWork: !!opts.focusWork,
+    focusTarget: opts.target ?? (opts.focusWork ? (s.status === 'running' ? 'latest' : 'result') : task || s.open ? 'prompt' : 'resume'),
   }))
 }
 

@@ -2590,3 +2590,14 @@
 
 /* Page navigation stays next to the terminal title, including the full-screen phone view. */
 .term-head__pages { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Secondary controls are available on demand instead of crowding the reading surface. */
+.term-head__options:not([hidden]) {display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:1 1 100%;padding:8px 0;border-top:1px solid var(--rule);max-height:30dvh;overflow:auto;}
+.term-head__options[hidden] {display:none;}
+.term-head__options .route-controls {max-width:100%;}
+.term[data-side] .term-grip {display:none;}
+.term-next-context {font-size:11px;color:var(--ink-2);padding:6px 16px 0;overflow-wrap:anywhere;}
+.term-activity__context {font-size:11px;color:var(--ink-2);margin-top:3px;}
+.term-activity__elapsed {display:block;color:var(--ink-2);font-size:10px;margin-top:3px;}
+.term-activity__execution small {font-size:10px;color:var(--ink-2);}
+@media(max-width:640px){.term-head{gap:4px;}.term-head__title{font-size:10px;}.term-head__options:not([hidden]){gap:6px;}.term-activity{max-height:180px;}}

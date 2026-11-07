@@ -144,6 +144,7 @@ function Workspace({ route }: { route: Route }) {
         <CloudBanner />
         <CheckoutBanner />
         <Topbar route={route} />
+        <div className="app-work-area">
         <ErrorBoundary inline>
           <Stage
             route={route}
@@ -155,6 +156,7 @@ function Workspace({ route }: { route: Route }) {
             mainTitle={<RouteTitle route={route} />}
           />
         </ErrorBoundary>
+        </div>
       </div>
       {!mobile && <StatusBar route={route} />}
       {focus && (
