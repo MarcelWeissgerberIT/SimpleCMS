@@ -159,6 +159,8 @@ export default function AgentSheet() {
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null
     return () => {
+      // The page picker may already have claimed focus in its layout effect.
+      if (useUI.getState().paletteOpen || !focusIsNowhere()) return
       if (prev?.isConnected && !rootRef.current?.contains(prev)) prev.focus?.({ preventScroll: true })
     }
   }, [])

@@ -9,6 +9,7 @@ test('page switching retains task identity; background completion returns to its
  const source=await createPage(page,{title:'Protocol requirements',content:doc(para('Inspect timeout handling.'))})
  const other=await createPage(page,{title:'Meeting notes',content:doc(para('Continue working here.'))})
  await gotoPage(page,source)
+ await page.locator('.ProseMirror[contenteditable=true]').first().click()
  const pending=gate()
  const mock=await mockAgent(context,[call('source','read_page',{id:source}),async()=>{await pending.promise;return say('Timeout analysis is ready for review.')()}])
  try{
@@ -71,6 +72,7 @@ for(const width of [1440,390])test(`switch pages directly from the terminal with
  const source=await createPage(page,{title:'Navigation source',content:doc(para('Original source.'))})
  const other=await createPage(page,{title:'Navigation destination',content:doc(para('Work on this page.'))})
  await gotoPage(page,source)
+ await page.locator('.ProseMirror[contenteditable=true]').first().click()
  const pending=gate()
  const mock=await mockAgent(context,[call('source','read_page',{id:source}),async()=>{await pending.promise;return say('Navigation did not interrupt the task.')()}])
  try{
