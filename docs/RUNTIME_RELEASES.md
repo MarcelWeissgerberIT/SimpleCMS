@@ -81,3 +81,17 @@ Frontend source `ef2a8254` adds the native `/code-analysis` block: scoped, read-
 - Rollback HTML and compose: `/opt/one/rollback-code-analysis-ef2a8254`. Duplicate `dist`, `static-assets` and `entries` folders from the prior and current staging directories were removed only after matching every file against their retained hash-verified release archives. Data, volumes, archives and rollback images were retained. Final free disk: 524 MB.
 
 Source authenticity and model interpretation remain distinct. Test references identify source code, not executed tests. Scope and flow reports are bounded model investigations, not compiler-derived completeness proofs. Actual provider cost may exceed a pre-request estimate by the current response; completed phases survive a budget hold or error.
+
+
+## 2026-11-07 · Work overview and recoverable analysis costs
+
+Frontend source `a80a69f3` adds a unified work overview in the AI terminal, saved evidence relationships and visible gaps, editable reusable analysis recipes, scope/cost preflight, readable activity and error recovery. Terminal recovery records now retain progress and known costs. One-model document stages retain failed/interrupted usage receipts without replaying writes or advancing unfinished stages. Source-reference subpages remain optional.
+
+- 27 targeted browser checks passed, covering overview navigation, individual change acceptance, recipe save/run with fresh reads and a new decision, pipeline recovery and code-analysis evidence/version controls. TypeScript, production build and both CI container checks passed. Desktop/mobile light/dark layouts were inspected. Provider/Atlas regression replies used synthetic fixtures.
+- Image: `one-workshop:workflow-a80a69f3`; archive SHA-256: `334141079bafda4a5670b258872c8ca0741052ad8a4b512b3eb53c7afa331d4f`.
+- Public app entry SHA-256: `e3d58a341d6c117e7d64d51e0c61b1594437f6304de0ab128015c73ae9b0a733`. All 964 manifest files matched in the image and running container; public HTML and 89 referenced JS/CSS assets matched over HTTPS. Health returned `ok: true`.
+- Backend SHA-256 remains `dfdea51e9b231cd120d0f96939a3e787a6bacd6f3bfc4e93f98f50dbe73430b8`. Assets were published before atomic HTML replacement. Existing hashed assets remain available and container start time stayed `2026-11-06T18:40:23.686960414Z`. Compose pins the verified image for future starts.
+- Rollback HTML and compose: `/opt/one/rollback-workflow-a80a69f3`. Limited disk headroom required an approximately 12 MB frontend delta layer over the prior pinned `one-workshop:conversion-1437f030` image; the existing backend and compatibility assets were verified and retained.
+- An isolated local workspace on the public production site passed Markdown import, finding filtering, evidence/requirement/gap display, desktop/mobile layout, read-only recipe preparation with a fresh decision, original-block navigation and reload. No model calls or writes to the user's workspace were made. Live proof and screenshots are under `/Users/marcelweissgerber/Documents/Playground/artifacts/one-workflow-*20261107*`.
+
+Cost preflight estimates known text, not a complete run or hard cap; the existing budget governor remains authoritative. Reusable document-analysis recipes freshly read their One sources; a new repository investigation still uses the code-analysis block. Local terminal recovery retains its existing 24-hour lifetime.
