@@ -462,7 +462,7 @@
   position: fixed;
   left: calc(50% + var(--sb-docked, 0px) / 2);
   /* above the status bar, and above a dock under the page (the AI terminal --term-dock, the flight recorder --deck-dock) */
-  bottom: max(40px, calc(var(--term-dock, 0px) + var(--deck-dock, 0px) + 36px));
+  bottom: max(40px, calc(var(--term-dock, 0px) + var(--active-work-dock, 0px) + var(--deck-dock, 0px) + 36px));
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
@@ -576,7 +576,7 @@
 @media (max-width: 767px) {
   .toasts {
     /* …and above the sidebar drawer's foot while the drawer is open (--sb-foot): a reminder never covers the trash */
-    bottom: max(calc(16px + env(safe-area-inset-bottom)), calc(var(--term-dock, -100px) + 36px), calc(var(--deck-dock, -100px) + 16px), calc(var(--sb-foot, -100px) + 8px));
+    bottom: max(calc(16px + env(safe-area-inset-bottom)), calc(var(--term-dock, -100px) + 36px), calc(var(--active-work-dock, -100px) + 36px), calc(var(--deck-dock, -100px) + 16px), calc(var(--sb-foot, -100px) + 8px));
   }
   /* several keys: the message on its own line, the keys below it */
   .toast[data-more] {

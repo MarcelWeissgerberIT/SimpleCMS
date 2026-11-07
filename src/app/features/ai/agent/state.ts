@@ -135,6 +135,7 @@ export interface AgentState {
   max: boolean
   /** bumped to move focus to the prompt (Mod+Shift+J while open) */
   focusTick: number
+  focusWork: boolean
   /** One memory: proposal cards in the log */
   memCards: MemCard[]
   /** /no-memory: the next task goes without the One memory */
@@ -209,6 +210,7 @@ export const useAgent = create<AgentState>()(() => ({
   height: typeof window === 'undefined' ? HEIGHT_DEFAULT : storedHeight(),
   max: false,
   focusTick: 0,
+  focusWork: false,
   ...initialAgentState(),
 }))
 
@@ -256,7 +258,7 @@ export function stopAgent(): boolean {
 }
 
 /** Open the terminal, optionally with a task (run: start it right away). */
-export function openAgent(opts: { task?: string; run?: boolean } = {}) {
+export function openAgent(opts: { task?: string; run?: boolean; focusWork?: boolean } = {}) {
   const task = opts.task?.trim()
   useAgent.setState((s) => ({
     open: true,
@@ -264,6 +266,7 @@ export function openAgent(opts: { task?: string; run?: boolean } = {}) {
     draft: task && s.status !== 'running' ? task : s.draft,
     autorun: !!task && !!opts.run && s.status !== 'running',
     focusTick: s.focusTick + 1,
+    focusWork: !!opts.focusWork,
   }))
 }
 
