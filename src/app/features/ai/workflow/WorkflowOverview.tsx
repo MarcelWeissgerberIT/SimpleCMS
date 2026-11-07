@@ -1,0 +1,61 @@
+import {useEffect,useMemo,useState} from 'react'
+import {Modal} from '../../../ui/Modal'
+import {useLang} from '../../../i18n'
+import {useWorkspace} from '../../../store/store'
+import {useCloud} from '../../../cloud'
+import {isEffectivelyTrashed,inTemplate} from '../../../store/selectors'
+import {openPage,navigate} from '../../../lib/router'
+import {useAgent,closeAgent} from '../agent/state'
+import {SavedWork} from '../agent/SavedWork'
+import {TERMINAL_TOOLS} from '../agent/tools'
+import {changeTarget} from '../agent/session'
+import {inventory,type WorkKind} from './inventory'
+import {analysisRecipe} from './recipe'
+import {openPrograms} from '../programs/dialog'
+import {CodeEvidence,codeAccessScope} from '../../code-evidence'
+import {loadTasks,useCodingLocal,taskLocal} from '../../coding/local'
+import {useOneAnalysis,oneJobKey} from '../../coding/oneAnalysis'
+import {taskContext} from '../../coding/tasks'
+import {workflowRepair} from '@/shared/ai/workflowRepair'
+import './workflow.css'
+
+export default function WorkflowOverview({onClose}:{onClose:()=>void}){
+ const de=useLang()==='de',say=(a:string,b:string)=>de?a:b
+ const pages=useWorkspace(s=>s.pages),epoch=useWorkspace(s=>s.epoch),active=useCloud(s=>s.active),actor=useCloud(s=>s.user?.id)
+ const settings=useWorkspace(s=>s.settings),policy=useWorkspace(s=>s.ai),integrations=useWorkspace(s=>s.integrations)
+ const changes=useAgent(s=>s.changes),turns=useAgent(s=>s.turns),tasks=useCodingLocal(s=>s.tasks),jobs=useOneAnalysis(s=>s.jobs)
+ const [pinned]=useState(codeAccessScope),[tab,setTab]=useState('open'),[query,setQuery]=useState(''),[filter,setFilter]=useState('all'),[limit,setLimit]=useState(40)
+ useEffect(()=>setLimit(40),[tab,query,filter])
+ const visible=useMemo(()=>Object.values(pages).filter(p=>!isEffectivelyTrashed(pages,p.id)&&!inTemplate(pages,p.id)),[pages])
+ const data=useMemo(()=>inventory(visible,de),[visible,de])
+ useEffect(()=>{if(codeAccessScope()!==pinned)onClose()},[epoch,active,actor,settings,policy,integrations,pinned,onClose])
+ useEffect(()=>{void loadTasks(visible.filter(p=>p.databaseId&&taskContext(p.id)).map(p=>p.id))},[visible])
+ const pipeline=useMemo(()=>visible.flatMap(p=>{
+  const c=taskContext(p.id);if(!c)return[]
+  const l=taskLocal(p.id),gate=c.stage?.kind==='gate'
+  return ['failed','stopped','question'].includes(l.state)||l.state==='running'&&!jobs[oneJobKey(p.id)]||gate?[{id:'task:'+p.id,page:p.id,block:undefined as string|undefined,kind:(gate||l.state==='question'?'review':'failed') as WorkKind,title:p.title,detail:l.error||l.question||(l.state==='running'?say('Kein aktiver Lauf in diesem Tab. Arbeitsstand und andere Tabs prüfen.','No active run in this tab. Check the checkpoint and other tabs.'):c.stage?.name)||''}]:[]
+ }),[visible,tasks,jobs])
+ const rows=[...pipeline,...data.work].filter(r=>(filter==='all'||r.kind===filter)&&(r.title+' '+r.detail+' '+pages[r.page]?.title).toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+ const label=(kind:string)=>({review:say('Freigabe','Review'),note:say('Mock-Notiz','Mock note'),markdown:say('Designsystem-MD','Design system MD'),failed:say('Unterbrochen / Fehler','Interrupted / failed'),finding:'Finding'}[kind]??kind)
+ const go=(page:string,block?:string)=>{onClose();closeAgent();openPage(page,block)}
+ const review=(id:string)=>{onClose();requestAnimationFrame(()=>{const el=[...document.querySelectorAll<HTMLElement>('.term-change')].find(el=>el.dataset.change===id);el?.scrollIntoView({block:'center'});el?.focus()})}
+ const pending=changes.filter(c=>['pending','failed'].includes(c.status))
+ const costs=[...turns].filter(t=>t.cost).sort((a,b)=>(b.cost?.usd??0)-(a.cost?.usd??0))
+ if(codeAccessScope()!==pinned)return null
+ return <Modal open onClose={onClose} title={say('Arbeitsübersicht','Work overview')} width={1100} className="workflow-modal"><div className="workflow-overview">
+  <p>{say('Offene Arbeiten im aktuellen Workspace. Lokale Laufstände gelten für dieses Gerät.','Open work in the current workspace. Local run checkpoints belong to this device.')}</p>
+  <nav aria-label={say('Arbeitsbereiche','Work areas')}>{[['open',say('Offene Arbeiten','Open work')],['sources',say('Belegketten','Evidence links')],['cost',say('Läufe & Kosten','Runs & cost')],['recipes',say('Wiederverwenden','Reuse')]].map(([id,title])=><button key={id} className="btn" aria-pressed={tab===id} onClick={()=>setTab(id)}>{title}</button>)}</nav>
+  {data.limited&&<p role="status">{say('Großer Workspace: Die Übersicht zeigt nur den ersten Teil. Öffne weitere Seiten gezielt.','Large workspace: this overview shows only the first part. Open other pages directly.')}</p>}
+  {tab==='open'&&<>
+   <div className="workflow-filters"><input className="input" type="search" aria-label={say('Arbeiten suchen','Search work')} placeholder={say('Suchen …','Search …')} value={query} onChange={e=>setQuery(e.target.value)}/><select className="input" aria-label={say('Art der Arbeit','Work type')} value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">{say('Alle Arten','All types')}</option>{['review','note','markdown','failed','finding'].map(k=><option key={k} value={k}>{label(k)}</option>)}</select></div>
+   {pending.length>0&&(filter==='all'||filter==='review')&&<section><h3>{say('Änderungen im KI-Terminal','Changes in the AI terminal')}</h3><p>{say('Jeden Unterschied einzeln prüfen, annehmen oder verwerfen.','Review, accept or reject each change individually.')}</p>{pending.filter(c=>JSON.stringify(c).toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(c=><article key={c.id}><strong>{pages[changeTarget(c)??'']?.title||say('Vorgeschlagene Änderung','Proposed change')}</strong><button className="btn btn--sm" onClick={()=>review(c.id)}>{say('Unterschied prüfen','Review difference')}</button></article>)}</section>}
+   {!rows.length&&!pending.length&&<p>{say('Keine offenen Arbeiten gefunden.','No open work found.')}</p>}
+   {rows.slice(0,limit).map(r=><article key={r.id}><span className="label">{label(r.kind)}</span><h3>{r.title}</h3><p>{pages[r.page]?.title} · {r.detail}</p>{r.kind==='failed'&&<p>{workflowRepair(r.detail,de).text}</p>}<button className="btn btn--sm" onClick={()=>go(r.page,r.block)}>{say('An der Stelle öffnen','Open at source')}</button></article>)}
+   {rows.length>limit&&<button className="btn" onClick={()=>setLimit(n=>n+40)}>{say('Weitere Arbeiten anzeigen','Show more work')} ({rows.length-limit})</button>}
+   <SavedWork/>
+  </>}
+  {tab==='sources'&&<><p>{say('Gespeicherte Beziehungen: Finding → Beleg → Anforderung. Gemeinsame Belege zeigen die Verbindung; fehlende Zuordnungen bleiben offen. Mock-Quellen stehen am jeweiligen Mock.','Saved relationships: finding → evidence → requirement. Shared evidence shows the connection; missing links remain open. Mock sources are listed with their mock.')}</p><p>{say('Historische Belege bestätigen keinen aktuellen Branch-Stand. „Code laden“ prüft den gespeicherten Snapshot erneut. Dabei entstehen keine Unterseiten.','Historical evidence does not confirm the current branch. “Load code” rechecks the saved snapshot. No subpages are created.')}</p>{!data.traces.length&&<p>{say('Noch keine Belegketten vorhanden.','No evidence links yet.')}</p>}{data.traces.slice(0,limit).map(r=><article key={r.id}><h3>{r.title}</h3><p className="workflow-lines">{r.detail}</p>{r.gap&&<p className="workflow-gap">{r.gap}</p>}{r.checkedAt&&<small>{say('Historisch geprüft: ','Previously checked: ')}{new Date(r.checkedAt).toLocaleString()}</small>}<button className="btn btn--sm" onClick={()=>go(r.page,r.block)}>{pages[r.page]?.title} ↗</button>{r.references.slice(0,8).map((ref,i)=><CodeEvidence key={i} raw={JSON.stringify(ref)} editable={false} canRead onSave={()=>{}}/>) }{r.references.length>8&&<p>{say('Weitere Belege an der Originalstelle: ','More evidence at the original location: ')}{r.references.length-8}</p>}</article>)}{data.traces.length>limit&&<button className="btn" onClick={()=>setLimit(n=>n+40)}>{say('Weitere Belegketten anzeigen','Show more evidence links')} ({data.traces.length-limit})</button>}</>}
+  {tab==='cost'&&<><p>{say('Bekannte Kosten dieser Terminal-Sitzung, teuerste Aufträge zuerst. Schätzungen und unvollständige Preise sind gekennzeichnet.','Known costs in this terminal session, most expensive tasks first. Estimates and incomplete prices are labelled.')}</p>{!costs.length&&<p>{say('Noch keine Kosten in dieser Sitzung.','No costs in this session yet.')}</p>}{costs.map(t=><article key={t.n}><strong>{t.task}</strong><p>{t.cost!.partial?'≈ ':''}${t.cost!.usd.toFixed(4)} · {t.cost!.requests} {say('Modellantworten','model responses')}{t.cost!.partial?' · '+say('geschätzt / unvollständig','estimated / incomplete'):''}</p></article>)}<button className="btn" onClick={()=>{onClose();closeAgent();navigate({name:'regler'})}}>{say('Verbrauch & Budgets öffnen','Open usage & budgets')}</button><SavedWork/>{visible.filter(p=>taskLocal(p.id).stageRuns?.length||taskLocal(p.id).analysisCheckpoint).map(p=><article key={p.id}><h3>{p.title}</h3>{taskLocal(p.id).analysisCheckpoint&&<p>{say('Offene Stufe · bisher bekannt: ','Open stage · known so far: ')}${taskLocal(p.id).analysisCheckpoint!.cost.toFixed(4)}</p>}{[...(taskLocal(p.id).stageRuns??[])].sort((a,b)=>(b.receipt.costUsd??0)-(a.receipt.costUsd??0)).map(r=><p key={r.run}>{r.stage} · {r.status} · ${r.receipt.costUsd?.toFixed(4)??'—'} · {r.receipt.turns??0} {say('Antworten','responses')}</p>)}<button className="btn btn--sm" onClick={()=>go(p.id)}>{say('Lauf öffnen','Open run')}</button></article>)}</>}
+  {tab==='recipes'&&<><p>{say('Aus einer abgeschlossenen Analyse einen privaten Ablauf vorbereiten: Quellen sind beim nächsten Start austauschbar, das Ergebnis wird neu erzeugt und geprüft. Speichern führt nichts aus.','Prepare a private workflow from a completed analysis: sources can be changed before the next start, and the result is generated and reviewed afresh. Saving does not execute anything.')}</p>{data.recipes.map(r=><article key={r.page+':'+r.analysis.id}><h3>{r.analysis.question}</h3><p>{say('Dokumentanalyse aus gespeichertem Bericht; keine erneute Live-Codeanalyse.','Document analysis from the saved report; not a fresh live code analysis.')}</p><button className="btn" onClick={()=>{onClose();openPrograms(analysisRecipe(r.analysis.question,[r.page],TERMINAL_TOOLS.find(t=>t.name==='read_page')!.input_schema))}}>{say('Als Ablauf vorbereiten','Prepare workflow')}</button></article>)}{turns.filter(t=>t.status==='done'&&t.contract?.evidence.one_pages?.some(id=>!!pages[id])).map(t=><article key={t.n}><h3>{t.task}</h3><button className="btn" onClick={()=>{onClose();openPrograms(analysisRecipe(t.task,t.contract!.evidence.one_pages!.filter(id=>!!pages[id]),TERMINAL_TOOLS.find(t=>t.name==='read_page')!.input_schema))}}>{say('Als Ablauf vorbereiten','Prepare workflow')}</button></article>)}<button className="btn" onClick={()=>{onClose();openPrograms()}}>{say('Gespeicherte Abläufe öffnen','Open saved workflows')}</button></>}
+ </div></Modal>
+}

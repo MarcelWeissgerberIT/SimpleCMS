@@ -342,6 +342,8 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  cost?: {usd:number;requests:number;partial:boolean}
+
   /** Explicit human copy of this answer into the ONE review; not an Atlas synchronization. */
   answerPageChange?: string
   receipt?:'saved'|'failed'

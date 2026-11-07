@@ -1,3 +1,5 @@
+import {openPage} from '../../lib/router'
+import {WorkflowRepair} from '../ai/workflow/WorkflowRepair'
 import { canUseOneAnalysis, useOneAnalysis, oneJobKey, stopOneAnalysis } from './oneAnalysis'
 import { OneAnalysisControls } from './OneAnalysisControls'
 import { DataFlowNotice } from '../ai/data-flow/DataFlowNotice'
@@ -412,6 +414,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             <p>
               <strong>{t(state === 'failed' ? 'features.coding.state.failed' : 'features.coding.state.stopped')}</strong> {local.error}
             </p>
+            <WorkflowRepair message={local.error??''}/>
+            {local.analysisMissing?.map(id=><p key={id}><button className="btn btn--sm" onClick={()=>openPage(id)}>{useWorkspace.getState().pages[id]?.title||id} ↗</button></p>)}
             {canAct && (
               <button type="button" className="btn btn--sm" onClick={act(() => runTaskNow(pageId))}>
                 <RotateCcw size={14} strokeWidth={1.75} aria-hidden />

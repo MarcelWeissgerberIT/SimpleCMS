@@ -25,6 +25,8 @@ export interface TaskLocal {
   analysisRoute?: import('@/shared/ai/types').Route | null
   /** An interrupted/conflicting model result, never applied as a completed stage. */
   analysisDraft?: string | null
+  analysisMissing?: string[]
+  analysisCheckpoint?: {run:string;stageId:string;stage:string;cost:number;turns:number;at:number} | null
   stageRuns?: Array<{run:string;stageId:ID;stage:string;status:string;receipt:import('@/shared/coding/evidence').StageRunEvidence}>
   copilot?: import('@/shared/copilot').CopilotChoice
   copilotRole?: import('@/shared/copilot').CopilotChoice
