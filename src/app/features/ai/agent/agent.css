@@ -2587,3 +2587,6 @@
 .term-step__technical summary {cursor:pointer;}
 .term-step__technical pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;margin:4px 0;}
 @media(max-width:640px){.term-activity{flex-direction:column;gap:3px;max-height:160px;}.term-step--mcp{grid-template-columns:14px minmax(0,1fr) auto;}.term-step--mcp .term-step__description{grid-column:2/-1;grid-row:2;}.term-step--mcp .term-step__res{grid-column:3;grid-row:1;}.term-step--mcp .term-step__chip{max-width:100%;}}
+
+/* Page navigation stays next to the terminal title, including the full-screen phone view. */
+.term-head__pages { display: inline-flex; align-items: center; gap: 6px; }

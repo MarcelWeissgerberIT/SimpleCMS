@@ -24,7 +24,7 @@ import {AtlasFactsView} from '../mcp-servers/AtlasFacts'
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { WorkerConnectionHelp } from '../mcp-servers/WorkerConnectionHelp'
 import { createPortal } from 'react-dom'
-import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, RotateCw, Settings2, Square, Undo2, X } from 'lucide-react'
+import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, RotateCw, Search, Settings2, Square, Undo2, X } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
@@ -159,6 +159,8 @@ export default function AgentSheet() {
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null
     return () => {
+      // The page picker may already have claimed focus in its layout effect.
+      if (useUI.getState().paletteOpen || !focusIsNowhere()) return
       if (prev?.isConnected && !rootRef.current?.contains(prev)) prev.focus?.({ preventScroll: true })
     }
   }, [])
@@ -172,9 +174,13 @@ export default function AgentSheet() {
     if (autorun && hasKey && !running) void runTask()
   }, [autorun, hasKey, running])
 
-  // phones: the sheet covers the page, so going somewhere else hides it (the task goes on)
+  // Make room for a newly opened page on every screen. In-page anchors keep the terminal open.
+  // Closing the view never stops the task or changes its captured source context.
   useEffect(() => {
-    const onHash = () => isPhone() && closeAgent()
+    const openedAt = window.location.hash.split('?')[0]
+    const onHash = () => {
+      if (window.location.hash.split('?')[0] !== openedAt) closeAgent()
+    }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -453,6 +459,15 @@ function Head() {
       <h2 id="term-title" className="term-head__title">
         {t('features.agent.title')}
       </h2>
+      <button
+        type="button"
+        className="term-key term-key--label term-head__pages"
+        onClick={() => { closeAgent(); useUI.getState().openPalette() }}
+        title={lang === 'de' ? 'Seite suchen oder zuletzt geöffnete Seite wählen. Der Auftrag läuft weiter.' : 'Find a page or choose a recent page. The task keeps running.'}
+      >
+        <Search size={13} aria-hidden />
+        {lang === 'de' ? 'Seite wechseln' : 'Switch page'}
+      </button>
       <span className="term-head__sep" aria-hidden>
         ·
       </span>
