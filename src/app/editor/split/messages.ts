@@ -4,6 +4,7 @@ import type { Messages } from '@/shared/i18n'
 export const splitMessages: Messages = {
   en: {
     'editor.split.toPage': 'Turn into page',
+    'editor.split.codeToPage': 'Move to a new sub-page',
     'editor.split.pageN': 'Page · {n} blocks',
     'editor.split.done': 'Moved to a new page · {title}',
     'editor.split.kept': 'The blocks are back — “{title}” was changed meanwhile and stays as it is',
@@ -25,6 +26,7 @@ export const splitMessages: Messages = {
   },
   de: {
     'editor.split.toPage': 'In Seite umwandeln',
+    'editor.split.codeToPage': 'In neue Unterseite verschieben',
     'editor.split.pageN': 'Seite · {n} Blöcke',
     'editor.split.done': 'In eine neue Seite verschoben · {title}',
     'editor.split.kept': 'Die Blöcke sind zurück — „{title}“ wurde inzwischen geändert und bleibt, wie es ist',

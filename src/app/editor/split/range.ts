@@ -15,6 +15,7 @@
  */
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState } from '@tiptap/pm/state'
+import { codeReference } from '@/shared/mcp/codeReference'
 
 /** Nodes whose children are free-standing blocks — where a page link may take the place of some of them. */
 export const SPLIT_CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'tab'])
@@ -153,6 +154,10 @@ function plainLine(node: PMNode): boolean {
 export function splitTitle(nodes: readonly PMNode[]): { title: string; drop: number } {
   const first = nodes[0]
   if (!first) return { title: '', drop: 0 }
+  if (first.type.name === 'codeBlock') {
+    const reference = codeReference(first.textContent)
+    if (reference) return {title: cutTitle(reference.citation.path.split('/').at(-1) || reference.citation.path), drop: 0}
+  }
   if (first.type.name === 'heading') {
     const title = squash(first.textBetween(0, first.content.size, ' ', leafText))
     if (title) return { title, drop: 1 }
