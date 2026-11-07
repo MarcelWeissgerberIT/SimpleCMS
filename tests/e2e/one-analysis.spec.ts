@@ -139,6 +139,14 @@ test('retry resumes failed specification and retains the completed analysis', as
   await page.getByTestId('coding-run').click()
   await expect(page.locator('.ctk')).toContainText('Source check:')
   expect(mock.bodies).toHaveLength(3)
+  const receipt = await page.evaluate(async id => {
+    const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('one-coding');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})
+    try{return await new Promise<any>((resolve,reject)=>{const r=db.transaction('kv').objectStore('kv').get('local:local|task|'+id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}finally{db.close()}
+  },id)
+  expect(receipt.stageRuns.map((r:any)=>r.status)).toEqual(['ok','failed'])
+  expect(receipt.stageRuns[1].receipt.costUsd).toBeGreaterThan(0)
+  expect(receipt.spentUsd).toBeCloseTo(receipt.stageRuns.reduce((n:number,r:any)=>n+r.receipt.costUsd,0),4)
+  expect(receipt.analysisMissing).toContain(id)
   expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('PRESERVED ANALYSIS')
   expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).not.toContain('UNSOURCED SPECIFICATION')
   await page.getByRole('button', { name: 'Retry', exact: true }).click()
@@ -186,4 +194,29 @@ test('a real text edit still invalidates the source snapshot', async ({ page, co
   expect(document).toContain('NEW REQUIREMENT FROM USER')
   expect(document).not.toContain('STALE SPECIFICATION')
   await expect(page.getByTestId('coding-approve')).toHaveCount(0)
+})
+
+test('a saved interrupted stage settles its known cost once and resumes under the browser lock',async({page,context})=>{
+ const id=await setup(page)
+ // Simulate the durable receipt left by a closed tab before its completion handler.
+ await page.evaluate(async id=>{
+  const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('one-coding');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})
+  const key='local:local|task|'+id
+  try{
+   const value=await new Promise<any>(resolve=>{const r=db.transaction('kv').objectStore('kv').get(key);r.onsuccess=()=>resolve(r.result)})
+   const row=(window as any).__one.workspace.getState().pages[id],database=(window as any).__one.workspace.getState().databases[row.databaseId]
+   const stage=database.properties.find((p:any)=>/stage/i.test(p.name)),stageId=row.properties[stage.id]
+   await new Promise<void>((resolve,reject)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').put({...value,execution:'one',state:'running',run:'interrupted-run',stageId,analysisCheckpoint:{run:'interrupted-run',stageId,stage:'Interrupted stage',cost:.25,turns:2,at:Date.now()},at:Date.now()},key);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error)})
+  }finally{db.close()}
+ },id)
+ await page.reload();await expect(page.getByTestId('one-analysis-controls')).toBeVisible()
+ await mockAgent(context,[call('read1','read_page',{id}),say('## Analysis\nResumed with fresh sources.'),call('read2','read_page',{id}),say('## Specification\nFresh specification.')])
+ await page.getByTestId('coding-run').click();await expect(page.getByTestId('coding-approve')).toBeVisible()
+ const receipt=await page.evaluate(async id=>{
+  const db=await new Promise<IDBDatabase>(resolve=>{const r=indexedDB.open('one-coding');r.onsuccess=()=>resolve(r.result)})
+  try{return await new Promise<any>(resolve=>{const r=db.transaction('kv').objectStore('kv').get('local:local|task|'+id);r.onsuccess=()=>resolve(r.result)})}finally{db.close()}
+ },id)
+ expect(receipt.stageRuns.filter((r:any)=>r.run==='interrupted-run')).toHaveLength(1)
+ expect(receipt.spentUsd).toBeGreaterThan(.25)
+ expect(receipt.analysisCheckpoint).toBeNull()
 })

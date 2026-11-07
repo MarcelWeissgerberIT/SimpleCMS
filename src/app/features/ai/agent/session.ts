@@ -457,7 +457,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
    if(!here()||opts.program)return
    const turn=get().turns.find(t=>t.n===n)
    if(!turn||turn.error?.code==='key_in_text')return
-   const value:TaskRecovery={v:1,task:scrubSecrets(task),checkpoint:scrubSecrets(contextCheckpoint(get().turns,get().steps,get().changes)),at:Date.now(),status:turn.status,page:pageId}
+   const value:TaskRecovery={v:1,task:scrubSecrets(task),checkpoint:scrubSecrets(contextCheckpoint(get().turns,get().steps,get().changes)),at:Date.now(),status:turn.status,page:pageId,progress:{completed:get().steps.filter(s=>s.turn===n&&s.state==='ok').length,pending:get().changes.filter(c=>['pending','failed'].includes(c.status)).length,usd:turn.cost?.usd??0,requests:turn.cost?.requests??0,partial:turn.cost?.partial??false,...(turn.error?{error:scrubSecrets(turn.error.message).slice(0,2000)}:{})}}
    pendingRecovery=value
    if(recoveryWriting)return
    recoveryWriting=true
@@ -568,6 +568,9 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
       if (!here()) return
       answered += 1
       taskUsd += entry?.usd ?? 0
+      const previousCost=get().turns.find(t=>t.n===n)?.cost
+      patchTurn(n,{cost:{usd:taskUsd,requests:(previousCost?.requests??0)+1,partial:!!previousCost?.partial||entry?.usd==null||entry.costSource==='estimate'}})
+      saveRecovery()
       // another model answered (a refusal fallback): said once per task, priced at that model (the entry)
       for (const st of entry?.steps ?? []) {
         const line = entry ? stepText(t, st, entry.served.p, { lang: currentLang() }) : null

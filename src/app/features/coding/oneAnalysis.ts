@@ -1,3 +1,5 @@
+import {oneActivity} from '../ai/workflow/activity'
+import type {StageRunEvidence} from '@/shared/coding/evidence'
 /** Browser-owned, read-only model execution for document pipelines. No checkout or worker execution. */
 import { create } from 'zustand'
 import { useWorkspace } from '../../store/store'
@@ -58,6 +60,8 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
   const unsubscribe = useWorkspace.subscribe(() => { if (!same()) controller.abort() })
   let acquired = false, heartbeat: ReturnType<typeof setInterval> | undefined
   let draft = '', claimed: Claim | null = null
+  const receipt: {current:{run:string;stageId:string;value:StageRunEvidence}|null}={current:null}
+  let missing:string[]=[],checkpointQueue=Promise.resolve()
   const execute = async () => {
     check()
     await loadTask(id)
@@ -80,6 +84,15 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
       if (taskContext(id)?.row !== row || taskContext(id)?.db !== db) throw Error('Task changed before start.')
       const owner = String(row.properties[props.worker ?? ''] ?? '')
       const date = row.properties[props.claimed ?? ''] as { start?: string } | undefined
+      const checkpoint=local.analysisCheckpoint
+      // This browser holds the exclusive lock. A matching local claim with a durable
+      // checkpoint can therefore only be an interrupted run on this device. Settle its
+      // known cost once, keep the stage open and read sources afresh on the next loop.
+      if(checkpoint&&local.run===checkpoint.run&&(!owner||owner===`One ${checkpoint.run}`)){
+        if(!local.stageRuns?.some(r=>r.run===checkpoint.run))await finishStage(id,checkpoint.stageId,{status:'stopped',error:say('Unterbrochener Lauf: ab letzter offener Stufe fortsetzen.','Interrupted run: resume the last open stage.'),cost:checkpoint.cost,runEvidence:{executor:'host',requestedModel:null,startedAt:checkpoint.at,finishedAt:checkpoint.at,turns:checkpoint.turns,costUsd:checkpoint.cost}},()=>{check();if(taskLocal(id).run!==checkpoint.run||taskContext(id)?.row!==row)throw Error('Task changed.')})
+        await patchTask(id,{analysisCheckpoint:null})
+        seen.delete(stage.id);manual=true;continue
+      }
       if (owner && Date.now() - new Date(date?.start ?? '').getTime() < CLAIM_STALE_MS) throw Error(say('Diese Aufgabe wird bereits ausgeführt.', 'This task is already running.'))
       if (stage.kind === 'queue') {
         const next = nextStage(pipeline, stage)
@@ -96,9 +109,10 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
         if (props.claimed) withWriter(writer, () => useWorkspace.getState().setRowProperty(id, props.claimed!, { start: new Date().toISOString() }))
       }, writer)
       check()
-      await patchTask(id, { state: 'running', stageId: stage.id, run, runNow: false, error: null, analysisDraft: null })
+      await patchTask(id, { state: 'running', stageId: stage.id, run, runNow: false, error: null, analysisDraft: null, analysisMissing: [] })
       check()
       const refs = refPlan(id)
+      missing=[id,...refs.pages.map(p=>p.id)]
       const allowed = new Set([id, ...refs.pages.map(p => p.id)])
       if (refs.left.length) log(say(`${refs.left.length} weitere Verweise sind nicht im Lesebereich.`, `${refs.left.length} further references are outside the reading scope.`))
       const snapshot = () => JSON.stringify([taskContext(id)?.pipeline, [...allowed].map(p => {
@@ -128,6 +142,7 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
         if (tool.name === 'read_page' && result.state === 'ok' && result.pageRead) {
           const buffer = read.get(result.pageRead.pageId) ?? new PageReadBuffer()
           buffer.add(result.pageRead, result.content); read.set(result.pageRead.pageId, buffer)
+          if(buffer.complete())missing=missing.filter(id=>id!==result.pageRead!.pageId)
         }
         return result
       } }))
@@ -140,17 +155,21 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
           const pages = (report.evidence.one_pages ?? []).map(p => useWorkspace.getState().pages[p]?.title || say('Seite ohne Titel', 'Untitled page'))
           log(say(`Quellen dieser Stufe: ${pages.length} One-Seiten, ${report.evidence.atlas_reads} Atlas-Abrufe.`, `Sources for this stage: ${pages.length} One pages, ${report.evidence.atlas_reads} Atlas reads.`) + (pages.length ? ` ${pages.join(' · ')}` : ''))
         },
-        toolStart: (name, arg) => { log(`${name === 'read_page' ? say('Seite lesen', 'Read page') : name === 'search_pages' ? say('Seiten suchen', 'Find pages') : name} · ${arg}`); return newId() },
+        toolStart: (name, arg) => { const a=oneActivity(name,arg,useWorkspace.getState().pages,currentLang()==='de');log(a.action+' · '+a.detail);return newId() },
         toolEnd: (_id, out) => log(out.summary, out.state === 'err' ? 'error' : 'info'),
         note: text => log(text), text: text => { live += text; draft = live },
         textDone: kind => { if (kind === 'answer') answer = live; else if (live.trim()) log(live); live = '' },
-        usage: (_usage, entry) => { cost += entry?.usd ?? 0; turns++ }, history: () => {},
+        usage: (_usage, entry) => { cost += entry?.usd ?? 0; turns++;if(receipt.current){receipt.current.value.costUsd=cost;receipt.current.value.turns=turns}
+          const checkpoint={run,stageId:stage.id,stage:stage.name,cost,turns,at:Date.now()}
+          checkpointQueue=checkpointQueue.then(async()=>{if(same()&&taskLocal(id).run===run)await patchTask(id,{analysisCheckpoint:checkpoint})}).catch(()=>{log(say('Arbeitsstand konnte lokal nicht gespeichert werden.','Could not save local checkpoint.'),'error')})
+        }, history: () => {},
         limit: () => { held = say('Anfragelimit erreicht.', 'Request limit reached.') },
         held: () => { held = say('Die Anfrage wurde angehalten. Prüfe Budget und Datenfreigaben.', 'The request was held. Check budget and data permissions.') },
         mcp: call => { const a = mcpActivityText(call.tool, call.display, call.arg, currentLang()); log([a.action, a.detail, call.state].filter(Boolean).join(' · '), call.state === 'err' ? 'error' : 'info') },
       }
       log(`${stage.name} · ${pre.label}`)
       const startedAt = Date.now()
+      receipt.current={run,stageId:stage.id,value:{executor:'host',requestedModel:`${route.p}/${route.m}`,startedAt,finishedAt:startedAt,turns:0,costUsd:0}}
       const result = await runAgent({ purpose: 'agents.run', targetPage: id, readOnly: true, sourcePolicy: 'document', maxRounds: stage.maxTurns ?? 40, route: pre.route, sources, typed: instructions,
         history: [], user: { role: 'user', content: instructions }, stage: api, signal: controller.signal, hooks, mcp, tools,
         system: 'You perform a read-only document analysis inside One. Read the task and sources with tools. Return a sourced Markdown document; host One saves it. Never perform external writes or execute code.',
@@ -164,8 +183,11 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
       draft = finalDocument || draft
       valid()
       if (result !== 'done' || !finalDocument.trim() || !read.get(id)?.complete()) throw Error(held || say('Analyse unvollständig: keine vollständige Antwort oder die Aufgabenseite wurde nicht gelesen. Die Stufe bleibt offen.', 'Analysis incomplete: missing final answer or task page was not read. The stage stays open.'))
+      await checkpointQueue
       await finishStage(id, stage.id, { status: 'ok', plan: finalDocument, cost, runEvidence: { executor: 'host', requestedModel: `${route.p}/${route.m}`, startedAt, finishedAt: Date.now(), turns, costUsd: cost } }, valid)
       clearInterval(heartbeat); heartbeat = undefined
+      receipt.current=null
+      await patchTask(id,{analysisCheckpoint:null})
       claimed = null
       check()
       draft = ''
@@ -188,7 +210,12 @@ export async function runOneAnalysis(id: string, manual = false): Promise<void> 
       const message = controller.signal.aborted ? say('Analyse gestoppt.', 'Analysis stopped.') : missingSources ? say('Quellenprüfung: In dieser Stufe wurde keine erforderliche Quelle erfolgreich gelesen. Bereits gespeicherte Dokumente bleiben erhalten; die Stufe wurde nicht abgeschlossen.', 'Source check: no required source was successfully read in this stage. Previously saved documents are retained; the stage was not completed.') : error instanceof Error ? error.message : String(error)
       log(message, 'error')
       if (draft.trim()) log(draft)
-      if (acquired) await patchTask(id, { state: controller.signal.aborted ? 'stopped' : 'failed', error: message, analysisDraft: draft || null, runNow: false })
+      await checkpointQueue
+      const failedReceipt=receipt.current
+      if(failedReceipt&&same()&&!useCloud.getState().readOnly&&taskLocal(id).run===failedReceipt.run&&!taskLocal(id).stageRuns?.some(r=>r.run===failedReceipt.run)){
+        await finishStage(id,failedReceipt.stageId,{status:controller.signal.aborted?'stopped':'failed',error:message,cost:failedReceipt.value.costUsd??0,runEvidence:{...failedReceipt.value,finishedAt:Date.now()}},()=>{if(!same()||useCloud.getState().readOnly||taskLocal(id).run!==failedReceipt.run||(claimed?.worker&&taskContext(id)?.row.properties[claimed.worker]!==claimed.owner))throw Error('Task changed.')})
+      }
+      if (acquired) await patchTask(id, { state: controller.signal.aborted ? 'stopped' : 'failed', error: message, analysisDraft: draft || null, analysisMissing:missing, analysisCheckpoint:null, runNow: false })
     }
   } finally {
     clearInterval(heartbeat)

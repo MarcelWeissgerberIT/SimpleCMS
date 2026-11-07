@@ -1,3 +1,6 @@
+import {WorkflowRepair} from '../workflow/WorkflowRepair'
+import {RunPreflight} from '../workflow/RunPreflight'
+import {oneActivity} from '../workflow/activity'
 import {CurrentActivity} from './CurrentActivity'
 import {mcpActivityText} from '@/shared/mcp/activityDisplay'
 import {SavedWork} from './SavedWork'
@@ -82,6 +85,7 @@ const pad = (n: number, w = 2) => String(n).padStart(w, '0')
 
 /** The Regler's halt card (its own lazy chunk — the dial and the plate's styles come with it). */
 const HaltCard = lazy(loadHaltCard)
+const WorkflowOverview=lazy(()=>import('../workflow/WorkflowOverview'))
 
 
 
@@ -378,6 +382,7 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
 }
 
 function Head() {
+  const [workOpen,setWorkOpen]=useState(false)
   const t = useT()
   const lang = useLang()
   const status = useAgent((s) => s.status)
@@ -394,6 +399,7 @@ function Head() {
   const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' ? 'led led--ok' : 'led led--on'
   return (
     <header className="term-head">
+      {workOpen&&<Suspense fallback={null}><WorkflowOverview onClose={()=>setWorkOpen(false)}/></Suspense>}
       <span className={led} aria-hidden />
       <h2 id="term-title" className="term-head__title">
         {t('features.agent.title')}
@@ -426,6 +432,7 @@ function Head() {
       </span>
 <button type="button" className="term-key term-key--label" onClick={()=>openSkills(skill=>{useAgent.setState(s=>({draft:s.draft.trimEnd()+' $'+skill.spec.name+'@'+skill.version}));focusPrompt()})} aria-label={t('features.ai.skills.title')}>{t('features.ai.skills.short')}</button>
 <button type="button" className="term-key term-key--label" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
+<button type="button" className="term-key term-key--label" onClick={()=>setWorkOpen(true)}>{lang==='de'?'Arbeitsübersicht':'Work overview'}</button>
 <button type="button" className="term-key term-key--label" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
       <span className="term-spacer" />
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
@@ -607,6 +614,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
   const steps = useMemo(() => allSteps.filter((x) => x.turn === turn.n), [allSteps, turn.n])
   const live = useAgent((s) => (last ? s.live : ''))
   const running = turn.status === 'running'
+  const lang=useLang()
   const ctx = turn.context
   const ctxParts = ctx ? [ctx.page ? `▣ ${ctx.page}` : '', ctx.refs ? tn('features.agent.ctx.refs', ctx.refs) : '', ...ctx.mentions.map((m) => `@${m}`)].filter(Boolean) : []
   return (
@@ -628,6 +636,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <span className="term-turn__ctxlabel">{t('features.agent.ctx.label')}</span> {ctxParts.join(' · ')}
         </p>
       )}
+      {turn.cost&&<p className="term-run-cost">{turn.cost.partial?'≈ ':''}${turn.cost.usd.toFixed(4)} · {turn.cost.requests} {lang==='de'?'Modellantworten':'model responses'} {turn.cost.partial?'(≈)':''}</p>}
       {turn.contract&&<TaskContractCard report={turn.contract}/>}
       <ol className="term-steps" role="log" aria-label={t('features.agent.log')} aria-live="polite">
         {steps.map((s) => (s.kind === 'note' ? <NoteRow key={s.id} step={s} /> : s.kind === 'mcp' ? <McpRow key={s.id} step={s} /> : <StepRow key={s.id} step={s} />))}
@@ -755,6 +764,7 @@ function TurnError({ error, n, last }: { error: NonNullable<AgentTurn['error']>;
     <div className="term-error" role={last?'alert':undefined}>
       <span className="term-error__code">✗ ERR · {error.code.toUpperCase()}</span>
       <p>{error.message}</p>
+      <WorkflowRepair message={error.message}/>
       {error.centralLog&&<button type="button" className="btn btn--sm" onClick={()=>{navigate({name:'workspace',section:'ai'});useAgent.setState({open:false})}}><Settings2 size={13} aria-hidden/> {t('features.ai.central.open')}</button>}
       {signIn && <SignInKey server={error.server!} retry={retryOf(n)} />}
       {keyIssue && (
@@ -781,6 +791,7 @@ const GLYPH: Record<AgentStep['state'], string> = { run: '→', ok: '→', stage
 function StepRow({ step }: { step: AgentStep }) {
   const t = useT()
   const tool = step.tool!
+  const lang=useLang(),pages=useWorkspace(s=>s.pages),activity=oneActivity(tool,step.arg,pages,lang==='de')
   const arg = step.arg || (tool === 'list_databases' || tool === 'get_current_page' || tool === 'list_pipelines' ? t(`features.agent.verb.${tool}.arg`) : '')
   const result = step.state === 'err' ? t('features.agent.res.rejected') : (step.result ?? '')
   return (
@@ -788,9 +799,9 @@ function StepRow({ step }: { step: AgentStep }) {
       <span className="term-step__glyph" aria-hidden>
         {GLYPH[step.state]}
       </span>
-      <span className="term-step__tool">{tool}</span>
+      <span className="term-step__tool" title={tool}>{activity.action}</span>
       <span className="term-step__arg" title={arg}>
-        {arg}
+        {activity.detail||arg}
       </span>
       <span className="term-step__res">{result}</span>
     </li>
@@ -1535,6 +1546,7 @@ function ChangeItem({
   const name = `${label} ${kindLabel}${tagList.length ? `, ${tagList.join(', ')}` : ''}${marked ? `, ${t('features.agent.review.marked')}` : ''}`
   return (
     <li
+      data-change={c.id}
       className="term-change"
       data-i={index}
       data-n={c.n}
@@ -1945,6 +1957,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     >
       <FailureDock />
       <Chips />
+      <RunPreflight/>
       <RepoFilesControl value={draft} onChange={v=>setDraft(v)} disabled={running} />
       {comp && (
         <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : comp.kind === 'tool' ? 'features.agent.complete.tools' : comp.kind === 'server' ? 'features.agent.complete.servers' : 'features.agent.complete.pages')}>

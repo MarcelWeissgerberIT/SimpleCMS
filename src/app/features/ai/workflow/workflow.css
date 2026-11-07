@@ -1,0 +1,10 @@
+.workflow-overview{padding:var(--sp-5,24px);color:var(--ink);font:var(--text-md)/1.5 var(--font-sans)}
+.workflow-overview nav,.workflow-filters{display:flex;flex-wrap:wrap;gap:8px;margin-block:16px}
+.workflow-overview nav [aria-pressed=true]{border-color:var(--signal);box-shadow:inset 0 -2px var(--signal)}
+.workflow-overview article{border:1px solid var(--rule);border-radius:var(--radius,4px);padding:16px;margin-block:12px;overflow-wrap:anywhere}
+.workflow-overview h3{margin:4px 0 8px;font-size:1rem}.workflow-overview p{margin-block:8px}
+.workflow-overview article>.btn{margin:8px 8px 0 0}.workflow-gap{border-left:3px solid var(--signal);padding-left:10px}
+.workflow-lines{white-space:pre-wrap}.workflow-overview .term-saved-work{font:inherit;color:inherit;background:transparent}
+.term-preflight{margin:8px 0;font-size:12px;line-height:1.6}.term-preflight summary{cursor:pointer}.term-preflight p{margin:6px 0}
+.term-repair{margin-block:8px}.term-run-cost{font-size:12px;opacity:.85;margin-block:8px}
+@media(max-width:640px){.workflow-overview{padding:12px}.workflow-filters>*{width:100%}}
