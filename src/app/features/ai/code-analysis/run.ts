@@ -69,7 +69,7 @@ export async function runCodeAnalysis(o:{analysis:Analysis;revision:Revision;pag
    }
    // Review decisions belong to the user, never to model output.
    report.findings=report.findings.map(f=>({...f,status:'open'}))
-   revision={...revision,report,completed:[...revision.completed,phase],state:phase==='synthesize'?'ready':'running'};persist()
+   revision={...revision,report,reviews:revision.reviews?.filter(x=>report.findings.some(f=>f.id===x.finding)).map(x=>({...x,requirements:x.requirements.filter(id=>report.requirements.some(r=>r.id===id))})),sourceChecks:undefined,completed:[...revision.completed,phase],state:phase==='synthesize'?'ready':'running'};persist()
   }
  }catch(e){
   // Retain completed phases on normal errors/stop. Never save into a changed context.

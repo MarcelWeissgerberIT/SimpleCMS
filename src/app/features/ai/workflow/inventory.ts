@@ -1,9 +1,10 @@
 import type {JSONContent} from '@tiptap/core'
 import {readAnalysis,type Analysis,type Revision} from '@/shared/codeAnalysis/model'
 import {readChange} from '@/shared/codeChange/model'
+import {currentMockSourceCheck} from '@/shared/ai/mockReview'
 import {mockBlockData} from '@/shared/ai/mockBlock'
 import {codeReference,type CodeReference} from '@/shared/mcp/codeReference'
-export type WorkKind='review'|'note'|'markdown'|'failed'|'finding'
+export type WorkKind='review'|'note'|'markdown'|'failed'|'finding'|'stale'
 export interface WorkItem {id:string;page:string;block?:string;kind:WorkKind;title:string;detail:string}
 export interface Trace {id:string;page:string;block?:string;title:string;detail:string;gap?:string;references:CodeReference[];checkedAt?:number}
 export interface RecipeSource {page:string;block?:string;analysis:Analysis;revision:Revision}
@@ -20,6 +21,7 @@ export function inventory(pages:Array<{id:string;title:string;content:JSONConten
   try{
    if(n.type==='designMock'){
     const m=mockBlockData(n.attrs?.spec),title=m.preview?.title||say('Mock','Mock')
+    if(currentMockSourceCheck(m)?.rows.some(r=>r.changed))add('stale',title,say('Designquellen geändert – im Atlas-Tab gezielte Aktualisierung vormerken','Design sources changed — queue a targeted update in the Atlas tab'))
     for(const note of m.journal?.notes??[]){
      if(!note.resolved)add('note',note.text,title)
      if(note.md==='pending')add('markdown',note.text,title+' · '+say('Designsystem-Änderung vorgemerkt','Design system change pending'))
@@ -35,7 +37,9 @@ export function inventory(pages:Array<{id:string;title:string;content:JSONConten
      for(const f of r.report.findings){
       if(f.status==='open')add('finding',f.title,a.question)
       const ids=[...f.support,...f.against],es=ids.flatMap(id=>r.report.evidence.filter(e=>e.id===id))
-      const reqs=r.report.requirements.filter(q=>[...q.implementation,...q.tests].some(e=>ids.includes(e)))
+      const review=r.reviews?.find(x=>x.finding===f.id)
+      if(r.sourceChecks?.some(c=>ids.includes(c.evidence)&&c.state==='different'))add('stale',f.title,say('Anderer Atlas-Snapshot – Finding gezielt nachprüfen','Different Atlas snapshot — recheck this finding'))
+      const reqs=r.report.requirements.filter(q=>review?.requirements.includes(q.id)||[...q.implementation,...q.tests].some(e=>ids.includes(e)))
       const missing=ids.filter(id=>!r.report.evidence.some(e=>e.id===id))
       traces.push({id:id+':'+f.id,page,block,title:f.title,detail:[f.claim,...reqs.map(q=>say('Anforderung: ','Requirement: ')+q.text)].join('\n'),references:es.map(e=>e.reference),checkedAt:es.length?Math.min(...es.map(e=>e.checkedAt)):undefined,gap:!es.length||missing.length?say('Quellcode-Beleg fehlt oder ist nicht auflösbar','Source evidence missing or unresolved'):!reqs.length?say('Keine Anforderung mit gemeinsamem Beleg verknüpft','No requirement linked through shared evidence'):undefined})
      }

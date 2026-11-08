@@ -83,7 +83,7 @@ test('successful terminal run shows costs, restores checkpoint details and prepa
  expect(JSON.stringify(mock.bodies.at(-1))).toContain('FRESH SOURCE REVISION')
  expect(mock.bodies).toHaveLength(3)
  await page.reload();await expect(page.getByRole('main')).toBeVisible();await page.keyboard.press(`${MOD}+j`)
- const shelf=terminal(page).locator('.term-saved-work');await shelf.locator('summary').click()
+ const shelf=terminal(page).locator('.term-saved-work');await shelf.locator(':scope > summary').click()
  await expect(shelf).toContainText('2 model responses');await expect(shelf).toContainText('steps completed')
  expect(mock.bodies).toHaveLength(3)
 })

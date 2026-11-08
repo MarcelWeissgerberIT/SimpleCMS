@@ -8,3 +8,5 @@
 .term-preflight{margin:8px 0;font-size:12px;line-height:1.6}.term-preflight summary{cursor:pointer}.term-preflight p{margin:6px 0}
 .term-repair{margin-block:8px}.term-run-cost{font-size:12px;opacity:.85;margin-block:8px}
 @media(max-width:640px){.workflow-overview{padding:12px}.workflow-filters>*{width:100%}}
+
+.quality-checks{border:1px solid var(--rule);padding:16px;border-radius:4px}.quality-checks__sources{max-height:230px;overflow:auto;margin:12px 0}.quality-checks__sources label{display:flex;align-items:start;gap:8px;padding:6px}.quality-checks .input{max-width:100%}.term-preflight li{overflow-wrap:anywhere;margin:6px 0}.term-preflight input{max-width:100%}.term-recovery-details{margin:8px 0}.term-recovery-details pre{max-height:240px;overflow:auto}

@@ -1,3 +1,4 @@
+import type {Analysis as AnalysisData} from '@/shared/codeAnalysis/model'
 import {type CodeChange} from '@/shared/codeChange/model'
 import {lazy,Suspense,useRef} from 'react'
 import {NodeViewWrapper,NodeViewContent,type ReactNodeViewProps} from '@tiptap/react'
@@ -14,6 +15,7 @@ export function CodeAnalysisView({node,editor,getPos}:ReactNodeViewProps){
  const surrounding=()=>{const hit=current();if(!hit)return '';const placeholder=editor.schema.nodes.codeBlock.create(hit.live.attrs);const json=editor.state.tr.replaceWith(hit.pos,hit.pos+hit.live.nodeSize,placeholder).doc.toJSON();const clean=(n:any):any=>({...n,attrs:n.attrs?Object.fromEntries(Object.entries(n.attrs).filter(([k])=>k!=='id')):undefined,content:n.content?.map(clean)});return JSON.stringify([useWorkspace.getState().pages[pageId]?.title,clean(json)])}
  const save=(raw:string,expected:string,writer:Writer)=>{const hit=current();if(!hit||hit.live.textContent!==expected)return false;const next=editor.schema.nodes.codeBlock.create(hit.live.attrs,editor.schema.text(raw));dispatchAs(editor,writer,editor.state.tr.replaceWith(hit.pos,hit.pos+hit.live.nodeSize,next));baseline.current=surrounding();return true}
  const create=(change:CodeChange)=>{const hit=current();if(!hit)return;const n=editor.schema.nodes.codeBlock.create({language:'code-change'},editor.schema.text(JSON.stringify(change)));dispatchAs(editor,{kind:'you',via:'form'},editor.state.tr.insert(hit.pos+hit.live.nodeSize,n));baseline.current=surrounding()}
+ const createAnalysis=(a:AnalysisData)=>{const hit=current();if(!hit)return;const n=editor.schema.nodes.codeBlock.create({language:'code-analysis'},editor.schema.text(JSON.stringify(a)));dispatchAs(editor,{kind:'you',via:'form'},editor.state.tr.insert(hit.pos+hit.live.nodeSize,n));baseline.current=surrounding()}
  const read=()=>{const hit=current();if(!hit)return null;if(baseline.current&&surrounding()!==baseline.current)return null;return hit.live.textContent}
- return <NodeViewWrapper><div contentEditable={false}><Suspense fallback={<span>…</span>}><Analysis raw={node.textContent} editable={editable} canRead={!!page&&!page.trashedAt} pageId={pageId} onSave={save} onCurrent={read} onCreateChange={create}/></Suspense></div><div hidden><NodeViewContent/></div></NodeViewWrapper>
+ return <NodeViewWrapper><div contentEditable={false}><Suspense fallback={<span>…</span>}><Analysis raw={node.textContent} editable={editable} canRead={!!page&&!page.trashedAt} pageId={pageId} onSave={save} onCurrent={read} onCreateChange={create} onCreateAnalysis={createAnalysis}/></Suspense></div><div hidden><NodeViewContent/></div></NodeViewWrapper>
 }
