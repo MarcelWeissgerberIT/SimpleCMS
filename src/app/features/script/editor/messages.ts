@@ -7,6 +7,7 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.script.ed.replaceTooLarge': 'This replacement would exceed the script limit of {n} characters. The code has not been changed.',
     'features.script.ed.tools': 'Editor tools',
     'features.script.ed.find': 'Find',
     'features.script.ed.replace': 'Replace',
@@ -195,6 +196,7 @@ export const messages: Messages = {
     'features.script.m.script.kind': '"script" or "query".',
   },
   de: {
+    'features.script.ed.replaceTooLarge': 'Die Ersetzung würde das Script-Limit von {n} Zeichen überschreiten. Der Code wurde nicht geändert.',
     'features.script.ed.tools': 'Editor-Werkzeuge',
     'features.script.ed.find': 'Suchen',
     'features.script.ed.replace': 'Ersetzen',

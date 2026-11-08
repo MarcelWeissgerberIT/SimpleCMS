@@ -1493,3 +1493,5 @@ a.sc-changes__title:hover {
   .sc-workflow-explain { display: block; margin-top: 10px; font-size: var(--text-sm); color: var(--ink-2); }
   .sc--focus .sc-workflow-explain { display: none; }
 }
+
+.sc-editor__limit { flex-basis: 100%; margin: 0; color: var(--signal-ink); font-size: var(--text-sm); }

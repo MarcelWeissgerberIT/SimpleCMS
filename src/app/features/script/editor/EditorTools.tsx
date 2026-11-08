@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ArrowDown, ArrowUp, Search, X } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { shortcutLabel } from '../../../ui/controls'
 import { lineColAt, lineStarts, type CodeAreaHandle } from '../../../ui/code'
 
+import { SCRIPT_LIMITS } from '../../../store/scripts'
 import { scriptMatches } from './search'
 
 /** Local to this editor: browser search elsewhere, no script execution from the find fields. */
@@ -19,6 +20,8 @@ export function EditorTools({ value, area, readOnly, prepare, children }: {
   const [query, setQuery] = useState('')
   const [replacement, setReplacement] = useState('')
   const [matchCase, setMatchCase] = useState(false)
+  const [tooLarge, setTooLarge] = useState(false)
+  useEffect(() => setTooLarge(false), [value, query, replacement])
   const [line, setLine] = useState('1')
   const input = useRef<HTMLInputElement | null>(null)
   const hits = useMemo(() => scriptMatches(value, query, matchCase), [value, query, matchCase])
@@ -54,7 +57,10 @@ export function EditorTools({ value, area, readOnly, prepare, children }: {
     const el = area.current?.textarea
     if (readOnly || !el || el.value !== value || !hits.length) return
     prepare()
+    setTooLarge(false)
     if (all) {
+      const size = hits.reduce((n, hit) => n + replacement.length - (hit.end - hit.start), value.length)
+      if (size > SCRIPT_LIMITS.code) return setTooLarge(true)
       // One native insertion = one undo step; replacement text is literal, including "$&".
       let end = 0
       let result = ''
@@ -62,7 +68,10 @@ export function EditorTools({ value, area, readOnly, prepare, children }: {
       area.current?.insert(0, value.length, result + value.slice(end))
     } else {
       const hit = hits.find((h) => h.start === el.selectionStart && h.end === el.selectionEnd) ?? nextHit()
-      if (hit) area.current?.insert(hit.start, hit.end, replacement)
+      if (hit) {
+        if (value.length - (hit.end - hit.start) + replacement.length > SCRIPT_LIMITS.code) return setTooLarge(true)
+        area.current?.insert(hit.start, hit.end, replacement)
+      }
     }
   }
   const go = () => { if (validLine) { area.current?.reveal(lineNumber, 1); setMode(null) } }
@@ -105,6 +114,7 @@ export function EditorTools({ value, area, readOnly, prepare, children }: {
           <button type="button" className="btn btn--sm" disabled={!hits.length} onClick={() => replace(true)}>{t('features.script.ed.replaceAll', { n: hits.length })}</button>
         </div>}
       </>}
+      {tooLarge && <p className="sc-editor__limit" role="alert">{t('features.script.ed.replaceTooLarge', { n: SCRIPT_LIMITS.code })}</p>}
       <button type="button" className="icon-btn sc-editor__close" aria-label={label('closeTools')} onClick={close}><X size={16} /></button>
     </div>}
     {children}

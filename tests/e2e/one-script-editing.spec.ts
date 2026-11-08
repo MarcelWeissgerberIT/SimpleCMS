@@ -143,3 +143,18 @@ test('read-only scripts keep search and dry runs but expose no replacement contr
   await expect(code).toHaveValue(source)
   expect(await code.evaluate((el: HTMLTextAreaElement) => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('items')
 })
+
+test('an oversized replacement leaves the original script intact', async ({ page }) => {
+  const initial = 'print("' + 'a'.repeat(110) + '")'
+  const code = await editor(page, initial)
+  await page.getByRole('button', { name: 'Replace', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Find in script' }).fill('a')
+  await page.getByRole('textbox', { name: 'Replace with' }).fill('b'.repeat(1000))
+  await page.getByRole('button', { name: 'Replace all (110)', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('limit of 100000 characters')
+  await expect(code).toHaveValue(initial)
+  await page.getByRole('textbox', { name: 'Replace with' }).fill('b')
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Replace all (110)', exact: true }).click()
+  await expect(code).toHaveValue('print("' + 'b'.repeat(110) + '")')
+})
