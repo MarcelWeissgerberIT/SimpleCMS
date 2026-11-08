@@ -943,6 +943,17 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'work-continuity'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const a=analysisFixture(true);a.active=a.revisions[0].id;a.revisions[0].state='accepted'
+    a.question='Review protocol validation and timeout handling'
+    const id=await createPage(page,'Protocol review · work path',doc({type:'codeBlock',attrs:{id:'continuity-source',language:'code-analysis'},content:[{type:'text',text:JSON.stringify(a)}]}))
+    await openPage(page,id)
+    await page.locator('.sb-nav').getByRole('button',{name:'Work overview',exact:true}).click()
+    const dialog=page.getByRole('dialog',{name:'Work overview'})
+    await dialog.getByRole('button',{name:'Work paths',exact:true}).click();await rest(page)
+    await save(page,'work-continuity',await boxOf(dialog,10));await ctx.close()
+  },
   async 'saved-results'(browser) {
     const {ctx,page}=await freshPage(browser)
     let id

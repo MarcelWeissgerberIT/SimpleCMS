@@ -291,6 +291,10 @@
     1440,
     640
   ],
+  "offline-mock-feedback.png": [
+    726,
+    438
+  ],
   "ollama-cloud.webp": [
     1440,
     900
@@ -363,6 +367,10 @@
     1440,
     1050
   ],
+  "saved-results.webp": [
+    1440,
+    435
+  ],
   "script-templates.webp": [
     1440,
     513
@@ -407,6 +415,14 @@
     1440,
     900
   ],
+  "team-draft-safety.png": [
+    760,
+    656
+  ],
+  "team-entry.png": [
+    390,
+    844
+  ],
   "terminal-pipelines.webp": [
     1440,
     1353
@@ -439,6 +455,10 @@
     1440,
     900
   ],
+  "work-continuity.webp": [
+    1440,
+    755
+  ],
   "work-orders.webp": [
     1440,
     1445
@@ -466,21 +486,5 @@
   "workspace-settings.webp": [
     1440,
     985
-  ],
-  "team-draft-safety.png": [
-    760,
-    656
-  ],
-  "team-entry.png": [
-    390,
-    844
-  ],
-  "offline-mock-feedback.png": [
-    726,
-    438
-  ],
-  "saved-results.webp": [
-    1440,
-    435
   ]
 }

@@ -2,7 +2,7 @@ import {test,expect,openApp,createPage,gotoPage,wsEval,doc,para,MOD} from './fix
 import {analysisFixture} from './helpers/codeAnalysisStory.mjs'
 import {packageFixture} from './helpers/packageFreshness.mjs'
 import {mockAgent,call,say,setKey,terminal,prompt} from './helpers/terminal'
-import {sourceConnections} from '../../src/app/features/ai/workflow/SourceConnections'
+import {sourceConnections} from '../../src/app/features/ai/workflow/sourceLinks'
 import {checkpointMock,mockVersionKey,mockSourcesKey} from '../../src/shared/ai/mockReview'
 import {mockBlockData} from '../../src/shared/ai/mockBlock'
 

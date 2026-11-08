@@ -6,7 +6,7 @@ Scope: Atlas evidence → staged code analysis → linked findings and mock feed
 
 The work overview counted every saved result but rendered only `completed.slice(0, 12)`. The thirteenth and older results had no navigation control. A browser regression reproduced the missing button before the fix.
 
-Saved results now have a separate title/source/status search and progressive groups of twelve. Clearing the search resets the visible group. Opening a result retains the original page, block and accepted revision. It does not approve a proposal or create another page. Search state is local to the mounted overview and does not alter saved content.
+Saved results now have a separate title/source/status search and progressive groups of twelve. Clearing the search resets the visible group. Opening a result retains the original page, block and accepted revision. It does not approve a proposal or create another page. Search state does not alter saved content. The subsequent continuity update below preserves it privately across navigation and reload.
 
 ## Verification
 
@@ -20,4 +20,15 @@ Native-backup import exercises the shipped UI in an isolated local workspace wit
 
 ## Limits
 
-These checks establish client/server workflow behavior under controlled provider responses; they do not assess a live model's analysis quality or write to Atlas. Existing unsaved mock note text is still component-local; save it before leaving/removing the block. The overview's documented 50,000-node scan boundary remains in place and is disclosed in the UI. This correction removes the separate twelve-result navigation cutoff within that inventory.
+These checks establish client/server workflow behavior under controlled provider responses; they do not assess a live model's analysis quality or write to Atlas. Mock drafts now use private tab storage as described below; save the note for durable shared storage. The overview's documented 50,000-node scan boundary remains in place and is disclosed in the UI. This correction removes the separate twelve-result navigation cutoff within that inventory.
+
+
+## Work continuity update
+
+- Pending mock notes preserve text, intent, scope, grouped targets and free rectangles in private session storage, scoped to account/workspace/access context and expiring after 24 hours. Navigation and reload retain the draft. Closing the tab may remove it. Storage failures show a warning; secret-like input is not persisted. A changed preview retains text but requires a new target selection.
+- Overview searches, filters, expansion and scroll position are restored privately in the same tab. Work paths group saved source references, outstanding steps and results by actual page/block and link to the original target. They do not infer dependencies from page proximity.
+- Source links expose recorded changed-snapshot checks and affected findings/requirements, including requirements without an open gap. Exact server, repository, file, snapshot and commit identities remain separate. A changed snapshot alone is not a verified code diff.
+- Findings can create/reopen a native review-task page with assignment, due date, comments, countercheck, decision and rationale. A backlink pins the original finding/revision. Private source tasks remain private. Task completion does not adopt the analysis or decide the finding automatically.
+- Budget before start displays the central owner's monthly budget, spent and held amounts, and available balance. Members cannot read owner-only totals. Local governor usage remains separate. Existing request estimates remain estimates for known context, not total-run quotes.
+
+Validation: 40 workflow/mock/regression browser checks and six disposable two-person server checks pass, including permission revocation during a model response and the owner/member budget boundary. Desktop/mobile Paper/Carbon work paths and the real changelog screenshot were inspected. The overview's existing disclosed 50,000-node inventory bound remains.

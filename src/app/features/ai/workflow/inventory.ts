@@ -8,13 +8,14 @@ import {codeReference,type CodeReference} from '@/shared/mcp/codeReference'
 export type WorkKind='review'|'note'|'markdown'|'failed'|'finding'|'stale'
 export interface WorkItem {location?:BlockLocation;id:string;page:string;block?:string;kind:WorkKind;title:string;detail:string}
 export interface SourceLink {key:string;title:string;version?:string;changed?:boolean}
-export interface Trace {location?:BlockLocation;sources?:SourceLink[];id:string;page:string;block?:string;title:string;detail:string;gap?:string;references:CodeReference[];checkedAt?:number}
+export interface Trace {location?:BlockLocation;sources?:SourceLink[];id:string;page:string;block?:string;title:string;detail:string;gap?:string;references:CodeReference[];checkedAt?:number;changed?:boolean;changedReferences?:CodeReference[]}
 export interface RecipeSource {page:string;block?:string;analysis:Analysis;revision:Revision}
 /** Saved facts only. No network, model call or inferred cross-document relationship. */
 export function inventory(pages:Array<{id:string;title:string;content:JSONContent|null}>,de:boolean){
  const work:WorkItem[]=[],completed:WorkItem[]=[],traces:Trace[]=[],recipes:RecipeSource[]=[]
  const say=(a:string,b:string)=>de?a:b
  let visited=0,limited=false
+ const reviewPages=new Set(pages.filter(p=>p.content?.content?.some(n=>n.content?.some(c=>c.marks?.some(m=>m.type==='link'&&typeof m.attrs?.href==='string'&&m.attrs.href.startsWith('#/p/')&&m.attrs.href.includes('work-view=findings')&&m.attrs.href.includes('work-revision=')&&m.attrs.href.includes('work-item='))))).map(p=>p.id))
  const visit=(n:JSONContent,page:string,depth=0)=>{
   if(depth>40||visited++>=50000){limited=true;return}
   const block=typeof n.attrs?.id==='string'?n.attrs.id:undefined,id=page+':'+(block??visited)
@@ -22,6 +23,7 @@ export function inventory(pages:Array<{id:string;title:string;content:JSONConten
   const done=(title:string,detail:string,location?:BlockLocation)=>completed.push({id:id+':done',page,block,kind:'review',title,detail,location})
   const raw=n.type==='codeBlock'?(n.content??[]).map(c=>c.text??'').join(''):''
   try{
+   if(n.type==='workItem'&&reviewPages.has(page)){const title=(n.content?.[0]?.content??[]).map(c=>c.text??'').join('');if(n.attrs?.status==='done')done(title,say('Prüfauftrag erledigt – Entscheidung auf der Seite','Review task complete — decision on page'));else add('review',title,say('Prüfauftrag: Zuständigkeit, Rückfragen und Entscheidung auf der Seite bearbeiten','Review task: manage assignee, questions and decision on the page'))}
    if(n.type==='designMock'){
     const m=mockBlockData(n.attrs?.spec),title=m.preview?.title||say('Mock','Mock')
     if(currentMockSourceCheck(m)?.rows.some(r=>r.changed))add('stale',title,say('Designquellen geändert – im Atlas-Tab gezielte Aktualisierung vormerken','Design sources changed — queue a targeted update in the Atlas tab'),{view:'atlas'})
@@ -52,9 +54,9 @@ export function inventory(pages:Array<{id:string;title:string;content:JSONConten
       if(r.sourceChecks?.some(c=>ids.includes(c.evidence)&&c.state==='different'))add('stale',f.title,version+' · '+say('Anderer Atlas-Snapshot – Finding gezielt nachprüfen','Different Atlas snapshot — recheck this finding'),location)
       const reqs=r.report.requirements.filter(q=>review?.requirements.includes(q.id)||[...q.implementation,...q.tests].some(e=>ids.includes(e)))
       const missing=ids.filter(id=>!r.report.evidence.some(e=>e.id===id))
-      traces.push({id:id+':'+r.id+':'+f.id,page,block,location,title:f.title,detail:[version,f.claim,...reqs.map(q=>say('Anforderung: ','Requirement: ')+q.text)].join('\n'),references:es.map(e=>e.reference),checkedAt:es.length?Math.min(...es.map(e=>e.checkedAt)):undefined,gap:!es.length||missing.length?say('Quellcode-Beleg fehlt oder ist nicht auflösbar','Source evidence missing or unresolved'):!reqs.length?say('Keine Anforderung mit gemeinsamem Beleg verknüpft','No requirement linked through shared evidence'):undefined})
+      traces.push({id:id+':'+r.id+':'+f.id,page,block,location,title:f.title,changed:r.sourceChecks?.some(c=>ids.includes(c.evidence)&&c.state==='different'),detail:[version,f.claim,...reqs.map(q=>say('Anforderung: ','Requirement: ')+q.text)].join('\n'),references:es.map(e=>e.reference),changedReferences:es.filter(e=>r.sourceChecks?.some(c=>c.evidence===e.id&&c.state==='different')).map(e=>e.reference),checkedAt:es.length?Math.min(...es.map(e=>e.checkedAt)):undefined,gap:!es.length||missing.length?say('Quellcode-Beleg fehlt oder ist nicht auflösbar','Source evidence missing or unresolved'):!reqs.length?say('Keine Anforderung mit gemeinsamem Beleg verknüpft','No requirement linked through shared evidence'):undefined})
      }
-     for(const q of r.report.requirements)if(q.gap||![...q.implementation,...q.tests].length)traces.push({id:id+':'+r.id+':req:'+q.id,page,block,location:{view:'requirements',revision:r.id,item:q.id},title:q.text,detail:version+' · '+say('Anforderungsabdeckung','Requirement coverage'),gap:q.gap||say('Implementierung und Tests unbelegt','Implementation and tests not evidenced'),references:[...q.implementation,...q.tests].flatMap(id=>r.report.evidence.filter(e=>e.id===id).map(e=>e.reference))})
+     for(const q of r.report.requirements){const changed=r.sourceChecks?.some(c=>[...q.implementation,...q.tests].includes(c.evidence)&&c.state==='different');if(changed)add('stale',q.text,version+' · '+say('Anforderungsbelege nachprüfen','Recheck requirement evidence'),{view:'requirements',revision:r.id,item:q.id});traces.push({id:id+':'+r.id+':req:'+q.id,page,block,location:{view:'requirements',revision:r.id,item:q.id},title:q.text,changed,changedReferences:r.report.evidence.filter(e=>[...q.implementation,...q.tests].includes(e.id)&&r.sourceChecks?.some(c=>c.evidence===e.id&&c.state==='different')).map(e=>e.reference),detail:version+' · '+say('Anforderungsabdeckung','Requirement coverage'),gap:q.gap||(![...q.implementation,...q.tests].length?say('Implementierung und Tests unbelegt','Implementation and tests not evidenced'):undefined),references:[...q.implementation,...q.tests].flatMap(id=>r.report.evidence.filter(e=>e.id===id).map(e=>e.reference))})}
     }
     const reusable=a.revisions.filter(r=>r.completed.length===4&&['ready','accepted'].includes(r.state)).at(-1)
     if(reusable)recipes.push({page,block,analysis:a,revision:reusable})

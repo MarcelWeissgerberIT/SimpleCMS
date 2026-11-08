@@ -1,7 +1,7 @@
 ---
 id: workflow-cohesion
 date: 2026-11-08
-order: 5
+order: 6
 title: Work, decisions and results together
 summary: Open your work overview directly and continue at the exact next action.
 help: agent

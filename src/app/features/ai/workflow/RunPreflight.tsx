@@ -1,3 +1,4 @@
+import {BudgetOverview} from './BudgetOverview'
 import {useState} from 'react'
 import {useLang} from '../../../i18n'
 import {useWorkspace} from '../../../store/store'
@@ -7,7 +8,7 @@ import {readableContent} from '../../../editor'
 import {useAgent} from '../agent/state'
 import {contextPageId} from '../agent/session'
 import {precheck} from '../core/gate'
-import {ReglerRestLine,openBudgets} from '../../governor'
+import {openBudgets} from '../../governor'
 import './workflow.css'
 /** Editable preview using the terminal's actual context chips. Exclusion is not an access policy. */
 export function RunPreflight(){
@@ -28,5 +29,5 @@ export function RunPreflight(){
  <label>{de?'Quelle hinzufügen':'Add source'} <input type="search" aria-label={de?'Quellen suchen':'Search sources'} value={query} onChange={e=>setQuery(e.target.value)} placeholder={de?'Seite, Anforderung oder Designregeln …':'Page, requirement or design rules …'}/></label>
  {query&&<ul>{available.map(p=><li key={p.id}><button className="term-key" type="button" onClick={()=>{add(p.id);setQuery('')}}>{p.title}</button></li>)}</ul>}
  <p>{de?'Seiten, Anforderungen und Designregeln über ihre One-Seite hinzufügen. Datei- und Textauswahlen erscheinen einzeln. Entfernen nimmt die Quelle aus diesem Startkontext; vorhandener Verlauf und erlaubte spätere Werkzeugabrufe bleiben verfügbar.':'Add pages, requirements and design rules through their One page. File and text selections appear individually. Removing a source excludes it from this starting context; existing history and permitted later tool reads remain available.'}</p>
- <p>{model}{band?` · ≈ $${band.low.toFixed(4)}–$${band.high.toFixed(4)}`:''}</p><p>{de?'Orientierung für den bekannten Text mit 1.000–4.000 Ausgabe-Token. Verlauf, Werkzeugdefinitionen, Dateien und weitere Abrufe kommen hinzu. Das ist kein Gesamtpreis und keine feste Obergrenze.':'Orientation for known text with 1,000–4,000 output tokens. History, tool definitions, files and further reads add cost. This is not a total price or a hard cap.'}</p>{error&&<p>{error}</p>}<ReglerRestLine/><button className="term-key" type="button" onClick={()=>openBudgets()}>{de?'Budget einstellen':'Set budget'}</button></details>
+ <p>{model}{band?` · ≈ $${band.low.toFixed(4)}–$${band.high.toFixed(4)}`:''}</p><p>{de?'Orientierung für den bekannten Text mit 1.000–4.000 Ausgabe-Token. Verlauf, Werkzeugdefinitionen, Dateien und weitere Abrufe kommen hinzu. Das ist kein Gesamtpreis und keine feste Obergrenze.':'Orientation for known text with 1,000–4,000 output tokens. History, tool definitions, files and further reads add cost. This is not a total price or a hard cap.'}</p>{error&&<p>{error}</p>}<BudgetOverview/><button className="term-key" type="button" onClick={()=>openBudgets()}>{de?'Budget einstellen':'Set budget'}</button></details>
 }
