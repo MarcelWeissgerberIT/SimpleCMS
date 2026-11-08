@@ -34,7 +34,7 @@ export const STATIC_MOCK_CSP = "default-src 'none'; style-src 'unsafe-inline'; s
 export const mockBlockFrame = (document: string) => `<meta http-equiv="Content-Security-Policy" content="${STATIC_MOCK_CSP}">${document}`
 
 /** Phase one: readers ship first; cloud creation waits until old clients are write-gated. */
-export const MOCK_BLOCK_GENERATION = 6
+export const MOCK_BLOCK_GENERATION = 7
 export function mockBlocksAllowed(c: {active:{kind:string}; readOnly:boolean; outdated?:boolean; schemaMin:number|null}) {
  return !c.readOnly && !c.outdated && (c.active.kind === 'local' || (c.schemaMin ?? 0) >= MOCK_BLOCK_GENERATION)
 }
@@ -42,4 +42,19 @@ export function mockBlocksAllowed(c: {active:{kind:string}; readOnly:boolean; ou
 /** An explicit import retains the source receipt for a later Atlas upload. */
 export function mockPreviewFromArtifact(a:DesignMock):MockBlockPreview{
  return {title:a.title,document:a.document,width:a.width,height:a.height,createdAt:a.createdAt,htmlHash:a.htmlHash,targetUrl:a.atlasSaved?.url??a.atlasDestination?.url??a.target?.url??'',provenance:mockProvenance({...a,document:undefined}),colors:mockColors(a.colorAdjustments,mockProvenance({...a,document:undefined})),savedHtmlHash:a.atlasSaved?a.htmlHash:undefined}
+}
+
+/** Collection order is not an edit: team journals converge in stable identity order. */
+export function sameMockBlock(a:unknown,b:unknown):boolean {
+ const stable=(v:unknown):unknown=>{
+  if(Array.isArray(v))return v.map(stable)
+  if(v&&typeof v==='object')return Object.fromEntries(Object.entries(v).filter(([,v])=>v!==undefined).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>[k,stable(v)]))
+  return v
+ }
+ const canonical=(raw:unknown)=>{
+  const s=mockBlockData(raw),j=s.journal
+  if(j)s.journal={...j,notes:[...j.notes].sort((a,b)=>a.id.localeCompare(b.id)),versions:[...j.versions].sort((a,b)=>a.key.localeCompare(b.key)),proposals:[...(j.proposals??[])].sort((a,b)=>a.id.localeCompare(b.id))}
+  return JSON.stringify(stable(s))
+ }
+ return canonical(a)===canonical(b)
 }

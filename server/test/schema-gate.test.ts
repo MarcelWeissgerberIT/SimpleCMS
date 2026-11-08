@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import * as Y from 'yjs'
+import {mockVersionKey} from '../../src/shared/ai/mockReview.ts'
 import { MIN_CLIENT_SCHEMA, OUTDATED_NOTICE, outdatedNotice, schemaAccess } from '../src/collab/schema-gate.ts'
 import { type Client, type DocClient, flushed, openDoc, signIn, sleep, startServer, type TestServer, waitFor } from './helpers.ts'
 
@@ -124,33 +125,35 @@ test('a newer client than the server knows writes as usual', async () => {
 })
 
 
-test('a generation-5 tab cannot delete the free rectangle of a generation-6 mock note', async () => {
-  assert.equal(MIN_CLIENT_SCHEMA, 6)
+test('a generation-6 tab cannot overwrite a generation-7 mock journal', async () => {
+  assert.equal(MIN_CLIENT_SCHEMA, 7)
   const name = `ws:${wsId}:p:mockgate0001`
-  const current = doc(owner, name, 6)
+  const current = doc(owner, name, 7)
   assert.equal(await current.ready, 'read-write')
   await current.synced
   const mock = new Y.XmlElement('designMock')
-  mock.setAttribute('spec', JSON.stringify({journal:{notes:[{text:'Keep the badge feedback',region:{x:10,y:20,width:200,height:100},elements:[{path:'first'},{path:'second'}]}]}}))
+  const preview={title:'Controls',document:'<button>Save</button>',width:640,height:320,createdAt:'2026-11-08',htmlHash:'',targetUrl:''}
+  const element={path:'first',tag:'button',text:'Save',component:'Button',requirement:'',snippet:''}
+  mock.setAttribute('spec', JSON.stringify({preview,journal:{id:'gate-journal',versions:[{key:mockVersionKey(preview),preview,at:'2026-11-08',label:'Initial'}],notes:[{id:'note',at:'2026-11-08',version:mockVersionKey(preview),element,text:'Keep the badge feedback',intent:'check',scope:'mock',resolved:false,md:'none',region:{x:10,y:20,width:200,height:100,viewportWidth:640,viewportHeight:320,targets:[],totalTargets:0,scrolls:[]},elements:[element,{...element,path:'second'}]}]}}))
   const title = new Y.XmlElement('paragraph')
   title.insert(0, [new Y.XmlText('CyBio head selector')])
   mock.insert(0, [title])
   current.doc.getXmlFragment('default').insert(0, [mock])
   await flushed(current)
-  const old = doc(member, name, 5)
+  const old = doc(member, name, 6)
   const got = notices(old)
   assert.equal(await old.ready, 'readonly')
   await old.synced
-  await waitFor(() => got.length > 0, 5000, 'reload notice for generation 5')
-  assert.equal(JSON.parse(got[0]!).min, 6)
+  await waitFor(() => got.length > 0, 5000, 'reload notice for generation 6')
+  assert.equal(JSON.parse(got[0]!).min, 7)
   ;(old.doc.getXmlFragment('default').get(0) as Y.XmlElement).setAttribute('spec', '{}')
   old.doc.getXmlFragment('default').delete(0, 1)
   await sleep(400)
-  const fresh = doc(owner, name, 6)
+  const fresh = doc(owner, name, 7)
   await fresh.synced
   assert.equal((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).nodeName, 'designMock')
   assert.match(fresh.doc.getXmlFragment('default').toString(), /CyBio head selector/)
-  assert.match((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')!, /Keep the badge feedback/)
-  assert.match((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')!, /second/)
-  assert.match((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')!, /region/)
+  assert.match(JSON.stringify((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')), /Keep the badge feedback/)
+  assert.match(JSON.stringify((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')), /second/)
+  assert.match(JSON.stringify((fresh.doc.getXmlFragment('default').get(0) as Y.XmlElement).getAttribute('spec')), /region/)
 })

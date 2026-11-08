@@ -52,6 +52,9 @@ import { PAGE_ID, within } from './env'
 import { CloudError, type ContentDocHandle } from './state'
 import { watchSchema } from './schemaGate'
 import { keepYRefs } from './yrefs'
+import { installMockCollaboration } from '../../shared/collaboration/mock'
+import { recoverLegacyMockNotes } from '../../shared/collaboration/mockLegacy'
+import { useCloud } from './state'
 
 /** setContent origin for content typed in this tab's editors (not an editor instance id, not 'sync'). */
 export const CLOUD_EDIT_ORIGIN = 'cloud'
@@ -173,6 +176,7 @@ function ensure(pageId: ID): Entry {
   if (existing) return existing
   const c = ctx!
   const doc = new Y.Doc()
+  installMockCollaboration(Y,doc, () => c.writable() && (useCloud.getState().schemaMin ?? 0) >= 7, tr => tr.local || tr.origin === BRIDGE)
   const priv = isPrivate(pageId)
   const idb = new IndexeddbPersistence(idbName(pageId, priv), doc)
   const entry: Entry = {
@@ -393,12 +397,15 @@ async function adoptOlder(e: Entry, name: string, gen: number): Promise<void> {
     Y.applyUpdate(probe, update)
     const frag = probe.getXmlFragment(FIELD)
     const after = frag.length ? (yXmlFragmentToProsemirrorJSON(frag) as JSONContent) : null
-    if (deepEqual(before, after)) return
-    if (!lostNewer(before, after, gen)) {
+    const legacy = gen < 7 && old.getXmlFragment(FIELD).length ? yXmlFragmentToProsemirrorJSON(old.getXmlFragment(FIELD)) as JSONContent : null
+    const restored = restoreNewer(before, after, gen, 'drop')
+    const recovered = gen < 7 ? recoverLegacyMockNotes(before, restored, legacy) : restored
+    if (deepEqual(before, recovered)) return
+    if (!lostNewer(before, after, gen) && deepEqual(recovered, after)) {
       Y.applyUpdate(e.doc, update, BRIDGE)
       return
     }
-    const merged = restoreNewer(before, after, gen, 'drop')
+    const merged = recovered
     if (!merged || deepEqual(merged, before)) return
     e.doc.transact(() => {
       prosemirrorJSONToYXmlFragment(docSchema(), prepareCollabContent(merged, true), e.doc.getXmlFragment(FIELD))

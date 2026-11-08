@@ -9,7 +9,7 @@ import {mockVersionKey,checkpointMock,mockReviewTask,mockNoteElements,MOCK_SELEC
 import DOMPurify from 'dompurify'
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useEditorState, NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
-import { mockBlockData, mockBlockFrame, mockBlocksAllowed, type MockBlockData, type MockBlockPreview } from '@/shared/ai/mockBlock'
+import { sameMockBlock, mockBlockData, mockBlockFrame, mockBlocksAllowed, type MockBlockData, type MockBlockPreview } from '@/shared/ai/mockBlock'
 import {mockColorToken,mockColorStyle,mockProvenance} from '@/shared/ai/mockBlockProvenance'
 import {sha256Hex} from '@/shared/mcp/sha256'
 import type {DesignMock} from '@/shared/ai/designMock'
@@ -57,11 +57,11 @@ export function DesignMockView({node,editor,getPos}:ReactNodeViewProps) {
   const refused=()=>{setActionError(de?'Nicht gespeichert: Der Mock oder deine Schreibrechte haben sich geändert. Eine offene Notiz bleibt im Eingabefeld. Prüfe den aktuellen Stand und versuche es erneut.':'Not saved: the mock or your write access has changed. Any pending note stays in its input field. Review the current state and try again.');return false}
   if(editor.isDestroyed||!editor.isEditable||useCloud.getState().readOnly||!mockBlocksAllowed(useCloud.getState())||epoch!==useWorkspace.getState().epoch||!!pageId&&useWorkspace.getState().pages[pageId]?.settings.locked)return refused()
   const pos=getPos();if(typeof pos!=='number'||editor.state.doc.nodeAt(pos)?.type.name!=='designMock')return refused()
-  if(JSON.stringify(mockBlockData(editor.state.doc.nodeAt(pos)!.attrs.spec))!==JSON.stringify(expected))return refused()
+  if(!sameMockBlock(editor.state.doc.nodeAt(pos)!.attrs.spec,expected))return refused()
   const write=()=>editor.view.dispatch(editor.state.tr.setNodeMarkup(pos,undefined,{...editor.state.doc.nodeAt(pos)!.attrs,spec:next}))
   if(sourceCheck)editAs(editor,{kind:'system',why:'bookkeeping'},write)
   else{write();flushEditor(editor)}
-  if(JSON.stringify(editor.state.doc.nodeAt(pos)?.attrs.spec)!==JSON.stringify(next))return refused()
+  if(!sameMockBlock(editor.state.doc.nodeAt(pos)?.attrs.spec,next))return refused()
   setActionError('');return true
  }
  const [device,setDevice]=useState('original'),[scenario,setScenario]=useState('empty'),[actionError,setActionError]=useState('')

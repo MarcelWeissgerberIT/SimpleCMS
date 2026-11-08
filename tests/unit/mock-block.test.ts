@@ -27,15 +27,15 @@ test('server Markdown keeps the request and source while omitting the HTML paylo
  assert(md.includes('My block title'));assert(md.includes('Select a CyBio head'));assert(md.includes('https://aj-atlas.com/r/12'));assert(!md.includes('<script>'))
 })
 
-test('cloud creation waits for generation four and never bypasses viewer or outdated state',async()=>{
+test('cloud creation waits for generation seven and never bypasses viewer or outdated state',async()=>{
  const {mockBlocksAllowed}=await import('../../src/shared/ai/mockBlock.ts')
  const c={active:{kind:'cloud'},readOnly:false,outdated:false,schemaMin:null as number|null}
- for(const schemaMin of [null,0,1,2])assert.equal(mockBlocksAllowed({...c,schemaMin}),false)
+ for(const schemaMin of [null,0,1,2,3,4,5,6])assert.equal(mockBlocksAllowed({...c,schemaMin}),false)
  assert.equal(mockBlocksAllowed({...c,schemaMin:5}),false)
- assert.equal(mockBlocksAllowed({...c,schemaMin:6}),true)
+ assert.equal(mockBlocksAllowed({...c,schemaMin:7}),true)
  assert.equal(mockBlocksAllowed({...c,active:{kind:'local'}}),true)
- assert.equal(mockBlocksAllowed({...c,schemaMin:6,readOnly:true}),false)
- assert.equal(mockBlocksAllowed({...c,schemaMin:6,outdated:true}),false)
+ assert.equal(mockBlocksAllowed({...c,schemaMin:7,readOnly:true}),false)
+ assert.equal(mockBlocksAllowed({...c,schemaMin:7,outdated:true}),false)
 })
 
 test('persistent mock receipt keeps source evidence and strips unrelated connection fields',async()=>{

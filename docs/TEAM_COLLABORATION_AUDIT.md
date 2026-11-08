@@ -11,23 +11,19 @@ The two-hour One maintenance session exercised real isolated team-server session
 
 The cloud checks also covered private page/database/row isolation, private offline reconnect, direct/reusable/registration invitations, guest expiry, immediate role/member removal, notification recipients, task participation and budget visibility. Each release's exact source, CI, production hashes and live evidence are recorded in RUNTIME_RELEASES.md.
 
-## Confirmed remaining defect: concurrent offline mock journal edits
+## Concurrent offline mock feedback — corrected
 
-Reproduction on frontend `778f1d5d`:
+The audit on frontend `778f1d5d` confirmed that two offline additions converged to a single note because `designMock.attrs.spec` was one last-writer-wins attribute. The original observation remains in `artifacts/one-entry-live-20261108/offline-journal-audit.json`.
 
-1. Two members open the same saved mock.
-2. Both browsers disconnect.
-3. Each saves a different feedback note; each sees its own note locally.
-4. Both reconnect and their documents converge.
-5. Both now see only one note. The other successfully displayed local note is absent from the shared journal.
+Generation 7 records immutable field operations in the page Y.Doc (`one:mock-edits:v1`), keyed by the Y element identity. Notes, version snapshots and proposals have independent stable identities; removed entries retain membership tombstones. A note-only change cannot roll back the active preview or another note's resolution/Markdown decision. Causal counters and operation IDs resolve concurrent writes to the same field deterministically; this is not a human conflict-review UI.
 
-The observed run retained the owner's note and lost the reviewer's note. The winning writer is not a contract. Evidence is `artifacts/one-entry-live-20261108/offline-journal-audit.json` in the maintenance workspace. `tests/e2e-cloud/mock-journal-audit.spec.ts` is an **expected failure**, with the desired assertion that both notes survive; it is not a passed data-retention check.
+The ordinary `attrs.spec` remains a materialized JSON snapshot for the editor, server readers, native exports and history. Editable title children keep their usual text collaboration. Browser and server both materialize the shared log. Undo tracks the author's operations; referenced snapshots are retained by dependent note operations. A JSON import starts a new element log from the complete imported snapshot.
 
-Cause: `designMock.attrs.spec.journal` is one structured value. Concurrent disconnected replacements converge through last-writer-wins semantics. The safe whole-node replacement used by structured code blocks cannot simply be copied here: the mock also has editable child content and independently changing previews, versions, proposals and assessments.
+Creation limits (150 notes / 30 versions) still stop additional local creation. Reading no longer drops a whole valid journal when simultaneous additions exceed a creation limit. Pending older-generation copies are read directly during migration: additional notes/versions are recovered, current decisions win for existing IDs, and the current preview stays active. This cannot recover a note already lost from every stored copy before the fix.
 
-Next implementation needs independently mergeable journal entries keyed by stable IDs, explicit tombstones for removals, independent assessment updates, version-reference retention and a backward-compatible migration. Validate concurrent append/resolve/remove, concurrent preview acceptance and note creation, title editing, reconnect in both orders, reload, duplicate IDs, access loss, export/import and old-client behavior. Retrying a whole journal or automatically unioning all attributes risks resurrecting deletions or overwriting accepted decisions.
+`tests/e2e-cloud/mock-journal-audit.spec.ts` is now a passing regression covering both reconnect orders, reload, independent completion/MD decisions and Undo. Unit tests cover removal vs stale edits, preview replacement vs feedback, JSON import, child text, retained version references, old-copy recovery and capacity boundaries. Existing cloud collaboration and permission tests also pass. Older cloud writers must reload (server minimum and app generation 7).
 
-Until that change, avoid editing the same mock journal from multiple disconnected sessions. Online composition and preservation of pending text are verified, but do not imply conflict-safe concurrent journal storage.
+The operation log is retained with the page; no unsafe log compaction or automatic external replay is performed. Concurrent conflicting edits to one field use deterministic last-writer semantics. Explicit page/history restoration remains an intentional content replacement.
 
 ## Other deliberate limits
 

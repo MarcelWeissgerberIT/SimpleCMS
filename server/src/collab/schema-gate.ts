@@ -17,7 +17,7 @@
  *   5 = multiple element targets in mock feedback; deploy generation-5 readers before activation.
  *   4 = durable mock proposals and Markdown change receipts; deploy generation-4 readers before activation.
  */
-export const MIN_CLIENT_SCHEMA = 6
+export const MIN_CLIENT_SCHEMA = 7
 
 export type SchemaAccess = 'current' | 'missing' | 'outdated'
 
