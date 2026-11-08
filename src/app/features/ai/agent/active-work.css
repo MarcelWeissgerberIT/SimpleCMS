@@ -10,3 +10,10 @@
 
 .active-work-dock__actions {display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 10px;}
 @media(max-width:640px){.active-work-dock{flex-wrap:wrap;}.active-work-dock__open{flex-basis:100%;}.active-work-dock__actions{flex:1;padding-top:0;}.active-work-dock__dismiss{padding-top:0;}}
+
+@media(max-width:640px){
+ .active-work-dock__status{flex-basis:100%;}
+ .active-work-dock__task{flex-basis:100%;}
+ .active-work-dock__activity{white-space:normal;overflow-wrap:anywhere;display:-webkit-box!important;-webkit-box-orient:vertical;-webkit-line-clamp:2;}
+ .active-work-dock__actions .btn{min-height:36px;white-space:normal;}
+}

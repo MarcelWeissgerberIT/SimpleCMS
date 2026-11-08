@@ -1,0 +1,3 @@
+[data-work-item]:focus{outline:2px solid var(--signal);outline-offset:4px}
+[data-work-item]{scroll-margin-block:80px}
+.code-analysis:focus-visible,.code-change:focus-visible{outline:2px solid var(--signal);outline-offset:4px}

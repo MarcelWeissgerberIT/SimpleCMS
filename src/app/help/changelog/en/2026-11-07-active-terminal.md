@@ -1,7 +1,7 @@
 ---
 id: 2026-11-07-active-terminal
 date: 2026-11-07
-order: 6
+order: 7
 title: Keep your AI task visible while switching pages
 summary: A compact task bar preserves the task, source context and result while you keep working.
 help: agent

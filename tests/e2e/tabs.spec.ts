@@ -86,14 +86,14 @@ test.describe('tabs block', () => {
     await expect(shown(block)).toHaveText('Beta content')
     await page.keyboard.press('Home')
     await expect(shown(block)).toHaveText('Alpha content')
-    await page.keyboard.press('End')
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await expect(shown(block)).toHaveText('Beta content')
 
     // Mod+Alt+← / → from inside the content
     await shown(block).locator('p').click()
     await page.keyboard.press(`${MOD}+Alt+ArrowLeft`)
     await expect(shown(block)).toHaveText('Alpha content')
-    await page.keyboard.press('End')
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await page.keyboard.type('!')
     await expect(shown(block)).toHaveText('Alpha content!')
     await page.keyboard.press(`${MOD}+Alt+ArrowRight`)

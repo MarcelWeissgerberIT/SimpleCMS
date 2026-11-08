@@ -1,8 +1,10 @@
+import {openPage} from '../../../lib/router'
+import {isEffectivelyTrashed} from '../../../store/selectors'
 import {useEffect,useState} from 'react'
 import {useWorkspace} from '../../../store/store'
 import {oneActivity} from '../workflow/activity'
-import {useLang} from '../../../i18n'
-import {useAgent} from './state'
+import {useLang,useT} from '../../../i18n'
+import {useAgent,closeAgent} from './state'
 import {mcpActivityText} from '@/shared/mcp/activityDisplay'
 import {atlasTransferOriginal} from '@/shared/quandprofile/atlas-transfer'
 
@@ -10,11 +12,12 @@ import {atlasTransferOriginal} from '@/shared/quandprofile/atlas-transfer'
 export function CurrentActivity({following,unread,onTask,onLatest,onResult}: {
  following:boolean;unread:boolean;onTask:()=>void;onLatest:()=>void;onResult:()=>void
 }){
- const lang=useLang(),de=lang==='de',status=useAgent(s=>s.status),turns=useAgent(s=>s.turns),steps=useAgent(s=>s.steps),live=useAgent(s=>s.live)
+ const t=useT(),lang=useLang(),de=lang==='de',status=useAgent(s=>s.status),turns=useAgent(s=>s.turns),steps=useAgent(s=>s.steps),live=useAgent(s=>s.live)
  const pages=useWorkspace(s=>s.pages),halt=useAgent(s=>s.halt),[now,setNow]=useState(Date.now())
  useEffect(()=>{if(status!=='running')return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer)},[status])
  const turn=turns.at(-1)
  if(!turn)return null
+ const source=turn.context?.pageId,sourceAvailable=!!source&&!!pages[source]&&!isEffectivelyTrashed(pages,source)
  const running=status==='running',waiting=running&&(!!halt||turn.contract?.phase==='decision')
  const active=steps.filter(s=>s.turn===turn.n&&s.state==='run'),shown=active.slice(-2)
  const label=waiting?(de?'Deine Entscheidung':'Your decision'):running?(de?'Läuft':'Running'):turn.status==='done'?(de?'Abgeschlossen':'Completed'):turn.status==='error'?(de?'Fehlgeschlagen':'Failed'):turn.status==='limit'?(de?'Aufruflimit erreicht':'Call limit reached'):(de?'Angehalten':'Stopped')
@@ -27,6 +30,7 @@ export function CurrentActivity({following,unread,onTask,onLatest,onResult}: {
    {running&&<div className="term-activity__execution"><div role="status" aria-live="polite">{!waiting&&shown.length?shown.map(s=>{const x=s.mcp?mcpActivityText(s.mcp.tool,s.mcp.display,s.arg,lang):oneActivity(s.tool??'',s.arg,pages,de);return <div key={s.id}><strong>{x.action}</strong>{x.detail&&<span> · {x.detail}</span>}{s.mcp&&<small> · {de?'Wartet auf':'Waiting for'} {s.mcp.server}</small>}</div>}):fallback}{active.length>2&&!waiting&&<small> +{active.length-2} {de?'weitere Aufrufe':'more calls'}</small>}</div><small className="term-activity__elapsed" aria-live="off">{de?'Gesamt':'Elapsed'} {Math.max(0,Math.floor((now-turn.startedAt)/1000))} s{!waiting&&shown.length>0&&<> · {de?'Dieser Aufruf':'This call'} {Math.max(0,Math.floor((now-shown[0].startedAt)/1000))} s{now-shown[0].startedAt>30000?(de?' · Antwort steht noch aus':' · awaiting response'):''}</>}</small></div>}
   </div>
   <div className="term-activity__actions">
+   {source&&<button type="button" className="btn btn--sm" disabled={!sourceAvailable} title={sourceAvailable?pages[source].title:t('workflow.sourceUnavailable')} onClick={()=>{closeAgent();openPage(source)}}>{t('workflow.openTaskSource')}</button>}
    <button type="button" className="btn btn--sm" onClick={onLatest} aria-pressed={following}>{waiting?(de?'Zur Entscheidung':'Go to decision'):unread?(de?'Neue Aktivität ↓':'New activity ↓'):following?(de?'Folgt aktueller Arbeit':'Following current work'):(de?'Zur aktuellen Arbeit ↓':'Go to current work ↓')}</button>
    {!!turn.answer&&<button type="button" className="btn btn--sm" onClick={onResult}>{de?'Ergebnis ansehen':'View result'}</button>}
   </div>

@@ -17,6 +17,11 @@ export const messages:Messages={en:{
  'features.agent.recovery.clear':'Clear saved work and source cache',
  'features.agent.recovery.failed':'The local checkpoint could not be saved. Keep this tab open or save the result to a page.',
  'features.agent.recovery.loadFailed':'Saved work could not be loaded on this device.',
+ 'features.agent.recovery.unavailable':'This checkpoint expired or was removed. Saved page content is unchanged. Start a new analysis from the original page.',
+ 'features.agent.recovery.sourceMissing':'The original source page is unavailable. Restore it from the trash before resuming. The checkpoint has been retained.',
+ 'features.agent.recovery.scopeChanged':'The workspace or connection changed. Reopen saved work in the original workspace.',
+ 'features.agent.recovery.busy':'Another task is already running. Wait for it to finish before resuming this analysis.',
+ 'features.agent.recovery.starting':'Checking checkpoint …',
  'features.agent.recovery.saved':'Work checkpoint saved on this device.',
  'features.agent.recovery.running':'Interrupted or still running in another tab — check before continuing.',
 },de:{
@@ -37,6 +42,11 @@ export const messages:Messages={en:{
  'features.agent.recovery.clear':'Arbeitsstände und Quellen-Cache leeren',
  'features.agent.recovery.failed':'Der lokale Zwischenstand konnte nicht gespeichert werden. Halte diesen Tab offen oder übernimm das Ergebnis auf eine Seite.',
  'features.agent.recovery.loadFailed':'Die gesicherten Arbeitsstände konnten auf diesem Gerät nicht geladen werden.',
+ 'features.agent.recovery.unavailable':'Dieser Zwischenstand ist abgelaufen oder wurde entfernt. Gespeicherte Seiten bleiben erhalten. Starte eine neue Analyse von der ursprünglichen Seite.',
+ 'features.agent.recovery.sourceMissing':'Die ursprüngliche Quellseite ist nicht verfügbar. Stelle sie vor dem Fortsetzen aus dem Papierkorb wieder her. Der Zwischenstand bleibt erhalten.',
+ 'features.agent.recovery.scopeChanged':'Workspace oder Verbindung haben sich geändert. Öffne die gesicherten Arbeiten im ursprünglichen Workspace erneut.',
+ 'features.agent.recovery.busy':'Es läuft bereits ein anderer Auftrag. Warte vor dem Fortsetzen auf dessen Abschluss.',
+ 'features.agent.recovery.starting':'Zwischenstand wird geprüft …',
  'features.agent.recovery.saved':'Arbeitsstand auf diesem Gerät gesichert.',
  'features.agent.recovery.running':'Unterbrochen oder noch in einem anderen Tab aktiv – vor dem Fortsetzen prüfen.',
 }}

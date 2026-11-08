@@ -1,7 +1,7 @@
 ---
 id: 2026-11-07-terminal-navigation
 date: 2026-11-07
-order: 7
+order: 8
 title: Direkt aus dem KI-Terminal die Seite wechseln
 summary: Die Seitensuche ist im Terminal erreichbar; laufende Arbeit bleibt erhalten.
 help: agent

@@ -404,11 +404,21 @@ export function continueTask(): Promise<void> {
 }
 
 export const activeRecoveryKey=()=> 'terminal-recovery:'+convId
-export async function resumeSavedWork(scope:string,key:string){
- if(get().status==='running'||scope!==mcpWorkScope())return
+export async function resumeSavedWork(scope:string,key:string,onStarted?:()=>void){
+ if(get().status==='running')return 'busy' as const
+ if(scope!==mcpWorkScope())return 'scopeChanged' as const
  const saved=await readMcpWork<TaskRecovery>(scope,key)
- if(scope!==mcpWorkScope()||!validTaskRecovery(saved))return
- return runTask(recoveryTask(saved),{history:false,noMemory:true,again:{refs:[],mentions:[]},sourcePage:saved.page,compact:scrubSecrets(saved.checkpoint)})
+ // Reading IndexedDB yields: another task or workspace may have become active in the meantime.
+ if(scope!==mcpWorkScope())return 'scopeChanged' as const
+ if(get().status==='running')return 'busy' as const
+ if(!validTaskRecovery(saved))return 'unavailable' as const
+ const pages=useWorkspace.getState().pages
+ if(saved.page&&(!pages[saved.page]||isEffectivelyTrashed(pages,saved.page)))return 'sourceMissing' as const
+ const work=runTask(recoveryTask(saved),{history:false,noMemory:true,again:{refs:[],mentions:[]},sourcePage:saved.page,compact:scrubSecrets(saved.checkpoint)})
+ // runTask installs its running turn synchronously. Never close the shelf before that succeeds.
+ if(get().status==='running'){onStarted?.();openAgent({target:'latest'})}
+ await work
+ return 'resumed' as const
 }
 
 /** Fresh, read-only recovery after a context/output limit; existing proposals and receipts remain intact. */
@@ -476,7 +486,7 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
   const ctx: TurnContext = {
     refs: refs.length,
     mentions: mentions.map((m) => m.title),
-    ...(pageId ? { page: `${useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')}${suffix ? ` · ${suffix}` : ''}` } : {}),
+    ...(pageId ? { pageId, page: `${useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')}${suffix ? ` · ${suffix}` : ''}` } : {}),
   }
   // the One memory: the memories that fit this task go along (/no-memory: none; a continuation: they went along already)
   // the One memory goes along only where the route may receive it (D-S2-29; the terminal runs on Claude in S2)

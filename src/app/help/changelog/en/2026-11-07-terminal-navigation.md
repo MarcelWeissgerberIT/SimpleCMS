@@ -1,7 +1,7 @@
 ---
 id: 2026-11-07-terminal-navigation
 date: 2026-11-07
-order: 7
+order: 8
 title: Switch pages directly from the AI terminal
 summary: Page search is available inside the terminal while your task keeps running.
 help: agent

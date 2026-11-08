@@ -1,7 +1,8 @@
+import {focusBlockItem} from '../../../lib/blockLocation'
 import {compareMockPreviews} from '@/app/editor/lib/mockComparison'
 import {MockComparison} from '../../../editor/views/MockComparison'
 import {Modal} from '../../../ui/Modal'
-import {useMemo,useState} from 'react'
+import {useEffect,useRef,useMemo,useState} from 'react'
 import type {DesignMock} from '@/shared/ai/designMock'
 import {mockBlockData,mockBlocksAllowed,mockPreviewFromArtifact} from '@/shared/ai/mockBlock'
 import {adoptMockPreview,mockVersionKey,stageMockProposal,mockNoteHash} from '@/shared/ai/mockReview'
@@ -73,14 +74,13 @@ export function persistMockProposal(artifact:DesignMock,status:'pending'|'discar
  if(editor&&!editor.isDestroyed){if(!editor.isEditable)throw Error('Die Seite ist schreibgeschützt.');const positions:number[]=[];editor.state.doc.descendants((n,pos)=>{if(n.type.name==='designMock'&&mockBlockData(n.attrs.spec).journal?.id===review.journal)positions.push(pos)});if(positions.length!==1)throw Error('Mock-Block nicht eindeutig.');const pos=positions[0],n=editor.state.doc.nodeAt(pos)!;editAs(editor,{kind:'ai',run:artifact.id,action:'stage-mock-version'},()=>editor.view.dispatch(editor.state.tr.setNodeMarkup(pos,undefined,{...n.attrs,spec:update(n.attrs.spec)})))}
  else {const map=(n:any):any=>({...n,...(n.type==='designMock'&&mockBlockData(n.attrs?.spec).journal?.id===review.journal?{attrs:{...n.attrs,spec:update(n.attrs.spec)}}:{}),...(n.content?{content:n.content.map(map)}:{})});state.setContent(page,map(state.pages[page].content),'ai')}
 }
-export function PendingMockRevisions({journal}:{journal?:string}){
- const turns=useAgent(s=>s.turns),epoch=useWorkspace(s=>s.epoch),pages=useWorkspace(s=>s.pages)
+export function PendingMockRevisions({journal,stored=[],focusId,focusRequest}:{journal?:string;stored?:import('@/shared/ai/mockReview').MockProposal[];focusId?:string;focusRequest?:string}){
+ const turns=useAgent(s=>s.turns),epoch=useWorkspace(s=>s.epoch),root=useRef<HTMLDivElement|null>(null)
+ useEffect(()=>{if(!focusId)return;const frame=requestAnimationFrame(()=>focusBlockItem(root.current,focusId));return()=>cancelAnimationFrame(frame)},[focusId,focusRequest])
  if(!journal)return null
- const stored:import('@/shared/ai/mockReview').MockProposal[]=[]
- for(const page of Object.values(pages)){if(page.trashed)continue;const visit=(n:any)=>{if(n?.type==='designMock'){const data=mockBlockData(n.attrs?.spec);if(data.journal?.id===journal)stored.push(...(data.journal.proposals??[]))}n?.content?.forEach(visit)};visit(page.content)}
  const candidates=turns.filter(t=>t.mockWorkspaceEpoch===(epoch??'local')).flatMap(t=>(t.mocks??[]).filter(a=>a.feedbackReview?.journal===journal&&!stored.some(p=>p.id===a.htmlHash)).map(artifact=>({artifact,workspaceEpoch:t.mockWorkspaceEpoch})))
  for(const p of stored.filter(p=>p.status==='pending')){const v=p.preview,r=v.provenance;if(r)candidates.push({artifact:{...r,title:v.title,width:v.width,height:v.height,document:v.document,htmlHash:v.htmlHash,createdAt:v.createdAt,colorAdjustments:v.colors,review:'open',feedbackReview:p.review},workspaceEpoch:epoch??'local'})}
- return <>{candidates.reverse().map(p=><MockRevisionActions key={p.artifact.htmlHash} {...p}/>)}</>
+ return <div ref={root}>{candidates.reverse().map(p=><div key={p.artifact.htmlHash} data-work-item={p.artifact.htmlHash} tabIndex={-1}><MockRevisionActions {...p}/></div>)}</div>
 }
 
 export function persistMockMarkdown(journal:string,noteId:string,markdown:import('@/shared/ai/mockReview').MockMarkdownChange){

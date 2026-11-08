@@ -1,7 +1,7 @@
 ---
 id: 2026-11-07-active-terminal
 date: 2026-11-07
-order: 6
+order: 7
 title: Den KI-Auftrag beim Seitenwechsel im Blick behalten
 summary: Eine kleine Auftragsleiste hält Aufgabe, Kontext und Ergebnis beim Weiterarbeiten sichtbar.
 help: agent

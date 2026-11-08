@@ -18,7 +18,8 @@ import type { ID } from '../store/types'
 import { useWorkspace } from '../store/store'
 import { deepEqual } from '../store/merge'
 import { inPersonEvent, reportFallback, withWriter, type Writer } from '../store/writer'
-import { navigate, pageHref, useRoute } from '../lib/router'
+import { navigate, useRoute } from '../lib/router'
+import {useBlockLocation,focusBlockItem,relocatedBlockHref} from '../lib/blockLocation'
 import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
@@ -554,17 +555,33 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   // ?b=<blockId> → scroll to + flash the block
   const route = useRoute()
   const targetBlock = route.name === 'page' && route.id === pageId ? route.block : undefined
+  const targetLocation=useBlockLocation(pageId,targetBlock)
   useEffect(() => {
     if (!editor || !targetBlock) return
+    let frame=0
     const t = window.setTimeout(() => {
       const pos = findBlockById(editor, targetBlock)
-      if (pos !== null) return flashBlock(editor, pos)
+      if (pos !== null) {
+        flashBlock(editor, pos, !targetLocation)
+        // Revealing a parent tab can happen after the block's own view selection.
+        // Keep the linked finding/note in view instead of scrolling back to the block centre.
+        if(targetLocation)frame=requestAnimationFrame(()=>{
+          const dom=editor.view.nodeDOM(pos) as HTMLElement|null
+          if(!dom?.isConnected)return
+          const located=[dom,...dom.querySelectorAll<HTMLElement>('[data-work-location]')].some(el=>el.dataset.workLocation===targetLocation.key)
+          if(located&&targetLocation.item&&focusBlockItem(dom,targetLocation.item))return
+          const focused=document.activeElement
+          if(located&&focused instanceof HTMLElement&&dom.contains(focused))focused.scrollIntoView({block:'start'})
+          else dom.scrollIntoView({block:'start'})
+        })
+        return
+      }
       // the block moved to another page since the link was copied: follow it there
       const owner = pageOwningBlock(targetBlock, pageId)
-      if (owner) navigate(pageHref(owner, targetBlock), { replace: true })
+      if (owner) navigate(relocatedBlockHref(owner, targetBlock,window.location.hash), { replace: true })
     }, 160)
-    return () => window.clearTimeout(t)
-  }, [editor, targetBlock, pageId])
+    return () => {window.clearTimeout(t);cancelAnimationFrame(frame)}
+  }, [editor, targetBlock, pageId,targetLocation])
 
   // clicking the empty area under the last block focuses (or creates) a trailing line
   const onTailDown = (e: ReactMouseEvent) => {

@@ -373,6 +373,8 @@ export interface AgentTurn {
 
 export interface TurnContext {
   page?: string
+  /** Original source location; unlike the title this survives a rename during the task. */
+  pageId?: ID
   refs: number
   mentions: string[]
 }

@@ -1,3 +1,4 @@
+import {useBlockLocation,focusBlockItem} from '../../lib/blockLocation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   readChange,
@@ -18,6 +19,7 @@ import './code-change.css'
 export function CodeChange({
   raw,
   pageId,
+  blockId,
   editable,
   canRead,
   onSave,
@@ -25,6 +27,7 @@ export function CodeChange({
 }: {
   raw: string
   pageId: string
+  blockId?: string
   editable: boolean
   canRead: boolean
   onSave: (raw: string, expected: string, writer: Writer) => boolean
@@ -79,6 +82,17 @@ export function CodeChange({
     setInstruction(p?.instruction ?? '')
   }, [p?.id])
   const dirty = !!p && p.edits.some((e) => draft[e.file] !== undefined && draft[e.file] !== e.after.join('\n'))
+  const root=useRef<HTMLElement|null>(null),location=useBlockLocation(pageId,blockId),handledLocation=useRef(''),[locationError,setLocationError]=useState(''),[locatedKey,setLocatedKey]=useState('')
+  useEffect(()=>{
+    if(!location||!a||handledLocation.current===location.key)return
+    handledLocation.current=location.key
+    if(busy||dirty){setLocationError(t(dirty?'workflow.locationUnsaved':'workflow.locationBusy'));return}
+    if(location.revision&&!a.proposals.some(p=>p.id===location.revision)){setLocationError(t('workflow.locationMissing'));return}
+    setLocationError('');setLocatedKey(location.key)
+    if(location.revision)setSelected(location.revision)
+    const frame=requestAnimationFrame(()=>focusBlockItem(root.current,location.view==='delivery'?'delivery':undefined))
+    return()=>cancelAnimationFrame(frame)
+  },[location,a?.id])
   const save = (next: Change, writer: Writer = { kind: 'you', via: 'form' }) => {
     const value = JSON.stringify(readChange(JSON.stringify(next)))
     if (!refs.current.editable || !refs.current.onSave(value, expected.current ?? refs.current.raw, writer))
@@ -236,7 +250,8 @@ export function CodeChange({
       </section>
     )
   return (
-    <section className="code-change" aria-label={k('title')}>
+    <section ref={root} data-work-location={locatedKey||undefined} tabIndex={-1} className="code-change" aria-label={k('title')}>
+      {locationError&&<p role="alert">{locationError}</p>}
       <header>
         <strong>
           {k('title')} · {a.origin.title}
@@ -509,7 +524,7 @@ export function CodeChange({
           )}
           {!!a.deliveries.length && (
             <>
-              <h4>{k('delivery')}</h4>
+              <h4 data-work-item="delivery" tabIndex={-1}>{k('delivery')}</h4>
               {a.deliveries.map((d, i) => (
                 <p key={i}>
                   {d.server} · #{d.ref} · {k(d.state)}
