@@ -1427,3 +1427,71 @@ a.sc-changes__title:hover {
     display: none;
   }
 }
+
+/* Editing tools remain in the document flow on phones and with enlarged text. */
+.sc-editor { min-width: 0; }
+.sc-editor__tools, .sc-editor__search, .sc-editor__replace {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sc-editor__tools { padding-bottom: 8px; }
+.sc-editor__search {
+  position: relative;
+  padding: 12px 42px 12px 12px;
+  border: 1px solid var(--rule-strong);
+  border-bottom: 0;
+  background: var(--surface);
+}
+.sc-editor__field { display: grid; gap: 4px; min-width: 0; flex: 1 1 200px; font-size: 12px; color: var(--ink-2); }
+.sc-editor__field input { width: 100%; min-width: 0; font-family: var(--font-mono); }
+.sc-editor__replace { flex-basis: 100%; }
+.sc-editor__count { font-size: 12px; }
+.sc-editor__close { position: absolute; top: 8px; right: 6px; }
+.sc-editor__search button[aria-pressed='true'] { color: var(--signal); border-color: var(--signal); }
+.sc--focus .sc-bench { grid-template-columns: minmax(0, 1fr); }
+.sc--focus .sc-code { --ca-height: max(320px, 65vh); }
+.sc-save { color: var(--ink-2); }
+
+@media (max-width: 560px) {
+  .sc-head--bench .sc-head__meta { flex-wrap: wrap; gap: 8px; }
+  .sc-head--bench .sc-save { flex-basis: calc(100% - 32px); }
+}
+
+/* A workbench explains what happens before its actions are taken. */
+.sc-purpose { display: grid; gap: 6px; margin-top: 18px; color: var(--ink-2); }
+.sc-purpose textarea { width: 100%; resize: vertical; min-height: 58px; font-family: var(--font-sans); }
+.sc-workflow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; border: 1px solid var(--rule-strong); border-radius: var(--radius-2); }
+.sc-workflow__step { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; min-width: 0; }
+.sc-workflow__step + .sc-workflow__step { border-left: 1px solid var(--rule); }
+.sc-workflow__step > .label { color: var(--ink-3); }
+.sc-workflow__step strong { font-size: var(--text-sm); }
+.sc-workflow__step p { margin: 0 0 4px; font-size: var(--text-sm); color: var(--ink-2); line-height: 1.5; }
+.sc-workflow__step > button { margin-top: auto; }
+.sc-workflow__step[data-tested] { background: color-mix(in srgb, var(--signal) 5%, var(--surface)); }
+.sc-query-guide { color: var(--ink-2); font-size: var(--text-sm); line-height: 1.6; }
+.sc-result-context { padding: 10px 12px; margin: 0 0 10px; border-left: 2px solid var(--rule-strong); color: var(--ink-2); font-size: var(--text-sm); }
+.sc-result-context[data-stale] { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 6%, var(--surface)); color: var(--ink); }
+.sc-assist-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--rule); }
+.sc-assist-tabs .sc-tabs__b { flex: 1; }
+.sc-assist-hint { font-size: var(--text-sm); line-height: 1.5; color: var(--ink-2); margin: 14px; }
+.sc-ref__search { display: grid; gap: 6px; margin: 0 14px 14px; font-size: var(--text-sm); }
+.sc-ref__search input { width: 100%; min-width: 0; }
+.sc--focus .sc-purpose, .sc--focus .sc-workflow__step:first-child,
+.sc--focus .sc-workflow__step > p, .sc--focus .sc-workflow__step > strong, .sc--focus .sc-workflow__step > .label { display: none; }
+.sc--focus .sc-workflow { display: flex; flex-wrap: wrap; gap: 8px; border: 0; }
+.sc--focus .sc-workflow__step { display: block; border: 0; padding: 0; background: none; }
+.sc-workflow-explain { display: none; }
+@media (max-width: 760px) {
+  .sc-workflow__step { padding: 10px 8px; gap: 8px; }
+  .sc-workflow__step > p, .sc-workflow .kbd { display: none; }
+  .sc-workflow__step strong { font-size: 12px; overflow-wrap: anywhere; }
+  .sc-workflow__step > .label { font-size: 9px; letter-spacing: .04em; }
+  .sc-workflow__step > .btn { white-space: normal; padding: 5px 6px; font-size: 11px; }
+  .sc--focus .sc-workflow__step + .sc-workflow__step { border: 0; }
+  .sc-workflow-explain { display: block; margin-top: 10px; font-size: var(--text-sm); color: var(--ink-2); }
+  .sc--focus .sc-workflow-explain { display: none; }
+}
+
+.sc-editor__limit { flex-basis: 100%; margin: 0; color: var(--signal-ink); font-size: var(--text-sm); }

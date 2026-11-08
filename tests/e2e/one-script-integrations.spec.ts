@@ -471,6 +471,7 @@ test.describe('One Script with Claude (mocked)', () => {
     const bodies = await mockText(page, () => `Hier ist die Abfrage:\n\n${answer}`)
     const id = await addScript(page, { name: 'Offen', code: '', kind: 'query' })
     await openScript(page, id)
+    await page.getByRole('tab', { name: 'AI assistance', exact: true }).click()
     const ask = page.getByTestId('sc-ask')
     await ask.getByRole('textbox', { name: 'Describe the query for Claude' }).fill('offene Aufgaben, die nächsten zuerst')
     await ask.getByTestId('sc-ask-go').click()

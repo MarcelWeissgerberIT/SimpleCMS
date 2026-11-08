@@ -1,7 +1,7 @@
 ---
 id: atlas-package-freshness
 date: 2026-11-08
-order: 8
+order: 9
 title: Atlas-Paketstand direkt am Mock
 summary: Paket und verwendete Komponenten werden beim Laden erneut geprüft.
 help: agent

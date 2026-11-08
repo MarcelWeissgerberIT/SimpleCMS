@@ -140,7 +140,7 @@ export function LogLines({ log, onJump }: { log: LogLine[]; onJump?: (line: numb
   )
 }
 
-export function Console({ out, onJump }: { out: Output | null; onJump: (line: number, col: number) => void }) {
+export function Console({ out, onJump }: { out: Output | null; onJump?: (line: number, col: number) => void }) {
   const t = useT()
   if (!out) return <p className="sc-console__empty">{t('features.script.console.empty')}</p>
   const r = out.result

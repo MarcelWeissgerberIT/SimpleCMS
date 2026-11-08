@@ -1,7 +1,7 @@
 ---
 id: saved-results
 date: 2026-11-08
-order: 3
+order: 4
 title: Find older saved results
 summary: Search saved results and open entries beyond the first twelve.
 image: assets/shots/changelog/saved-results.webp

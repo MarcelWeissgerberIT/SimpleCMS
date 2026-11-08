@@ -19,6 +19,14 @@ notify("{due.count} tasks raised")
 
 Type `@` and pick a page, database or person: it becomes a chip. The chip keeps pointing at the same page when it is renamed.
 
+## Finding your way in the editor
+The workbench separates **Edit → Dry run → Run**. Its dry-run status applies to the exact code that was tried, and changes invalidate that status. Results from earlier edits are marked clearly. Add a purpose above the code so others can understand when to use the script; the field saves when you leave it. **Help & functions** searches function names and descriptions. **AI assistance** has its own tab; proposed code is reviewed before it is accepted.
+
+Use **Find** (Ctrl/⌘ F) for literal text search, with optional case matching. Enter or F3 finds the next match; Shift+F3 goes back. **Replace** (Ctrl/⌘ Shift H) changes one match or all matches, and Ctrl/⌘ Z undoes the change. Replacement text is literal, including `$&`.
+
+**Go to line** (Ctrl/⌘ G) jumps to a line number. Escape closes the search tools and returns to the code. **Focus on code** hides the reference pane or query builder; switch it off to bring them back. The line-wrap button at the bottom remembers its setting on this device. The header shows whether the current code is still being saved into the workspace; cloud synchronization is shown separately in One’s status bar.
+
+
 ## Templates
 **From template** on the Scripts page (or ⌘K → *New script from template…*) opens the gallery: ready-to-run scripts in five groups — *Tasks & projects*, *Mail & contacts*, *Reports*, *Clean-up*, *With Claude*. Each card says what the script does, what it touches (reads, writes, creates pages, trash, sends mail, uses Claude, asks you) and which of your databases it will use.
 

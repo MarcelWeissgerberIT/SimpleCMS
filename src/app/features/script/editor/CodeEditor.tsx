@@ -12,6 +12,7 @@
  * Tab / Shift+Tab, Esc leaves them. F1 or Mod+I shows what the name at the caret is (Ctrl / ⌘ + hover too).
  * Backspace after a chip removes the whole chip. The parent handles run keys (onKey).
  */
+import { EditorTools } from './EditorTools'
 import { isMac as platformIsMac } from '../../../ui/controls'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useT } from '../../../i18n'
@@ -560,6 +561,7 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
   /* ---------------------------------------------------------------- render */
 
   return (
+    <EditorTools value={value} area={area} readOnly={!!readOnly} prepare={() => { close(); setDoc(null); suppress.current = true }}>
     <CodeArea
       ref={area}
       className={`sc-code${readOnly ? ' sc-code--ro' : ''}`}
@@ -585,7 +587,8 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
       brackets="strict"
       enter="indent"
       fixedHeight
-      wrapToggle={false}
+      wrapToggle
+      storageKey="one-script"
       readOnly={readOnly}
       ariaLabel={ariaLabel}
       describedBy={doc ? 'sc-doc' : undefined}
@@ -630,6 +633,7 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, ws, 
         )
       }
     />
+    </EditorTools>
   )
 }
 

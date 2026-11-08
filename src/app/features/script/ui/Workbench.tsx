@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { create } from 'zustand'
-import { ArrowLeft, Copy, FlaskConical, MoreHorizontal, Play, Square, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, FlaskConical, MoreHorizontal, PanelRightClose, PanelRightOpen, Play, Square, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import type { ID } from '../../../store/types'
 import { useCloud } from '../../../cloud'
@@ -32,8 +32,9 @@ import { errorMessage } from './errors'
 import { pad2, rowsLabel } from './format'
 
 /** The console of each script in this tab (survives leaving the page while a run goes on). */
-const useOutputs = create<{ byId: Record<ID, Output> }>()(() => ({ byId: {} }))
-const setOutput = (id: ID, out: Output) => useOutputs.setState((s) => ({ byId: { ...s.byId, [id]: out } }))
+type ScriptOutput = Output & { code: string }
+const useOutputs = create<{ byId: Record<ID, ScriptOutput>; dry: Record<ID, { code: string; ok: boolean }> }>()(() => ({ byId: {}, dry: {} }))
+const setOutput = (id: ID, out: ScriptOutput) => useOutputs.setState((s) => ({ byId: { ...s.byId, [id]: out } }))
 
 type Tab = 'result' | 'console' | 'runs'
 
@@ -162,9 +163,12 @@ export function Workbench({ id }: { id: ID }) {
   const active = useActiveRuns((s) => s.runs[id])
   const out = useOutputs((s) => s.byId[id] ?? null)
   const menu = useMenu()
+  const dry = useOutputs((s) => s.dry[id])
+  const [assist, setAssist] = useState<'reference' | 'ai'>('reference')
 
   const [code, setCode] = useState(script?.code ?? '')
   const [name, setName] = useState(script?.name ?? '')
+  const [description, setDescription] = useState(script?.description ?? '')
   const dirty = useRef(false)
   const codeRef = useRef(code)
   codeRef.current = code
@@ -173,6 +177,7 @@ export function Workbench({ id }: { id: ID }) {
   const [jump, setJump] = useState<{ line: number; col: number; n: number } | null>(null)
   const [runErr, setRunErr] = useState<{ code: string; info: ErrorInfo } | null>(null)
   const [liveErr, setLiveErr] = useState<{ code: string; info: ErrorInfo } | null>(null)
+  const [focusMode, setFocusMode] = useState(false)
   const [force, setForce] = useState(0)
   const ta = useRef<HTMLTextAreaElement | null>(null)
 
@@ -181,10 +186,10 @@ export function Workbench({ id }: { id: ID }) {
   /* -------------------------------------------------------------- saving */
 
   const save = useCallback(
-    (patch: { code?: string; name?: string; kind?: 'script' | 'query' }) => {
+    (patch: { code?: string; name?: string; description?: string; kind?: 'script' | 'query' }) => {
       const cur = useWorkspace.getState().scripts?.[id]
       if (!cur || readOnly) return
-      if ((patch.code === undefined || patch.code === cur.code) && (patch.name === undefined || patch.name === cur.name) && (patch.kind === undefined || patch.kind === cur.kind)) return
+      if ((patch.code === undefined || patch.code === cur.code) && (patch.name === undefined || patch.name === cur.name) && (patch.kind === undefined || patch.kind === cur.kind) && (patch.description === undefined || patch.description === (cur.description ?? ''))) return
       saveScript({ ...cur, ...patch })
     },
     [id, readOnly],
@@ -212,6 +217,8 @@ export function Workbench({ id }: { id: ID }) {
     if (script) setName(script.name)
   }, [script?.name]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => setDescription(script?.description ?? ''), [script?.description])
+
   const edit = (next: string) => {
     if (readOnly) return
     dirty.current = true
@@ -234,14 +241,15 @@ export function Workbench({ id }: { id: ID }) {
     flush()
     setTab('console')
     if (syntax) {
-      setOutput(id, { mode, running: false, log: [], result: { status: 'error', value: null, plain: null, text: '', table: null, log: [], changes: [], effects: [], error: errorInfo(syntax), ms: 0, run: null } })
+      if (mode === 'dry') useOutputs.setState((s) => ({ dry: { ...s.dry, [id]: { code, ok: false } } }))
+      setOutput(id, { code, mode, running: false, log: [], result: { status: 'error', value: null, plain: null, text: '', table: null, log: [], changes: [], effects: [], error: errorInfo(syntax), ms: 0, run: null } })
       return
     }
     const ctrl = beginRun(id, mode)
     if (!ctrl) return
     const lines: LogLine[] = []
     let pending = 0
-    setOutput(id, { mode, running: true, log: [], result: null })
+    setOutput(id, { code, mode, running: true, log: [], result: null })
     try {
       const r = await runScript({
         code,
@@ -262,7 +270,8 @@ export function Workbench({ id }: { id: ID }) {
         },
       })
       if (pending) window.cancelAnimationFrame(pending)
-      setOutput(id, { mode, running: false, log: r.log, result: r })
+      setOutput(id, { code, mode, running: false, log: r.log, result: r })
+      if (mode === 'dry') useOutputs.setState((s) => ({ dry: { ...s.dry, [id]: { code, ok: r.status === 'ok' } } }))
       setRunErr(r.error ? { code, info: r.error } : null)
       if (mode === 'run' && r.status === 'ok') notifyResult(script.name, mode, r)
     } finally {
@@ -281,15 +290,18 @@ export function Workbench({ id }: { id: ID }) {
       to = end < 0 ? code.length : end
     }
     if (!code.slice(from, to).trim()) return
+    flush()
     setTab('console')
-    setOutput(id, { mode: 'eval', running: true, log: [], result: null })
+    setOutput(id, { code, mode: 'eval', running: true, log: [], result: null })
     const r = await evaluateSelection(code, from, to, { scriptId: id, name: script?.name ?? '' })
     // its places belong to the evaluated piece, not to the script: no line links
     const error = r.error ? { ...r.error, line: null, col: null, start: null, end: null } : null
-    setOutput(id, { mode: 'eval', running: false, log: r.log, result: { ...r, error } })
+    setOutput(id, { code, mode: 'eval', running: false, log: r.log, result: { ...r, error } })
   }
 
   const onKey = (e: ReactKeyboardEvent) => {
+    const target = e.target as HTMLElement
+    if (target.closest('.sc-bench__side') || (target.matches('input, textarea, [contenteditable]') && target !== ta.current)) return
     if (!(e.metaKey || e.ctrlKey) || e.altKey || e.nativeEvent.isComposing) return
     const k = e.key.toLowerCase()
     if (e.key === 'Enter') {
@@ -348,7 +360,7 @@ export function Workbench({ id }: { id: ID }) {
   const running = !!active
 
   return (
-    <div className="sc sc--bench" onKeyDown={onKey} data-kind={kind}>
+    <div className={`sc sc--bench${focusMode ? ' sc--focus' : ''}`} onKeyDown={onKey} data-kind={kind}>
       <a className="sc-back" href="#/scripts">
         <ArrowLeft size={14} strokeWidth={1.8} aria-hidden /> {t('features.script.back')}
       </a>
@@ -360,11 +372,15 @@ export function Workbench({ id }: { id: ID }) {
           <span className="mono" data-testid="sc-meta">
             {t(lines === 1 ? 'features.script.lines.one' : 'features.script.lines.other', { n: lines })}
           </span>
+          <span className="sc-save label" role="status">{t(readOnly ? 'features.script.editor.readOnly' : code !== script.code ? 'features.script.editor.saving' : 'features.script.editor.saved')}</span>
           <HelpLink id="one-script" />
         </div>
         <div className="sc-head__row">
           <NameField value={name} readOnly={readOnly} label={t('features.script.name')} onChange={setName} onCommit={commitName} onCancel={() => setName(script.name)} />
           <div className="sc-keys">
+            <button type="button" className="btn btn--sm" aria-pressed={focusMode} onClick={() => setFocusMode(!focusMode)}>
+              {focusMode ? <PanelRightOpen size={14} aria-hidden /> : <PanelRightClose size={14} aria-hidden />}{t('features.script.editor.focus')}
+            </button>
             <span className="sc-seg" role="group" aria-label={t('features.script.kind')}>
               {(['script', 'query'] as const).map((k) => (
                 <button key={k} type="button" className={`sc-seg__b${kind === k ? ' is-on' : ''}`} aria-pressed={kind === k} disabled={readOnly} onClick={() => (save({ kind: k }), setTab(k === 'query' ? 'result' : 'console'))}>
@@ -372,21 +388,6 @@ export function Workbench({ id }: { id: ID }) {
                 </button>
               ))}
             </span>
-            {kind === 'script' &&
-              (running ? (
-                <button type="button" className="btn btn--sm" onClick={() => stopScript(id)} data-testid="sc-stop">
-                  <Square size={12} strokeWidth={2} aria-hidden /> {t('features.script.stop')} <kbd className="kbd">{shortcutLabel('Mod+.')}</kbd>
-                </button>
-              ) : (
-                <>
-                  <button type="button" className="btn btn--sm" onClick={() => void start('dry')} data-testid="sc-dry">
-                    <FlaskConical size={13} strokeWidth={1.8} aria-hidden /> {t('features.script.dry')} <kbd className="kbd">{shortcutLabel('Mod+Shift+↵')}</kbd>
-                  </button>
-                  <button type="button" className="btn btn--sm btn--primary" onClick={() => void start('run')} disabled={readOnly} data-testid="sc-run">
-                    <Play size={12} strokeWidth={2} aria-hidden /> {t('features.script.run')} <kbd className="kbd">{shortcutLabel('Mod+↵')}</kbd>
-                  </button>
-                </>
-              ))}
             <button type="button" className="icon-btn" onClick={menu.toggle} aria-label={t('features.script.more')} aria-haspopup="menu" aria-expanded={menu.open}>
               <MoreHorizontal size={16} strokeWidth={1.7} />
             </button>
@@ -409,6 +410,39 @@ export function Workbench({ id }: { id: ID }) {
         {readOnly && <p className="sc-note">{t('features.script.readOnly')}</p>}
       </header>
 
+
+      <label className="sc-purpose">
+        <span className="label">{t('features.script.editor.purpose')}</span>
+        <textarea className="input" rows={2} maxLength={2000} value={description} readOnly={readOnly} placeholder={t('features.script.editor.purposeHint')} onChange={(e) => setDescription(e.target.value)} onBlur={() => save({ description: description.trim() })} />
+      </label>
+      {kind === 'script' ? <section className="sc-workflow" aria-label={t('features.script.editor.workflow')}>
+        <div className="sc-workflow__step">
+          <span className="label">01 · {t('features.script.editor.edit')}</span>
+          <strong>{t(syntax ? 'features.script.editor.syntaxError' : 'features.script.editor.syntaxOk')}</strong>
+          <p>{t('features.script.editor.language')}</p>
+          <button type="button" className="btn btn--sm" onClick={() => syntax && editorError?.line ? onJump(editorError.line, 1) : ta.current?.focus()}>{t(syntax ? 'features.script.editor.showError' : 'features.script.editor.editCode')}</button>
+        </div>
+        <div className="sc-workflow__step" data-tested={dry?.code === code && dry.ok || undefined}>
+          <span className="label">02 · {t('features.script.dry')}</span>
+          <strong data-testid="sc-check-state">{t(!dry ? 'features.script.editor.notTried' : dry.code !== code ? 'features.script.editor.changedSinceDry' : dry.ok ? 'features.script.editor.tried' : 'features.script.editor.tryFailed')}</strong>
+          <p>{t('features.script.editor.dryHelp')}</p>
+          <button type="button" className="btn btn--sm" disabled={running} onClick={() => void start('dry')} data-testid="sc-dry"><FlaskConical size={13} aria-hidden />{t('features.script.dry')} <kbd className="kbd">{shortcutLabel('Mod+Shift+↵')}</kbd></button>
+        </div>
+        <div className="sc-workflow__step">
+          <span className="label">03 · {t('features.script.run')}</span>
+          <strong>{t(running ? 'features.script.editor.running' : 'features.script.editor.apply')}</strong>
+          <p>{t('features.script.editor.runHelp')}</p>
+          {running ? <button type="button" className="btn btn--sm" onClick={() => stopScript(id)} data-testid="sc-stop"><Square size={12} aria-hidden />{t('features.script.stop')}</button> :
+            <button type="button" className="btn btn--sm btn--primary" onClick={() => void start('run')} disabled={readOnly} data-testid="sc-run"><Play size={12} aria-hidden />{t('features.script.run')} <kbd className="kbd">{shortcutLabel('Mod+↵')}</kbd></button>}
+        </div>
+      </section> : <p className="sc-query-guide">{t('features.script.editor.queryHelp')}</p>}
+
+      {kind === 'script' && <details className="sc-workflow-explain">
+        <summary>{t('features.script.editor.explainFlow')}</summary>
+        <p>{t('features.script.editor.language')}</p>
+        <p>{t('features.script.editor.dryHelp')}</p>
+        <p>{t('features.script.editor.runHelp')}</p>
+      </details>}
       <div className="sc-bench">
         <div className="sc-bench__main">
           <CodeEditor
@@ -445,13 +479,24 @@ export function Workbench({ id }: { id: ID }) {
                 <LiveResult id={id} name={script.name} code={code} broken={!!syntax} force={force} onResult={({ code: c, result }) => setLiveErr(result?.error ? { code: c, info: result.error } : null)} />
               </div>
             )}
-            {tab === 'console' && <Console out={out} onJump={onJump} />}
+            {tab === 'console' && <>
+              {out && <p className="sc-result-context" data-stale={out.code !== code || undefined} role="status">{t(out.code === code ? 'features.script.editor.currentResult' : 'features.script.editor.staleResult')}</p>}
+              <Console out={out} onJump={out?.code === code ? onJump : undefined} />
+            </>}
             {tab === 'runs' && <Runs scriptId={id} onJump={onJump} />}
           </div>
         </div>
-        <aside className="sc-bench__side">
-          <AskClaude kind={kind} code={code} readOnly={readOnly} onAccept={edit} />
-          {kind === 'query' ? <Builder code={code} onChange={edit} onEditAsText={() => ta.current?.focus()} /> : <Reference onInsert={onInsert} />}
+        <aside className="sc-bench__side" hidden={focusMode}>
+          <div className="sc-assist-tabs" role="tablist" aria-label={t('features.script.editor.assistance')}>
+            {(['reference', 'ai'] as const).map((key) => <button key={key} type="button" role="tab" id={`sc-assist-${key}`} aria-controls={`sc-assist-panel-${key}`} aria-selected={assist === key} className={`sc-tabs__b${assist === key ? ' is-on' : ''}`} onClick={() => setAssist(key)}>{t(key === 'ai' ? 'features.script.editor.ai' : kind === 'query' ? 'features.script.editor.builder' : 'features.script.editor.reference')}</button>)}
+          </div>
+          <div id="sc-assist-panel-ai" role="tabpanel" aria-labelledby="sc-assist-ai" hidden={assist !== 'ai'}>
+            <p className="sc-assist-hint">{t('features.script.editor.aiHelp')}</p>
+            <AskClaude kind={kind} code={code} readOnly={readOnly} onAccept={(next) => { edit(next); setAssist('reference'); ta.current?.focus() }} />
+          </div>
+          <div id="sc-assist-panel-reference" role="tabpanel" aria-labelledby="sc-assist-reference" hidden={assist !== 'reference'}>
+            {kind === 'query' ? <Builder code={code} onChange={edit} onEditAsText={() => ta.current?.focus()} /> : <Reference onInsert={onInsert} />}
+          </div>
         </aside>
       </div>
     </div>

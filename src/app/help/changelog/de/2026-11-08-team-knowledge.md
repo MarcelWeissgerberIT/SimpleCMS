@@ -1,7 +1,7 @@
 ---
 id: team-knowledge
 date: 2026-11-08
-order: 1
+order: 2
 title: Wissen und Team-Verbindungen
 summary: Gemeinsames Wissen prüfen, Team-Bereiche organisieren und Antworten direkt in One erfassen.
 image: assets/shots/changelog/team-knowledge.webp
