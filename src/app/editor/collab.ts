@@ -1,3 +1,4 @@
+import {trackMockUndo} from '../../shared/collaboration/mock'
 /**
  * Live collaboration in the editor (team cloud): the page's Y document instead of page.content.
  *  - Collaboration: binds the doc's XmlFragment ('default'); brings Y undo (only your own changes,
@@ -177,6 +178,11 @@ const CollabUndoSteps = Extension.create({
     return [
       new Plugin({
         key: new PluginKey('oneCollabUndoSteps'),
+        view(view){
+          const manager=yUndoPluginKey.getState(view.state)?.undoManager as Y.UndoManager|undefined
+          if(manager)trackMockUndo(manager)
+          return {}
+        },
         props: {
           handleDOMEvents: {
             pointerdown: (view) => {

@@ -27,11 +27,12 @@ import { diff, type Hunk } from './merge'
  *  1 = the task block (`workItem`)
  *  2 = the Atlas design mock block (`designMock`)
  *  3 = mock feedback and version journal
+ *  7 = field-level collaborative mock edits (old cloud writers must reload)
  *  6 = free rectangle annotations in mock feedback (cloud editing waits for schema_min 6)
  *  5 = multiple element targets in one mock note (cloud editing waits for schema_min 5)
  *  4 = durable mock proposals and Markdown change receipts (cloud editing waits for schema_min 4)
  */
-export const DOC_SCHEMA_VERSION = 6
+export const DOC_SCHEMA_VERSION = 7
 
 /** Node types an older generation does not know: type → the generation that brought it. */
 export const NODE_GENERATIONS: Readonly<Record<string, number>> = { workItem: 1, designMock: 6 }

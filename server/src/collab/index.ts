@@ -2,6 +2,7 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { Server as Hocuspocus, type Connection } from '@hocuspocus/server'
 import * as Y from 'yjs'
+import { installMockCollaboration } from '../../../src/shared/collaboration/mock.ts'
 import { cookieFromHeader, SESSION_COOKIE, type Sessions } from '../auth/sessions.ts'
 import type { Config } from '../config.ts'
 import type { CloseReason, CollabControl } from '../context.ts'
@@ -119,7 +120,10 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       // custom agents (and scripts) live in the workspace's shared meta document: the server, not the
       // client, says who changed one (docs/CLOUD.md § Agents → Who changed an agent)
       const doc = parseDocName(documentName)
-      if (doc?.kind === 'page') document.on('destroy', guardBlockAuthors(document, { history: doc.owner === null }))
+      if (doc?.kind === 'page') {
+        document.on('destroy', installMockCollaboration(Y,document, () => true))
+        document.on('destroy', guardBlockAuthors(document, { history: doc.owner === null }))
+      }
       if (doc?.kind === 'meta' && doc.owner === null) {
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log }))
         document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log, map: 'scripts' }))
