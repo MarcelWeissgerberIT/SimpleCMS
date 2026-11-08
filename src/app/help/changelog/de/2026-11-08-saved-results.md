@@ -1,7 +1,7 @@
 ---
 id: saved-results
 date: 2026-11-08
-order: 4
+order: 5
 title: Ältere gespeicherte Ergebnisse wiederfinden
 summary: Gespeicherte Ergebnisse durchsuchen und Einträge nach den ersten zwölf öffnen.
 image: assets/shots/changelog/saved-results.webp

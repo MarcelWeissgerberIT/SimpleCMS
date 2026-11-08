@@ -314,9 +314,36 @@
   color: var(--signal-ink);
 }
 .ctk-box--err {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  overflow-wrap: anywhere;
   border-left-color: var(--c-red-text);
+}
+.ctk-box--err > * {
+  min-width: 0;
+}
+.ctk-box--err .term-repair {
+  margin: 0;
+}
+.ctk-box--err .btn {
+  max-width: 100%;
+  white-space: normal;
+  height: auto;
+  text-align: start;
+}
+.ctk-error-details {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.ctk-error-details summary {
+  cursor: pointer;
+}
+.ctk-error-details p {
+  margin-top: 8px;
+}
+.ctk-error-sources {
+  display: grid;
+  gap: 6px;
 }
 .ctk-box--err strong {
   color: var(--c-red-text);

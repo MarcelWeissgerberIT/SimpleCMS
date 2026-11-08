@@ -1,7 +1,7 @@
 ---
 id: team-knowledge
 date: 2026-11-08
-order: 2
+order: 3
 title: Knowledge and team connections
 summary: Verify shared knowledge, organize team areas and collect responses directly in One.
 image: assets/shots/changelog/team-knowledge.webp

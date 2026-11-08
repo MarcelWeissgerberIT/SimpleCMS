@@ -1,7 +1,7 @@
 ---
 id: connected-review-workflows
 date: 2026-11-08
-order: 10
+order: 11
 title: Connect findings, mock feedback and sources
 summary: Linked finding cards, source-version checks and reusable quality checks.
 help: agent

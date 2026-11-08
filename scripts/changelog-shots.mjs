@@ -38,6 +38,7 @@ import { strToU8, zipSync } from 'fflate'
 import { seedMorning, seedPipeline, waitPreflight, flushLamps } from '../tests/e2e/helpers/preflightStory.mjs'
 import { seedTrust } from '../tests/e2e/helpers/trustStory.mjs'
 import { playStoryPage, storyTime } from '../tests/e2e/helpers/recorderStory.mjs'
+import {seedFailedAnalysis} from '../tests/e2e/helpers/failedAnalysisStory.mjs'
 import {analysisFixture} from '../tests/e2e/helpers/codeAnalysisStory.mjs'
 import { routeAIHosts } from './lib/aiHosts.mjs'
 
@@ -943,6 +944,19 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'analysis-error-recovery'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    await page.evaluate(()=>{location.hash='#/coding/spec'})
+    await page.waitForFunction(()=>!!window.__oneCodingWrites)
+    const id=await page.evaluate(()=>window.__oneCodingWrites.create('Protocol requirements · document review','spec'))
+    await openPage(page,id)
+    await page.getByTestId('one-analysis-controls').waitFor()
+    await seedFailedAnalysis(page,id)
+    await scrollToTop(page.getByTestId('one-analysis-controls'),20)
+    await rest(page)
+    await save(page,'analysis-error-recovery')
+    await ctx.close()
+  },
   async 'script-editor'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate(() => {

@@ -411,17 +411,27 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {limit && stage && <StepLimitBox taskId={pageId} limit={limit} steps={stageSteps(stage)} canAct={canAct} onError={(e) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' })} />}
         {(state === 'failed' || state === 'stopped') && !limit && (
           <div className="ctk-box ctk-box--err" role="alert">
-            <p>
-              <strong>{t(state === 'failed' ? 'features.coding.state.failed' : 'features.coding.state.stopped')}</strong> {local.error}
-            </p>
-            <WorkflowRepair message={local.error??''}/>
-            {local.analysisMissing?.map(id=><p key={id}><button className="btn btn--sm" onClick={()=>openPage(id)}>{useWorkspace.getState().pages[id]?.title||id} ↗</button></p>)}
-            {canAct && (
+            <strong>{t(state === 'failed' ? 'features.coding.state.failed' : 'features.coding.state.stopped')}</strong>
+            {local.error && <p>{local.error.includes('Compiled result check blocked:') && local.error.includes('task_sources_observed') ? t('features.coding.error.sources') : local.error}</p>}
+            <WorkflowRepair message={local.error ?? ''} />
+            {local.error?.includes('Compiled result check blocked:') && local.error.includes('task_sources_observed') && (
+              <details className="ctk-error-details">
+                <summary>{t('features.coding.error.details')}</summary>
+                <p>{local.error}</p>
+              </details>
+            )}
+            {!!local.analysisMissing?.length && <div className="ctk-error-sources">
+              <p>{t('features.coding.error.sourcesToCheck')}</p>
+              <div className="ctk-keys">
+                {local.analysisMissing.map(id => <button type="button" key={id} className="btn btn--sm" onClick={() => openPage(id)}>{useWorkspace.getState().pages[id]?.title || id} ↗</button>)}
+              </div>
+            </div>}
+            {canAct && <div className="ctk-keys">
               <button type="button" className="btn btn--sm" onClick={act(() => runTaskNow(pageId))}>
                 <RotateCcw size={14} strokeWidth={1.75} aria-hidden />
                 {t('features.coding.act.retry')}
               </button>
-            )}
+            </div>}
           </div>
         )}
 

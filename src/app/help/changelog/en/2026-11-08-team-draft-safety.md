@@ -1,7 +1,7 @@
 ---
 id: team-draft-safety
 date: 2026-11-08
-order: 6
+order: 7
 title: Keep your working copy while the team moves on
 summary: Private patch drafts survive navigation; concurrent saved copies stay complete.
 image: assets/shots/changelog/team-draft-safety.png
