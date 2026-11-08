@@ -93,7 +93,7 @@ export function installMockCollaboration(types:typeof Y,doc:Y.Doc,writable:()=>b
  const reconcile=(tr:Y.Transaction)=>{
   if(projecting||projections.has(tr)||tr.origin===ORIGIN||!writable())return
   // Title typing, cursors and the server's author stamps do not replay HTML/version history.
-  if(![...tr.changed].some(([type,keys])=>type===log ||
+  if(![...tr.changed].some(([type,keys])=>(type as unknown)===log ||
     type instanceof types.XmlElement && type.nodeName==='designMock' && keys.has('spec') ||
     type instanceof types.XmlFragment && keys.has(null)))return
   const nodes=elements(fragment,types),edits=new Map<string,Array<[string,Edit]>>()
