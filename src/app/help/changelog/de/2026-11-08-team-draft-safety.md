@@ -19,3 +19,5 @@ Gleichzeitige Offline-Speicherungen von Code-Vorschlägen, Analyseberichten, Que
 Geänderte Berechtigungen wirken sofort auch in eingebetteten Bedienelementen. One verbindet sich außerdem zuverlässig wieder, wenn eine kurze Netzunterbrechung endet, während die alte Verbindung noch schließt. Die gemeinsame Bearbeitung gewöhnlicher Texte funktioniert weiter wie bisher.
 
 Kann eine Mock-Notiz wegen eines geänderten Stands oder fehlender Schreibrechte nicht gespeichert werden, bleiben die offene Notiz und ihre Markierung erhalten. One erklärt den fehlgeschlagenen Versuch. Prüfe den aktuellen Stand und speichere ausdrücklich erneut. Ein Auftrag für einen neuen Mock-Zustand wird erst vorbereitet, wenn seine Notiz erfolgreich gespeichert wurde.
+
+Ändert eine andere Person während des Schreibens die Mock-Vorschau, bleibt dein offener Text sichtbar. Markiere die gewünschten Stellen erneut, bevor du die Notiz an der neuen Version speicherst. **Abbrechen** verwirft den offenen Text ausdrücklich.

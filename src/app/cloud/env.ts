@@ -67,6 +67,10 @@ export function hasStoredChoice(): boolean {
   return parseRef(lsGet(CHOICE_KEY)) !== null
 }
 
+// Capture before bootLocal pins a default URL for cross-tab isolation. That automatic
+// pin is not a person's explicit workspace choice when their first sign-in returns.
+export const initialWorkspaceWasExplicit = typeof window !== 'undefined' && (new URLSearchParams(window.location.search).has('w') || hasStoredChoice())
+
 export function writeChoice(ref: WorkspaceRef): void {
   if (isTestAccess()) return
   lsSet(CHOICE_KEY, ref.kind === 'local' ? (ref.id === 'local' ? 'local' : `local:${ref.id}`) : ref.id)

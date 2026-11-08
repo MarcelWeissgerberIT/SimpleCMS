@@ -87,9 +87,15 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
   // the Share dialog / the workspace menu asked for this form: bring it into view, focus it
   useEffect(() => {
     if (!focusForm) return
-    const form = formRef.current
-    form?.scrollIntoView({ block: 'center' })
-    form?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus({ preventScroll: true })
+    // Run after the workspace section's own scroll effect and modal focus restoration.
+    const frame = requestAnimationFrame(() => {
+      const form = formRef.current
+      // This is the requested destination, not an embedded widget moving the reader.
+      form?.dispatchEvent(new Event('one:scroll-request', { bubbles: true }))
+      form?.scrollIntoView({ block: 'start' })
+      form?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
   }, [focusForm])
 
   const days$ = DAY_CHOICES.map((n) => ({ value: n, label: t(plural('shell.cloud.inv.days', n), { n }) }))

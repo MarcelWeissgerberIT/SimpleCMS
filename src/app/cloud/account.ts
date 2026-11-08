@@ -23,7 +23,7 @@ import {
 } from './api'
 import { refreshMe, SIGNED_IN_PARAM, switchWorkspaceImpl } from './boot'
 import { runPendingForget, scheduleForget } from './device'
-import { writeSession } from './env'
+import { hasStoredChoice, initialWorkspaceWasExplicit, writeSession } from './env'
 import { readOnlyFor } from './schemaGate'
 import {
   useCloud,
@@ -46,6 +46,7 @@ function returnPath(): string {
   try {
     // (keeps ?w=<id>: back into the workspace that asked for the sign-in)
     const url = new URL(window.location.href)
+    if (!initialWorkspaceWasExplicit && !hasStoredChoice() && url.searchParams.get('w') === 'local' && !url.hash.startsWith('#/signup/')) url.searchParams.delete('w')
     url.searchParams.set(SIGNED_IN_PARAM, '1')
     return `${url.pathname}${url.search}${url.hash}`
   } catch {
