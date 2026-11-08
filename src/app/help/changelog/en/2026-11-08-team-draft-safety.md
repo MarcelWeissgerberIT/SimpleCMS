@@ -19,3 +19,5 @@ Simultaneous offline saves of code proposals, analysis reports, source-reference
 Permission changes take effect in embedded controls immediately. One also reconnects reliably when a short network interruption ends while the old connection is still closing. Ordinary collaborative text editing continues as before.
 
 When a mock note cannot be saved because its source or write permission changed, One keeps the pending note and its selection and explains the failed save. Review the current state and retry explicitly. A state-design task is prepared only after its note was saved successfully.
+
+If another person changes the mock preview while you are writing, the pending text stays visible. Select the intended locations again before saving to the new version. **Cancel** explicitly discards the pending text.

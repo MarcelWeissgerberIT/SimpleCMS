@@ -112,12 +112,14 @@ export function useColumnScroll(ref: RefObject<HTMLElement | null>, opts: { key?
     }
     const passive = { passive: true, capture: true }
     el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('one:scroll-request', release)
     el.addEventListener('wheel', release, passive)
     el.addEventListener('touchstart', release, passive)
     el.addEventListener('pointerdown', release, true)
     window.addEventListener('keydown', release, true)
     return () => {
       el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('one:scroll-request', release)
       el.removeEventListener('wheel', release, passive)
       el.removeEventListener('touchstart', release, passive)
       el.removeEventListener('pointerdown', release, true)

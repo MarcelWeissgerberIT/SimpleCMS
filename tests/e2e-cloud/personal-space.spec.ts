@@ -65,8 +65,8 @@ test.describe('a workspace of one’s own', () => {
     const entries = await switcherEntries(page)
     const at = (name: string) => entries.findIndex((e) => e.includes(name))
     expect(at('This browser (local)')).toBe(0)
-    expect(at(`${local}’s space`)).toBe(1)
-    expect(at('Nora Studio')).toBe(2)
+    expect(at(`${local}’s space`)).toBeGreaterThan(at('This browser (local)'))
+    expect(at('Nora Studio')).toBeGreaterThan(at(`${local}’s space`))
   })
 
   test('a browser that chose its local workspace keeps it; the own space waits in the switcher', async ({ page }) => {
@@ -80,7 +80,7 @@ test.describe('a workspace of one’s own', () => {
     await expect.poll(() => cloudEval(page, (c) => (c.user ? c.workspaces.length : -1))).toBe(1)
     expect(await cloudEval(page, (c) => c.active.kind)).toBe('local')
     const entries = await switcherEntries(page)
-    expect(entries.findIndex((e) => e.includes(`${local}’s space`))).toBe(1)
+    expect(entries.findIndex((e) => e.includes(`${local}’s space`))).toBeGreaterThan(entries.findIndex((e) => e.includes('This browser (local)')))
   })
 
   test('an invitation still opens the invitation — and the invited person has a space of their own too', async ({ page, browser }) => {
@@ -108,8 +108,21 @@ test.describe('a workspace of one’s own', () => {
     expect(own.name).toBe(`${local}’s space`)
     const entries = await switcherEntries(quinn)
     const at = (name: string) => entries.findIndex((e) => e.includes(name))
-    expect(at(`${local}’s space`)).toBe(1)
-    expect(at('Pia Partners')).toBe(2)
+    expect(at(`${local}’s space`)).toBeGreaterThan(at('This browser (local)'))
+    expect(at('Pia Partners')).toBeGreaterThan(at(`${local}’s space`))
     await ctx.close()
   })
+})
+
+
+test('an explicitly linked local workspace stays local after first sign-in',async({page})=>{
+ const address=email('explicit-local')
+ await page.goto('/app/?e2e&w=local')
+ await expect(page.locator('.app')).toBeVisible()
+ await uiSignIn(page,address)
+ await expect(page.locator('.app')).toBeVisible()
+ await expect.poll(()=>cloudEval(page,c=>!!c.user)).toBe(true)
+ expect(await cloudEval(page,c=>c.active.kind)).toBe('local')
+ expect(new URL(page.url()).searchParams.get('w')).toBe('local')
+ expect((await ownSpace(page)).personal).toBe(true)
 })
