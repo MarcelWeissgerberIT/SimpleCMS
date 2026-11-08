@@ -36,6 +36,11 @@ export function DesignMockView({node,editor,getPos}:ReactNodeViewProps) {
  useEffect(()=>{const id=setTimeout(bump,0);return()=>clearTimeout(id)},[locked,viewer])
  const supported=useCloud(mockBlocksAllowed)
  const editable=!editor.isDestroyed&&editor.isEditable&&!locked&&!viewer&&supported
+ const linkedNote=useRef('')
+ useEffect(()=>{const locate=()=>{const query=new URLSearchParams(window.location.hash.split('?')[1]??''),id=query.get('mockNote'),journal=query.get('mockJournal'),key=journal+':'+id
+  if(journal!==spec.journal?.id||linkedNote.current===key)return
+  const note=spec.journal.notes.find(n=>n.id===id);if(note){linkedNote.current=key;setTab('feedback');setInspected(note)}
+ };locate();window.addEventListener('hashchange',locate);return()=>window.removeEventListener('hashchange',locate)},[spec.journal])
  const latest=useRef(spec);latest.current=spec
  const change=(next:MockBlockData,expected=spec)=>{
   if(editor.isDestroyed||!editor.isEditable||!mockBlocksAllowed(useCloud.getState())||epoch!==useWorkspace.getState().epoch||!!pageId&&useWorkspace.getState().pages[pageId]?.settings.locked)return

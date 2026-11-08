@@ -289,14 +289,14 @@ function openPageId(): ID | null {
   return page && !page.trashed ? page.id : null
 }
 
-function context(refs: TermRef[], mentions: TermMention[]): string {
+function context(refs: TermRef[], mentions: TermMention[], page: string|null = contextPageId()): string {
   const s = useWorkspace.getState()
   const now = new Date()
   const lines = [
     `Today: ${format(now, 'EEEE, yyyy-MM-dd')} (local time ${format(now, 'HH:mm')})`,
     `Workspace: ${q(s.settings.workspaceName || 'Workspace')} · the user's interface language: ${s.settings.language === 'de' ? 'German' : 'English'}`,
   ]
-  const openId = contextPageId()
+  const openId = page
   const open = openId ? s.pages[openId] : undefined
   if (open) {
     lines.push(`Open page: ${q(open.title.trim() || 'Untitled')} (id: ${open.id})`)
@@ -408,7 +408,7 @@ export async function resumeSavedWork(scope:string,key:string){
  if(get().status==='running'||scope!==mcpWorkScope())return
  const saved=await readMcpWork<TaskRecovery>(scope,key)
  if(scope!==mcpWorkScope()||!validTaskRecovery(saved))return
- return runTask(recoveryTask(saved),{history:false,noMemory:true,again:{refs:[],mentions:[]},compact:scrubSecrets(saved.checkpoint)})
+ return runTask(recoveryTask(saved),{history:false,noMemory:true,again:{refs:[],mentions:[]},sourcePage:saved.page,compact:scrubSecrets(saved.checkpoint)})
 }
 
 /** Fresh, read-only recovery after a context/output limit; existing proposals and receipts remain intact. */
@@ -425,7 +425,7 @@ export function continueWithCompactContext():Promise<void>{
  * (/no-memory <task>); `history: false` when the prompt went into the history already; `continues`:
  * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
-export async function runTask(raw?: string, opts: { compact?: string; noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
+export async function runTask(raw?: string, opts: { sourcePage?:string|null; compact?: string; noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
   let task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
   // Tool choice and missing targets are resolved by the model from the bound context.
@@ -449,7 +449,8 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
   const refs = opts.program || prevTurn ? [] : opts.again ? opts.again.refs : get().refs
   const mentions = opts.program || prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
   const programSpec=opts.program?readProgram(opts.program.saved.compiled):null
-  const pageId = programSpec?workflowTarget(programSpec,opts.program!.inputs)??(programSpec.steps.some(s=>s.kind==='workflow')?null:contextPageId()):contextPageId()
+  const recoveryPage=opts.sourcePage&&useWorkspace.getState().pages[opts.sourcePage]&&!isEffectivelyTrashed(useWorkspace.getState().pages,opts.sourcePage)?opts.sourcePage:null
+  const pageId = opts.sourcePage!==undefined?recoveryPage:programSpec?workflowTarget(programSpec,opts.program!.inputs)??(programSpec.steps.some(s=>s.kind==='workflow')?null:contextPageId()):contextPageId()
   const archiveScope=programScope()
   const recoveryScope=mcpWorkScope(),recoveryKey=activeRecoveryKey()
   let recoveryQueue=Promise.resolve(),recoveryWarned=false,recoveryWriting=false,pendingRecovery:TaskRecovery|null=null
@@ -481,7 +482,7 @@ export async function runTask(raw?: string, opts: { compact?: string; noMemory?:
   // the One memory goes along only where the route may receive it (D-S2-29; the terminal runs on Claude in S2)
   const mem = opts.program || prevTurn || !mayReceive('terminal.task', 'memory', get().route) ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
-  const contextText=context(refs,mentions)+(opts.compact?'\n'+opts.compact:'')
+  const contextText=context(refs,mentions,pageId)+(opts.compact?'\n'+opts.compact:'')
   const text = mem.block ? `${contextText}\n\n${mem.block}` : contextText
   const prepared = opts.program?{setup:currentSetup(),prompt:task,memTools:false,codingTools:hasPipelines()||useCoding.getState().enabled,upsert:unlocked('upsert'),taskRules:canCreateItems()}:prepareTask(task)
   // ONE-only work must not attach remote schemas, credentials, instructions or old Atlas history.

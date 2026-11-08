@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {checkpointMock,adoptMockPreview,mockVersionKey,mockNoteHash,mockMarkdownTask,mockReviewTask,mockReviewSource,mockReviewUnavailable,MOCK_VERSION_LIMIT,type MockFeedback} from '../../src/shared/ai/mockReview.ts'
+import {checkpointMock,adoptMockPreview,mockVersionKey,mockSourcesKey,currentMockSourceCheck,mockNoteHash,mockMarkdownTask,mockReviewTask,mockReviewSource,mockReviewUnavailable,MOCK_VERSION_LIMIT,type MockFeedback} from '../../src/shared/ai/mockReview.ts'
 import {mockBlockData,type MockBlockData,type MockBlockPreview} from '../../src/shared/ai/mockBlock.ts'
 import {sha256Hex} from '../../src/shared/mcp/sha256.ts'
 const preview=(label:string):MockBlockPreview=>({title:label,document:'<body><button>'+label+'</button></body>',width:960,height:640,createdAt:'2026-11-05T00:00:00Z',htmlHash:sha256Hex('<body><button>'+label+'</button></body>'),targetUrl:''})
@@ -125,4 +125,22 @@ test('malformed rectangle annotations cannot silently become whole-body instruct
   n.region=region as any;if(region?.x===0)n.region!.width=Infinity
   d.journal!.notes.push(n);assert.equal(mockBlockData(d).journal!.notes.length,0)
  }
+})
+
+test('human fulfilment is bound to a saved version and is retained as feedback data',()=>{
+ const d=checkpointMock(data(),'initial'),n=note(d);n.reviewed={version:mockVersionKey(d.preview!),result:'partial',at:'2026-11-08T10:00:00Z'};d.journal!.notes.push(n)
+ const read=mockBlockData(d);assert.equal(read.journal!.notes[0].reviewed?.result,'partial');assert.equal(read.journal!.notes[0].resolved,false)
+ n.reviewed.version='missing';assert.equal(mockBlockData(d).journal!.notes[0].reviewed,undefined)
+})
+test('source check receipts require a saved matching preview and source identity',()=>{
+ const d=checkpointMock(data(),'initial')
+ const source={id:'s1',ref:12,title:'Design',server:'atlas',url:'https://atlas.example/r/12',hash:'a'.repeat(64),stateHash:'b'.repeat(64),readAt:'2026-11-08T10:00:00Z'}
+ const receipt={id:'11111111-1111-4111-8111-111111111111',sources:[source],draft:{title:'Example',width:960,height:640,design:{source:'s1',quote:'Badge definition'},authority:null,target:null,requirements:[],tokens:[{name:'--primary',value:'#a50034',source:'s1',quote:'Badge definition'}],components:[{name:'Badge',source:'s1',quote:'Badge definition'}],notes:[]},target:null}
+ d.preview!.provenance=receipt as any
+ const next=checkpointMock(d,'source version')
+ next.journal!.sourceCheck={version:mockVersionKey(next.preview!),sourceHash:mockSourcesKey(next.preview!),rows:[{ref:12,url:source.url,title:'Design',changed:true,at:'2026-11-08T10:00:00Z'}]}
+ assert.equal(mockBlockData(next).journal?.sourceCheck?.rows[0].changed,true)
+ const changed=structuredClone(next);changed.preview!.provenance!.sources[0].hash='c'.repeat(64);assert.equal(currentMockSourceCheck(changed),undefined)
+ next.journal!.sourceCheck.rows[0].url='https://unrelated.example/r/12'
+ assert.equal(mockBlockData(next).journal?.sourceCheck,undefined)
 })

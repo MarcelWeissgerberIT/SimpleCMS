@@ -1,14 +1,16 @@
 import {useEffect,useRef,useState} from 'react'
 import type {MockBlockData} from '@/shared/ai/mockBlock'
-import {checkpointMock,mockVersionKey,type MockFeedback} from '@/shared/ai/mockReview'
+import {checkpointMock,mockVersionKey,mockSourcesKey,currentMockSourceCheck,type MockFeedback} from '@/shared/ai/mockReview'
 import {checkMockSources} from './mockSourceChecks'
 import {elementPath} from './mockEvolution'
 export function MockSourcePanel({value,onChange,editable,de}:{value:MockBlockData;onChange:(v:MockBlockData)=>void;editable:boolean;de:boolean}){
+ const latest=useRef(value);latest.current=value
  const [rows,setRows]=useState<Awaited<ReturnType<typeof checkMockSources>>>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),ctrl=useRef<AbortController|null>(null)
- useEffect(()=>()=>ctrl.current?.abort(),[])
+ useEffect(()=>{setRows([]);return()=>ctrl.current?.abort()},[value.preview])
  const p=value.preview,receipt=p?.provenance
+ const visibleRows=currentMockSourceCheck(value)?.rows??rows
  if(!p||!receipt)return null
- const check=async()=>{if(ctrl.current)return;const c=new AbortController();ctrl.current=c;setBusy(true);setError('');try{setRows(await checkMockSources(receipt.sources,c.signal))}catch(e){setRows([]);setError(String(e instanceof Error?e.message:e))}finally{ctrl.current=null;setBusy(false)}}
+ const check=async()=>{if(ctrl.current)return;const c=new AbortController();ctrl.current=c;setBusy(true);setError('');try{const results=await checkMockSources(receipt.sources,c.signal);if(latest.current!==value)throw Error(de?'Der Mock wurde geändert. Erneut prüfen.':'The mock changed. Check again.');setRows(results);if(editable){const next=checkpointMock(value,de?'Quellenstand geprüft':'Sources checked');onChange({...next,journal:{...next.journal!,sourceCheck:{version:mockVersionKey(p),sourceHash:mockSourcesKey(p),rows:results}}})}}catch(e){setRows([]);setError(String(e instanceof Error?e.message:e))}finally{ctrl.current=null;setBusy(false)}}
  const queue=(ref:number)=>{try{
   const doc=new DOMParser().parseFromString(p.document,'text/html'),names=receipt.draft.components.filter(c=>receipt.sources.find(s=>s.id===c.source)?.ref===ref).map(c=>c.name),els=[...doc.querySelectorAll('[data-ds-component]')].filter(e=>names.includes(e.getAttribute('data-ds-component')!))
   const next=checkpointMock(value,'Vor Quellenaktualisierung'),existing=next.journal!.notes
@@ -17,5 +19,5 @@ export function MockSourcePanel({value,onChange,editable,de}:{value:MockBlockDat
   onChange({...next,journal:{...next.journal!,notes:[...existing,...notes]}});setError(de?'Aktualisierung unter Notizen vorgemerkt.':'Update queued under Notes.')
  }catch(e){setError(String(e))}}
  return <section className="mock-source-check"><h4>{de?'Stand der Designquellen':'Design source freshness'}</h4><button type="button" className="btn btn--sm" disabled={busy} onClick={()=>void check()}>{busy?(de?'Quellen werden geprüft …':'Checking sources …'):(de?'Quellen jetzt prüfen':'Check sources now')}</button><p className="faint">{de?'Liest die verwendeten Atlas-Quellen erneut. Änderungen werden erst nach deiner Annahme in den Mock übernommen.':'Re-reads the Atlas sources. Changes reach the mock only after your acceptance.'}</p>
- {rows.length>0&&<ul>{rows.map((r,i)=><li key={r.url+i}><a href={r.url} target="_blank" rel="noreferrer">{r.title}</a> · {r.changed?(de?'Geändert':'Changed'):(de?'Unverändert':'Unchanged')} · {new Date(r.at).toLocaleString()}{r.changed&&editable&&<button type="button" className="btn btn--sm" onClick={()=>queue(r.ref)}>{de?'Aktualisierung vormerken':'Queue update'}</button>}</li>)}</ul>}{error&&<p role="status">{error}</p>}</section>
+ {visibleRows.length>0&&<ul>{visibleRows.map((r,i)=><li key={r.url+i}><a href={r.url} target="_blank" rel="noreferrer">{r.title}</a> · {r.changed?(de?'Geändert':'Changed'):(de?'Unverändert':'Unchanged')} · {new Date(r.at).toLocaleString()}{r.changed&&editable&&<button type="button" className="btn btn--sm" onClick={()=>queue(r.ref)}>{de?'Aktualisierung vormerken':'Queue update'}</button>}</li>)}</ul>}{error&&<p role="status">{error}</p>}</section>
 }

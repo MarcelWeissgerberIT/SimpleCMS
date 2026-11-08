@@ -22,7 +22,7 @@ export function mockBlockData(raw: unknown, readHistory=true): MockBlockData {
   const receipt=preview.htmlHash===sha256Hex(preview.document)?mockProvenance(p.provenance):undefined
   Object.assign(preview,{provenance:receipt,colors:mockColors(p.colors,receipt),savedHtmlHash:typeof p.savedHtmlHash==='string'&&/^[a-f0-9]{64}$/.test(p.savedHtmlHash)?p.savedHtmlHash:undefined})
  }
- return {source: mockSourceUrl(a.source), requirement: text(a.requirement,2000), request: text(a.request,8000), preview, saveToEpic:a.saveToEpic===true,...(readHistory?{journal:readMockJournal(a.journal,p=>mockBlockData({preview:p},false).preview)}:{})}
+ return {source: mockSourceUrl(a.source), requirement: text(a.requirement,2000), request: text(a.request,8000), preview, saveToEpic:a.saveToEpic===true,...(readHistory?{journal:readMockJournal(a.journal,p=>mockBlockData({preview:p},false).preview,preview)}:{})}
 }
 export function mockBlockTask(data: MockBlockData): string | null {
  const source = mockSourceUrl(data.source), request = data.request.trim(), requirement = data.requirement.trim()
