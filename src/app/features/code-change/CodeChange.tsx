@@ -11,6 +11,8 @@ import {
 import { codeAccessScope, codeConnections, loadCodeEvidence } from '../code-evidence'
 import { generateCodeChange, verifyChangeSources, attachCodeChange, nativeCodeChange } from '../index'
 import type { Writer } from '../../store/writer'
+import {ResultProgress} from '../ai/workflow/ResultProgress'
+import {useLang} from '../../i18n'
 import { useT } from '../../i18n'
 import './code-change.css'
 export function CodeChange({
@@ -28,6 +30,7 @@ export function CodeChange({
   onSave: (raw: string, expected: string, writer: Writer) => boolean
   onCurrent: () => string | null
 }) {
+  const de=useLang()==='de'
   const t = useT(),
     k = (s: string) => t('codeChange.' + s)
   const a = useMemo(() => {
@@ -240,6 +243,7 @@ export function CodeChange({
         </strong>
         <span className="label">ONE · ATLAS</span>
       </header>
+      <ResultProgress phase={busy?'working':savedProposal&&a.accepted===savedProposal.id?'adopted':savedProposal?'review':'request'} blocked={!!error} saved={savedProposal?(de?'Patch-Vorschlag auf dieser One-Seite. Annahme in One und Übernahme ins Repository sind getrennt.':'Patch proposal on this One page. Acceptance in One and delivery to the repository are separate.'):(de?'Quellcode-Verweise; noch kein gespeicherter Patch.':'Source references; no saved patch yet.')} next={busy?(de?'Aktuelle Aktion abwarten.':'Wait for the current action.'):savedProposal&&a.accepted===savedProposal.id?(de?'Atlas-Übernahme und Repository-Status unten prüfen.':'Check Atlas delivery and repository status below.'):(de?'Änderungen je Datei vergleichen und den gewünschten Patch annehmen.':'Compare changes per file and accept the intended patch.')}/>
       {!a.files.length && (
         <>
           <h4>{k('scope')}</h4>

@@ -16,6 +16,7 @@ import { openHelp, openChangelog } from '../../help'
 import { useCloud } from '../../cloud'
 import { openCloudDialog } from '../cloud/state'
 import { openWorkspaceSettings } from '../workspace/open'
+import {openWorkOverview} from '../../features/ai/workflow/dialog'
 import { startTour } from '../tour/state'
 import { clearVisits } from './visits'
 import { toggleStar } from './favorites'
@@ -111,6 +112,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'whats-new', group: 'workspace', label: t('help.news.cmd'), icon: Newspaper, keywords: "what's new whats new changelog updates release notes neuigkeiten neu in one änderungen versionshinweise", run: () => { closeMobileSidebar(); openChangelog() } },
     { id: 'ai-setup', group: 'claude', label: t('features.ai.prov.needs.open'), icon: Plug, keywords: 'set up ai key keys provider providers claude jev router model models connect einrichten ki schlüssel anbieter modelle verbinden', run: () => { closeMobileSidebar(); openAISetup({ reason: 'add' }) } },
     { id: 'ask-ai', group: 'claude', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
+    { id: 'work-overview', group: 'navigate', label: ws.settings.language==='de'?'Arbeitsübersicht':'Work overview', icon: SquareKanban, keywords: 'work status results resume decisions arbeit ergebnisse fortsetzen entscheidungen', run: () => {closeMobileSidebar();openWorkOverview()} },
     { id: 'agent', group: 'claude', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
     // the Regler: usage, the red line, consumers and receipts of this device (#/regler)
     { id: 'regler', group: 'workspace', label: t('features.governor.cmd'), icon: CircleGauge, keywords: t('features.governor.cmdKeywords'), run: () => openRegler() },

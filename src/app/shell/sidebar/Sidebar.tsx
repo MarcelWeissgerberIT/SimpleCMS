@@ -35,6 +35,7 @@ import { INBOX_KEYS, useInboxShortcut } from '../inbox/keys'
 import { useInstallMenuEntries } from '../capture/Install.tsx'
 import './sidebar.css'
 import { openHelp, HelpNewsLed, useChangelogUnseen } from '../../help'
+import {openWorkOverview} from '../../features/ai/workflow/dialog'
 import { startTour } from '../tour/state'
 
 const MIN_W = 220
@@ -99,6 +100,7 @@ export function Sidebar() {
         <nav className="sb-nav" aria-label={t('shell.nav.label')}>
           <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
+          {!isTestAccess()&&<NavRow icon={<SquareKanban size={16}/>} label={useWorkspace.getState().settings.language==='de'?'Arbeitsübersicht':'Work overview'} onClick={()=>{closeMobileSidebar();openWorkOverview()}}/>}
           {!readOnly&&!isTestAccess()&&<NavRow icon={<Table2 size={16}/>} label={t('features.ai.program.nav')} active={route.name==='programs'} onClick={()=>{closeMobileSidebar();navigate({name:'programs'})}}/>}
           {inCloud && !isTestAccess() && <NavRow icon={<Users size={16} />} label={t('shell.nav.personalGuides')} active={route.name === 'personal-guides'} onClick={() => { closeMobileSidebar(); navigate({ name: 'personal-guides' }) }} />}
           <InboxNavRow active={route.name === 'inbox'} />

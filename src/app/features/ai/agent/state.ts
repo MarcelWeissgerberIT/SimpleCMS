@@ -148,6 +148,7 @@ export interface AgentState {
   focusTick: number
   focusWork: boolean
   focusTarget: TerminalTarget
+  focusChangeId?: string
   reader: TerminalReader | null
   layout: 'bottom' | 'side'
   /** One memory: proposal cards in the log */
@@ -283,7 +284,7 @@ export function stopAgent(): boolean {
 }
 
 /** Open the terminal, optionally with a task (run: start it right away). */
-export function openAgent(opts: { task?: string; run?: boolean; focusWork?: boolean; target?: TerminalTarget } = {}) {
+export function openAgent(opts: { task?: string; run?: boolean; focusWork?: boolean; target?: TerminalTarget; changeId?:string } = {}) {
   const task = opts.task?.trim()
   useAgent.setState((s) => ({
     open: true,
@@ -292,6 +293,7 @@ export function openAgent(opts: { task?: string; run?: boolean; focusWork?: bool
     autorun: !!task && !!opts.run && s.status !== 'running',
     focusTick: s.focusTick + 1,
     focusWork: !!opts.focusWork,
+    focusChangeId: opts.changeId,
     focusTarget: opts.target ?? (opts.focusWork ? (s.status === 'running' ? 'latest' : 'result') : task || s.open ? 'prompt' : 'resume'),
   }))
 }
