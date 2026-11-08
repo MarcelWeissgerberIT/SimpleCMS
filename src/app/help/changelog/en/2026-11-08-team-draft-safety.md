@@ -17,3 +17,5 @@ If a colleague saves a newer proposal while you are editing, One keeps your earl
 Simultaneous offline saves of code proposals, analysis reports, source-reference notes and UI contracts now preserve complete copies. Parallel code proposals show a warning and links to the other copies. Compare them and keep the intended copy before accepting or handing it to Atlas.
 
 Permission changes take effect in embedded controls immediately. One also reconnects reliably when a short network interruption ends while the old connection is still closing. Ordinary collaborative text editing continues as before.
+
+When a mock note cannot be saved because its source or write permission changed, One keeps the pending note and its selection and explains the failed save. Review the current state and retry explicitly. A state-design task is prepared only after its note was saved successfully.

@@ -59,11 +59,15 @@ async function selectBlocks(ed: Locator, a: string, b: string): Promise<void> {
         if (n.textContent.includes(b)) to = pos + 1 + n.content.size
         return false
       })
-      editor.chain().focus().setTextSelection({ from, to }).run()
+      editor.commands.setTextSelection({ from, to })
+      editor.view.focus()
     },
     [a, b] as const,
   )
-  await expect(ed).toBeFocused()
+  await ed.focus()
+  // A locked macOS desktop can report document.hasFocus() false in headless Chrome.
+  // Assert the actual keyboard target without depending on window activation.
+  await expect.poll(()=>ed.evaluate(el=>document.activeElement===el)).toBe(true)
 }
 
 const body = (title: string) => ({

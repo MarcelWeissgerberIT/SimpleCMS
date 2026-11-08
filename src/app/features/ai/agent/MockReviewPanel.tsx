@@ -7,7 +7,7 @@ import {checkpointMock,mockVersionKey,mockReviewTask,mockReviewUnavailable,mockM
 import type {MockBlockData} from '@/shared/ai/mockBlock'
 import {useWorkspace} from '../../../store/store'
 import {openAgent,useAgent} from './state'
-export function MockReviewPanel({focusItem,focusRequest,value,onChange,selection,region,onRemoveSelection,onClear,pageId,editable,mode,onLocate,onPreviewVersion}:{focusItem?:string;focusRequest?:string;value:MockBlockData;onChange:(v:MockBlockData)=>void;selection:MockElement[];region?:MockRegion;onRemoveSelection:(path:string)=>void;onClear:()=>void;pageId:string|null;editable:boolean;mode:'feedback'|'versions';onLocate:(note:MockFeedback)=>void;onPreviewVersion:(key:string)=>void}){
+export function MockReviewPanel({focusItem,focusRequest,value,onChange,selection,region,onRemoveSelection,onClear,pageId,editable,mode,onLocate,onPreviewVersion}:{focusItem?:string;focusRequest?:string;value:MockBlockData;onChange:(v:MockBlockData)=>boolean;selection:MockElement[];region?:MockRegion;onRemoveSelection:(path:string)=>void;onClear:()=>void;pageId:string|null;editable:boolean;mode:'feedback'|'versions';onLocate:(note:MockFeedback)=>void;onPreviewVersion:(key:string)=>void}){
  const t=useT()
  const de=useWorkspace(s=>s.settings.language==='de'),running=useAgent(s=>s.status==='running'),[text,setText]=useState(''),[intent,setIntent]=useState<MockFeedback['intent']>('check'),[scope,setScope]=useState<MockFeedback['scope']>('check'),[error,setError]=useState(''),[filter,setFilter]=useState('all')
  const j=value.journal,notes=j?.notes??[],p=value.preview
@@ -17,7 +17,7 @@ export function MockReviewPanel({focusItem,focusRequest,value,onChange,selection
  const save=()=>attempt(()=>{if(!editable||!p||!selection.length||!text.trim())return;if(notes.length>=MOCK_NOTE_LIMIT)throw Error(de?'150 Notizen gespeichert. Exportiere den Verlauf und beginne einen weiteren Block.':'150 notes saved. Export the history and start another block.')
   const next=checkpointMock(value,de?'Stand bei Rückmeldung':'Feedback snapshot')
   const note:MockFeedback={id:crypto.randomUUID(),at:new Date().toISOString(),version:mockVersionKey(p),element:selection[0],...(selection.length>1?{elements:selection}:{}),...(region?{region}:{}),text:text.trim().slice(0,3000),intent,scope,resolved:false,md:scope==='design-system'?'pending':'none'}
-  onChange({...next,journal:{...next.journal!,notes:[...next.journal!.notes,note]}});setText('');onClear()
+  if(!onChange({...next,journal:{...next.journal!,notes:[...next.journal!.notes,note]}}))return;setText('');onClear()
  })
  const patch=(id:string,part:Partial<MockFeedback>)=>{if(editable&&j)onChange({...value,journal:{...j,notes:notes.map(n=>n.id===id?{...n,...part}:n)}})}
  const task=pageId?mockReviewTask(value,pageId):null

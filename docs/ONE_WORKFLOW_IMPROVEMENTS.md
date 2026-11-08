@@ -52,3 +52,11 @@ Editor editability changes notify reactive node views without a content write or
 step. Source-reference save failures retain the form and report the conflict. Socket
 reconnect intent is set before connect(), including role refresh, because the provider can
 still report Connected while its previous socket is closing. That late close must retry.
+
+### Team review continuity (2026-11-08)
+
+The real team-server browser suite covers four asynchronous code-analysis phases, acceptance by a different member, task changes during a held model response and revoked write access before the response completes. Provider and Atlas replies are synthetic; no external writes or paid model calls are needed for these checks.
+
+Mock note writes acknowledge local editor acceptance before clearing the input and selection. Refused writes show a recoverable error; a state-design task is not prepared from an unsaved note. Online reviewers can compose independently while received notes update the journal; role downgrade disables saving while preserving an already open note for an explicit retry after write access returns.
+
+This is not an offline merge protocol for mock journals: a design mock still stores its journal in a single structured attribute. Simultaneous disconnected journal updates need a per-entry storage/merge design before they can be claimed as conflict-safe. Pending note input is component-local and must be saved before leaving the page.

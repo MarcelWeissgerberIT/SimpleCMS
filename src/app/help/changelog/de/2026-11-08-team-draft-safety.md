@@ -17,3 +17,5 @@ Speichert eine andere Person während deiner Bearbeitung einen neueren Vorschlag
 Gleichzeitige Offline-Speicherungen von Code-Vorschlägen, Analyseberichten, Quellcode-Notizen und UI-Verträgen erhalten vollständige Kopien. Parallele Code-Vorschläge zeigen einen Hinweis und Links zu den anderen Kopien. Vergleiche sie und behalte die gewünschte Kopie, bevor du sie annimmst oder an Atlas übergibst.
 
 Geänderte Berechtigungen wirken sofort auch in eingebetteten Bedienelementen. One verbindet sich außerdem zuverlässig wieder, wenn eine kurze Netzunterbrechung endet, während die alte Verbindung noch schließt. Die gemeinsame Bearbeitung gewöhnlicher Texte funktioniert weiter wie bisher.
+
+Kann eine Mock-Notiz wegen eines geänderten Stands oder fehlender Schreibrechte nicht gespeichert werden, bleiben die offene Notiz und ihre Markierung erhalten. One erklärt den fehlgeschlagenen Versuch. Prüfe den aktuellen Stand und speichere ausdrücklich erneut. Ein Auftrag für einen neuen Mock-Zustand wird erst vorbereitet, wenn seine Notiz erfolgreich gespeichert wurde.
