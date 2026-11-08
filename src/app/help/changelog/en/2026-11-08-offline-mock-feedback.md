@@ -1,7 +1,7 @@
 ---
 id: offline-mock-feedback
 date: 2026-11-08
-order: 0
+order: 2
 title: Keep both people's offline mock feedback
 summary: Separate notes and review decisions survive reconnecting and reloading.
 image: assets/shots/changelog/offline-mock-feedback.png

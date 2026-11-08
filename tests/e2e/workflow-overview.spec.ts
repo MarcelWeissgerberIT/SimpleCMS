@@ -8,6 +8,39 @@ import {workflowRepair} from '../../src/shared/ai/workflowRepair'
 
 test.beforeEach(async({page})=>{await page.route('**/api/config',r=>r.fulfill({json:{schema_min:6}}));await page.route('**/api/session',r=>r.fulfill({json:{}}))})
 const schema={type:'object',properties:{id:{type:'string'}},required:['id'],additionalProperties:false}
+test('all saved results remain reachable and searchable beyond the first twelve',async({page,aiNet},info)=>{
+ await openApp(page)
+ const ids:string[]=[]
+ for(let i=1;i<=13;i++){
+  const a=analysisFixture(true);a.active=a.revisions[0].id;a.revisions[0].state='accepted';a.question='Investigation '+String(i).padStart(2,'0')
+  ids.push(await createPage(page,{title:'Source '+String(i).padStart(2,'0'),content:doc({type:'codeBlock',attrs:{id:'saved-'+i,language:'code-analysis'},content:[{type:'text',text:JSON.stringify(a)}]})}))
+ }
+ await gotoPage(page,ids.at(-1)!)
+ await page.locator('.sb-nav').getByRole('button',{name:'Work overview',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'Work overview'}),saved=dialog.locator('details').filter({has:page.getByText('Saved results · 13',{exact:true})})
+ await saved.locator('summary').click()
+ await expect(saved.getByRole('button',{name:'Open saved result',exact:true})).toHaveCount(12)
+ await saved.getByRole('button',{name:'Show more saved results (1)',exact:true}).click()
+ await expect(saved.getByRole('button',{name:'Open saved result',exact:true})).toHaveCount(13)
+ await expect(saved.getByRole('button',{name:/Show more saved results/})).toHaveCount(0)
+ await saved.getByRole('searchbox',{name:'Search saved results'}).fill('Source 01')
+ await expect(saved.getByRole('button',{name:'Open saved result',exact:true})).toHaveCount(1)
+ await expect(saved).toContainText('Investigation 01')
+ for(const theme of ['light','dark'])for(const width of [1440,390]){
+  await wsEval(page,(s,theme)=>s.updateSettings({theme}),theme);await page.setViewportSize({width,height:width===390?844:900})
+  await saved.scrollIntoViewIfNeeded();expect(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth+1)).toBe(true)
+  await saved.screenshot({path:info.outputPath(`saved-results-${theme}-${width}.png`)})
+ }
+ await saved.getByRole('searchbox',{name:'Search saved results'}).fill('No such source')
+ await expect(saved).toContainText('No saved results match your search.')
+ await saved.getByRole('button',{name:'Clear result search',exact:true}).click()
+ await expect(saved.getByRole('button',{name:'Open saved result',exact:true})).toHaveCount(12)
+ await saved.getByRole('searchbox',{name:'Search saved results'}).fill('Investigation 01')
+ await saved.getByRole('button',{name:'Open saved result',exact:true}).click()
+ await expect(dialog).toHaveCount(0);await expect(page).toHaveURL(new RegExp('/p/'+ids[0]+'\\?b=saved-1'))
+ await expect(page.getByRole('region',{name:'Code analysis',exact:true}).locator('.result-progress')).toHaveAttribute('data-phase','adopted')
+ expect(aiNet.count('anthropic')).toBe(0)
+})
 test('recipes compile with source inputs, fresh reads and a human review; invalid recovery costs are refused',()=>{
  const recipe=analysisRecipe('Check timeout handling',['source-a','source-b','source-a'],schema)
  expect(()=>compileProgram(recipe)).not.toThrow()

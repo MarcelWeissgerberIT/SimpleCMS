@@ -1,5 +1,9 @@
 import type {Messages} from '@/shared/i18n'
 export const messages:Messages={en:{
+ 'workflow.searchResults':'Search saved results',
+ 'workflow.clearResultSearch':'Clear result search',
+ 'workflow.noResults':'No saved results match your search.',
+ 'workflow.moreResults':'Show more saved results',
  'workflow.resetFilters':'Reset filters',
  'workflow.openTaskSource':'Open task source',
  'workflow.sourceUnavailable':'The original task page is no longer available.',
@@ -10,6 +14,10 @@ export const messages:Messages={en:{
  'workflow.locationMissing':'The linked version or item is no longer available. The saved block is shown; nothing was changed.',
  'workflow.locationBusy':'This block is currently working. Open the link again after the current operation finishes.',
 },de:{
+ 'workflow.searchResults':'Gespeicherte Ergebnisse suchen',
+ 'workflow.clearResultSearch':'Ergebnissuche löschen',
+ 'workflow.noResults':'Keine gespeicherten Ergebnisse passen zu deiner Suche.',
+ 'workflow.moreResults':'Weitere gespeicherte Ergebnisse anzeigen',
  'workflow.resetFilters':'Filter zurücksetzen',
  'workflow.openTaskSource':'Auftragsseite öffnen',
  'workflow.sourceUnavailable':'Die ursprüngliche Auftragsseite ist nicht mehr verfügbar.',
