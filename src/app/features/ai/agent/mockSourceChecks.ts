@@ -18,7 +18,7 @@ export async function mockAtlasSession(sources:DesignMock['sources'],signal:Abor
  const remote=workerMcpSession(attached.worker,signal,()=>{},30000)
  for(const name of names){await remote('one_mcp_search',{query:name},crypto.randomUUID());if(!remote.schema(server.name,name))throw Error('Atlas-Werkzeug nicht verfügbar: '+name)}
  const call=async(name:string,args:Record<string,unknown>)=>{check();validateValue(args,remote.schema(server.name,name)!.inputSchema,name);const raw=remote.materializeResult(await remote('one_mcp_call',{server:server.name,name,arguments:args,fresh:true},crypto.randomUUID()));check();const data=atlasData(raw);if(!data||data.ok===false||data.error||JSON.parse(raw).isError)throw Error('Atlas hat die Anfrage nicht bestätigt.');return data}
- const read=async(ref:number)=>{const data=await call('atlas_get',{ref,parts:['body'],includeConstraints:'none'}),item=data.item??data.record??data;if(item.ref!==ref||typeof item.body!=='string'||item.archived)throw Error('Atlas-Quelle ist nicht vollständig lesbar: #'+ref);return item}
+ const read=async(ref:number)=>{const data=await call('atlas_get',{ref,parts:['body'],includeConstraints:'none'}),item=data.item??data.record??data;if(data.truncated||item.truncated||item.ref!==ref||typeof item.body!=='string'||item.archived)throw Error('Atlas-Quelle ist nicht vollständig lesbar: #'+ref);return item}
  return {check,read,call,schema:(name:string)=>remote.schema(server.name,name)!.inputSchema}
 }
 export async function checkMockSources(sources:DesignMock['sources'],signal:AbortSignal){

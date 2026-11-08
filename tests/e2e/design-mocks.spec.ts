@@ -1,4 +1,5 @@
 import {readFile} from 'node:fs/promises'
+import {packageFixture} from './helpers/packageFreshness.mjs'
 import {createHash} from 'node:crypto'
 import {test,expect,openApp,wsEval,createPage,gotoPage,doc,para,MOD,editorOf,reloadApp} from './fixtures'
 import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
@@ -18,8 +19,8 @@ const draft=(request:any,html?:string)=>{
 const cloudUpload=async(page:any,fake:FakeWorker,options:{changed?:boolean;badHash?:boolean;failAt?:number;changeAccess?:boolean}={})=>{
  const uploads:any[]=[]
   await wsEval(page,s=>{s.updateSettings({workspaceMcpServers:s.settings.mcpServers});s.setWorkspaceAI({...s.ai,onboarding:{startPageId:'mock-start',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',mcpName:'atlas',project:'fixture',tenant:'analytik-jena',skipIntro:true}})})
-  await page.evaluate(()=>(window as any).__oneCloud.set({active:{kind:'cloud',id:'mock-fixture'},user:{id:'mock-user',email:'mock@example.org',name:'Test Member'},supports:['atlas-mcp:1'],schemaMin:6,role:'owner',readOnly:false}))
   await page.route('**/api/workspaces/mock-fixture/atlas-mcp',async route=>{const r=route.request().postDataJSON();if(options.changeAccess&&r.name==='atlas_get'){await wsEval(page,s=>s.updateSettings({workspaceMcpServers:s.settings.workspaceMcpServers.map((v:any)=>({...v,token:'replacement-synthetic-access'}))}));options.changeAccess=false}let reply:any;if(r.action==='search')reply={tools:[{server:'atlas',name:r.query,inputSchema:r.query==='atlas_attach'?{type:'object',properties:{ref:{type:'integer'},filename:{type:'string'},mime:{type:'string'},text:{type:'string'},contentBase64:{type:'string'}},required:['ref','filename']}:{type:'object',properties:{ref:{type:'integer'},parts:{type:'array',items:{type:'string'}},includeConstraints:{type:'string'}},required:['ref']}}]};else if(r.name==='atlas_attach'){if(options.failAt===uploads.length+1){await route.fulfill({json:{result:JSON.stringify({isError:true,content:[{type:'text',text:'Attachment permission refused by Atlas.'}]})}});return}uploads.push(r.arguments);const bytes=r.arguments.contentBase64?Buffer.from(r.arguments.contentBase64,'base64'):Buffer.from(r.arguments.text);reply={result:JSON.stringify({content:[{type:'text',text:JSON.stringify({ok:true,attachment:{filename:r.arguments.filename,sha256:options.badHash?'0'.repeat(64):createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length,url:'https://aj-atlas.com/mock/'+encodeURIComponent(r.arguments.filename)}})}]})}}else if(options.changed&&r.action==='call'&&r.arguments.ref===12)reply={result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:12,title:'Example Kit v5',body:catalogue+' Changed after preview.'}})}]})};else reply=fake.onModelMcp!(r);await route.fulfill({json:reply})})
+  await page.evaluate(()=>(window as any).__oneCloud.set({active:{kind:'cloud',id:'mock-fixture'},user:{id:'mock-user',email:'mock@example.org',name:'Test Member'},supports:['atlas-mcp:1'],schemaMin:6,role:'owner',readOnly:false}))
  return uploads
 }
 test.describe('Source-grounded HTML and PNG design mocks',()=>{
@@ -312,6 +313,34 @@ test.describe('Source-grounded HTML and PNG design mocks',()=>{
  for(const [label,options,expected] of [['changed source',{changed:true},'source changed'],['mismatched attachment bytes',{badHash:true},'did not confirm'],['partial upload',{failAt:2},'Access denied'],['changed personal access',{changeAccess:true},'configuration changed']] as const)test(label+' does not claim Atlas publication or store files in ONE',async({page})=>{
   let n=0;fake.onText=r=>{const i=n++,calls=i===0?[{id:'s',name:'one_mcp_search',arguments:{query:'atlas_get'}}]:i<=3?[{id:'r'+i,name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:11+i}}}]:i===4?[{id:'find',name:'one_workspace_search',arguments:{query:'create_design_mock'}}]:i===5?[{id:'mock',name:'one_workspace_call',arguments:{name:'create_design_mock',arguments:draft(r)}}]:[];return {model:r.model,text:calls.length?'':'Static mock ready.',calls,inputTokens:100,outputTokens:80,usd:0}}
   const term=await start(page,'local'),card=term.getByRole('region',{name:'Design mock',exact:true});await expect(card).toBeVisible({timeout:20000});await expect(term.locator('.term-head__status')).toHaveText('Done');const uploads=await cloudUpload(page,fake,options);await card.getByRole('button',{name:'Attach to Atlas record',exact:true}).click();await expect(card.getByRole('alert')).toContainText(expected,{timeout:10000});await expect(card).not.toContainText('Saved in Atlas');expect(uploads.length).toBe(options.changed||label==='changed personal access'?0:1);if(options.failAt){await expect(card.getByRole('status')).toContainText('1 of 3 files confirmed at Atlas record #14');await expect(card.getByRole('status')).toContainText('Nothing is repeated automatically');await term.locator('.term-key--max').click();await card.getByRole('status').scrollIntoViewIfNeeded();await page.screenshot({path:'/tmp/one-mock-partial-upload.png'})}await expect(term.locator('#term-review-title')).toHaveCount(0);expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),target)).not.toContain('onefile:')
+ })
+
+ test('Atlas package refresh is visible on the mock and rechecks changed components after reload',async({page})=>{
+  const {records,spec}=packageFixture();let changed=false,denied=false,truncated=false
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{name:'atlas_get',server:'atlas',inputSchema:{type:'object',properties:{ref:{type:'integer'},parts:{type:'array'},includeConstraints:{type:'string'}},required:['ref']}}]}:{result:JSON.stringify(denied?{isError:true,content:[{type:'text',text:'Access denied'}]}:{item:{...records.find(x=>x.ref===r.arguments.ref),...(changed&&r.arguments.ref===13?{body:records[1].body+' Added compact variant.'}:{}),...(truncated?{truncated:true}:{})}})}
+  const id=await createPage(page,{title:'Package refresh',content:doc({type:'designMock',attrs:{spec},content:[para('Status mock')]})});await gotoPage(page,id)
+  const block=page.locator('.mock-block'),status=block.getByRole('region',{name:'Atlas package freshness'})
+  await expect(status).toHaveAttribute('data-state','current');await expect(status).toContainText('Used Atlas sources up to date')
+  const before=fake.mcpAsked.filter(r=>r.action==='call').length
+  for(const name of ['Atlas','Notes','Mock'])await block.getByRole('tab',{name,exact:true}).click()
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(before)
+  changed=true;await reloadApp(page);await gotoPage(page,id)
+  await expect(status).toHaveAttribute('data-state','changed');await expect(status).toContainText('Badge definition');await expect(status).toContainText('Used components: Badge')
+  const saved=await wsEval(page,(s,id)=>s.pages[id].content.content.find((n:any)=>n.type==='designMock').attrs.spec,id)
+  expect(saved.preview.document).toBe(spec.preview.document);expect(saved.journal.sourceCheck.rows.find((r:any)=>r.ref===13).changed).toBe(true);expect(fake.textAsked).toHaveLength(0)
+  await status.getByRole('button',{name:'Atlas details'}).click();await status.getByRole('button',{name:'Queue update'}).click();await expect(status).toHaveAttribute('data-state','changed');await expect(status).toContainText('Update queued under Notes')
+  await status.screenshot({path:'/tmp/one-package-status-desktop.png'})
+  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(400);await status.scrollIntoViewIfNeeded();expect(await status.evaluate(e=>e.scrollWidth<=e.clientWidth+1)).toBe(true);await status.screenshot({path:'/tmp/one-package-status-mobile.png'})
+  denied=true;await status.getByRole('button',{name:'Check sources now'}).click();await expect(status).toHaveAttribute('data-state','unavailable');await expect(status).toContainText('Last saved comparison');await expect(status).not.toContainText('Used Atlas sources up to date')
+  denied=false;truncated=true;await status.getByRole('button',{name:'Check sources now'}).click();await expect(status).toHaveAttribute('data-state','unavailable')
+  truncated=false;changed=false;await status.getByRole('button',{name:'Check sources now'}).click();await expect(status).toHaveAttribute('data-state','current');expect(fake.textAsked).toHaveLength(0)
+ })
+ test('automatic Atlas checks keep locked mock content unchanged and invalidate removed access',async({page})=>{
+  const {records,spec}=packageFixture()
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{name:'atlas_get',server:'atlas',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:JSON.stringify({item:records.find(x=>x.ref===r.arguments.ref)})}
+  const id=await createPage(page,{title:'Locked package mock',content:doc({type:'designMock',attrs:{spec},content:[para('Locked status mock')]})});await wsEval(page,(s,id)=>s.updatePageSettings(id,{locked:true}),id);const before=await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id);await gotoPage(page,id)
+  const status=page.getByRole('region',{name:'Atlas package freshness'});await expect(status).toHaveAttribute('data-state','current');expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)).toBe(before)
+  await wsEval(page,s=>s.updateSettings({mcpServers:[]}));await expect(status).toHaveAttribute('data-state','unavailable');expect(fake.textAsked).toHaveLength(0)
  })
 
  test('source freshness and Markdown approval detect conflicts and verify uncertain writes without replay',async({page})=>{
