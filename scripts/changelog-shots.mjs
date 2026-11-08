@@ -943,6 +943,22 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'saved-results'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    let id
+    for(let i=1;i<=13;i++){
+      const a=analysisFixture(true);a.active=a.revisions[0].id;a.revisions[0].state='accepted'
+      a.question=i===1?'Status labels and accessible controls':'Protocol review '+i
+      id=await createPage(page,i===1?'UI review · saved decision':'Protocol source '+i,doc({type:'codeBlock',attrs:{id:'saved-result-'+i,language:'code-analysis'},content:[{type:'text',text:JSON.stringify(a)}]}))
+    }
+    await openPage(page,id)
+    await page.locator('.sb-nav').getByRole('button',{name:'Work overview',exact:true}).click()
+    const saved=page.getByRole('dialog',{name:'Work overview'}).locator('details').filter({has:page.getByText('Saved results · 13',{exact:true})})
+    await saved.locator('summary').click()
+    await saved.getByRole('searchbox',{name:'Search saved results'}).fill('UI review')
+    await saved.scrollIntoViewIfNeeded();await rest(page)
+    await save(page,'saved-results',await boxOf(saved,12));await ctx.close()
+  },
   async 'resilient-workflows'(browser) {
     const {ctx,page}=await freshPage(browser)
     const a=analysisFixture(true)

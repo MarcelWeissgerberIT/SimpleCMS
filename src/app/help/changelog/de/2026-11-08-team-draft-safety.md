@@ -1,7 +1,7 @@
 ---
 id: team-draft-safety
 date: 2026-11-08
-order: 1
+order: 3
 title: Dein Arbeitsstand bleibt beim Weiterarbeiten erhalten
 summary: Private Patch-Entwürfe überstehen Seitenwechsel; gleichzeitig gespeicherte Kopien bleiben vollständig.
 image: assets/shots/changelog/team-draft-safety.png

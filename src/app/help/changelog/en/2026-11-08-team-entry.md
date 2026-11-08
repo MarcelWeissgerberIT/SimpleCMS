@@ -1,7 +1,7 @@
 ---
 id: team-entry
 date: 2026-11-08
-order: 6
+order: 8
 title: Reach your team and invitation form directly
 summary: Mobile invitations open in view; a first sign-in opens your personal space.
 image: assets/shots/changelog/team-entry.png
