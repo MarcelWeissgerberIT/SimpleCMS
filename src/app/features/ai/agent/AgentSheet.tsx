@@ -86,7 +86,8 @@ const pad = (n: number, w = 2) => String(n).padStart(w, '0')
 
 /** The Regler's halt card (its own lazy chunk — the dial and the plate's styles come with it). */
 const HaltCard = lazy(loadHaltCard)
-const WorkflowOverview=lazy(()=>import('../workflow/WorkflowOverview'))
+import {TurnResultStatus} from '../workflow/TurnResultStatus'
+import {openWorkOverview} from '../workflow/dialog'
 
 
 
@@ -203,7 +204,7 @@ export default function AgentSheet() {
         else {restoreAnchor.current=savedReader.anchor;scroll.scrollTop=savedReader.top;restoreReading()}
         scroll.focus({preventScroll:true})
       } else if (target === 'review') {
-        const row = rootRef.current?.querySelector<HTMLElement>('.term-change[data-status="pending"]')
+        const row = (state.focusChangeId?[...rootRef.current?.querySelectorAll<HTMLElement>('.term-change')??[]].find(el=>el.dataset.change===state.focusChangeId):null)??rootRef.current?.querySelector<HTMLElement>('.term-change[data-status="pending"]')
         if (row && scroll) {stickRef.current=false;setFollowing(false);scroll.scrollTop+=row.getBoundingClientRect().top-scroll.getBoundingClientRect().top;row.focus({preventScroll:true})}
         else goToCurrent('result')
       } else if (target === 'latest' || target === 'decision') goToCurrent('latest')
@@ -494,7 +495,6 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
 
 function Head({side,wide}: {side:boolean;wide:boolean}) {
   const [optionsOpen,setOptionsOpen]=useState(false)
-  const [workOpen,setWorkOpen]=useState(false)
   const t = useT()
   const lang = useLang()
   const status = useAgent((s) => s.status)
@@ -511,7 +511,6 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
   const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' ? 'led led--ok' : 'led led--on'
   return (
     <header className="term-head">
-      {workOpen&&<Suspense fallback={null}><WorkflowOverview onClose={()=>setWorkOpen(false)}/></Suspense>}
       <span className={led} aria-hidden />
       <h2 id="term-title" className="term-head__title">
         {t('features.agent.title')}
@@ -571,7 +570,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
       )}
 <button type="button" className="term-key term-key--label" onClick={()=>openSkills(skill=>{useAgent.setState(s=>({draft:s.draft.trimEnd()+' $'+skill.spec.name+'@'+skill.version}));focusPrompt()})} aria-label={t('features.ai.skills.title')}>{t('features.ai.skills.short')}</button>
 <button type="button" className="term-key term-key--label" onClick={openReviewProfiles} aria-label={t('features.ai.cube.title')} title={t('features.ai.cube.title')}>{t('features.ai.cube.short')}</button>
-<button type="button" className="term-key term-key--label" onClick={()=>setWorkOpen(true)}>{lang==='de'?'Arbeitsübersicht':'Work overview'}</button>
+<button type="button" className="term-key term-key--label" onClick={openWorkOverview}>{lang==='de'?'Arbeitsübersicht':'Work overview'}</button>
 <button type="button" className="term-key term-key--label" onClick={()=>openPrograms()} aria-label={t('features.ai.program.title')} title={t('features.ai.program.title')}>{t('features.ai.program.short')}</button>
       <button type="button" className="term-key" onClick={newTask} disabled={!turns && !changes} aria-label={t('features.agent.newTask')} title={`${t('features.agent.newTask')} (/new)`}>
         <RotateCcw size={13} strokeWidth={1.75} aria-hidden />
@@ -761,6 +760,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <span className="term-turn__ctxlabel">{t('features.agent.ctx.label')}</span> {ctxParts.join(' · ')}
         </p>
       )}
+      <TurnResultStatus turn={turn}/>
       {turn.cost&&<p className="term-run-cost">{turn.cost.partial?'≈ ':''}${turn.cost.usd.toFixed(4)} · {turn.cost.requests} {lang==='de'?'Modellantworten':'model responses'} {turn.cost.partial?'(≈)':''}</p>}
       {turn.contract&&<TaskContractCard report={turn.contract}/>}
       <ol className="term-steps" role="log" aria-label={t('features.agent.log')} aria-live="polite">
