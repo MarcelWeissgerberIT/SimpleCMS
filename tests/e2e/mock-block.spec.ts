@@ -206,3 +206,32 @@ test('free areas span unrelated controls and empty space, survive reload and reo
  await page.keyboard.press('Escape');await block.getByRole('tab',{name:'Mock',exact:true}).click();await expect(block.getByRole('button',{name:'Mark area',exact:true})).toHaveAttribute('aria-pressed','false')
  await page.frameLocator('.mock-block__preview iframe').getByRole('checkbox').check();await expect(page.frameLocator('.mock-block__preview iframe').getByRole('checkbox')).toBeChecked()
 })
+
+test('a refused mock write keeps the note and selection for a deliberate retry',async({page})=>{
+ await openApp(page)
+ const document='<html><body><button data-ds-component="Button">Submit protocol</button></body></html>'
+ const id=await createPage(page,{title:'Feedback write conflict',content:doc({type:'designMock',attrs:{id:'conflict-mock',spec:{source:'https://aj-atlas.com/r/12',preview:{title:'Protocol review',document,width:640,height:320,createdAt:'2026-11-08',htmlHash:createHash('sha256').update(document).digest('hex'),targetUrl:''}}},content:[para('Protocol review')]})});await gotoPage(page,id)
+ const block=page.locator('.mock-block')
+ await block.getByRole('button',{name:'Mark element',exact:true}).click()
+ await page.frameLocator('.mock-block__preview iframe').getByRole('button',{name:'Submit protocol',exact:true}).click()
+ await block.getByRole('button',{name:'Write note for selection',exact:true}).click()
+ const note=block.getByRole('textbox',{name:'Note on selected element',exact:true})
+ await note.fill('Show the confirmation before submitting the protocol.')
+ // Permission can change between the rendered button and its event handler.
+ // Change editor access in capture phase so React still has the old editable props.
+ await block.getByRole('button',{name:'Save note',exact:true}).evaluate(button=>button.addEventListener('click',()=>{
+  const editor=(document.querySelector('.tiptap') as any).editor
+  editor.setEditable(false,false)
+ },{capture:true,once:true}))
+ await block.getByRole('button',{name:'Save note',exact:true}).click()
+ await expect(block.getByRole('alert')).toContainText('Not saved:')
+ await expect(note).toHaveValue('Show the confirmation before submitting the protocol.')
+ await expect(block.getByRole('alert')).toBeInViewport()
+ await page.screenshot({path:'test-results/mock-feedback-retained.png',animations:'disabled'})
+ await expect(block.getByText('Selected elements: 1',{exact:true})).toBeVisible()
+ expect(await wsEval(page,(s,id)=>s.pages[id].content.content.find((n:any)=>n.type==='designMock').attrs.spec.journal?.notes??[],id)).toEqual([])
+ await editorOf(page).evaluate((el:any)=>{el.editor.setEditable(true);el.editor.view.dispatch(el.editor.state.tr.setMeta('one:editable',true))})
+ await block.getByRole('button',{name:'Save note',exact:true}).click()
+ await expect(note).toHaveCount(0);await expect(block.getByRole('alert')).toHaveCount(0)
+ expect(await wsEval(page,(s,id)=>s.pages[id].content.content.find((n:any)=>n.type==='designMock').attrs.spec.journal.notes.map((n:any)=>n.text),id)).toEqual(['Show the confirmation before submitting the protocol.'])
+})
