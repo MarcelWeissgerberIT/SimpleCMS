@@ -1,7 +1,7 @@
 ---
 id: script-editor
 date: 2026-11-08
-order: 1
+order: 2
 title: Mehr Platz für Skripte
 summary: Text suchen und ersetzen, zu einer Zeile springen und den Code in den Fokus nehmen.
 image: assets/shots/changelog/script-editor.webp

@@ -1,7 +1,7 @@
 ---
 id: team-entry
 date: 2026-11-08
-order: 11
+order: 12
 title: Direkt zum Team und zum Einladungsformular
 summary: Mobile Einladungen öffnen sichtbar; die erste Anmeldung führt in deinen persönlichen Bereich.
 image: assets/shots/changelog/team-entry.png

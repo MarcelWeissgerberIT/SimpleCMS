@@ -1,7 +1,7 @@
 ---
 id: script-editor
 date: 2026-11-08
-order: 1
+order: 2
 title: More room for scripts
 summary: Find and replace text, jump to a line and focus on your code.
 image: assets/shots/changelog/script-editor.webp

@@ -220,3 +220,41 @@ test('a saved interrupted stage settles its known cost once and resumes under th
  expect(receipt.spentUsd).toBeGreaterThan(.25)
  expect(receipt.analysisCheckpoint).toBeNull()
 })
+
+test('persisted source failures show readable recovery without overlap or automatic requests', async ({ page, aiNet }, info) => {
+  const { seedFailedAnalysis } = await import('./helpers/failedAnalysisStory.mjs')
+  const id = await setup(page)
+  await wsEval(page, (s, id) => s.updatePage(id, { title: 'Protocol requirements and ActivityExecutionEndpoints.cs · source review' }), id)
+  await seedFailedAnalysis(page, id)
+  const box = page.locator('.ctk-box--err')
+  await expect(box).toContainText('Source check:')
+  await expect(box).toContainText('Open the named sources')
+  await expect(box.locator('details')).not.toHaveAttribute('open', '')
+  for (const language of ['de', 'en']) {
+    await wsEval(page, (s, language) => s.updateSettings({ language }), language)
+    for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await box.scrollIntoViewIfNeeded()
+      expect(await box.evaluate(e => {
+        const parent = e.getBoundingClientRect()
+        const children = Array.from(e.children).map(c => c.getBoundingClientRect())
+        return e.scrollWidth <= e.clientWidth + 1 && children.every((r, i) => r.left >= parent.left && r.right <= parent.right && (!i || r.top >= children[i - 1].bottom))
+      })).toBe(true)
+      const retry = box.getByRole('button', { name: language === 'de' ? 'Erneut versuchen' : 'Retry', exact: true })
+      expect(await retry.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true)
+      await expect(box).toBeInViewport()
+      await page.screenshot({ path: info.outputPath(`source-error-${language}-${theme}-${width}.png`) })
+    }
+  }
+  await box.locator('summary').click()
+  await expect(box.locator('details p')).toBeVisible()
+  await expect(box.locator('details p')).toContainText('task_sources_observed')
+  expect(await box.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true)
+  await page.reload()
+  await expect(box).toContainText('Source check:')
+  expect(aiNet.count('anthropic')).toBe(0)
+  await page.evaluate(() => (window as any).__one.cloud.useCloud.setState({ readOnly: true }))
+  await expect(box.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+  await expect(box.getByRole('button', { name: /Protocol requirements/ })).toBeVisible()
+})
