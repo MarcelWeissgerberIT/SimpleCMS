@@ -113,8 +113,12 @@ test('work links open the exact mock note, including notes outside the current f
  await expect(block.getByLabel('Filter notes')).toHaveValue('all')
  for(const theme of ['light','dark'])for(const width of [1440,390]){
   await wsEval(page,(s,theme)=>s.updateSettings({theme}),theme);await page.setViewportSize({width,height:width===390?844:900})
+  if(width===390){
+   await expect(page.locator('.app')).toHaveAttribute('data-mobile','true')
+   await expect.poll(()=>page.locator('.sb').evaluate(e=>e.getBoundingClientRect().right)).toBeLessThanOrEqual(1)
+  }else await expect(page.locator('.app')).not.toHaveAttribute('data-mobile')
   await block.locator('[data-work-item="note-1"]').scrollIntoViewIfNeeded()
-  await page.screenshot({path:info.outputPath(`linked-note-${theme}-${width}.png`)})
+  await page.screenshot({path:info.outputPath(`linked-note-${theme}-${width}.png`),animations:'disabled'})
  }
  expect(aiNet.count('anthropic')).toBe(0)
 })
