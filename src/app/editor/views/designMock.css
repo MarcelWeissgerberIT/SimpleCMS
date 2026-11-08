@@ -85,3 +85,5 @@
 
 .mock-block__selection-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .mock-block-modal .mock-block__selection-tools{margin-bottom:12px}
+
+.mock-source-check{margin:12px 0;padding:12px;border:1px solid var(--rule);border-left:3px solid var(--rule);border-radius:4px;font-size:13px;overflow-wrap:anywhere}.mock-source-check[data-state=changed],.mock-source-check[data-state=unavailable]{border-left-color:var(--signal)}.mock-source-check[data-state=current]{border-left-color:var(--ink)}.mock-source-check__summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mock-source-check__summary strong{margin-right:auto}.mock-source-check p{margin:8px 0 0}.mock-source-check ul{padding-left:18px}.mock-source-check li{margin-top:8px}

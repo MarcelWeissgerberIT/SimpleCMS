@@ -1,0 +1,8 @@
+import {createHash} from 'node:crypto'
+const hash=s=>createHash('sha256').update(s).digest('hex')
+export function packageFixture(){
+ const records=[{ref:12,title:'Example UI package',project:'example',kind:'epic',tags:['ui-package:example'],body:'Current UI package with badge component. <!-- ui-collection-members: [{"ref":13,"name":"Badge","category":"component"}] -->'},{ref:13,title:'Badge definition',project:'example',kind:'doc',parent:{ref:12},tags:['ui-package:example'],body:'Badge uses --ink: #111111. Status is visible as a badge.'}]
+ const sources=records.map((r,i)=>({id:'S'+i,ref:r.ref,title:r.title,server:'atlas',url:'https://aj-atlas.com/r/'+r.ref,readAt:'2026-11-08T08:00:00Z',hash:hash(r.body),stateHash:hash(JSON.stringify(Object.fromEntries(['ref','title','project','tenant','tenantSlug','kind','status','fields','archived','confirmed','parent','tags'].filter(k=>Object.hasOwn(r,k)).map(k=>[k,r[k]]))))}))
+ const document='<html><body><span data-ds-component="Badge">Ready</span></body></html>'
+ return {records,spec:{source:sources[0].url,requirement:'',request:'Status as a badge',preview:{title:'Status mock',document,width:960,height:640,createdAt:'2026-11-08T08:00:00Z',htmlHash:hash(document),targetUrl:'',provenance:{id:'package-mock',sources,target:null,atlasContext:{ref:12,title:records[0].title,project:'example',tag:'ui-package:example',url:sources[0].url},draft:{title:'Status mock',width:960,height:640,design:{source:'S0',quote:'Current UI package with badge component.'},authority:null,target:null,requirements:[],tokens:[{name:'--ink',value:'#111111',source:'S1',quote:'Badge uses --ink: #111111.'}],components:[{name:'Badge',source:'S1',quote:'Status is visible as a badge.'}],notes:[]}}}}}
+}
