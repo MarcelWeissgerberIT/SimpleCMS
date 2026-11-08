@@ -65,6 +65,8 @@ export function DesignMockView({node,editor,getPos}:ReactNodeViewProps) {
   setActionError('');return true
  }
  const [device,setDevice]=useState('original'),[scenario,setScenario]=useState('empty'),[actionError,setActionError]=useState('')
+ const actionErrorRef=useRef<HTMLParagraphElement|null>(null)
+ useEffect(()=>{if(actionError)actionErrorRef.current?.scrollIntoView({block:'nearest'})},[actionError])
  const preview=spec.preview
  const displayWidth=device==='mobile'?390:device==='tablet'?768:device==='desktop'?1440:preview?.width??960
  const requestChange=(element:MockElement,text:string,variant?:string)=>{if(!preview||!editable||!pageId)return;try{const next=checkpointMock(spec,'Vor Änderung'),note:MockFeedback={id:crypto.randomUUID(),at:new Date().toISOString(),version:mockVersionKey(preview),element,text,intent:'replace',scope:'mock',resolved:false,md:'none',scenario:variant};if(next.journal!.notes.length>=150)throw Error('Notizlimit erreicht.');next.journal={...next.journal!,notes:[...next.journal!.notes,note]};if(!change(next))return;setTab('feedback');const isolated={...next,journal:{...next.journal,notes:[note]}};const task=mockReviewTask(isolated,pageId);if(task)void import('../../features').then(m=>m.openAgent({task,run:false}));setActionError('')}catch(e){setActionError(String(e))}}
@@ -104,7 +106,7 @@ export function DesignMockView({node,editor,getPos}:ReactNodeViewProps) {
  return <NodeViewWrapper data-work-location={locatedKey||undefined} className="mock-block" data-type="design-mock">
   <header contentEditable={false}><strong>{t('editor.block.designMock')}</strong><span className="label">{t('editor.mock.static')}</span></header>
   <NodeViewContent className="mock-block__title"/>
-  {actionError&&<p contentEditable={false} role="alert">{actionError}</p>}
+  {actionError&&<p ref={actionErrorRef} contentEditable={false} role="alert">{actionError}</p>}
   {locationError&&<p contentEditable={false} role="alert">{locationError}</p>}
 
 
