@@ -142,3 +142,5 @@
     white-space: normal;
   }
 }
+
+.code-change__working { border: 1px solid var(--rule); border-left: 3px solid var(--signal); background: var(--surface); padding: 12px; margin: 12px 0; }

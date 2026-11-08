@@ -10,7 +10,7 @@ import './code-evidence.css'
 const lowlight=createLowlight(common)
 const language=(path:string)=>({cs:'csharp',ts:'typescript',tsx:'typescript',js:'javascript',jsx:'javascript',py:'python',rs:'rust',h:'cpp',hpp:'cpp',cpp:'cpp',csproj:'xml',html:'xml',yml:'yaml',md:'markdown'}[path.split('.').at(-1)!]??path.split('.').at(-1)!)
 const subscribe=(fn:()=>void)=>{const a=useWorkspace.subscribe(fn),b=useCloud.subscribe(fn);return()=>{a();b()}}
-export function CodeEvidence({raw,editable,canRead,onSave}:{raw:string;editable:boolean;canRead:boolean;onSave:(raw:string)=>void}){
+export function CodeEvidence({raw,editable,canRead,onSave}:{raw:string;editable:boolean;canRead:boolean;onSave:(raw:string)=>boolean|void}){
  const de=useWorkspace(s=>s.settings.language==='de'),scope=useSyncExternalStore(subscribe,codeAccessScope)
  const ref=codeReference(raw),[editing,setEditing]=useState(false),[open,setOpen]=useState(false)
  const [draft,setDraft]=useState(''),[finding,setFinding]=useState(''),[repoName,setRepoName]=useState(''),[error,setError]=useState('')
@@ -22,7 +22,7 @@ export function CodeEvidence({raw,editable,canRead,onSave}:{raw:string;editable:
  const jump=()=>box.current?.querySelector('[data-cur]')?.scrollIntoView({block:'center',inline:'nearest'})
  useEffect(()=>{if(live)jump()},[live])
  const edit=()=>{setDraft(ref?JSON.stringify(ref,null,2):raw==='{}'?'':raw);setFinding(ref?.finding??'');setRepoName(ref?.repoName??'');setEditing(true);setError('')}
- const save=()=>{const next=codeReference(draft);if(!next){setError(de?'Bitte den vollständigen Atlas-Beleg mit repo, snapshot, commit, path, lines und digest einfügen.':'Paste the full Atlas citation: repo, snapshot, commit, path, lines and digest.');return}onSave(JSON.stringify({...next,repoName,finding},null,2));setEditing(false);setError('')}
+ const save=()=>{const next=codeReference(draft);if(!next){setError(de?'Bitte den vollständigen Atlas-Beleg mit repo, snapshot, commit, path, lines und digest einfügen.':'Paste the full Atlas citation: repo, snapshot, commit, path, lines and digest.');return}if(onSave(JSON.stringify({...next,repoName,finding},null,2))===false){setError(de?'Die Seite oder dein Zugriff wurden geändert. Deine Eingabe wurde nicht gespeichert.':'The page or your access changed. Your input was not saved.');return}setEditing(false);setError('')}
  const errorText=(e:unknown)=>{
   const key=e instanceof Error?e.message:''
   if(key==='sourceMismatch')return de?'Der geladene Code passt nicht vollständig zum gespeicherten Beleg. Die Fundstelle wird nicht als geprüft angezeigt.':'The loaded code does not fully match the saved citation. The finding cannot be shown as verified.'

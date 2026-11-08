@@ -51,6 +51,9 @@ export function getSocket(): HocuspocusProviderWebsocket {
     setConnected(false)
   })
   window.addEventListener('online', () => {
+    // connect() returns early while the previous socket is still closing. Keep the
+    // reconnect intent so its eventual close event starts a new connection.
+    s.shouldConnect = true
     void s.connect()
   })
   socket = s
@@ -67,5 +70,8 @@ export function closeSocket(): void {
 export function reconnectSocket(): void {
   if (!socket) return
   socket.disconnect()
-  if (browserOnline()) void socket.connect()
+  if (browserOnline()) {
+    socket.shouldConnect = true
+    void socket.connect()
+  }
 }

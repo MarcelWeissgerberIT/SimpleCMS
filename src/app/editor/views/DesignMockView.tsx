@@ -7,8 +7,8 @@ import {MockPreviewFrame} from './MockPreviewFrame'
 import {MockComponentTree} from './MockComponentTree'
 import {mockVersionKey,checkpointMock,mockReviewTask,mockNoteElements,MOCK_SELECTION_LIMIT,type MockElement,type MockFeedback} from '@/shared/ai/mockReview'
 import DOMPurify from 'dompurify'
-import { lazy, Suspense, useEffect, useId, useMemo, useRef, useReducer, useState } from 'react'
-import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEditorState, NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { mockBlockData, mockBlockFrame, mockBlocksAllowed, type MockBlockData, type MockBlockPreview } from '@/shared/ai/mockBlock'
 import {mockColorToken,mockColorStyle,mockProvenance} from '@/shared/ai/mockBlockProvenance'
 import {sha256Hex} from '@/shared/mcp/sha256'
@@ -34,10 +34,9 @@ export function DesignMockView({node,editor,getPos}:ReactNodeViewProps) {
  const [marking,setMarking]=useState(false),[selection,setSelection]=useState<MockElement[]>([]),[inspected,setInspected]=useState<MockFeedback|null>(null),[selectionVersion,setSelectionVersion]=useState('')
  const pageId=editor.view.dom.getAttribute('data-page-id'),epoch=useWorkspace(s=>s.epoch)
  const locked=useWorkspace(s=>!!pageId&&!!s.pages[pageId]?.settings.locked),viewer=useCloud(s=>s.readOnly)
- const [,bump]=useReducer(n=>n+1,0)
- useEffect(()=>{const id=setTimeout(bump,0);return()=>clearTimeout(id)},[locked,viewer])
+ const editorEditable=useEditorState({editor,selector:({editor:e})=>!e.isDestroyed&&e.isEditable})
  const supported=useCloud(mockBlocksAllowed)
- const editable=!editor.isDestroyed&&editor.isEditable&&!locked&&!viewer&&supported
+ const editable=editorEditable&&!locked&&!viewer&&supported
  const linkedNote=useRef('')
  useEffect(()=>{const locate=()=>{const query=new URLSearchParams(window.location.hash.split('?')[1]??''),id=query.get('mockNote'),journal=query.get('mockJournal'),key=journal+':'+id
   if(journal!==spec.journal?.id||linkedNote.current===key)return

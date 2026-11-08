@@ -27,3 +27,28 @@ fresh source reads, explicit single-edit acceptance, document pipeline retry/sto
 conflicts, interrupted-stage cost settlement, code analysis version/evidence controls).
 Desktop/mobile light/dark screenshots inspected. TypeScript and production build checked.
 Live deployment and its exact source/manifest are recorded in RUNTIME_RELEASES.md.
+
+## Team working copies — 2026-11-08
+
+Code-change form drafts live in a private, tab-local memory store (maximum 50 entries,
+no silent eviction), scoped to workspace, identity, access and role. Navigation preserves
+the selected proposal, instruction and edits. The overview exposes open/download/discard.
+They are deliberately not synchronized or written to browser storage. A before-unload
+warning asks the user to save/download first. Access-context changes and removed/trashed
+pages clear copies; a shared block revision change preserves a detached, downloadable
+copy and prevents stale replacement. An instruction-only draft also counts as unsaved.
+
+The four JSON-backed code-block controls (code-change, code-analysis, atlas-code,
+ui-instructions) replace the complete Y element under the normal writer frame and undo
+origin. Character-level merging of these JSON strings could corrupt both values. Concurrent
+replacements instead retain two complete blocks; normal prose/source editing stays on its
+existing CRDT path. No document schema migration or dependency patch is involved. Code
+proposals with the same proposal identity on a page surface their parallel copies and
+prevent model generation, acceptance and Atlas delivery until the person resolves them.
+This is not a global repository lock: copies on separate pages and external write paths
+are outside this local review guard. Other structured block types are not migrated here.
+
+Editor editability changes notify reactive node views without a content write or undo
+step. Source-reference save failures retain the form and report the conflict. Socket
+reconnect intent is set before connect(), including role refresh, because the provider can
+still report Connected while its previous socket is closing. That late close must retry.

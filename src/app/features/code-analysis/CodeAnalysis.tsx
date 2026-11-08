@@ -35,9 +35,14 @@ export function CodeAnalysis({raw,pageId,blockId,editable,canRead,onSave,onCurre
   const items=view==='findings'?target?.report.findings:view==='requirements'?target?.report.requirements:view==='evidence'?target?.report.evidence:[]
   if(!target||!['overview','findings','flows','requirements','evidence','questions','versions'].includes(view)||location.item&&!items?.some(i=>i.id===location.item)){setLocationError(t('workflow.locationMissing'));return}
   setLocationError('');setLocatedKey(location.key);setSelected(target.id);setTab(view)
-  const frame=requestAnimationFrame(()=>focusBlockItem(root.current,location.item))
-  return()=>cancelAnimationFrame(frame)
  },[location,a?.id])
+ const focusedLocation=useRef('')
+ useEffect(()=>{
+  // Focus after the selected tab/revision is committed, not on a frame that can
+  // race React's render when a copied link redirects to a moved block.
+  if(!location||locatedKey!==location.key||focusedLocation.current===locatedKey||tab!==(location.view??'overview')||location.revision&&revision?.id!==location.revision)return
+  if(focusBlockItem(root.current,location.item))focusedLocation.current=locatedKey
+ },[location,locatedKey,tab,revision?.id])
  const active=a?.revisions.find(r=>r.id===a.active),report=revision?.report
  const commit=(next:Analysis,expected=rawRef.current,writer:Writer={kind:'you',via:'form'})=>{const value=JSON.stringify(readAnalysis(JSON.stringify(next)));if(!saveRef.current(value,expected,writer))throw Error(key('changed'));rawRef.current=value;return value}
  const persistSettings=()=>{if(!a)return;try{commit({...a,question:settings.question,repository:settings.repository,target:settings.target,extent:settings.extent,budget:settings.budget,maxRounds:settings.maxRounds});setConfig(false);setError('')}catch(e){setError((e as Error).message)}}

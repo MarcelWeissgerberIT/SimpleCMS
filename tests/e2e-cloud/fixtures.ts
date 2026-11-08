@@ -46,6 +46,8 @@ export const test = base.extend<{ recorderNet: void; aiNet: AiNet }>({
     async ({ browser, context }, use) => {
       const net = recorderNet(browser, context)
       await use()
+      // Contexts created by newPerson are not owned by Playwright's default context fixture.
+      await Promise.all(browser.contexts().filter(c => c !== context).map(c => c.close()))
       net.done()
       expect.soft(net.list, 'store writes without a writer (flight recorder)').toEqual([])
     },
