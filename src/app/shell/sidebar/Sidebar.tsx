@@ -1,3 +1,4 @@
+import {openTeamHub} from '../../features'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { ArrowRight, Bell, Building2, CalendarDays, ChevronsDownUp, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Settings, Table2, FilePlus2, Users, SquareKanban, Send, Rewind, CircleGauge } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -100,7 +101,8 @@ export function Sidebar() {
         <nav className="sb-nav" aria-label={t('shell.nav.label')}>
           <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
-          {!isTestAccess()&&<NavRow icon={<SquareKanban size={16}/>} label={useWorkspace.getState().settings.language==='de'?'Arbeitsübersicht':'Work overview'} onClick={()=>{closeMobileSidebar();openWorkOverview()}}/>}
+          <NavRow icon={<SquareKanban size={16}/>} label={t('team.title')} onClick={()=>{closeMobileSidebar();openTeamHub()}}/>
+        {!isTestAccess()&&<NavRow icon={<SquareKanban size={16}/>} label={useWorkspace.getState().settings.language==='de'?'Arbeitsübersicht':'Work overview'} onClick={()=>{closeMobileSidebar();openWorkOverview()}}/>}
           {!readOnly&&!isTestAccess()&&<NavRow icon={<Table2 size={16}/>} label={t('features.ai.program.nav')} active={route.name==='programs'} onClick={()=>{closeMobileSidebar();navigate({name:'programs'})}}/>}
           {inCloud && !isTestAccess() && <NavRow icon={<Users size={16} />} label={t('shell.nav.personalGuides')} active={route.name === 'personal-guides'} onClick={() => { closeMobileSidebar(); navigate({ name: 'personal-guides' }) }} />}
           <InboxNavRow active={route.name === 'inbox'} />

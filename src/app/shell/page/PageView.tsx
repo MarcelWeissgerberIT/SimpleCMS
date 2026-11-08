@@ -1,3 +1,4 @@
+import {KnowledgePageControl} from '../../features'
 import { useContentLanguage } from '../../lib/contentLanguage'
 import { localizePage } from '../../store/localization'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react'
@@ -97,7 +98,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
-          {!trashed && <TranslationControls pageId={page.id} />}
+          {!trashed && <><KnowledgePageControl pageId={page.id}/><TranslationControls pageId={page.id} /></>}
           {!trashed && <PageAgentActivity pageId={page.id} />}
           {variant === 'main' && !trashed && <FirstStartTools page={page} />}
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}

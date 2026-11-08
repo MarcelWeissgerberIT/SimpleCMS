@@ -1,3 +1,4 @@
+import {CompanySignIn} from '../../features'
 import { isTestAccess } from '../../cloud/testScope'
 import { useEffect, useId, useRef, useState } from 'react'
 import { AlertTriangle, ArrowRight, CornerDownLeft, HardDrive } from 'lucide-react'
@@ -109,7 +110,8 @@ export function SignInForm({ flow, autoFocus = true }: { flow: SignInFlow; autoF
   const t = useT()
   const id = useId()
   return (
-    <form
+    <><CompanySignIn/>
+        <form
       className="cl-form"
       aria-busy={flow.busy}
       noValidate
@@ -151,7 +153,7 @@ export function SignInForm({ flow, autoFocus = true }: { flow: SignInFlow; autoF
           {flow.error}
         </p>
       )}
-    </form>
+    </form></>
   )
 }
 

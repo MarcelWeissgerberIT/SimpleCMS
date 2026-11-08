@@ -1,7 +1,7 @@
 ---
 id: connected-review-workflows
 date: 2026-11-08
-order: 8
+order: 9
 title: Befunde, Mock-Rückmeldungen und Quellen verbinden
 summary: Verknüpfte Finding-Karten, Quellenstand-Prüfung und wiederverwendbare Qualitätsprüfungen.
 help: agent

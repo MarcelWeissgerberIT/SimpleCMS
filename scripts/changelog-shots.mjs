@@ -943,6 +943,10 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'team-knowledge'() {
+    execFileSync(process.execPath,['--disable-warning=ExperimentalWarning','scripts/team-hub-check.mjs'],{env:{...process.env,ONE_TEAM_PROOF:TMP+'/team-hub'},stdio:'pipe'});
+    await saveSideBySide('team-knowledge',[TMP+'/team-hub/changelog.png']);
+  },
   async 'work-continuity'(browser) {
     const {ctx,page}=await freshPage(browser)
     const a=analysisFixture(true);a.active=a.revisions[0].id;a.revisions[0].state='accepted'

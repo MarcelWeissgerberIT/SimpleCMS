@@ -1,3 +1,4 @@
+import {TeamHubHost} from '../features'
 import { isTestAccess } from '../cloud/testScope'
 import { ProgramsRoute } from '../features'
 import { Suspense } from 'react'
@@ -170,7 +171,7 @@ function Workspace({ route }: { route: Route }) {
       <CommandPalette />
       <ErrorBoundary inline>
         <ModalHost />
-        <CloudDialogs />
+        <CloudDialogs /><TeamHubHost />
         <ScriptDialogHost />
         <KitHost />
         <OutboxHost />

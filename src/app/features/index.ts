@@ -697,3 +697,7 @@ export {generateCodeChange,verifyChangeSources} from './ai/code-change/run'
 export {attachCodeChange,nativeCodeChange} from './ai/code-change/atlas'
 
 export {useCodeDrafts,codeDraftScope,downloadCodeDraft,forgetCodeDraft} from './code-change/drafts'
+
+export {openTeamHub,TeamHubHost,KnowledgePageControl} from './team-hub'
+
+export {CompanySignIn,ConnectedCalendars} from './team-hub'

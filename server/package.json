@@ -24,6 +24,7 @@
     "crossws": "^0.4.4",
     "hono": "^4.13.12",
     "nodemailer": "^10.0.13",
+    "openid-client": "^6.8.9",
     "y-protocols": "^1.0.7",
     "yjs": "^13.6.33",
     "zod": "^4.6.5"
