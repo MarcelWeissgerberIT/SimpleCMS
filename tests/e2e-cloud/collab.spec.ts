@@ -48,6 +48,7 @@ async function person(page: Page, name: string, wsId?: string): Promise<void> {
     await api(page, 'PATCH', '/api/me', { name: name[0].toUpperCase() + name.slice(1) })
     accounts.set(name, (await page.context().cookies()).filter((c) => c.name === 'one_session'))
   }
+  await expect(page.locator('#boot')).toHaveCount(0)
   if (wsId) {
     await openApp(page, wsId)
     await waitOnline(page)
@@ -78,7 +79,7 @@ test.describe('team cloud — live collaboration', () => {
     await openApp(a)
     expect(await cloudStatus(a)).toBe('local')
     await a.evaluate((id) => (window as any).__one.cloud.switchWorkspace({ kind: 'cloud', id }), wsId) // eslint-disable-line @typescript-eslint/no-explicit-any
-    await a.waitForURL((u) => !u.search.includes('w='))
+    await a.waitForURL((u) => u.searchParams.get('w') === wsId)
     await waitForApp(a)
     await waitOnline(a)
     expect(await cloudEval(a, (c) => ({ kind: c.active.kind, id: c.active.id, role: c.role }))).toEqual({ kind: 'cloud', id: wsId, role: 'owner' })
@@ -106,9 +107,9 @@ test.describe('team cloud — live collaboration', () => {
     // both type in the same paragraph at the same time → both documents converge, nothing lost
     const para = (p: Page) => editorOf(p, pageId).locator('p').first()
     await para(a).click()
-    await a.keyboard.press('End')
+    await a.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await para(b).click()
-    await b.keyboard.press('Home')
+    await b.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
     await Promise.all([a.keyboard.type(' alpha alpha', { delay: 25 }), b.keyboard.type('bravo bravo ', { delay: 25 })])
     // the editor's text without other people's caret tags
     const textOf = (p: Page) =>
@@ -133,7 +134,7 @@ test.describe('team cloud — live collaboration', () => {
 
     // undo only takes back your own typing — from where you placed the caret (click, End) on
     await para(a).click()
-    await a.keyboard.press('End')
+    await a.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await a.keyboard.type(' Typo')
     await a.waitForTimeout(700)
     await b.keyboard.type('Kept ')
@@ -526,7 +527,7 @@ test.describe('team cloud — live collaboration', () => {
     // B writes at the start of the first line while A's incoming messages are held
     await a.evaluate(() => void ((window as unknown as { __wsHold: { on: boolean } }).__wsHold.on = true))
     await editorOf(b, pageId).locator('p').first().click()
-    await b.keyboard.press('Home')
+    await b.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
     await b.keyboard.type('Peer ')
     await expect.poll(() => a.evaluate(() => (window as unknown as { __wsHold: { held: unknown[] } }).__wsHold.held.length)).toBeGreaterThan(0)
     await a.waitForTimeout(1000)

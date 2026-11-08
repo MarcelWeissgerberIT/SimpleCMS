@@ -490,7 +490,11 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
 
   // editable / spellcheck follow page + settings
   useEffect(() => {
-    if (editor && editor.isEditable !== editable) editor.setEditable(editable, false)
+    if (editor && !editor.isDestroyed && editor.isEditable !== editable) {
+      editor.setEditable(editable, false)
+      // Notify reactive node views after the view option changed; no document write or undo step.
+      editor.view.dispatch(editor.state.tr.setMeta('one:editable', editable).setMeta('addToHistory', false))
+    }
   }, [editor, editable])
   useEffect(() => {
     editor?.view.dom.setAttribute('spellcheck', String(spellcheck))

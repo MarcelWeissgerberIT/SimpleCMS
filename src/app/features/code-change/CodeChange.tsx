@@ -1,4 +1,6 @@
-import {useBlockLocation,focusBlockItem} from '../../lib/blockLocation'
+import {sha256Hex} from '@/shared/mcp/sha256'
+import {useCodeDrafts,codeDraftScope,keepCodeDraft,forgetCodeDraft,downloadCodeDraft} from './drafts'
+import {openBlockLocation,useBlockLocation,focusBlockItem} from '../../lib/blockLocation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   readChange,
@@ -20,6 +22,7 @@ export function CodeChange({
   raw,
   pageId,
   blockId,
+  parallelBlocks=[],
   editable,
   canRead,
   onSave,
@@ -28,6 +31,7 @@ export function CodeChange({
   raw: string
   pageId: string
   blockId?: string
+  parallelBlocks?: string[]
   editable: boolean
   canRead: boolean
   onSave: (raw: string, expected: string, writer: Writer) => boolean
@@ -46,13 +50,11 @@ export function CodeChange({
   const [chosen, setChosen] = useState<number[]>([]),
     [server, setServer] = useState(''),
     [selected, setSelected] = useState(''),
-    [instruction, setInstruction] = useState(''),
     [budget, setBudget] = useState(3),
     [target, setTarget] = useState(''),
     [busy, setBusy] = useState(false),
     [activity, setActivity] = useState(''),
-    [error, setError] = useState(''),
-    [draft, setDraft] = useState<Record<string, string>>({})
+    [error, setError] = useState('')
   const refs = useRef({ raw, onSave, onCurrent, editable, canRead })
   refs.current = { raw, onSave, onCurrent, editable, canRead }
   const expected = useRef<string | null>(null)
@@ -63,7 +65,11 @@ export function CodeChange({
   useEffect(() => {
     if (!editable || !canRead) abort.current?.abort()
   }, [editable, canRead])
-  const savedProposal = a?.proposals.find((p) => p.id === selected) ?? a?.proposals.at(-1)
+  const draftScope=codeDraftScope(),draftKey=JSON.stringify([pageId,blockId||a?.id]),basis=useMemo(()=>sha256Hex(raw),[raw])
+  const held=useCodeDrafts(s=>s.scope===draftScope?s.entries[draftKey]:undefined)
+  const conflict=!!held&&held.basis!==basis
+  const selectedId=held&&!conflict?held.proposal:selected
+  const savedProposal = a?.proposals.find((p) => p.id === selectedId) ?? a?.proposals.at(-1)
   const p =
     savedProposal ??
     (a?.files.length
@@ -77,16 +83,24 @@ export function CodeChange({
           author: 'you' as const,
         }
       : undefined)
-  useEffect(() => {
-    setDraft(Object.fromEntries(p?.edits.map((e) => [e.file, e.after.join('\n')]) ?? []))
-    setInstruction(p?.instruction ?? '')
-  }, [p?.id])
-  const dirty = !!p && p.edits.some((e) => draft[e.file] !== undefined && draft[e.file] !== e.after.join('\n'))
+  const baseEdits=Object.fromEntries(p?.edits.map(e=>[e.file,e.after.join('\n')])??[])
+  const draft=held&&!conflict?held.edits:baseEdits
+  const instruction=held&&!conflict?held.instruction:p?.instruction??''
+  const dirty=!!p&&p.edits.some(e=>draft[e.file]!==e.after.join('\n'))
+  const unsaved=!!held,parallel=parallelBlocks.length>0
+  const remember=(edits:Record<string,string>,text:string)=>{
+    if(!a||!p||!editable||busy||conflict)return
+    if(text===(p.instruction??'')&&p.edits.every(e=>edits[e.file]===e.after.join('\n'))){forgetCodeDraft(draftKey);return}
+    if(!keepCodeDraft(draftScope,{key:draftKey,page:pageId,block:blockId||'',title:a.origin.title,basis,proposal:p.id,instruction:text,edits,
+      sources:a.files.map(f=>({file:f.id,path:f.reference.citation.path,commit:f.reference.citation.commit,lines:f.reference.citation.lines}))}))setError(k('draftCapacity'))
+  }
+  const discard=()=>forgetCodeDraft(draftKey)
+  const downloadDraft=()=>{if(held)downloadCodeDraft(held)}
   const root=useRef<HTMLElement|null>(null),location=useBlockLocation(pageId,blockId),handledLocation=useRef(''),[locationError,setLocationError]=useState(''),[locatedKey,setLocatedKey]=useState('')
   useEffect(()=>{
     if(!location||!a||handledLocation.current===location.key)return
     handledLocation.current=location.key
-    if(busy||dirty){setLocationError(t(dirty?'workflow.locationUnsaved':'workflow.locationBusy'));return}
+    if(busy||unsaved){setLocationError(t(unsaved?'workflow.locationUnsaved':'workflow.locationBusy'));return}
     if(location.revision&&!a.proposals.some(p=>p.id===location.revision)){setLocationError(t('workflow.locationMissing'));return}
     setLocationError('');setLocatedKey(location.key)
     if(location.revision)setSelected(location.revision)
@@ -95,13 +109,13 @@ export function CodeChange({
   },[location,a?.id])
   const save = (next: Change, writer: Writer = { kind: 'you', via: 'form' }) => {
     const value = JSON.stringify(readChange(JSON.stringify(next)))
-    if (!refs.current.editable || !refs.current.onSave(value, expected.current ?? refs.current.raw, writer))
+    if (conflict || held && sha256Hex(refs.current.raw)!==held.basis || draftScope!==codeDraftScope() || !refs.current.editable || !refs.current.onSave(value, expected.current ?? refs.current.raw, writer))
       throw Error(k('changed'))
     refs.current.raw = value
     if (expected.current !== null) expected.current = value
   }
   const work = async (fn: (signal: AbortSignal, valid: () => boolean) => Promise<void>) => {
-    if (busy || !editable || !canRead || !a) return
+    if (busy || conflict || parallel || !editable || !canRead || !a) return
     expected.current = raw
     const controller = new AbortController()
     abort.current = controller
@@ -164,10 +178,11 @@ export function CodeChange({
       })
       if (!valid()) throw Error(k('changed'))
       save({ ...a!, proposals: [...a!.proposals, proposal] }, { kind: 'ai', run: proposal.id, action: 'code_change' })
+      forgetCodeDraft(draftKey)
       setSelected(proposal.id)
     })
   const manual = () => {
-    if (!a || !p || busy || !editable) return
+    if (!a || !p || busy || conflict || !editable) return
     try {
       if (a.proposals.length >= 10) throw Error(k('historyFull'))
       const proposal = readProposal(
@@ -183,6 +198,7 @@ export function CodeChange({
         a.files,
       )
       save({ ...a, proposals: [...a.proposals, proposal] })
+      forgetCodeDraft(draftKey)
       setSelected(proposal.id)
     } catch (e) {
       setError(kMap((e as Error).message))
@@ -235,7 +251,7 @@ export function CodeChange({
       save({ ...a!, remote: [...a!.remote.filter((r) => r.proposal !== p!.id), next] })
     })
   const download = () => {
-    if (!a || !p || dirty) return
+    if (!a || !p || unsaved) return
     const url = URL.createObjectURL(new Blob([packageText(a, p)], { type: 'application/json' })),
       link = document.createElement('a')
     link.href = url
@@ -259,6 +275,7 @@ export function CodeChange({
         <span className="label">ONE · ATLAS</span>
       </header>
       <ResultProgress phase={busy?'working':savedProposal&&a.accepted===savedProposal.id?'adopted':savedProposal?'review':'request'} blocked={!!error} saved={savedProposal?(de?'Patch-Vorschlag auf dieser One-Seite. Annahme in One und Übernahme ins Repository sind getrennt.':'Patch proposal on this One page. Acceptance in One and delivery to the repository are separate.'):(de?'Quellcode-Verweise; noch kein gespeicherter Patch.':'Source references; no saved patch yet.')} next={busy?(de?'Aktuelle Aktion abwarten.':'Wait for the current action.'):savedProposal&&a.accepted===savedProposal.id?(de?'Atlas-Übernahme und Repository-Status unten prüfen.':'Check Atlas delivery and repository status below.'):(de?'Änderungen je Datei vergleichen und den gewünschten Patch annehmen.':'Compare changes per file and accept the intended patch.')}/>
+      {parallel&&<aside className="code-change__working"><p role="alert">{k('parallelCopies')}</p>{parallelBlocks.map((id,i)=><button key={id} className="btn btn--sm" onClick={()=>openBlockLocation(pageId,id)}>{k('otherCopy')} {i+1}</button>)}</aside>}
       {!a.files.length && (
         <>
           <h4>{k('scope')}</h4>
@@ -303,7 +320,13 @@ export function CodeChange({
           </button>
         </>
       )}
-      {!!a.files.length && (
+      {held&&<aside className="code-change__working" aria-label={k('localDraft')}>
+        <strong>{k(conflict?'draftConflict':'localDraft')}</strong>
+        <p role={conflict?'alert':'status'}>{k(conflict?'draftConflictHint':'draftKept')}</p>
+        {conflict&&<details><summary>{k('inspectDraft')}</summary><p>{held.instruction}</p>{held.sources.map(f=><div key={f.file}><h4>{f.path} · {f.lines.join('–')} · {f.commit.slice(0,12)}</h4><pre>{held.edits[f.file]}</pre></div>)}</details>}
+        <div className="code-change__actions"><button className="btn btn--sm" onClick={downloadDraft}>{k('downloadDraft')}</button><button className="btn btn--sm" onClick={discard}>{k('discardDraft')}</button></div>
+      </aside>}
+      {!!a.files.length && !conflict && (
         <>
           <div className="code-change__form">
             <label>
@@ -313,7 +336,7 @@ export function CodeChange({
                 maxLength={8000}
                 value={instruction}
                 disabled={busy || !editable}
-                onChange={(e) => setInstruction(e.target.value)}
+                onChange={(e) => remember(draft,e.target.value)}
               />
             </label>
             <label>
@@ -333,7 +356,7 @@ export function CodeChange({
           <div className="code-change__actions">
             <button
               className="btn btn--primary"
-              disabled={!editable || !canRead || busy || !instruction.trim() || a.proposals.length >= 10 || dirty}
+              disabled={parallel || !editable || !canRead || busy || !instruction.trim() || a.proposals.length >= 10 || dirty}
               onClick={() => void propose()}
             >
               {k('generate')}
@@ -351,7 +374,7 @@ export function CodeChange({
                 <button
                   key={x.id}
                   className="btn btn--sm"
-                  disabled={busy || dirty}
+                  disabled={busy || unsaved}
                   aria-pressed={p?.id === x.id}
                   onClick={() => setSelected(x.id)}
                 >
@@ -388,7 +411,7 @@ export function CodeChange({
                           value={after}
                           maxLength={20000}
                           disabled={!editable || busy}
-                          onChange={(event) => setDraft({ ...draft, [f.id]: event.target.value })}
+                          onChange={(event) => remember({ ...draft, [f.id]: event.target.value },instruction)}
                         />
                       </label>
                     </div>
@@ -417,24 +440,24 @@ export function CodeChange({
               </ul>
               {dirty && <p role="status">{k('unsaved')}</p>}
               <div className="code-change__actions">
-                <button className="btn" disabled={!dirty || busy || !editable} onClick={manual}>
+                <button className="btn" disabled={!unsaved || busy || !editable} onClick={manual}>
                   {k('save')}
                 </button>
                 <button
                   className="btn btn--primary"
-                  disabled={dirty || busy || !editable || !canRead || !savedProposal || a.accepted === p.id}
+                  disabled={parallel || unsaved || busy || !editable || !canRead || !savedProposal || a.accepted === p.id}
                   onClick={() => void accept()}
                 >
                   {k('accept')}
                 </button>
-                <button className="btn" disabled={dirty || !savedProposal} onClick={download}>
+                <button className="btn" disabled={unsaved || !savedProposal} onClick={download}>
                   {k('export')}
                 </button>
               </div>
               <div className="code-change__actions">
                 <button
                   className="btn"
-                  disabled={dirty || busy || !editable || !canRead || a.accepted !== p.id}
+                  disabled={parallel || unsaved || busy || !editable || !canRead || a.accepted !== p.id}
                   onClick={() => void native('save')}
                 >
                   {k('nativeSave')}
@@ -461,7 +484,7 @@ export function CodeChange({
                       )}{' '}
                       <button
                         className="btn btn--sm"
-                        disabled={dirty || busy || !editable || !canRead || a.accepted !== p.id}
+                        disabled={parallel || unsaved || busy || !editable || !canRead || a.accepted !== p.id}
                         onClick={() => void native('get')}
                       >
                         {k('nativeGet')}
@@ -469,7 +492,8 @@ export function CodeChange({
                       <button
                         className="btn btn--primary"
                         disabled={
-                          dirty ||
+                          parallel ||
+                          unsaved ||
                           busy ||
                           !editable ||
                           !canRead ||
@@ -504,7 +528,7 @@ export function CodeChange({
                 </label>
                 <button
                   className="btn"
-                  disabled={dirty || busy || !editable || !canRead || a.accepted !== p.id || !/^\d+$/.test(target)}
+                  disabled={parallel || unsaved || busy || !editable || !canRead || a.accepted !== p.id || !/^\d+$/.test(target)}
                   onClick={() => void upload()}
                 >
                   {k('atlas')}

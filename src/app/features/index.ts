@@ -695,3 +695,5 @@ export {runCodeAnalysis} from './ai/code-analysis/run'
 export {CodeChange} from './code-change/CodeChange'
 export {generateCodeChange,verifyChangeSources} from './ai/code-change/run'
 export {attachCodeChange,nativeCodeChange} from './ai/code-change/atlas'
+
+export {useCodeDrafts,codeDraftScope,downloadCodeDraft,forgetCodeDraft} from './code-change/drafts'

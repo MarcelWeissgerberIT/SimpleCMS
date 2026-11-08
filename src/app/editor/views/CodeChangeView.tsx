@@ -1,6 +1,6 @@
 import { lazy, Suspense, useRef } from 'react'
-import { NodeViewWrapper, NodeViewContent, type ReactNodeViewProps } from '@tiptap/react'
-import { dispatchAs } from '../lib/editAs'
+import { useEditorState, NodeViewWrapper, NodeViewContent, type ReactNodeViewProps } from '@tiptap/react'
+import { replaceStructuredCode } from '../lib/structuredCode'
 import type { Writer } from '../../store/writer'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -10,7 +10,16 @@ export function CodeChangeView({ node, editor, getPos }: ReactNodeViewProps) {
     epoch = useWorkspace((s) => s.epoch),
     page = useWorkspace((s) => s.pages[pageId]),
     readOnly = useCloud((s) => s.readOnly)
-  const editable = editor.isEditable && !!page && !page.trashedAt && !page.settings.locked && !readOnly
+  const editorEditable=useEditorState({editor,selector:({editor:e})=>!e.isDestroyed&&e.isEditable})
+  const editable = editorEditable && !!page && !page.trashedAt && !page.settings.locked && !readOnly
+  const peers=useEditorState({editor,selector:({editor:e})=>{
+    const out:string[]=[]
+    let id:string;try{id=JSON.parse(node.textContent).id}catch{return out}
+    e.state.doc.descendants((n,pos)=>{if(n.type.name!=='codeBlock'||n.attrs.language!=='code-change'||pos===getPos())return
+      try{if(JSON.parse(n.textContent).id===id&&n.attrs.id)out.push(n.attrs.id)}catch{/* invalid blocks have their own error */}
+    })
+    return out
+  }})
   const baseline = useRef('')
   const current = () => {
     if (
@@ -42,8 +51,7 @@ export function CodeChangeView({ node, editor, getPos }: ReactNodeViewProps) {
   const save = (raw: string, expected: string, writer: Writer) => {
     const hit = current()
     if (!hit || hit.live.textContent !== expected) return false
-    const next = editor.schema.nodes.codeBlock.create(hit.live.attrs, editor.schema.text(raw))
-    dispatchAs(editor, writer, editor.state.tr.replaceWith(hit.pos, hit.pos + hit.live.nodeSize, next))
+    if(!replaceStructuredCode(editor,hit.pos,expected,raw,writer))return false
     baseline.current = surrounding()
     return true
   }
@@ -65,6 +73,7 @@ export function CodeChangeView({ node, editor, getPos }: ReactNodeViewProps) {
             canRead={!!page && !page.trashedAt}
             pageId={pageId}
             blockId={node.attrs.id}
+            parallelBlocks={peers}
             onSave={save}
             onCurrent={read}
           />

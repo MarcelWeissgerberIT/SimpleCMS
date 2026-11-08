@@ -49,6 +49,7 @@ async function person(page: Page, name: string, wsId?: string, hash = ''): Promi
     await api(page, 'PATCH', '/api/me', { name: name[0].toUpperCase() + name.slice(1) })
     accounts.set(name, (await page.context().cookies()).filter((c) => c.name === 'one_session'))
   }
+  await expect(page.locator('#boot')).toHaveCount(0)
   if (wsId) {
     await openApp(page, wsId, hash)
     await waitOnline(page)
