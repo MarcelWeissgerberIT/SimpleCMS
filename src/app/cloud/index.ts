@@ -378,3 +378,6 @@ export function writeAsAgent<T>(actor: string, fn: () => Promise<T> | T): Promis
 }
 
 export { captureReadiness, noteReadiness, noteAtlasRead, useReadinessSync, type ReadinessScope } from './readiness'
+
+/** Same-origin, session-scoped API for the team hub. */
+export { request as teamRequest } from './api'

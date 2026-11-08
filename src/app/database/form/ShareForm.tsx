@@ -1,3 +1,4 @@
+import {NativeShare} from './NativeShare'
 /**
  * "Send responses to a webhook" (URL + test) and the Share dialog that turns the form into a link.
  */
@@ -161,6 +162,7 @@ export function ShareFormModal({ m, onClose }: { m: DbModel; onClose: () => void
 
   return (
     <Modal open onClose={onClose} label={`§ ${t('database.form.share.label')}`} title={t('database.form.share.title')} width={620} className="fshare">
+      <NativeShare m={m}/>
       <p className="fshare__claim">{t('database.form.share.claim')}</p>
       <p className="fshare__sub">{t('database.form.share.sub')}</p>
 

@@ -1,3 +1,4 @@
+import {ConnectedCalendars} from '../../features'
 /**
  * #/agenda — one calendar for the whole workspace: dated database rows, journal entries and
  * date mentions, in a month grid, a week time grid or an upcoming list.
@@ -189,6 +190,7 @@ export function Agenda() {
           </div>
           <SourceChips sources={index.sources} hidden={hidden} onToggle={toggleSource} />
         </header>
+      <ConnectedCalendars/>
 
         <div className="ag-body">
           {view === 'month' && <MonthView cursor={cursor} items={visible} weekStartsOn={ws} narrow={narrow} onPick={setCursor} />}

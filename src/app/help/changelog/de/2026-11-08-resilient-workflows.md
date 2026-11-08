@@ -1,7 +1,7 @@
 ---
 id: resilient-workflows
 date: 2026-11-08
-order: 5
+order: 6
 title: Zur richtigen Arbeitsstelle zurückkehren
 summary: Leseposition behalten, die passende Version öffnen und laufende Quellenaufrufe erkennen.
 image: assets/shots/changelog/resilient-workflows.webp

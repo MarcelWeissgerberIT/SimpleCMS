@@ -10,3 +10,4 @@
 export { readServers, patchServer, outToolsFor, refusedHere, onRefusedChanged, tokenState } from './config'
 export { useMcpChecks, type CheckMode } from './checks'
 export { overviewRows, type OverviewRow } from './overview'
+export {searchConnected,type SearchSource} from './federated'

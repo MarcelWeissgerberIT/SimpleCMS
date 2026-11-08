@@ -550,4 +550,38 @@ export const migrations: Migration[] = [
     ALTER TABLE users ADD COLUMN pending_email TEXT;
     ALTER TABLE login_tokens ADD COLUMN verify_user_id TEXT REFERENCES users(id) ON DELETE CASCADE;`,
   },
+  {
+    version:25,
+    name:'knowledge ownership, isolated team areas and revocable public forms',
+    sql:`CREATE TABLE knowledge_reviews (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      page_id TEXT NOT NULL, owner_id TEXT NOT NULL REFERENCES users(id), due_at INTEGER,
+      verified_at INTEGER, verified_by TEXT REFERENCES users(id), source_hash TEXT,
+      source_updated TEXT, version INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY(workspace_id,page_id)
+    );
+    CREATE TABLE team_areas (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      parent_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      visibility TEXT NOT NULL CHECK(visibility IN ('open','closed','private')),
+      created_by TEXT NOT NULL REFERENCES users(id),created_at INTEGER NOT NULL
+    );
+    CREATE TABLE public_forms (
+      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      database_id TEXT NOT NULL, view_id TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL,
+      sealed TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES users(id),created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL, revoked_at INTEGER, submissions INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(workspace_id,database_id,view_id)
+    );`,
+  },
+
+  {version:26,name:'company identities and personal calendar grants',sql:`
+    CREATE TABLE company_identities(provider TEXT NOT NULL,subject TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,PRIMARY KEY(provider,subject),UNIQUE(provider,user_id));
+    CREATE TABLE calendar_grants(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,provider TEXT NOT NULL,sealed TEXT NOT NULL,PRIMARY KEY(workspace_id,user_id,provider));
+    CREATE TABLE scim_tokens(workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,provider TEXT NOT NULL,created_at INTEGER NOT NULL);
+    CREATE TABLE scim_users(workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,external_id TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,managed INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(workspace_id,user_id),UNIQUE(workspace_id,external_id));
+    CREATE TABLE scim_groups(id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,area_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,name TEXT NOT NULL,external_id TEXT);
+    CREATE TABLE scim_group_members(group_id TEXT NOT NULL REFERENCES scim_groups(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,managed INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(group_id,user_id));
+  `},
+
 ]

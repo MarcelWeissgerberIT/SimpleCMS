@@ -274,7 +274,7 @@ export class WorkspaceModel {
    * Write a resolved row: its content document first (so the row arrives with its content), then the
    * meta entry — order after the last row, unique ids from the database's counter, two-way relations.
    */
-  async insertRow(wsId: string, dbId: string, row: ResolvedRow, actor: string, presetId?: string): Promise<{ id: string; url: string }> {
+  async insertRow(wsId: string, dbId: string, row: ResolvedRow, actor: string, presetId?: string, guard?: (properties: PropertyDef[]) => void): Promise<{ id: string; url: string }> {
     const id = presetId ?? newId()
     if (row.nodes?.length) {
       // a row refused for its key (keys.ts) leaves no content document behind
@@ -290,6 +290,7 @@ export class WorkspaceModel {
         const r = roots(doc)
         const db = liveDatabase(r, dbId)
         if (!db) throw notFound('database_not_found', 'No such database in this workspace')
+        guard?.(db.properties)
         if (presetId && pageMap(r, id)) throw new ApiError(409, 'page_exists', 'A page with this id exists already')
         this.checkHierarchy(db.ydb, db.properties, id, row.values)
         // the database's key: unique per row (keys.ts) — webhooks, the API, MCP and agents alike

@@ -1,3 +1,8 @@
+import {companyRoutes} from './routes/company.ts'
+import {scimRoutes} from './routes/scim.ts'
+import {publicFormRoutes} from './routes/publicForms.ts'
+import {knowledgeRoutes} from './routes/knowledge.ts'
+import {teamAreaRoutes} from './routes/teamAreas.ts'
 import {programRoutes} from './routes/programs.ts'
 import {centralAIRoutes} from './routes/central-ai.ts'
 import { Hono, type MiddlewareHandler } from 'hono'
@@ -81,15 +86,20 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['direct-invites:1', 'ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'central-ai:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
+      supports: ['public-forms:1', 'team-hub:1', 'direct-invites:1', 'ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'central-ai:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
     }),
   )
 
   app.route('/api', testAccessRoutes(s))
   app.route('/api/auth', authRoutes(s))
+  app.route('/api', publicFormRoutes(s,model))
+  app.route('/api', companyRoutes(s))
+  app.route('/api/v1/scim', scimRoutes(s))
   app.route('/api/me', meRoutes(s))
   app.route('/api/session', sessionRoutes(s))
   app.route('/api/workspaces', workspaceRoutes(s))
+  app.route('/api/workspaces', knowledgeRoutes(s,model))
+  app.route('/api/workspaces', teamAreaRoutes(s))
   app.route('/api/workspaces', welcomeRoutes(s))
   app.route('/api/workspaces', readinessRoutes(s))
   app.route('/api/workspaces', programRoutes(s))
@@ -146,7 +156,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
 
 /** Paths that carry a secret (incoming webhook URLs, agent webhooks, invite and registration tokens) as they may appear in a log. */
 export const redactPath = (path: string) =>
-  path.replace(/^(\/api\/v1\/hooks\/|\/api\/invites\/|\/api\/signup\/)[^/]+/, '$1…').replace(/^(\/api\/v1\/agents\/[^/]+\/hook\/)[^/]+/, '$1…')
+  path.replace(/^(\/api\/public-forms\/)[^/]+/,'$1…').replace(/^(\/api\/v1\/hooks\/|\/api\/invites\/|\/api\/signup\/)[^/]+/, '$1…').replace(/^(\/api\/v1\/agents\/[^/]+\/hook\/)[^/]+/, '$1…')
 
 /** Resolves the session cookie on every API request and slides its expiry (not on the public API). */
 function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {

@@ -1,7 +1,7 @@
 ---
 id: work-continuity
 date: 2026-11-08
-order: 1
+order: 2
 title: Den Arbeitsstand im Blick behalten
 summary: Mock-Entwürfe wiederaufnehmen, Arbeitswege verfolgen und gemeinsam prüfen.
 image: assets/shots/changelog/work-continuity.webp
