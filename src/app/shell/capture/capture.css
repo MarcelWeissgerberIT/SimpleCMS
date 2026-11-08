@@ -613,7 +613,7 @@
 .qcap-fab {
   position: fixed;
   right: calc(16px + env(safe-area-inset-right));
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(16px + var(--active-work-dock, 0px) + var(--deck-dock, 0px) + env(safe-area-inset-bottom));
   z-index: 40;
   display: grid;
   place-items: center;
@@ -649,7 +649,7 @@
 }
 /* a toast sits at the bottom edge: the key steps up */
 .qcap-fab[data-lifted] {
-  bottom: calc(72px + env(safe-area-inset-bottom));
+  bottom: calc(72px + var(--active-work-dock, 0px) + var(--deck-dock, 0px) + env(safe-area-inset-bottom));
 }
 /* typing, or the keyboard is up: out of the way */
 .qcap-fab[data-hidden] {

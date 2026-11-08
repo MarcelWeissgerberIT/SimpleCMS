@@ -943,6 +943,21 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'resilient-workflows'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const a=analysisFixture(true)
+    a.active=a.revisions[0].id;a.revisions[0].state='accepted'
+    a.revisions[0].report.findings[0].title='Review the accepted timeout behaviour'
+    const proposed=structuredClone(a.revisions[0]);proposed.id='proposed-version';proposed.state='ready'
+    proposed.report.findings[0].title='Check the new retry behaviour';a.revisions.push(proposed)
+    const id=await createPage(page,'Protocol review',doc({type:'codeBlock',attrs:{id:'workflow-shot',language:'code-analysis'},content:[{type:'text',text:JSON.stringify(a)}]},para('')))
+    await openPage(page,id)
+    await page.locator('.sb-nav').getByRole('button',{name:'Work overview',exact:true}).click()
+    const overview=page.getByRole('dialog',{name:'Work overview'})
+    await overview.getByRole('combobox',{name:'Work type'}).selectOption('finding')
+    await rest(page);await save(page,'resilient-workflows')
+    await ctx.close()
+  },
   async 'code-changes'(browser) {
     const {ctx,page}=await freshPage(browser)
     const reference={server:'aj-atlas',repoName:'ui-components',citation:{repo:'repo-a',snapshot:'snapshot-a',commit:'a'.repeat(40),path:'src/SaveButton.tsx',lines:[12,14],digest:'d'.repeat(64)},finding:'The icon button needs a readable label.',highlight:[12,14]}

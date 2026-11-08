@@ -1,7 +1,7 @@
 ---
 id: atlas-package-freshness
 date: 2026-11-08
-order: 2
+order: 3
 title: Atlas package freshness directly on the mock
 summary: Package and used components are rechecked when loading a mock.
 help: agent

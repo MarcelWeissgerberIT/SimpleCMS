@@ -769,6 +769,9 @@ body[data-dragging] .sb-favs__list {
 .sb-scroll > .sb-section > .sb-sect {
   position: sticky;
   top: 0;
+  /* A folded section has no row to snap to. Keep its controls reachable when
+     scrolling them into view instead of snapping straight to the next section. */
+  scroll-snap-align: start;
   z-index: 3;
   background: var(--surface-2);
 }

@@ -64,6 +64,7 @@ export function CodeChangeView({ node, editor, getPos }: ReactNodeViewProps) {
             editable={editable}
             canRead={!!page && !page.trashedAt}
             pageId={pageId}
+            blockId={node.attrs.id}
             onSave={save}
             onCurrent={read}
           />

@@ -1,3 +1,4 @@
+import {useBlockLocation} from '../../lib/blockLocation'
 import {ResultProgress} from '../../features/ai/workflow/ResultProgress'
 import type {MockRegion} from '@/shared/ai/mockRegion'
 import {flushEditor,editAs} from '../lib/editAs'
@@ -42,6 +43,16 @@ export function DesignMockView({node,editor,getPos}:ReactNodeViewProps) {
   if(journal!==spec.journal?.id||linkedNote.current===key)return
   const note=spec.journal.notes.find(n=>n.id===id);if(note){linkedNote.current=key;setTab('feedback');setInspected(note)}
  };locate();window.addEventListener('hashchange',locate);return()=>window.removeEventListener('hashchange',locate)},[spec.journal])
+ const location=useBlockLocation(pageId,node.attrs.id),handledLocation=useRef(''),[locationError,setLocationError]=useState(''),[locatedKey,setLocatedKey]=useState('')
+ useEffect(()=>{
+  if(!location||handledLocation.current===location.key)return
+  handledLocation.current=location.key
+  const view=location.view
+  const validView=view==='proposal'||tabs.includes(view as typeof tabs[number])
+  const validItem=!location.item||view==='feedback'&&spec.journal?.notes.some(n=>n.id===location.item)||view==='proposal'&&spec.journal?.proposals?.some(p=>p.id===location.item&&p.status==='pending')
+  if(!validView||!validItem){setLocationError(t('workflow.locationMissing'));return}
+  setLocationError('');setLocatedKey(location.key);setMarking(false);setTab(view==='proposal'?'mock':view as typeof tabs[number])
+ },[location])
  const latest=useRef(spec);latest.current=spec
  const change=(next:MockBlockData,expected=spec,sourceCheck=false)=>{
   if(editor.isDestroyed||!editor.isEditable||!mockBlocksAllowed(useCloud.getState())||epoch!==useWorkspace.getState().epoch||!!pageId&&useWorkspace.getState().pages[pageId]?.settings.locked)return
@@ -88,21 +99,22 @@ export function DesignMockView({node,editor,getPos}:ReactNodeViewProps) {
  const previewFrame=(enabled:boolean)=><MockPreviewFrame document={safeDocument} title={preview!.title} width={displayWidth} height={preview!.height} marking={enabled&&marking&&editable} areaMarking={markMode==='area'} onRegion={selectArea} region={activeRegion?.viewportWidth===displayWidth?activeRegion:undefined} highlights={activeRegion?[]:activeSelection.map(e=>e.path)} onSelect={selectElement}/>
 
  const configuration=<details contentEditable={false} open={!preview}><summary>{t('editor.mock.configure')}</summary>{editable?<Suspense fallback={null}><Composer value={spec} onChange={change}/></Suspense>:<div><p>{spec.request}</p><p>{spec.source}</p><p>{spec.requirement}</p></div>}</details>
- return <NodeViewWrapper className="mock-block" data-type="design-mock">
+ return <NodeViewWrapper data-work-location={locatedKey||undefined} className="mock-block" data-type="design-mock">
   <header contentEditable={false}><strong>{t('editor.block.designMock')}</strong><span className="label">{t('editor.mock.static')}</span></header>
   <NodeViewContent className="mock-block__title"/>
+  {locationError&&<p contentEditable={false} role="alert">{locationError}</p>}
 
 
   {!preview&&configuration}
   {preview&&<section className="mock-block__settings" contentEditable={false}>
-   <Suspense fallback={null}><Revisions journal={spec.journal?.id}/></Suspense>
+   <Suspense fallback={null}><Revisions journal={spec.journal?.id} stored={spec.journal?.proposals} focusId={location?.view==='proposal'?location.item:undefined} focusRequest={location?.key}/></Suspense>
    <div className="mock-block__tabs" role="tablist" aria-label={de?'Mock-Einstellungen':'Mock settings'} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?tabs[0]:e.key==='End'?tabs[tabs.length-1]:tabs[(tabs.indexOf(tab)+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length];chooseTab(next);document.getElementById(tabId+'-'+next)?.focus()}}}>
     {tabs.map((key,index)=><button key={key} id={tabId+'-'+key} role="tab" aria-selected={tab===key} aria-controls={tabId+'-panel-'+key} tabIndex={tab===key?0:-1} onClick={()=>chooseTab(key)}><span className="mock-block__tab-index" aria-hidden="true">{String(index+1).padStart(2,'0')}</span>{key==='mock'?'Mock':key==='colors'?(de?'Farben':'Colours'):key==='atlas'?'Atlas':key==='feedback'?(de?'Notizen':'Notes'):key==='versions'?(de?'Versionen':'Versions'):(de?'Komponenten':'Components')}</button>)}
    </div>
    <ResultProgress phase={spec.journal?.proposals?.some(p=>p.status==='pending')?'review':'adopted'} saved={de?'Die angezeigte Vorschau ist auf dieser One-Seite gespeichert. Atlas hat einen getrennten Speicherstand.':'The displayed preview is saved on this One page. Atlas has a separate saved state.'} next={spec.journal?.proposals?.some(p=>p.status==='pending')?(de?'Neuen Vorschlag vergleichen und ausdrücklich übernehmen.':'Compare the new proposal and explicitly adopt it.'):(de?'Mock prüfen, Stellen markieren oder Rückmeldungen bewerten.':'Review the mock, mark locations or assess feedback.')}/>
    <Suspense fallback={null}><SourcePanel value={spec} onChange={(next,checked)=>change(next,spec,checked)} editable={editable} de={de} compact={tab!=='atlas'} onOpen={()=>chooseTab('atlas')}/></Suspense>
    <div role="tabpanel" id={tabId+'-panel-'+tab} aria-labelledby={tabId+'-'+tab} className="mock-block__panel">
-    <div hidden={tab!=='feedback'&&tab!=='versions'}><Suspense fallback={null}><ReviewPanel value={spec} onChange={change} selection={preview&&selectionVersion===mockVersionKey(preview)?selection:[]} region={activeRegion} onRemoveSelection={path=>{setSelectionRegion(undefined);setSelection(items=>items.filter(e=>e.path!==path))}} onClear={()=>{setSelection([]);setSelectionRegion(undefined);setMarking(false)}} pageId={pageId} editable={editable} mode={tab==='versions'?'versions':'feedback'} onLocate={setInspected} onPreviewVersion={setViewedVersionKey}/></Suspense></div>
+    <div hidden={tab!=='feedback'&&tab!=='versions'}><Suspense fallback={null}><ReviewPanel focusItem={location?.view==='feedback'?location.item:undefined} focusRequest={location?.key} value={spec} onChange={change} selection={preview&&selectionVersion===mockVersionKey(preview)?selection:[]} region={activeRegion} onRemoveSelection={path=>{setSelectionRegion(undefined);setSelection(items=>items.filter(e=>e.path!==path))}} onClear={()=>{setSelection([]);setSelectionRegion(undefined);setMarking(false)}} pageId={pageId} editable={editable} mode={tab==='versions'?'versions':'feedback'} onLocate={setInspected} onPreviewVersion={setViewedVersionKey}/></Suspense></div>
     {tab==='components'?<MockComponentTree key={effectiveHash} html={safeDocument} title={preview.title} width={preview.width} height={preview.height} de={de} provenance={receipt} onReplace={editable?element=>requestChange(element,'Suche eine passende alternative Katalog-Komponente für '+element.component+' an dieser Stelle. Begründe die Wahl; erhalte die Funktion und alle anderen Bereiche.'):undefined}/>:tab==='mock'?configuration:tab==='feedback'||tab==='versions'?null:tab==='colors'?<>
      <p className="faint">{de?'Farben für diesen Entwurf anpassen. Änderungen werden auf der One-Seite gespeichert; Atlas wird erst auf deinen Klick aktualisiert.':'Adjust this proposal’s colours. Changes are saved on the One page; Atlas is updated only when you choose to upload.'}</p>
      {colorTokens.length?<div className="mock-block__colors">{colorTokens.map(token=>{const value=preview.colors?.[token.name]??token.value;return <div className="mock-block__color" key={token.name}><label><input type="color" aria-label={token.name+(de?' Farbe':' colour')} value={pickerHex(value)} disabled={!editable} onChange={e=>color(token.name,e.target.value)}/><span><strong>{token.name.replace(/^--/,'').replace(/-/g,' ')}</strong><small>{de?'Original: ':'Original: '}{token.value}</small></span></label><input aria-label={token.name+' Hex'} key={value} defaultValue={value} disabled={!editable} maxLength={9} onBlur={e=>{if(/^#[a-f0-9]{6}$/i.test(e.target.value))color(token.name,e.target.value);else e.target.value=value}}/><button className="btn btn--sm" disabled={!editable||!preview.colors?.[token.name]} onClick={()=>color(token.name)}>{de?'Zurücksetzen':'Reset'}</button></div>})}</div>:<p>{de?'Für diese Vorschau sind keine bearbeitbaren Farbwerte hinterlegt. Ein neu übernommenes KI-Ergebnis bringt seine Designwerte mit.':'This preview has no editable colour values. Newly adopted AI results include their design tokens.'}</p>}

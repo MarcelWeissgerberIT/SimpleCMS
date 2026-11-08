@@ -494,11 +494,11 @@ export const BlockFlash = Extension.create({
 })
 
 /** Scroll a block into view and flash it for ~2s (a block in a hidden tab shows that tab first). */
-export function flashBlock(editor: import('@tiptap/core').Editor, pos: number) {
+export function flashBlock(editor: import('@tiptap/core').Editor, pos: number, scroll = true) {
   if (editor.isDestroyed) return
   revealPos(editor.view, pos + 1)
   const dom = editor.view.nodeDOM(pos) as HTMLElement | null
-  dom?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  if (scroll) dom?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
   editor.view.dispatch(editor.state.tr.setMeta(flashKey, { pos }).setMeta('addToHistory', false))
   window.setTimeout(() => {
     if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(flashKey, null).setMeta('addToHistory', false))

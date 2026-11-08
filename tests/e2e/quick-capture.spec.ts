@@ -543,7 +543,8 @@ test.describe('quick capture', () => {
     await page.goto('app/?e2e&launch=capture')
     await waitForApp(page)
     await expect(sheet(page)).toBeVisible()
-    expect(await page.evaluate(() => window.location.search)).toBe('?e2e')
+    expect(new URL(page.url()).searchParams.has('launch')).toBe(false)
+    expect(new URL(page.url()).searchParams.has('e2e')).toBe(true)
     await page.goto('app/?e2e&launch=search')
     await waitForApp(page)
     await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible()
@@ -570,8 +571,12 @@ test.describe('quick capture at 390 px', () => {
     await fab.tap()
     const s = sheet(page)
     await expect(s).toBeVisible()
+    await expect.poll(async () => {
+      const box = (await s.boundingBox())!
+      return Math.abs(box.y + box.height - 844)
+    }).toBeLessThanOrEqual(2)
     const sb = (await s.boundingBox())!
-    // on the bottom edge (±2 px: the sheet may still be settling from its 8 px slide-in)
+    // Measure after the bottom sheet's slide-in has settled.
     expect(Math.abs(sb.y + sb.height - 844)).toBeLessThanOrEqual(2)
     expect(sb.x).toBeGreaterThanOrEqual(0)
     expect(sb.x + sb.width).toBeLessThanOrEqual(390)
