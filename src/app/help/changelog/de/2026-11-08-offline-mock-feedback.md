@@ -1,7 +1,7 @@
 ---
 id: offline-mock-feedback
 date: 2026-11-08
-order: 2
+order: 3
 title: Offline-Rückmeldungen beider Personen bleiben erhalten
 summary: Getrennte Notizen und Prüfentscheidungen überstehen Wiederverbinden und Neuladen.
 image: assets/shots/changelog/offline-mock-feedback.png
