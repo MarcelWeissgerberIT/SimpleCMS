@@ -19,6 +19,14 @@ notify("{fällig.count} Aufgaben hochgestuft")
 
 Tippe `@` und wähle eine Seite, Datenbank oder Person: sie wird zum Chip. Der Chip zeigt weiter auf dieselbe Seite, auch wenn sie umbenannt wird.
 
+## Im Editor zurechtfinden
+Der Arbeitsbereich trennt **Bearbeiten → Probelauf → Ausführen**. Der Probelauf-Status bezieht sich auf den tatsächlich geprüften Code und wird nach Änderungen ungültig. Ergebnisse früherer Stände werden deutlich gekennzeichnet. Beschreibe über dem Code den Zweck, damit andere wissen, wann sie das Script nutzen können; das Feld speichert beim Verlassen. **Hilfe & Funktionen** durchsucht Namen und Beschreibungen. **KI-Unterstützung** hat einen eigenen Tab; vorgeschlagenen Code prüfst du vor der Übernahme.
+
+Mit **Suchen** (Strg/⌘ F) findest du wörtlichen Text, bei Bedarf unter Beachtung der Groß-/Kleinschreibung. Enter oder F3 springt zum nächsten Treffer, Umschalt+F3 zurück. **Ersetzen** (Strg/⌘ Umschalt H) ändert einen oder alle Treffer. Strg/⌘ Z macht die Änderung rückgängig. Ersetzungstext wird wörtlich übernommen, auch `$&`.
+
+**Gehe zu Zeile** (Strg/⌘ G) springt zu einer Zeilennummer. Escape schließt die Suchwerkzeuge und führt zurück zum Code. **Code im Fokus** blendet die Referenz beziehungsweise den Abfrage-Builder aus; erneut klicken blendet sie wieder ein. Der Zeilenumbruch-Schalter unten merkt sich seine Einstellung auf diesem Gerät. Im Kopf steht, ob der aktuelle Code noch im Workspace gespeichert wird; die Cloud-Synchronisierung zeigt One separat in der Statusleiste.
+
+
 ## Vorlagen
 **Aus Vorlage** auf der Skripte-Seite (oder ⌘K → *Neues Skript aus Vorlage …*) öffnet die Galerie: fertige Skripte in fünf Gruppen — *Aufgaben & Projekte*, *Mail & Kontakte*, *Berichte*, *Aufräumen*, *Mit Claude*. Jede Karte sagt, was das Skript tut, was es berührt (liest, schreibt, legt Seiten an, Papierkorb, sendet Mail, nutzt Claude, fragt nach) und welche deiner Datenbanken es nimmt.
 

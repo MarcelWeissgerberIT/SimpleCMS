@@ -2,7 +2,7 @@
  * The reference pane next to a script: One's library and the built-ins by group, each with its
  * signature and one line; a click inserts the call at the caret.
  */
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { useT } from '../../../i18n'
 import { GLOBAL_FUNCTIONS, type FnGroup, type FnInfo } from '../catalog'
 import { fnDesc } from './format'
@@ -18,12 +18,16 @@ export function insertionOf(f: FnInfo): string {
 
 export const Reference = memo(function Reference({ onInsert }: { onInsert: (text: string) => void }) {
   const t = useT()
+  const [query, setQuery] = useState('')
+  const matches = GLOBAL_FUNCTIONS.filter((f) => `${f.name} ${f.sig} ${fnDesc(t, f.name)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase().trim()))
   return (
     <section className="sc-ref" aria-label={t('features.script.tab.reference')}>
       <h2 className="sc-pane__head label">{t('features.script.tab.reference')}</h2>
       <p className="sc-ref__lead">{t('features.script.ref.lead')}</p>
+      <label className="sc-ref__search">{t('features.script.editor.findFunction')}<input className="input" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+      {!matches.length && <p className="sc-ref__lead" role="status">{t('features.script.editor.noFunction')}</p>}
       {ORDER.map((g) => {
-        const list = GLOBAL_FUNCTIONS.filter((f) => f.group === g)
+        const list = matches.filter((f) => f.group === g)
         if (!list.length) return null
         return (
           <div key={g} className="sc-ref__group">

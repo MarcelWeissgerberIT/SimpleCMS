@@ -1,7 +1,7 @@
 ---
 id: workflow-cohesion
 date: 2026-11-08
-order: 7
+order: 8
 title: Arbeitsstand, Entscheidungen und Ergebnisse zusammen
 summary: Die Arbeitsübersicht ist direkt erreichbar und führt dich zur nächsten konkreten Aktion.
 help: agent

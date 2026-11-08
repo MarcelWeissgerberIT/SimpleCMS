@@ -1,7 +1,7 @@
 ---
 id: work-continuity
 date: 2026-11-08
-order: 2
+order: 3
 title: Keep your work in view
 summary: Recover mock drafts, follow work paths and prepare shared reviews.
 image: assets/shots/changelog/work-continuity.webp

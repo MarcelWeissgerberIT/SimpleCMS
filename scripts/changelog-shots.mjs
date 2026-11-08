@@ -943,6 +943,23 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'script-editor'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      window.__one.workspace.getState().upsertScript({ id: 'script-editor-shot', name: 'Daily review', description: 'Shows the daily review without changing pages. Run the preview before applying changes.', kind: 'script', createdAt: Date.now(), updatedAt: Date.now(), code: '# Daily review\nlet message = "Open items"\nprint(message)\nprint("OPEN items")\n' })
+      location.hash = '#/scripts/script-editor-shot'
+    })
+    await page.locator('.sc-code__input').waitFor()
+    await page.getByTestId('sc-dry').click()
+    await page.getByTestId('sc-check-state').getByText('This code passed the dry run').waitFor()
+    await page.locator('.sc-back').scrollIntoViewIfNeeded()
+    await page.getByRole('button', { name: 'Replace', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Find in script' }).fill('items')
+    await page.getByRole('textbox', { name: 'Replace with' }).fill('tasks')
+    await rest(page)
+    await save(page, 'script-editor')
+    await ctx.close()
+  },
   async 'team-knowledge'() {
     execFileSync(process.execPath,['--disable-warning=ExperimentalWarning','scripts/team-hub-check.mjs'],{env:{...process.env,ONE_TEAM_PROOF:TMP+'/team-hub'},stdio:'pipe'});
     await saveSideBySide('team-knowledge',[TMP+'/team-hub/changelog.png']);

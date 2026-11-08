@@ -1,7 +1,7 @@
 ---
 id: resilient-workflows
 date: 2026-11-08
-order: 6
+order: 7
 title: Return to the exact piece of work
 summary: Keep your place in the work overview, open the right version and follow active source reads.
 image: assets/shots/changelog/resilient-workflows.webp
