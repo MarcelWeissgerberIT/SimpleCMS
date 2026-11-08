@@ -83,6 +83,9 @@ test.describe('Claude writes tasks in a team workspace', () => {
     expect(staged).toHaveLength(1)
     const card = terminal(a).locator('.term-change').first()
     await card.getByRole('button', { name: /^Apply #1/ }).click()
+    // Completed proposals fold into the summary; reopen them before inspecting the card.
+    await expect.poll(async()=>(await changes(a))[0]?.status).toBe('applied')
+    await terminal(a).locator('li.term-done').getByRole('button',{name:'Show',exact:true}).click()
     await expect(card).toHaveAttribute('data-status', 'applied')
     const tasks = tasksIn(await contentOf(a, id))
     expect(tasks).toHaveLength(1)
@@ -154,6 +157,8 @@ test.describe('Claude writes tasks in a team workspace', () => {
     expect(res).toContain('Tasks can\'t be made here right now')
     const card = terminal(page).locator('.term-change').first()
     await card.getByRole('button', { name: /^Apply #1/ }).click()
+    await expect.poll(async()=>(await changes(page))[0]?.status).toBe('applied')
+    await terminal(page).locator('li.term-done').getByRole('button',{name:'Show',exact:true}).click()
     await expect(card).toHaveAttribute('data-status', 'applied')
     const c = await contentOf(page, id)
     expect(tasksIn(c).map((t) => t.itemId)).toEqual([X])
