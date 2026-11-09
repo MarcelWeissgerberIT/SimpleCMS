@@ -1,3 +1,4 @@
+import { scrubSecrets } from '@/shared/ai/keys'
 import {mockIntent} from '@/shared/ai/designMock'
 import {codeDeliveryIssues} from '@/shared/ai/codeDelivery'
 import {createTaskContract,TASK_QUESTION,oneTaskEffect} from '../core/taskContract'
@@ -186,7 +187,7 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
             hooks.toolEnd(id, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - start })
             content = clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
             if(tool.write)remote?.facts.noteOtherWrite()
-          } catch (e) { task!.observe('one',false,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query'].includes(tool.name));if(e instanceof LiveAuditError)throw e;failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: '', ms: performance.now() - start }) }
+          } catch (e) { task!.observe('one',false,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query'].includes(tool.name));if(e instanceof LiveAuditError)throw e;failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: scrubSecrets(content).slice(0, 2000), ms: performance.now() - start }) }
         } else if (remote && remote.hasFunction(c.name)) {
           try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;if(JSON.parse(raw).oneNotExecuted===true)repeated.delete(key);content = raw; if(c.name==='one_mcp_search'){const found=JSON.parse(raw);atlasDiscovered ||= /\batlas\b/iu.test(opts.typed??'')&&found.tools?.some((t:{name:string})=>t.name==='atlas_search'||t.name==='atlas_query')===true}if(String(remote.resolve(c.name,c.arguments)?.name??'').startsWith('atlas_'))atlasQueried=true }
           catch (e) { if(e instanceof LiveAuditError)throw e;if (connectionProblem(e) === 'tls') throw e; failed=true;content=e instanceof AIError?e.detail??e.message:'MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }

@@ -420,6 +420,7 @@ const readPage: AgentTool = {
     const withRefs = input.refs === true || input.refs === 'true'
     if (withRefs && p.kind !== 'database') head.push('[Blocks are labelled with refs (⟦b1⟧ …) for edit_page: cite them as "b1". The labels are not part of the text: never write them into content.]')
     const md = withRefs && p.kind !== 'database' ? readWithRefs(p.id, lim ? new Set(lim.ids ?? []) : null).markdown : lim ? lim.markdown.trim() : markdownOf(p.content)
+    if (offset > md.length) throw new ToolInputError(`Page ${q(titleOf(p))} has ${md.length} characters; offset ${offset} is past its end. This call read no additional content. Keep earlier successful reads. Continue only at an offset explicitly returned by read_page; if the page ended, proceed with the analysis.`)
     // a part ends at a block boundary when it can (refs stay with their block)
     let end = Math.min(md.length, offset + PAGE_PART_CHARS)
     if (end < md.length) {
@@ -431,6 +432,7 @@ const readPage: AgentTool = {
     let body = md ? part : '(empty page)'
     if (offset && !part) body = `(offset ${offset} is past the end: the page has ${md.length} characters)`
     if (more) body += `\n[Part ${offset}–${offset + part.length} of ${md.length} characters. Call read_page with offset ${offset + part.length}${withRefs ? ' and refs: true' : ''} for the rest.]`
+    else body += `\n[End of page: ${md.length} characters. No further offset is needed.]`
     // Count the actual block-aligned parts, not ceil(length / max): a boundary can shorten a part.
     let total = 0
     let number = 1

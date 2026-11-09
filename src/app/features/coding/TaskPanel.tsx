@@ -298,7 +298,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
               <CircleStop size={14} strokeWidth={1.75} aria-hidden />
               {t('features.coding.act.stop')}
             </button>
-            <span className="ctk-hint">{t('features.coding.act.running', { stage: stage?.name ?? '' })}</span>
+            <span className="ctk-hint">{t(one ? 'features.coding.act.runningOne' : 'features.coding.act.running', { stage: stage?.name ?? '' })}</span>
           </div>
         )}
         {state === 'running' && (

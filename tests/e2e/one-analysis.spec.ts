@@ -57,6 +57,8 @@ test('stop aborts the model and keeps the stage open', async ({ page, context })
   const mock = await mockAgent(context, [call('read', 'read_page', { id }), async () => { await waiting; return say('LATE RESULT')() }])
   await page.getByTestId('coding-run').click()
   await expect.poll(() => mock.bodies.length).toBe(2)
+  await expect(page.locator('.ctk')).toContainText('One is working on')
+  await expect(page.locator('.ctk')).not.toContainText('Claude Code works on')
   await page.getByTestId('coding-stop').click()
   release()
   await expect(page.getByTestId('coding-stop')).toHaveCount(0)
@@ -257,4 +259,26 @@ test('persisted source failures show readable recovery without overlap or automa
   await page.evaluate(() => (window as any).__one.cloud.useCloud.setState({ readOnly: true }))
   await expect(box.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
   await expect(box.getByRole('button', { name: /Protocol requirements/ })).toBeVisible()
+})
+
+
+test('a failed source read shows its reason and the model can correct the call', async ({ page, context }) => {
+  const id = await setup(page)
+  const mock = await mockAgent(context, [
+    call('initial', 'read_page', { id }),
+    call('bad', 'read_page', { id, offset: 12000 }),
+    say('## Analysis\nSource read corrected.'),
+    call('spec', 'read_page', { id }),
+    say('## Specification\nThe system shall preserve verified sources.'),
+  ])
+  await page.getByTestId('coding-run').click()
+  await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 40_000 })
+  await page.getByRole('tab', { name: 'Log', exact: true }).click()
+  const failures = page.getByTestId('coding-log').locator('[data-k="error"] .clog-s')
+  await expect(failures).toHaveCount(1)
+  await expect(failures).toContainText('offset 12000 is past its end')
+  await expect(failures).not.toContainText('Invalid host source window')
+  expect((await failures.innerText()).trim().length).toBeGreaterThan(10)
+  expect(mock.bodies).toHaveLength(5)
+  expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('Source read corrected')
 })

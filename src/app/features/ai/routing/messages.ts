@@ -31,6 +31,7 @@ export const messages: Messages = {
 
     'features.ai.program.terminal.saved': 'Personal run receipt saved.',
     'features.ai.program.terminal.failed': 'This run receipt could not be saved. Keep this tab open and try saving it again.',
+    'features.ai.central.gateway': 'The connection to the One server was interrupted (HTTP 502/503/504). This request was stopped; it will not be repeated automatically.',
     'features.ai.program.terminal.retry': 'Save receipt again',
     'features.ai.program.terminal.historyHelp': 'The latest 100 personal receipts in this workspace. New terminal tasks include failures and stopped attempts. This view refreshes automatically; older versions did not archive every terminal task.',
     'features.ai.program.terminal.receipt': 'Terminal receipt',
@@ -728,6 +729,7 @@ export const messages: Messages = {
 
     'features.ai.program.terminal.saved': 'Persönlicher Laufnachweis gespeichert.',
     'features.ai.program.terminal.failed': 'Dieser Laufnachweis konnte nicht gespeichert werden. Lass diesen Tab offen und versuche das Speichern erneut.',
+    'features.ai.central.gateway': 'Die Verbindung zum One-Server wurde unterbrochen (HTTP 502/503/504). Dieser Aufruf wurde angehalten und wird nicht automatisch wiederholt.',
     'features.ai.program.terminal.retry': 'Nachweis erneut speichern',
     'features.ai.program.terminal.historyHelp': 'Die letzten 100 persönlichen Nachweise in diesem Workspace. Neue Terminalaufträge enthalten auch Fehler und gestoppte Versuche. Die Ansicht aktualisiert sich automatisch; ältere Versionen archivierten nicht jeden Terminalauftrag.',
     'features.ai.program.terminal.receipt': 'Terminal-Laufnachweis',
