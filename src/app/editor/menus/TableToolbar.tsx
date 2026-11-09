@@ -8,6 +8,7 @@ import { BetweenHorizontalEnd, BetweenHorizontalStart, BetweenVerticalEnd, Betwe
 import type { VirtualElement } from '@floating-ui/react'
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
+import { addSelectionToTerminal } from '../../features'
 
 const TableCellsDialog = lazy(() => import('../../features/ai/table-cells/Dialog'))
 
@@ -19,7 +20,7 @@ export function TableToolbar({ editor }: { editor: Editor }) {
     selector: ({ editor: e }) => {
       if (!e || !e.isEditable || !e.isFocused) return null
       const found = findParentNode((n) => n.type.name === 'table')(e.state.selection)
-      return found ? { tableId: found.node.attrs.id as string, pos: found.pos, header: found.node.firstChild?.firstChild?.type.name === 'tableHeader' } : null
+      return found ? { tableId: found.node.attrs.id as string, pos: found.pos, header: found.node.firstChild?.firstChild?.type.name === 'tableHeader', selected: !e.state.selection.empty } : null
     },
   })
   const anchor = useMemo<VirtualElement | null>(() => {
@@ -41,6 +42,9 @@ export function TableToolbar({ editor }: { editor: Editor }) {
   const c = () => editor.chain().focus()
   return (<>
     <Popover open={!cells && !!st && !!anchor} anchor={anchor} onClose={() => {}} placement="top-end" offset={6} bare autoFocus={false} closeOnOutside={false} className="table-tools" role="toolbar" aria-label={t('editor.table.tools')}>
+      {st?.selected && <button type="button" className="table-tools__ask" onMouseDown={e => e.preventDefault()} onClick={() => addSelectionToTerminal(editor)}>
+        <Sparkles size={14} />{t('editor.bubble.askAI')}
+      </button>}
       <span className="label table-tools__label">{t('editor.table.label')}</span>
       <B label={t('editor.table.rowAbove')} onClick={() => c().addRowBefore().run()}>
         <BetweenHorizontalStart size={14} />

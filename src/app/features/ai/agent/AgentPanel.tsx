@@ -42,6 +42,8 @@ const covered = () => !!document.querySelector('.modal-scrim, .pal-scrim, .pres'
 
 /** Text selected in a page editor (read at the keystroke, before anything moves focus). */
 function editorSelected(): boolean {
+  const root = document.activeElement?.closest('.ProseMirror') as (HTMLElement & { editor?: Editor }) | null
+  if (root?.editor && !root.editor.isDestroyed && !root.editor.state.selection.empty) return true
   const sel = window.getSelection()
   if (!sel || sel.isCollapsed || !sel.rangeCount) return false
   const node = sel.getRangeAt(0).commonAncestorContainer

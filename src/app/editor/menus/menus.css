@@ -698,6 +698,8 @@
 
 /* ---------- table tools ---------- */
 .table-tools {
+  flex-wrap: wrap;
+  max-width: calc(100vw - 16px);
   z-index: var(--z-popover);
   display: flex;
   align-items: center;
@@ -726,6 +728,21 @@
   cursor: pointer;
 }
 
+.table-tools__ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--signal-ink);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.table-tools__ask:hover,
 .table-tools__btn:hover {
   background: var(--hover);
   color: var(--ink);
