@@ -75,6 +75,8 @@ export interface PageSettings {
 }
 
 export interface Page {
+  /** Provenance for the page-specific overview follow-up database and its rows. */
+  overviewFollowUp?: import('../shell/page/overview/model').OverviewFollowUp
   overview?: import('../shell/page/overview/model').PageOverview
   overviewReviews?: Record<string, import('../shell/page/overview/model').OverviewReview>
   id: ID

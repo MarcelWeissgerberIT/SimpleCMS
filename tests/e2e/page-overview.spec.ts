@@ -11,14 +11,14 @@ async function setup(page:BrowserPage){
  await page.getByRole('group',{name:'Page view',exact:true}).getByRole('button',{name:'Overview',exact:true}).click()
  return id
 }
-async function model(context:BrowserContext,{invalid=false,wait}: {invalid?:boolean;wait?:Promise<void>}={}){
+async function model(context:BrowserContext,{invalid=false,wait,sourceContains='Tip Touch'}: {invalid?:boolean;wait?:Promise<void>;sourceContains?:string}={}){
  const bodies:any[]=[]
  await context.route('https://api.anthropic.com/**',async route=>{
   const cors={'access-control-allow-origin':'*','access-control-allow-headers':'*','access-control-allow-methods':'POST, GET'}
   if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers:cors})
   const body=route.request().postDataJSON();bodies.push(body)
   const content=body.messages[0].content,prompt=typeof content==='string'?content:content.find((x:any)=>x.type==='text').text
-  const source=JSON.parse(prompt).sources.find((s:any)=>s.text.includes('Tip Touch'))
+  const source=JSON.parse(prompt).sources.find((s:any)=>s.text.includes(sourceContains))
   const base={role:'',doneWhen:'',options:[],sourceId:source.id,quote:invalid?'Eine erfundene Quellenstelle ohne Beleg.':source.text}
   const items=[{...base,kind:'summary',title:'Umfang noch offen',detail:'Vor der Umsetzung ist eine Entscheidung über Tip Touch nötig.'},{...base,kind:'decision',title:'Tip Touch jetzt aufnehmen?',detail:'Das Team entscheidet über die Lieferung.',role:'Fachseite',options:['Aktuelle Lieferung','Spätere Lieferung']},{...base,kind:'action',title:'Adaptergrenzen klären',detail:'Fehlende Grenzen mit der Fachseite abstimmen.',role:'Fachseite',doneWhen:'Die fehlenden Adaptergrenzen sind dokumentiert und fachlich bestätigt.'}]
   await wait
@@ -69,7 +69,7 @@ test('a page edit during inference refuses the old result',async({page,context})
  let release!:()=>void;const calls=await model(context,{wait:new Promise<void>(r=>release=r)}),id=await setup(page)
  await overview(page).getByRole('button',{name:'Create overview',exact:true}).click();await expect.poll(()=>calls.length).toBe(1)
  await wsEval(page,(s,id)=>s.updatePage(id,{title:'Changed while generating'}),id);release()
- await expect(overview(page).getByRole('alert')).toContainText('changed during generation');expect(await wsEval(page,(s,id)=>s.pages[id].overview,id)).toBeUndefined()
+ await expect(overview(page).getByRole('alert').filter({hasText:'changed during generation'})).toBeVisible();expect(await wsEval(page,(s,id)=>s.pages[id].overview,id)).toBeUndefined()
 })
 
 test('cancel leaves no saved result and locked/viewer pages cannot generate or adopt',async({page,context})=>{
@@ -195,4 +195,100 @@ test('Haiku structured previews use the ordinary stream endpoint and meter the c
  expect(calls).toHaveLength(1);expect(calls[0].stream).toBe(true);expect(calls[0].model).toBe('claude-haiku-4-5')
  expect(calls[0].output_config.format.type).toBe('json_schema')
  const entries=await ledger(page);expect(entries).toHaveLength(1);expect(entries[0].purpose).toBe('page.overview');expect(entries[0].outcome).toBe('ok');expect(entries[0].served.model).toBe('claude-haiku-4-5')
+})
+
+
+test('selected cards become a page-specific follow-up database without duplicating or overwriting tracked work',async({page,context},testInfo)=>{
+ await model(context);const id=await setup(page);await generate(page)
+ const cards=overview(page).locator('.overview-card')
+ await cards.nth(0).getByRole('checkbox',{name:'Select for follow-up'}).check()
+ await cards.nth(1).getByRole('checkbox',{name:'Select for follow-up'}).check()
+ await overview(page).getByRole('button',{name:'Track selected (2)',exact:true}).click()
+ const dbId=await wsEval(page,(s,id)=>Object.values(s.pages).find((p:any)=>p.kind==='database'&&p.overviewFollowUp?.pageId===id)?.id,id) as string
+ await page.screenshot({path:testInfo.outputPath('overview-tracking-selection.png'),fullPage:true,animations:'disabled'})
+ expect(dbId).toBeTruthy()
+ const rows=await wsEval(page,(s,dbId)=>Object.values(s.pages).filter((p:any)=>p.databaseId===dbId),dbId) as any[]
+ expect(rows).toHaveLength(2);expect(rows.every(r=>r.properties['ov-status']==='ov-open')).toBe(true)
+ expect(rows[0].content.content.some((n:any)=>n.content?.some((c:any)=>c.text?.includes('Tip Touch')))).toBe(true)
+ expect(await wsEval(page,(s,id)=>s.pages[id].overviewReviews,id)).toBeUndefined()
+ await overview(page).getByRole('link',{name:'Open follow-up',exact:true}).click()
+ await expect(page).toHaveURL(new RegExp(dbId));await expect(page.getByText('Umfang noch offen',{exact:true}).first()).toBeVisible();await page.screenshot({path:testInfo.outputPath('overview-tracking-database.png'),fullPage:true,animations:'disabled'})
+ await wsEval(page,(s,rowId)=>{s.setRowProperty(rowId,'ov-status','ov-done');s.updatePage(rowId,{title:'Eigene Nachverfolgung'})},rows[0].id)
+ await gotoPage(page,id)
+ await overview(page).getByRole('button',{name:'Update overview',exact:true}).click();await expect(overview(page).getByRole('button',{name:'Update overview',exact:true})).toBeEnabled()
+ await expect(overview(page).getByRole('link',{name:'Open tracked item',exact:true})).toHaveCount(2)
+ await overview(page).locator('[data-kind=action]').getByRole('checkbox',{name:'Select for follow-up'}).check()
+ await overview(page).getByRole('button',{name:'Track selected (1)',exact:true}).click()
+ expect(await wsEval(page,(s,dbId)=>Object.values(s.pages).filter((p:any)=>p.databaseId===dbId).length,dbId)).toBe(3)
+ expect(await wsEval(page,(s,id)=>[s.pages[id].title,s.pages[id].properties['ov-status']],rows[0].id)).toEqual(['Eigene Nachverfolgung','ov-done'])
+ await reloadApp(page);await expect(overview(page).getByRole('link',{name:'Open tracked item',exact:true})).toHaveCount(3)
+ expect(await wsEval(page,(s,id)=>s.pages[id].parentId,dbId)).toBe(id)
+})
+
+async function subpages(page:BrowserPage,id:string){return wsEval(page,(s,id)=>{
+ const make=(title:string,parentId:string,body:string,extra:any={})=>{const p=s.createPage({title,parentId});s.setContent(p,{type:'doc',content:[{type:'paragraph',attrs:{id:'same-block'},content:[{type:'text',text:body}]}]},'e2e');s.updatePage(p,extra);return p}
+ const child=make('Client-Analyse',id,'Client braucht eine bestätigte Schnittstelle.'),nested=make('ICM-Details',child,'ICM braucht abgestimmte Grenzwerte.')
+ const privateId=make('Private Notizen',id,'Vertraulicher privater Inhalt.',{private:true}),hidden=make('Versteckter Zweig',id,'Versteckter Inhalt.',{hidden:true})
+ make('Nicht sichtbares Kind',hidden,'Verstecktes Kind.')
+ const db=s.createDatabase({title:'Andere Datenbank',parentId:id});s.createRow(db,{title:'Kein Quelldokument',content:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Tabelleneintrag nicht mitlesen.'}]}]}})
+ return {child,nested,privateId,db}
+},id)}
+
+test('subpages are opt-in, selectable and source-linked; child edits make the cached scope stale',async({page,context},testInfo)=>{
+ const calls=await model(context,{sourceContains:'Client braucht'}),id=await setup(page),children=await subpages(page,id)
+ await expect(overview(page).getByRole('checkbox',{name:'Include subpages',exact:true})).not.toBeChecked()
+ await overview(page).getByRole('checkbox',{name:'Include subpages',exact:true}).check()
+ await expect(overview(page).getByRole('checkbox',{name:'Client-Analyse',exact:true})).toBeChecked()
+ await expect(overview(page).getByRole('checkbox',{name:'ICM-Details',exact:true})).toBeChecked()
+ await expect(overview(page).getByRole('checkbox',{name:'Private Notizen',exact:true})).toHaveCount(0)
+ await expect(overview(page).getByRole('checkbox',{name:'Andere Datenbank',exact:true})).toHaveCount(0)
+ await overview(page).getByRole('checkbox',{name:'ICM-Details',exact:true}).uncheck()
+ await page.screenshot({path:testInfo.outputPath('overview-subpage-selection.png'),fullPage:true,animations:'disabled'})
+ await generate(page)
+ const input=JSON.parse(calls[0].messages[0].content)
+ expect(JSON.stringify(input)).toContain('Client braucht');expect(JSON.stringify(input)).not.toContain('ICM braucht');expect(JSON.stringify(input)).not.toContain('Vertraulich');expect(JSON.stringify(input)).not.toContain('Tabelleneintrag')
+ const saved=await wsEval(page,(s,id)=>s.pages[id].overview,id)
+ expect(saved.sourcePages.map((p:any)=>p.id).sort()).toEqual([id,children.child].sort())
+ expect(saved.items[0].sourcePageId).toBe(children.child);expect(saved.items[0].sourceBlockId).toBe('same-block')
+ await overview(page).locator('.overview-card').first().getByText('Source passage',{exact:true}).click()
+ await overview(page).getByRole('button',{name:'Show passage in document',exact:true}).click()
+ await expect(page).toHaveURL(new RegExp(children.child));await expect(editorOf(page)).toContainText('Client braucht')
+ await gotoPage(page,id);await reloadApp(page)
+ await expect(overview(page).getByRole('checkbox',{name:'Client-Analyse',exact:true})).toBeChecked();await expect(overview(page).getByRole('checkbox',{name:'ICM-Details',exact:true})).not.toBeChecked()
+ await wsEval(page,(s,id)=>s.updatePage(id,{title:'Client geändert'}),children.child)
+ await expect(overview(page).getByRole('status')).toContainText('older version')
+ await expect(overview(page).getByRole('checkbox',{name:'Select for follow-up'})).toHaveCount(0)
+})
+
+test('a child changing during inference rejects the whole new overview',async({page,context})=>{
+ let release!:()=>void;const calls=await model(context,{sourceContains:'Client braucht',wait:new Promise<void>(r=>release=r)})
+ const id=await setup(page),children=await subpages(page,id)
+ await overview(page).getByRole('checkbox',{name:'Include subpages',exact:true}).check()
+ await overview(page).getByRole('button',{name:'Create overview',exact:true}).click();await expect.poll(()=>calls.length).toBe(1)
+ await wsEval(page,(s,id)=>s.updatePage(id,{parentId:null}),children.child);release()
+ await expect(overview(page).getByRole('alert').filter({hasText:'changed during generation'})).toBeVisible()
+ expect(await wsEval(page,(s,id)=>s.pages[id].overview,id)).toBeUndefined()
+})
+
+test('follow-up is isolated per page and respects a locked destination',async({page,context})=>{
+ await model(context);const id=await setup(page);await generate(page)
+ await overview(page).locator('[data-kind=summary]').getByRole('checkbox',{name:'Select for follow-up'}).check();await overview(page).getByRole('button',{name:'Track selected (1)',exact:true}).click()
+ const dbId=await wsEval(page,(s,id)=>Object.values(s.pages).find((p:any)=>p.kind==='database'&&p.overviewFollowUp?.pageId===id)?.id,id) as string
+ await wsEval(page,(s,id)=>s.updatePageSettings(id,{locked:true}),dbId)
+ await overview(page).locator('[data-kind=action]').getByRole('checkbox',{name:'Select for follow-up'}).check();await overview(page).getByRole('button',{name:'Track selected (1)',exact:true}).click()
+ await expect(overview(page).getByRole('alert')).toContainText('locked')
+ expect(await wsEval(page,(s,id)=>Object.values(s.pages).filter((p:any)=>p.databaseId===id).length,dbId)).toBe(1)
+ const second=await createPage(page,{title:'Separate Analyse',content:doc(para(text))});await gotoPage(page,second)
+ await page.getByRole('group',{name:'Page view',exact:true}).getByRole('button',{name:'Overview',exact:true}).click();await generate(page)
+ await overview(page).locator('[data-kind=summary]').getByRole('checkbox',{name:'Select for follow-up'}).check();await overview(page).getByRole('button',{name:'Track selected (1)',exact:true}).click()
+ const secondDb=await wsEval(page,(s,id)=>Object.values(s.pages).find((p:any)=>p.kind==='database'&&p.overviewFollowUp?.pageId===id)?.id,second)
+ expect(secondDb).not.toBe(dbId);expect(secondDb).toBeTruthy()
+})
+
+
+test('without opting in, even populated descendants stay out of the request',async({page,context})=>{
+ const calls=await model(context),id=await setup(page);await subpages(page,id);await generate(page)
+ const input=JSON.stringify(calls[0].messages[0].content)
+ expect(input).toContain('Tip Touch');expect(input).not.toContain('Client braucht');expect(input).not.toContain('ICM braucht')
+ expect(await wsEval(page,(s,id)=>s.pages[id].overview.sourcePages,id)).toBeUndefined()
 })

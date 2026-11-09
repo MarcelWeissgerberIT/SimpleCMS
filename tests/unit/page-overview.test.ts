@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import * as Y from 'yjs'
-import {overviewSources,overviewSignature,overviewPreview,parseOverview,sanitizeOverview,sanitizeOverviewReviews} from '../../src/app/shell/page/overview/model.ts'
+import {overviewSources,overviewSignature,overviewPreview,overviewChildren,overviewScope,overviewScopeSignature,overviewScopeSources,currentOverviewSignature,sanitizeOverviewFollowUp,parseOverview,sanitizeOverview,sanitizeOverviewReviews} from '../../src/app/shell/page/overview/model.ts'
 import {writeOverviewReviews,readOverviewReviews} from '../../src/app/cloud/overview.ts'
 const page={title:'Release',content:{type:'doc',content:[{type:'paragraph',attrs:{id:'block-a'},content:[{type:'text',text:'Das Team entscheidet über Tip Touch.'}]}]}}
 const sources=overviewSources(page),signature=overviewSignature(page)
@@ -53,4 +53,26 @@ test('invalid or duplicate streamed cards never enter the preview; final validat
   assert.throws(()=>parsed([item,bad]))
  }
  assert.equal(overviewPreview(sources,signature,'de')('{"items":[{"kind":"summary"'),undefined)
+})
+
+
+test('selected descendant scope excludes hidden/private/database branches, qualifies duplicate block ids and invalidates on child edits',()=>{
+ const make=(id:string,parentId:string|null,extra:any={})=>({...page,id,parentId,kind:'page',order:0,trashed:false,databaseId:null,settings:{},...extra}) as any
+ const root=make('root',null),child=make('child','root'),nested=make('nested','child'),hidden=make('hidden','root',{hidden:true}),inside=make('inside','hidden'),privatePage=make('private','root',{private:true}),db=make('db','root',{kind:'database'}),row=make('row','db',{databaseId:'db'})
+ const pages=Object.fromEntries([root,child,nested,hidden,inside,privatePage,db,row].map(p=>[p.id,p]))
+ assert.deepEqual(overviewChildren(root,pages).map(p=>p.id),['child','nested'])
+ assert.throws(()=>overviewScope(root,pages,['private']))
+ const scope=overviewScope(root,pages,['nested','child','child'])
+ assert.deepEqual(scope.map(p=>p.id),['root','child','nested'])
+ const sources=overviewScopeSources(scope);assert.equal(new Set(sources.map(s=>s.id)).size,3)
+ const card={...item,sourceId:sources[1].id,sourcePageId:'forged'}
+ const sig=overviewScopeSignature(scope),overview=parseOverview(JSON.stringify({items:[card]}),sources,sig,'de')
+ assert.equal(overview.items[0].sourcePageId,'child');assert.equal(overview.items[0].sourceBlockId,'block-a')
+ overview.sourcePages=scope.map(p=>({id:p.id,title:p.title,signature:overviewSignature(p)}));root.overview=overview
+ assert.equal(currentOverviewSignature(root,pages),sig)
+ assert.deepEqual(sanitizeOverview(overview),overview)
+ child.title='Changed';assert.notEqual(currentOverviewSignature(root,pages),sig)
+ child.parentId=null;assert.equal(currentOverviewSignature(root,pages),'unavailable')
+ assert.deepEqual(sanitizeOverviewFollowUp({pageId:'root',itemId:overview.items[0].id,unwanted:true}),{pageId:'root',itemId:overview.items[0].id})
+ assert.equal(sanitizeOverviewFollowUp({pageId:'root',itemId:'bad'}),undefined)
 })
