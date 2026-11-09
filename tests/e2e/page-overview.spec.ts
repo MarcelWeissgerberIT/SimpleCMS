@@ -34,7 +34,7 @@ test('explicit cached overview preserves document and source navigation; persona
  expect(await wsEval(page,(s,id)=>s.pages[id].content,id)).toEqual(before)
  expect(calls[0].tools??[]).toHaveLength(0)
  await overview(page).locator('.overview-card').first().getByText('Source passage',{exact:true}).click()
- await overview(page).getByRole('button',{name:'Show passage in document'}).click();await expect(editorOf(page)).toBeVisible();await expect(editorOf(page)).toContainText('Tip Touch')
+ await overview(page).locator('.overview-card').first().getByRole('button',{name:'Show passage in document'}).click();await expect(editorOf(page)).toBeVisible();await expect(editorOf(page)).toContainText('Tip Touch')
  await reloadApp(page);await expect(editorOf(page)).toBeVisible()
  await page.getByRole('group',{name:'Page view',exact:true}).getByRole('button',{name:'Overview',exact:true}).click()
  await expect(overview(page).locator('.overview-card')).toHaveCount(3);expect(calls).toHaveLength(1)
@@ -217,8 +217,9 @@ test('selected cards become a page-specific follow-up database without duplicati
  }
  await page.setViewportSize({width:1440,height:900})
  await tracking.getByRole('button',{name:'Track selected (2)',exact:true}).click()
- await expect(tracking).toContainText('2 items added.')
- await expect(tracking.getByRole('link',{name:'Open follow-up',exact:true})).toBeInViewport()
+ await expect(tracking).toHaveCount(0)
+ await expect(overview(page).getByRole('status')).toContainText('2 items added.')
+ await expect(overview(page).getByRole('link',{name:'Open follow-up',exact:true})).toBeVisible()
  const dbId=await wsEval(page,(s,id)=>Object.values(s.pages).find((p:any)=>p.kind==='database'&&p.overviewFollowUp?.pageId===id)?.id,id) as string
  await page.screenshot({path:testInfo.outputPath('overview-tracking-selection.png'),fullPage:true,animations:'disabled'})
  expect(dbId).toBeTruthy()
@@ -270,7 +271,7 @@ test('subpages are opt-in, selectable and source-linked; child edits make the ca
  expect(saved.sourcePages.map((p:any)=>p.id).sort()).toEqual([id,children.child].sort())
  expect(saved.items[0].sourcePageId).toBe(children.child);expect(saved.items[0].sourceBlockId).toBe('same-block')
  await overview(page).locator('.overview-card').first().getByText('Source passage',{exact:true}).click()
- await overview(page).getByRole('button',{name:'Show passage in document',exact:true}).click()
+ await overview(page).locator('.overview-card').first().getByRole('button',{name:'Show passage in document',exact:true}).click()
  await expect(page).toHaveURL(new RegExp(children.child));await expect(editorOf(page)).toContainText('Client braucht')
  await gotoPage(page,id);await reloadApp(page)
  await expect(overview(page).getByRole('checkbox',{name:'Client-Analyse',exact:true})).toBeChecked();await expect(overview(page).getByRole('checkbox',{name:'ICM-Details',exact:true})).not.toBeChecked()
@@ -310,4 +311,43 @@ test('without opting in, even populated descendants stay out of the request',asy
  const input=JSON.stringify(calls[0].messages[0].content)
  expect(input).toContain('Tip Touch');expect(input).not.toContain('Client braucht');expect(input).not.toContain('ICM braucht')
  expect(await wsEval(page,(s,id)=>s.pages[id].overview.sourcePages,id)).toBeUndefined()
+})
+
+
+test('long titles leave room for the overview; language controls and source navigation remain accessible',async({page,context},testInfo)=>{
+ await model(context);const id=await setup(page)
+ const title='Kurztabelle: kritische Fragen im FeliX-DI-Fragebogen mit Antwortvorschlägen'
+ await wsEval(page,(s,a)=>s.updatePage(a.id,{title:a.title}),{id,title});await generate(page)
+ const first=overview(page).locator('.overview-card').first(),titleBox=page.locator('.pv-title')
+ await titleBox.scrollIntoViewIfNeeded()
+ await expect(titleBox).toHaveValue(title)
+ expect((await titleBox.boundingBox())!.height).toBeLessThan(115)
+ expect((await first.boundingBox())!.y).toBeLessThan(460)
+ await expect(overview(page).getByRole('region',{name:'Follow-up',exact:true})).toHaveCount(0)
+ await expect(overview(page).locator('.overview-tracking-intro')).not.toHaveAttribute('open','')
+ await expect(first.getByRole('button',{name:'Show passage in document'})).toBeVisible()
+ await expect(first.locator('blockquote')).not.toBeVisible()
+ await page.screenshot({path:testInfo.outputPath('compact-overview-desktop.png'),animations:'disabled'})
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:900});await titleBox.scrollIntoViewIfNeeded()
+  expect(await titleBox.evaluate(el=>el.scrollHeight<=el.clientHeight+1)).toBe(true)
+  const menu=page.getByTestId('translation-menu');await menu.click()
+  await expect(page.getByTestId('content-language')).toBeFocused()
+  await expect(page.getByTestId('translation-manage')).toBeVisible()
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  await page.keyboard.press('Escape');await expect(menu).toBeFocused();await expect(menu).toHaveAttribute('aria-expanded','false')
+ }
+ await page.screenshot({path:testInfo.outputPath('compact-overview-mobile.png'),animations:'disabled'})
+ await first.getByRole('button',{name:'Show passage in document'}).click()
+ await expect(editorOf(page)).toBeVisible();await expect(editorOf(page)).toContainText(text)
+})
+
+test('a summary-only overview omits unsupported decision and task sections',async({page,context})=>{
+ await model(context);const id=await setup(page);await generate(page)
+ await wsEval(page,(s,id)=>{const p=s.pages[id];s.updatePage(id,{overview:{...p.overview,items:p.overview.items.filter((i:any)=>i.kind==='summary')}})},id)
+ await expect(overview(page).locator('.overview-section')).toHaveCount(1)
+ await expect(overview(page).getByRole('heading',{name:'What this is about'})).toBeVisible()
+ await expect(overview(page).getByRole('button',{name:'Adopt as task'})).toHaveCount(0)
+ await expect(overview(page).getByRole('button',{name:'Review and record'})).toHaveCount(0)
+ await expect(overview(page).getByRole('button',{name:'Show passage in document'})).toBeVisible()
 })

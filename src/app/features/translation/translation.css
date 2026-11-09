@@ -7,3 +7,11 @@
 .translation-pair textarea{width:100%;resize:vertical;font:inherit;line-height:1.5;padding:10px;background:var(--surface);color:var(--ink);border:1px solid var(--rule-strong);border-radius:3px}
 .translation-error{color:var(--c-red-text)}.translation-panel .muted{font-size:13px;color:var(--ink-2)}
 @media(max-width:600px){.translation-pair{grid-template-columns:1fr;gap:8px}.translation-fields{gap:10px}.translation-review{max-height:40vh}}
+
+.translation-controls--compact{margin:0;font-size:12px}
+.translation-controls--compact>button{display:inline-flex;align-items:center;gap:6px}
+.translation-controls--compact>[role=status]{max-width:48ch;margin:4px 0}
+.translation-language-menu{padding:14px;max-width:calc(100vw - 16px)}
+.translation-language-menu .translation-actions{flex-direction:column;align-items:stretch}
+.translation-language-menu .translation-actions>svg{display:none}
+.translation-language-menu .translation-actions label{flex-wrap:wrap;justify-content:space-between}
