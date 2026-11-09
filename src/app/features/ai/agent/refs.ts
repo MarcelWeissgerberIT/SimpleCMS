@@ -5,6 +5,7 @@
  */
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { EditorState } from '@tiptap/pm/state'
+import { CellSelection } from '@tiptap/pm/tables'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { newId } from '../../../lib/ids'
@@ -40,6 +41,13 @@ type EditorDom = HTMLElement & { editor?: Editor }
 
 /** The editor (and the range) the DOM selection lies in, if any. */
 function domSelection(): { editor: Editor; from: number; to: number } | null {
+  // A cell rectangle may have a collapsed native selection. Preserve ProseMirror's selection.
+  const focused = document.activeElement?.closest('.ProseMirror') as EditorDom | null
+  const active = focused?.editor
+  if (active && !active.isDestroyed && active.state.selection instanceof CellSelection) {
+    const { from, to } = active.state.selection
+    return { editor: active, from, to }
+  }
   const sel = window.getSelection()
   if (!sel || sel.isCollapsed || !sel.rangeCount) return null
   const range = sel.getRangeAt(0)
@@ -76,7 +84,13 @@ export function captureRef(editor?: Editor, at?: { from: number; to: number }): 
   // a selected file block: the file itself goes along (Claude for files)
   const file = fileOnlyIn(hit.editor, hit.from, hit.to)
   if (file) return fileRef(file, pageId, page.title.trim() || t('common.untitled'))
-  const full = sliceToMarkdown(hit.editor.state, hit.from, hit.to).trim()
+  const selection = hit.editor.state.selection
+  // CellSelection.from/to describe only its primary range, not the complete rectangle.
+  // content() retains row/column boundaries and excludes neighbouring, unselected cells.
+  const selectedCells = !at && selection instanceof CellSelection ? selection.content().content.toJSON() as JSONContent[] : null
+  const full = (selectedCells
+    ? toAIMarkdown({ type: 'doc', content: selectedCells[0]?.type === 'table' ? selectedCells : [{ type: 'table', content: selectedCells }] })
+    : sliceToMarkdown(hit.editor.state, hit.from, hit.to)).trim()
   if (!full) return null
   const clipped = full.length > REF_CHARS
   const markdown = clipped ? full.slice(0, REF_CHARS) : full
