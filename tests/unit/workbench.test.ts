@@ -54,7 +54,7 @@ test('a question dimension and its selected cards survive cloud serialization',(
  assert.deepEqual(sanitizeDeskRecords({focus:{...focus,cards:Array.from({length:21},(_,i)=>String(i))}}),{})
 })
 
-import {buildStory,framesOf,storyIssue} from '../../src/app/features/workbench/story.ts'
+import {buildStory,framesOf,storyIssue,parseStoryDraft} from '../../src/app/features/workbench/story.ts'
 test('presentation frames sync independently and preserve ordered references and removals',()=>{
  const frame:any={type:'slide',id:'slide-a',layout:'compare',title:'Two views',caption:'Scope',metric:'',cards:['a','b'],order:1,at:1,by:'Anna'}
  const a=new Y.Doc(),b=new Y.Doc();writeWorkbench(a.getMap('page'),{'slide-a':frame});Y.applyUpdate(b,Y.encodeStateAsUpdate(a))
@@ -67,4 +67,14 @@ test('presentation frames sync independently and preserve ordered references and
  assert.ok(storyIssue(buildStory(records,[card('a')])[1],false))
  assert.equal(buildStory({'slide-a':{...frame,removed:true}},[]).length,0)
  for(const patch of [{layout:'unknown'},{order:NaN},{cards:['a','a']},{cards:Array(5).fill('a')},{title:'x'.repeat(181)}])assert.deepEqual(sanitizeDeskRecords({'slide-a':{...frame,...patch}}),{})
+})
+
+test('model slide drafts require concise text and only known, unique sources',()=>{
+ const slide={layout:'statement',title:'Review',caption:'Draft',cards:['a'],content:[{card:'a',title:'Scope',text:'SSO remains open.'}]},author={at:1,by:'Tester'}
+ const parse=(s:unknown)=>parseStoryDraft(JSON.stringify({slides:[s]}),['a'],3,author)
+ const frames=parse(slide);assert.equal(frames[0].generated,true)
+ const d=new Y.Doc();writeWorkbench(d.getMap('page'),Object.fromEntries(frames.map(f=>[f.id,f])))
+ assert.deepEqual(readWorkbench(d.getMap('page'))[frames[0].id],frames[0])
+ for(const patch of [{cards:['unknown']},{content:[{card:'unknown',text:'Claim'}]},{content:[]},{content:[null]},{content:[{card:'a',text:'x'.repeat(601)}]},{layout:'compare'},{title:' '},{content:[{card:'a',text:'One'},{card:'a',text:'Two'}]}])assert.throws(()=>parse({...slide,...patch}))
+ assert.throws(()=>parseStoryDraft(JSON.stringify({slides:[slide,slide]}),['a'],1,author))
 })

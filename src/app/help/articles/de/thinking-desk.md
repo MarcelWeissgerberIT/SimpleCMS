@@ -58,3 +58,12 @@ Im Reiter **Präsentieren**:
 5. **Präsentation starten** öffnet den vorhandenen Vollbildmodus. Pfeiltasten wechseln die Folie; **Esc** beendet die Präsentation.
 
 Bis zu 30 Folien werden direkt im Denkraum gespeichert. Die Inhalte folgen den zugeordneten Karten; lange Auszüge werden auf der Folie mit „…“ gekürzt, der Quellenlink führt zum Original. Die Layoutkarte „Entscheidung“ gliedert deinen Vorschlag, sie erteilt keine Freigabe. Fehlende Aussagen müssen vor dem Start ergänzt werden. Es erfolgt kein automatischer KI-Aufruf und kein PowerPoint-Export.
+
+
+### Inhalte für Folien aufbereiten
+
+Unter **Präsentieren** kannst du eine Aussage direkt auf die leere Bühne ziehen oder ihr **＋** anklicken. Dabei entsteht automatisch eine Folie. Ist die aktuelle Folie voll, wird eine neue angelegt. Layoutkarten bleiben für eine gezielte Gestaltung verfügbar.
+
+Die Quellenauswahl zeigt die Anzahl der Textblöcke und Wörter. Lange Auszüge lassen sich vollständig aufklappen; übernommen wird der ganze angezeigte Block, nicht nur seine Vorschau. Eine Überschrift enthält nicht automatisch den darunterliegenden Abschnitt. Sammle dessen Absätze zusätzlich.
+
+Mit **Folienentwurf erstellen** bereitet das ausgewählte Modell deine Karten auf: Inhalte auswählen, Ziel nennen und bis zu acht Folien anfordern. Das Modell erhält nur die ausgewählten Karten und ihre angegebenen Auszüge bzw. Code-Belege. Es schlägt kurze Texte, Reihenfolge und passende Layouts vor. Der Entwurf erscheint zunächst zur Prüfung; **Folien übernehmen** fügt ihn zur bestehenden Präsentation hinzu. Überschriften, Einordnung und Folientexte bleiben bearbeitbar. Originalkarten und Quellen bleiben erhalten. Geänderte oder nicht verfügbare Quellen verhindern die Übernahme; erst aktualisieren und erneut erstellen.
