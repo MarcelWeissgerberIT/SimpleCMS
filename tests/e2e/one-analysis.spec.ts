@@ -282,3 +282,32 @@ test('a failed source read shows its reason and the model can correct the call',
   expect(mock.bodies).toHaveLength(5)
   expect(await wsEval(page, (s, id) => s.pages[id].plain, id)).toContain('Source read corrected')
 })
+
+test('a 30k required source reaches the model in one read without secondary clipping', async ({ page, context }) => {
+  const id = await setup(page)
+  const body='This requirement belongs to the same source document. '.repeat(565)+' Unique tail requirement'
+  await wsEval(page,(s,{id,body})=>s.updatePage(id,{content:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:body}]}]}}),{id,body})
+  const mock=await mockAgent(context,[call('full','read_page',{id}),say('## Analysis\nUnique tail requirement was observed.'),call('spec','read_page',{id}),say('## Specification\nThe system shall retain the tail requirement.')])
+  await page.getByTestId('coding-run').click()
+  await expect(page.getByTestId('coding-approve')).toBeVisible({timeout:40000})
+  expect(mock.bodies).toHaveLength(4)
+  const supplied=JSON.stringify(mock.bodies[1].messages)
+  expect(supplied).toContain('Unique tail requirement')
+  expect(supplied).toContain('End of page:')
+  expect(supplied).not.toContain('[Truncated:')
+  await page.getByRole('tab',{name:'Log',exact:true}).click()
+  await expect(page.getByTestId('coding-log')).toContainText('Fully provided')
+  await expect(page.getByTestId('coding-log')).toContainText('Source summary: 1/1')
+  await page.screenshot({path:'.shots/source-read-planning.png'})
+})
+
+test('a partial large source is never accepted as a fully read required source', async ({page,context})=>{
+ const id=await setup(page),body='Required source content with a distinct obligation. '.repeat(1600)+' Unread tail marker'
+ await wsEval(page,(s,{id,body})=>s.updatePage(id,{content:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:body}]}]}}),{id,body})
+ const mock=await mockAgent(context,[call('part','read_page',{id}),say('## Analysis\nUNSUPPORTED COMPLETE ANALYSIS')])
+ await page.getByTestId('coding-run').click()
+ await expect(page.locator('.ctk')).toContainText('Sources without a complete read in this stage',{timeout:40000})
+ await expect(page.getByTestId('coding-approve')).toHaveCount(0)
+ expect(JSON.stringify(mock.bodies[1].messages)).not.toContain('Unread tail marker')
+ expect(await wsEval(page,(s,id)=>s.pages[id].plain,id)).not.toContain('UNSUPPORTED COMPLETE ANALYSIS')
+})

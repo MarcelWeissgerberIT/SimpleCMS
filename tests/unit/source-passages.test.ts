@@ -24,3 +24,18 @@ test('out-of-order windows never claim complete while a middle source interval i
  const buffer=new PageReadBuffer();buffer.add({pageId:'page',offset:3,nextOffset:null,totalCharacters:6,bodyStart:0,characters:3,partial:false},'def');assert.equal(buffer.complete(),false);assert.equal(buffer.text(),'')
  buffer.add({pageId:'page',offset:0,nextOffset:3,totalCharacters:6,bodyStart:0,characters:3,partial:false},'abc');assert.equal(buffer.complete(),true);assert.equal(buffer.text(),'abcdef')
 })
+test('overlapping, repeated and out-of-order reads form one exact coverage union',()=>{
+ const b=new PageReadBuffer(),text='abcdefghij'
+ const add=(offset:number,end:number)=>b.add({pageId:'p',version:'v1',offset,nextOffset:end===text.length?null:end,totalCharacters:text.length,bodyStart:0,characters:end-offset,partial:false},text.slice(offset,end))
+ add(5,10);add(0,3);assert.equal(b.complete(),false);add(2,7);add(0,3)
+ assert.equal(b.text(),text);assert.equal(b.complete(),true)
+ assert.deepEqual(b.coverage(),{uniqueCharacters:10,duplicateCharacters:6,totalCharacters:10,complete:true,nextOffset:10})
+})
+test('same-size revisions, conflicting overlaps and changed permissions cannot be stitched together',()=>{
+ const b=new PageReadBuffer(),w={pageId:'p',version:'v1',offset:0,nextOffset:3,totalCharacters:6,bodyStart:0,characters:3,partial:false}
+ b.add(w,'abc')
+ assert.throws(()=>b.add({...w,version:'v2'},'abc'),/version/)
+ assert.throws(()=>b.add({...w,partial:true},'abc'),/scope/)
+ assert.throws(()=>b.add({...w,offset:2,nextOffset:5},'XYZ'),/disagree/)
+ assert.equal(b.text(),'abc');assert.equal(b.coverage().duplicateCharacters,0)
+})

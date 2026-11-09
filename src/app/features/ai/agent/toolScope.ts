@@ -1,3 +1,4 @@
+import type {ReadBudget} from '@/shared/ai/readPlanning'
 /**
  * Workspace agent — what a tool call may see, and the error a call has to fix. Its own module (tools.ts re-exports
  * it) so the task tools (workItems.ts) read the scope without importing the tool list that lists them.
@@ -106,3 +107,7 @@ export function idsIn(text: string, has: (id: string) => boolean, into: Set<ID>,
     if (has(tok)) into.add(tok)
   }
 }
+
+let pageBudget:ReadBudget|null=null
+export const currentPageReadBudget=()=>pageBudget
+export function withPageReadBudget<T>(budget:ReadBudget,fn:()=>T):T{const previous=pageBudget;pageBudget=budget;try{return fn()}finally{pageBudget=previous}}
