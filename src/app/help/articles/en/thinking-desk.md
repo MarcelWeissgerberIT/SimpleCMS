@@ -9,14 +9,17 @@ summary: Arrange statements from several sources and develop reviewable decision
 ---
 Choose **Open thinking desk** on a page. Create a desk as a child page or select an existing one. **Add to desk** on an overview card carries that card into the desk.
 
-## Start in three steps
-1. **Choose first source**: The original page is suggested, or choose another page. **Filter page titles** searches page names, not their contents.
-2. **Add to desk**: Collect a statement or a suggestion from the existing overview. One statement is enough to start; add more to compare.
-3. **Next: ask a question**: Choose a suggested question or write your own. Only **Answer this question** starts the AI request.
+## Work with cards
+1. Open **Collect sources**, choose a page and drag useful passages onto the workspace. **Add to desk** is the keyboard and touch alternative.
+2. Drag the statements you want to examine into the **Question area**, or use their checkboxes. Remove a selection with its × button.
+3. Add a **question card**: **Contradictions**, **Open questions** or **Next steps**. The preview shows the specific question and how many statements it will use.
+4. **Create thinking desk** creates a separate child page with those cards, their original sources and the question. The original desk remains available. Only **Answer this question** starts the AI in the new desk.
 
-New desks initially display 256 × 256 pixel cards. **Display & filters** contains other sizes and filters. **More tools: decisions & scenarios** reveals advanced analysis modes. If a source fails to load, use **Try again**.
+Question cards can also be clicked. You can also drop a question card onto the workspace. If nothing is selected, its preview includes all currently visible cards. On smaller screens the sources, workspace and question area stack vertically. To ask your own question directly, select cards and use the question field; remove a pending question card first if needed.
 
-**Your next step** explains what to do while you work. A question suggestion fills the field; **Answer this question** starts the analysis. The question appears above the cards. If you collected a heading, **Choose a supporting passage** returns to the matching source page so you can add concrete details. After the answer, source links help you check it. The collection confirmation sits at the end of the source picker and scrolls with it.
+Clicking a statement opens its passage and source link. **Edit** opens its title, interpretation, group and evidence fields. Drag within the workspace to arrange cards; **Alt + arrow keys** is the keyboard alternative. New desks use 256 × 256 cards; **Display & filters** contains other sizes.
+
+For heading-only sources, **Choose a supporting passage** returns to the source page. Suggested questions only fill the text field. After an answer, follow its source links to check the evidence.
 
 ## Sources and zoom
 **Collect sources** offers passages, overview cards, attachment excerpts and saved Atlas code references. Attachments are first read locally as text; select a verbatim excerpt. Your own notes start as **Assumptions**. Sources must share the desk's private or shared visibility scope.

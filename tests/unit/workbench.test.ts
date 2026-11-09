@@ -43,3 +43,13 @@ test('Atlas model permission is explicit, follows pagination, and refuses malfor
  assert.deepEqual(calls.map(c=>c.args),[{}, {offset:10}])
  for(const data of [null,{error:'denied',items:[]},{items:[{id:'wanted',modelProcessing:false}],next:null},{items:[{id:'wanted'}],next:null},{items:[],next:0},{items:[],next:'invalid'}])await assert.rejects(requireModelProcessing('wanted',async()=>data))
 })
+
+
+test('a question dimension and its selected cards survive cloud serialization',()=>{
+ const focus:any={type:'focus',id:'focus',dimension:'Open questions',question:'What evidence is missing?',cards:['a'],at:1,by:'Anna'}
+ const d=new Y.Doc();writeWorkbench(d.getMap('page'),{a:card(),focus})
+ assert.deepEqual(readWorkbench(d.getMap('page')).focus,focus)
+ assert.deepEqual(sanitizeDeskRecords({focus:{...focus,cards:[]}}),{})
+ assert.deepEqual(sanitizeDeskRecords({focus:{...focus,question:' '}}),{})
+ assert.deepEqual(sanitizeDeskRecords({focus:{...focus,cards:Array.from({length:21},(_,i)=>String(i))}}),{})
+})
