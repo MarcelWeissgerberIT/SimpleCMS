@@ -7,6 +7,7 @@ import { useT } from '../../i18n'
 import { leaveNodeView } from '../lib/blocks'
 import { useViewerAllowed, viewerAllowed } from '../../ui/viewer'
 import { isChunkFailure, openMermaidViewer, renderMermaid } from '../lib/mermaid'
+import { editAs } from '../lib/editAs'
 
 /** The theme (Paper / Carbon) and the workspace look: a diagram is drawn again when either changes. */
 function useThemeKey(): string {
@@ -54,7 +55,7 @@ function useShownScale(ref: RefObject<HTMLDivElement | null>, drawn: number): nu
   return scale
 }
 
-export function MermaidDiagram({ code, onOpen }: { code: string; onOpen?: (from: HTMLElement) => void }) {
+export function MermaidDiagram({ code, onOpen, onEdit }: { code: string; onOpen?: (from: HTMLElement) => void; onEdit?: () => void }) {
   const t = useT()
   const theme = useThemeKey()
   const ref = useRef<HTMLDivElement>(null)
@@ -65,9 +66,12 @@ export function MermaidDiagram({ code, onOpen }: { code: string; onOpen?: (from:
   const retry = useOnlineTick(unavailable === 'offline')
   useEffect(() => {
     let alive = true
+    setBusy(true)
     const timer = window.setTimeout(async () => {
       if (!code.trim()) {
         if (ref.current) ref.current.innerHTML = ''
+        setError(null)
+        setUnavailable(null)
         setBusy(false)
         setDrawn((n) => n + 1)
         return
@@ -88,7 +92,7 @@ export function MermaidDiagram({ code, onOpen }: { code: string; onOpen?: (from:
           setError(null)
         } else {
           setUnavailable(null)
-          setError(String((err as Error)?.message ?? err).split('\n').slice(0, 3).join('\n'))
+          setError(String((err as Error)?.message ?? err).slice(0, 2000))
         }
       } finally {
         if (alive) setBusy(false)
@@ -120,7 +124,12 @@ export function MermaidDiagram({ code, onOpen }: { code: string; onOpen?: (from:
           )}
         </div>
       )}
-      {error && <pre className="mermaid-view__error">{error}</pre>}
+      {error && <div className="mermaid-view__error" role="status">
+        <strong>{t(/(?:lexical|parse|syntax) error/i.test(error) ? 'editor.mermaid.syntaxError' : 'editor.mermaid.renderError')}</strong>
+        <p>{t('editor.mermaid.errorHint')}</p>
+        {onEdit && <button type="button" className="btn btn--sm" onClick={onEdit}>{t('editor.mermaid.editCode')}</button>}
+        <details><summary>{t('editor.mermaid.errorDetails')}</summary><pre>{error}</pre></details>
+      </div>}
       {scaled !== null && (
         <button type="button" className="mermaid-view__scaled label" data-testid="mermaid-scaled" onClick={(e) => onOpen?.(e.currentTarget)}>
           {t('editor.mermaid.scaled', { pct: scaled })}
@@ -139,7 +148,9 @@ export function MermaidView({ node, updateAttributes, selected, editor, getPos }
   useEffect(() => setDraft(code), [code])
   useEffect(() => {
     if (!editing || draft === code) return
-    const id = window.setTimeout(() => updateAttributes({ code: sketch ? sketchCode(draft) : draft }), 350)
+    const id = window.setTimeout(() => {
+      if (!editor.isDestroyed && editor.isEditable) editAs(editor, { kind: 'you', via: 'ui' }, () => updateAttributes({ code: sketch ? sketchCode(draft) : draft }))
+    }, 350)
     return () => window.clearTimeout(id)
   }, [draft, editing]) // eslint-disable-line react-hooks/exhaustive-deps
   const shown = editing ? draft : code
@@ -203,7 +214,7 @@ export function MermaidView({ node, updateAttributes, selected, editor, getPos }
             }}
           />
         )}
-        <MermaidDiagram code={rendered} onOpen={allowed ? open : undefined} />
+        <MermaidDiagram code={rendered} onOpen={allowed ? open : undefined} onEdit={editor.isEditable ? () => setEditing(true) : undefined} />
       </div>
     </NodeViewWrapper>
   )

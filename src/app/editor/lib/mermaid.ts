@@ -8,6 +8,7 @@ import { openDiagramViewer } from '../../ui/viewer'
 type MermaidApi = typeof import('mermaid').default
 let mermaidPromise: Promise<MermaidApi> | null = null
 let seq = 0
+let rendering: Promise<unknown> = Promise.resolve()
 
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#000'
@@ -47,6 +48,7 @@ async function loadMermaid(): Promise<MermaidApi> {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
+    suppressErrorRendering: true,
     // mermaid 12 defaults to ELK (~450 kB gz + heavy CPU even for 5 nodes); dagre is bundled and fast
     layout: 'dagre',
     theme: 'base',
@@ -90,18 +92,25 @@ export function isChunkFailure(err: unknown): boolean {
 }
 
 /** The diagram as SVG markup in the current theme's colours (the root <svg> carries a unique id). */
-export async function renderMermaid(code: string): Promise<string> {
-  const mermaid = await loadMermaid()
-  try {
-    const { svg } = await mermaid.render(`one-mermaid-${++seq}`, code)
-    return svg
-  } catch (err) {
-    // a failed render leaves its scratch elements in <body>; the blocks' and the viewer's own SVGs stay
-    document.querySelectorAll('[id^="done-one-mermaid"], [id^="one-mermaid-"]').forEach((el) => {
-      if (!el.closest('.mermaid-view, .dv')) el.remove()
-    })
-    throw err
-  }
+export function renderMermaid(code: string): Promise<string> {
+  // Keep configuration, rendering and cleanup in the same queue. Mermaid's internal queue can
+  // start its next diagram before a rejected caller gets to clean up the previous one.
+  const result = rendering.then(async () => {
+    const mermaid = await loadMermaid()
+    const scratch = document.createElement('div')
+    scratch.dataset.oneMermaidScratch = ''
+    Object.assign(scratch.style, { position: 'absolute', left: '-100000px', top: '0', visibility: 'hidden' })
+    document.body.append(scratch)
+    try {
+      const { svg } = await mermaid.render(`one-mermaid-${++seq}`, code, scratch)
+      return svg
+    } finally {
+      // Own only this render's scratch tree, including on syntax, layout and import failures.
+      scratch.remove()
+    }
+  })
+  rendering = result.catch(() => undefined)
+  return result
 }
 
 const KINDS: Record<string, string> = {

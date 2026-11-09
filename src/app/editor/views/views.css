@@ -807,7 +807,15 @@
   font-family: var(--font-mono);
   font-size: calc(11.5px * var(--text-scale));
   white-space: pre-wrap;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
+
+.doc-content .mermaid-view__error p { margin: 6px 0; }
+.doc-content .mermaid-view__error details { margin-top: 8px; }
+.doc-content .mermaid-view__error summary { cursor: pointer; }
+.doc-content .mermaid-view__error pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; }
 
 .doc-content .mermaid-view.is-selected {
   border-color: var(--signal);

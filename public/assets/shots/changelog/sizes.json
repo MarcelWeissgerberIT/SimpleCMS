@@ -279,6 +279,10 @@
     1440,
     900
   ],
+  "mermaid-recovery.webp": [
+    1440,
+    900
+  ],
   "minimax-coding.webp": [
     1440,
     900
@@ -407,6 +411,10 @@
     1440,
     899
   ],
+  "source-reading.webp": [
+    1440,
+    900
+  ],
   "split-to-page.webp": [
     1440,
     900
@@ -502,9 +510,5 @@
   "workspace-settings.webp": [
     1440,
     985
-  ],
-  "source-reading.webp": [
-    1440,
-    900
   ]
 }

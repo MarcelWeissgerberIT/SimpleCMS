@@ -1,6 +1,6 @@
 ---
 id: 2026-11-09-source-reading
-order: 2
+order: 3
 summary: Zusammenhängende Quellen, begrenzte parallele Reads und sichtbare Cache-Werte.
 image: assets/shots/changelog/source-reading.webp
 alt: Quellenbilanz im Log einer One-Dokumentanalyse.

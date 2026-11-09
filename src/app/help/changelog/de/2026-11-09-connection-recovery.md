@@ -1,7 +1,7 @@
 ---
 id: 2026-11-09-connection-recovery
 date: 2026-11-09
-order: 1
+order: 2
 title: Kurze Serverunterbrechungen auffangen
 summary: Laufnachweise versuchen das Speichern erneut; KI-Aufrufe bleiben angehalten.
 image: assets/shots/changelog/connection-recovery.webp

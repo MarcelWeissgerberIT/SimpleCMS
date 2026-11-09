@@ -1,7 +1,7 @@
 ---
 id: 2026-11-09-connection-recovery
 date: 2026-11-09
-order: 1
+order: 2
 title: Recover from a short server interruption
 summary: Run receipts retry briefly while model calls stay stopped.
 image: assets/shots/changelog/connection-recovery.webp
