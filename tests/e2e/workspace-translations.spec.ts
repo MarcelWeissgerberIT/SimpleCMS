@@ -15,7 +15,7 @@ async function mockModel(context:BrowserContext,invalid=false){const bodies:any[
  if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers:cors})
  const b=route.request().postDataJSON();bodies.push(b);const content=b.messages[0].content;const prompt=typeof content==='string'?content:content.find((x:any)=>x.type==='text').text;const texts=JSON.parse(prompt).texts
  await route.fulfill({status:200,headers:{...cors,'content-type':'application/json'},body:JSON.stringify({id:'msg_translation',type:'message',role:'assistant',model:b.model,content:[{type:'text',text:JSON.stringify({texts:invalid?[]:texts.map((s:string)=>dictionary[s]??s)})}],stop_reason:'end_turn',stop_sequence:null,usage:{input_tokens:30,output_tokens:30}})})});return bodies}
-async function openTranslation(page:BrowserPage){await page.getByTestId('translation-manage').click();await expect(page.getByTestId('translation-panel')).toBeVisible();await page.getByLabel('Original language',{exact:true}).selectOption('de');await page.getByLabel('Translate to',{exact:true}).selectOption('en')}
+async function openTranslation(page:BrowserPage){await page.getByTestId('translation-menu').click();await page.getByTestId('translation-manage').click();await expect(page.getByTestId('translation-panel')).toBeVisible();await page.getByLabel('Original language',{exact:true}).selectOption('de');await page.getByLabel('Translate to',{exact:true}).selectOption('en')}
 
 test('native language follows UI on the same page; labels, prose, links and reload preserve the source',async({page})=>{
  const id=await setup(page),child=await createPage(page,{title:'Ein Kind',parentId:id});await install(page,child)
@@ -37,7 +37,7 @@ test('a changed original is marked outdated; original editing is explicit and no
  const id=await setup(page);await install(page,id)
  await wsEval(page,(s,id)=>s.setContent(id,{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Das Original wurde fachlich geändert.'}]}]},'e2e'),id)
  await expect(page.locator('[data-translation-status="stale"]')).toBeVisible();await expect(editorOf(page)).toContainText('Das Original wurde fachlich geändert.')
- await page.getByRole('button',{name:'Edit original',exact:true}).click();await expect(editorOf(page)).toHaveAttribute('contenteditable','true');await expect(page.locator('.pv-title')).toHaveValue('Rollen und Modelle')
+ await page.getByTestId('translation-menu').click();await page.getByRole('button',{name:'Edit original',exact:true}).click();await expect(editorOf(page)).toHaveAttribute('contenteditable','true');await expect(page.locator('.pv-title')).toHaveValue('Rollen und Modelle')
 })
 
 test('generation is explicit, preview editable, metered and only save creates a variant',async({page,context})=>{
@@ -75,7 +75,7 @@ test('database labels and text localise while status IDs, filters and formula se
  await expect(page.locator('.pv-title')).toHaveValue('Tasks');await expect(page.locator('section.db')).toHaveAttribute('data-readonly','true')
  await expect(page.locator('.dbt-body')).toContainText('Exercise');await expect(page.locator('.dbt-body')).toContainText('Check');await expect(page.locator('.dbt-body')).toContainText('Open');await expect(page.locator('.dbt-body')).toContainText('17')
  expect(await wsEval(page,(s,id)=>s.pages[id].properties,ids.row)).toEqual({note:'Prüfen',status:'open'});expect(await wsEval(page,(s,id)=>s.databases[id].properties.find((p:any)=>p.id==='note').name,ids.db)).toBe('Hinweis')
- await page.getByTestId('content-language').selectOption('original');await expect(page.locator('section.db')).not.toHaveAttribute('data-readonly','true')
+ await page.getByTestId('translation-menu').click();await page.getByTestId('content-language').selectOption('original');await expect(page.locator('section.db')).not.toHaveAttribute('data-readonly','true')
 })
 
 test('projection never changes executable fields or technical identifiers',()=>{
@@ -103,7 +103,7 @@ test('stopping generation cannot store a partial variant; viewers cannot start a
  const id=await setup(page);await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
  await context.route('https://api.anthropic.com/**',async route=>{if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'}});await new Promise(r=>setTimeout(r,800));await route.fulfill({status:200,headers:{'access-control-allow-origin':'*','content-type':'application/json'},body:'{}'}).catch(()=>{})})
  await openTranslation(page);await page.getByTestId('translation-generate').click();await page.getByRole('button',{name:'Stop',exact:true}).click();await expect(page.getByRole('alert')).toContainText('Stopped');expect(await wsEval(page,(s,id)=>s.pages[id].localization,id)).toBeUndefined()
- await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.evaluate(()=>{(window as any).__one.cloud.useCloud.setState({readOnly:true,role:'viewer'})});await expect(page.getByTestId('translation-manage')).toHaveCount(0)
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.evaluate(()=>{(window as any).__one.cloud.useCloud.setState({readOnly:true,role:'viewer'})});await page.getByTestId('translation-menu').click();await expect(page.getByTestId('content-language')).toBeVisible();await expect(page.getByTestId('translation-manage')).toHaveCount(0)
 })
 
 test('workspace packages retain native variants and translated artwork with new attachment ownership',async({page})=>{

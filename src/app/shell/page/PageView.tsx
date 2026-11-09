@@ -119,6 +119,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
       className="pv"
       data-variant={variant}
       data-wide={wide || undefined}
+      data-overview={showOverview || undefined}
       data-db={isDb || undefined}
       data-font={page.settings.font}
       data-small={page.settings.smallText || undefined}
@@ -133,9 +134,12 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
+          <div className="pv-toolbar">
           {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button>{followUp?.overviewFollowUp?.pageId===page.id&&<a href={'#/p/'+followUp.id}>{lang==='de'?'Nachverfolgung':'Follow-up'} ↗</a>}</div>}
+          {!trashed&&<TranslationControls pageId={page.id} compact/>}
+          </div>
           {sourceNotice&&<p role="status">{sourceNotice}</p>}
-          {!trashed && <><KnowledgePageControl pageId={page.id}/><TranslationControls pageId={page.id} /></>}
+          {!trashed && <KnowledgePageControl pageId={page.id}/>}
           {!trashed && <PageAgentActivity pageId={page.id} />}
           {variant === 'main' && !trashed && <FirstStartTools page={page} />}
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
