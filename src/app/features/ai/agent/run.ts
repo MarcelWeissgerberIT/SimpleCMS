@@ -1,3 +1,4 @@
+import { scrubSecrets } from '@/shared/ai/keys'
 import type {McpResultSession} from '@/shared/mcp/results'
 import {fitNativeToolContext} from '@/shared/ai/native-context'
 import {prepareTypedAI} from '../core/typedAI'
@@ -418,7 +419,7 @@ export async function runAgent(opts: {
         } catch (e) {
           const ms = performance.now() - started
           const msg = e instanceof ToolInputError ? e.message : `The tool failed: ${e instanceof Error ? e.message : String(e)}`
-          hooks.toolEnd(stepId, { state: 'err', summary: '', ms })
+          hooks.toolEnd(stepId, { state: 'err', summary: scrubSecrets(msg).slice(0, 2000), ms })
           throw new Error(msg)
         }
         task.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});

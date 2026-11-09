@@ -944,6 +944,16 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'connection-recovery'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const id=await createPage(page,'Repository security review',doc(para('Review the documented security findings and derive test proposals.')))
+    await openPage(page,id)
+    await page.keyboard.press(process.platform==='darwin'?'Meta+j':'Control+j')
+    await page.waitForFunction(()=>!!window.__oneTerm)
+    await page.evaluate(id=>window.__oneTerm.state.setState({status:'error',turns:[{n:1,task:'Review the security findings and prepare test proposals.',startedAt:Date.now()-2000,endedAt:Date.now(),status:'error',answer:'',context:{page:'Repository security review',pageId:id,refs:0,mentions:[]},receipt:'saved',error:{code:'unknown',message:'The connection to the One server was interrupted (HTTP 502/503/504). This request was stopped; it will not be repeated automatically.'}}]}),id)
+    await page.getByRole('region',{name:'AI terminal'}).getByText('Personal run receipt saved.',{exact:true}).waitFor()
+    await rest(page);await save(page,'connection-recovery');await ctx.close()
+  },
   async 'analysis-error-recovery'(browser) {
     const {ctx,page}=await freshPage(browser)
     await page.evaluate(()=>{location.hash='#/coding/spec'})

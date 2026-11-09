@@ -1,7 +1,7 @@
 import {summarizeProgramRun,type ProgramRunPreview} from '@/shared/quandprofile/program-run-summary'
 import {captureProgramInspection,readProgramInspection} from '@/shared/quandprofile/program-inspection'
 import type {TaskReport} from '@/shared/quandprofile/task'
-import {useCloud} from '../../../cloud/state'
+import {CloudError,useCloud} from '../../../cloud/state'
 import {request} from '../../../cloud/api'
 import {isTestAccess} from '../../../cloud/testScope'
 import {useWorkspace} from '../../../store/store'
@@ -27,7 +27,17 @@ export async function getProgramRun(id:string){
  runCache.set(key,run);if(runCache.size>5)runCache.delete(runCache.keys().next().value!)
  return run
 }
-export async function saveProgramRun(run:ProgramRun,scope:ReturnType<typeof programScope>){guard(scope);if(run.inspection)readProgramInspection(run.inspection);if(looksLikeKey(JSON.stringify(run)))throw Error('Receipt may contain credentials; not saved.');if(scope.cloud)await request('POST',`api/workspaces/${scope.cloud}/programs/runs`,run);else await local<ProgramRun[]>('runs',scope.key,rows=>{guard(scope);return [run,...(rows??[]).filter(r=>r.id!==run.id)].slice(0,100)});if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('one-program-runs-changed',{detail:scope.key}))}
+export async function saveProgramRun(run:ProgramRun,scope:ReturnType<typeof programScope>){guard(scope);if(run.inspection)readProgramInspection(run.inspection);if(looksLikeKey(JSON.stringify(run)))throw Error('Receipt may contain credentials; not saved.');if(scope.cloud)await saveCloudReceipt(run,scope);else await local<ProgramRun[]>('runs',scope.key,rows=>{guard(scope);return [run,...(rows??[]).filter(r=>r.id!==run.id)].slice(0,100)});if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('one-program-runs-changed',{detail:scope.key}))}
+/** Only the immutable, ID-deduplicated receipt is retried. Never repeat inference or tools. */
+async function saveCloudReceipt(run:ProgramRun,scope:ReturnType<typeof programScope>){
+ for(let attempt=0;;attempt++){
+  guard(scope)
+  try{await request('POST',`api/workspaces/${scope.cloud}/programs/runs`,run);return}catch(error){
+   if(attempt>=2||!(error instanceof CloudError)||![502,503,504].includes(error.status))throw error
+   await new Promise(resolve=>setTimeout(resolve,(attempt+1)*1000))
+  }
+ }
+}
 const archived=new Map<string,SavedProgram>()
 /** Called only after a completed terminal task; no failed run or sign-in becomes an executable approval. */
 export async function archiveProgram(taskId:string,spec:ProgramSpec,answer:string,route:ProgramRun['route'],scope:ReturnType<typeof programScope>,startedAt=Date.now(),report?:TaskReport){

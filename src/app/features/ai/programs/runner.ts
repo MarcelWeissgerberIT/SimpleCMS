@@ -1,3 +1,4 @@
+import { scrubSecrets } from '@/shared/ai/keys'
 import {captureProgramInspection} from '@/shared/quandprofile/program-inspection'
 import {prepareTypedAI} from '../core/typedAI'
 import {activeReviewProfile} from '../profiles/storage'
@@ -73,7 +74,7 @@ export async function runCompiledProgram(o:Parameters<typeof runAgent>[0],inv:Pr
      if(step.server){if(atlasTaskEffect(step.tool,input)!==step.effect)throw Error('Resolved tool effect differs from the saved step');const raw=await remote!('one_mcp_call',{server:step.server,name:step.tool,arguments:input},crypto.randomUUID());result=parse(remote!.materializeResult(raw));if(step.decode==='mcp-json')result=decodeMcpProgramResult(result);if(result&&typeof result==='object'&&!Array.isArray(result)&&(result.isError===true||result.oneNotExecuted===true))throw Error('MCP tool did not execute successfully: '+step.tool)}
      else {const tool=tools.find(t=>t.name===step.tool)!;task.dispatch(tool.name,oneTaskEffect(tool.name,tool.write));const id=hooks.toolStart(tool.name,argLabel(tool.name,input,o.stage)),start=performance.now()
       try{if(tool.data&&!prepared.allows(tool.data))throw new AIError('policy','File content is excluded for this model.');const out=await audit.tool('ONE',tool.name,input,()=>withShape(shape,()=>withToolScope(seen,()=>withReadLimit(o.readLimit??null,()=>tool.run(input as Record<string,unknown>,o.stage)))));check();hooks.toolEnd(id,{state:out.state,summary:out.summary,changeId:out.changeId,ms:performance.now()-start});result=parse(out.content);const read=step.effect==='read';if(tool.name==='read_page'&&out.state==='ok'&&!/\[Content withheld\./u.test(out.content))task.observeSource('one',String((input as Record<string,unknown>).id??''));task.observe('one',true,read,out.state==='staged',read,tool.name);if(tool.write)remote?.facts.noteOtherWrite()}
-      catch(e){hooks.toolEnd(id,{state:'err',summary:'',ms:performance.now()-start});throw e}
+      catch(e){hooks.toolEnd(id,{state:'err',summary:scrubSecrets(e instanceof Error?e.message:'Tool failed.').slice(0,2000),ms:performance.now()-start});throw e}
      }
     }
     check();results[step.id]=result;proof.status='done';proof.outputHash=programDigest(result);proof.contractHash=task.report().compiled.contract_hash

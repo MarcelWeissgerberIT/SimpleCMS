@@ -53,6 +53,8 @@ export async function centralTransport():Promise<{fetch:typeof fetch;model:strin
    const beta=new Headers(init.headers).get('anthropic-beta')
    const res=await fetch(`${import.meta.env.BASE_URL}api/workspaces/${workspace}/central-ai/messages`,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'content-type':'application/json','x-one-central-version':String(version),...(beta?{'anthropic-beta':beta}:{})},body:init.body,signal:init.signal})
    if(!res.ok){let code='';try{code=(await res.clone().json()).error?.code??''}catch{/* SDK maps upstream errors */}
+     // Keep the existing no-replay behavior: UNKNOWN is not an automatic fallback.
+     if(!code&&[502,503,504].includes(res.status))throw new AIError('unknown','features.ai.central.gateway')
      if(code.startsWith('central_')){
        void refreshCentralAI()
        const reason=code.startsWith('central_provider_')?code.slice('central_provider_'.length):''
