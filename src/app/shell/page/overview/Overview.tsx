@@ -92,7 +92,7 @@ function OverviewCard({item,review,signature,readOnly,onSource,onReview,onAdopt,
    <div className="overview-card-controls">
     {review&&<span className="overview-status">{review.state==='confirmed'?(de?'Festgehalten':'Recorded'):review.state==='deferred'?(de?'Zurückgestellt':'Deferred'):(de?'Rückfrage':'Question')}</span>}
     {onSelect&&!readOnly&&!tracked&&<label className="overview-pick" title={de?'Für Nachverfolgung auswählen':'Select for follow-up'}><input type="checkbox" aria-label={de?`${selected?'Ausgewählt':'Merken'} – Für Nachverfolgung auswählen`:`${selected?'Selected':'Track'} – Select for follow-up`} checked={!!selected} onChange={e=>onSelect(e.target.checked)}/><span>{selected?(de?'Ausgewählt':'Selected'):(de?'Merken':'Track')}</span></label>}
-    {tracked&&<a className="overview-tracked" href={'#/p/'+tracked.id} aria-label={tracked.trashed?(de?'Im Papierkorb – Nachverfolgten Punkt im Papierkorb öffnen':'In trash – Open tracked item in trash'):(de?'Nachverfolgt – In Nachverfolgung öffnen':'Tracked – Open tracked item')}>{tracked.trashed?(de?'Im Papierkorb ↗':'In trash ↗'):(de?'Nachverfolgt ↗':'Tracked ↗')}</a>}
+    {tracked&&<a className="overview-tracked" href={'#/p/'+tracked.id} aria-label={tracked.trashed?(de?'Nachverfolgten Punkt im Papierkorb öffnen':'Open tracked item in trash'):(de?'In Nachverfolgung öffnen':'Open tracked item')}>{tracked.trashed?(de?'Im Papierkorb ↗':'In trash ↗'):(de?'Nachverfolgung ↗':'Tracked ↗')}</a>}
    </div>
   </div>
   <p>{item.detail}</p>
