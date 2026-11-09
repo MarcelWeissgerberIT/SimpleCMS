@@ -1,3 +1,4 @@
+import {mcpArgumentFeedback} from '@/shared/mcp/argumentFeedback'
 import {ReadPool} from '@/shared/ai/readPlanning'
 import {McpActivityNames} from '@/shared/mcp/activityDisplay'
 import {guardedAtlasCodeCall,codeHumanOnly} from '@/shared/mcp/atlasCode'
@@ -62,6 +63,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
   }
   const readReuse=new McpReadReuse()
   const discoveryCache=new Map<string,{schemas:DiscoveredMcpTool[];result:string}>()
+  const argumentRepairs=new Map<string,number>()
   let attempts=0
   const signature=()=>JSON.stringify([useWorkspace.getState().epoch??'local',useCloud.getState().active,useCloud.getState().user?.id,flowSignature(),currentSetup().servers.map(mcpAccessIdentity),useWorkspace.getState().integrations])
   const pinned=signature()
@@ -120,6 +122,17 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     try{
       const actual={server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>}
       const effect=mcpTaskEffect(actual.name,actual.arguments,schemas.get(JSON.stringify([actual.server,actual.name])))
+      const schema=schemas.get(JSON.stringify([actual.server,actual.name]))
+      const feedback=schema&&mcpArgumentFeedback(schema.inputSchema,actual.arguments)
+      if(feedback){
+        event({...activity,state:'err',error:feedback.error,notExecuted:true})
+        const key=JSON.stringify([actual.server,actual.name]),repairs=argumentRepairs.get(key)??0
+        // Only a known read rejected before dispatch may return to the model for
+        // correction. Writes and unknown effects keep the existing stop behavior.
+        if(effect!=='read'||repairs>=2)throw new AIError('mcp',feedback.error)
+        argumentRepairs.set(key,repairs+1)
+        return JSON.stringify({isError:true,oneNotExecuted:true,server:actual.server,name:actual.name,...feedback})
+      }
       if(task&&!actual.name.startsWith('atlas_')&&effect==='forbidden'){const error='The selected catalogue does not identify a supported effect for '+actual.server+'/'+actual.name+'. The connection may be available, but this operation was not executed. For generic source reads, the server must declare readOnlyHint=true. Do not invent a read-only claim or retry an unknown action.';event({...activity,state:'err',error,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error})}
       if(codeHumanOnly(actual.name)){const error='This operation requires the person to act in Atlas; the agent cannot import repositories, change their model switch or review code drafts.';event({...activity,state:'err',error,notExecuted:true});return JSON.stringify({isError:true,oneNotExecuted:true,error})}
       const queryProblem=atlasQueryProblem(actual.name,actual.arguments)
