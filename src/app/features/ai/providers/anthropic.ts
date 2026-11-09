@@ -30,7 +30,7 @@ import { legacyRule } from '@/shared/ai/route'
 import { thinksInside } from '@/shared/ai/wire/maxTokens'
 import { AIError, type AIErrorCode } from '../core/errors'
 import { capped, type Prepared } from '../core/gate'
-import { claudeCut, claudeResponse, deltaChars, type MeterCall } from '../core/meter'
+import { claudeCut, claudeResponse, pdfChars, deltaChars, type MeterCall } from '../core/meter'
 import { MCP_BETA, attachMcp, currentSetup, mcpNames, noteRefused, refusedNames, type Codewords, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, skippedCall, type McpCall } from '../mcp-servers/activity'
 import { createMediaCollector } from '../media/collect'
@@ -307,6 +307,15 @@ export async function metered<M extends { model?: unknown; usage?: unknown; cont
   return { msg, entry: call.response(claudeResponse(msg)) }
 }
 
+/** Preserve the original document and its cache boundary through every tool round. */
+function streamContent(prompt:string,documents:StreamOptions['documents']):AnthropicSDK.MessageParam['content'] {
+  if(!documents?.length)return prompt
+  return [...documents.map(d=>({type:'document' as const,title:d.title,source:d.pdf
+    ?{type:'base64' as const,media_type:'application/pdf' as const,data:d.pdf.data}
+    :{type:'text' as const,media_type:'text/plain' as const,data:d.text??''},...(d.cache?{cache_control:{type:'ephemeral' as const}}:{})})),{type:'text' as const,text:prompt}]
+}
+const readOnlyBounds=(readOnly?:boolean)=>readOnly?{readOnly:true,externalWrite:false,execute:false,authenticate:false}:undefined
+
 export async function streamOnce(opts: StreamOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
   const readinessScope=captureReadiness()
   let task:ReturnType<typeof createTaskContract>|undefined
@@ -327,7 +336,8 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     sdk = got.sdk
     const { client } = got
     if (signal?.aborted) throw new AIError('aborted')
-    const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content: prompt }]
+    const content=streamContent(prompt,opts.documents)
+    const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content }]
     let text = ''
     const onText = (delta: string) => {
       text += delta
@@ -345,11 +355,11 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     const skipped = [...skippedOf(cw, attached, mcp === false || !mcpOk ? [] : refusedNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced)), ...policyOut]
     const onMcp = skipped.length && report ? (calls: McpCall[]) => report([...skipped, ...calls]) : report
     if (skipped.length) onMcp?.([])
-    if(!attached){task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:originalSystem,input:prompt,tools:[],one:false,atlas:false,signal});system=task.packet()}
+    if(!attached){task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:originalSystem,input:messages,tools:[],one:false,atlas:false,signal,bounds:readOnlyBounds(opts.readOnly)});system=task.packet()}
     let stopReason: string | null
-    const promptChars = () => system.length + prompt.length
+    const promptChars = () => system.length + prompt.length + (opts.documents??[]).reduce((n,d)=>n+(d.pdf?pdfChars(d.pdf.pages):d.text?.length??0),0)
     if (attached) {
-      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { prepared, onMedia, maxResumes, seen, call, sdk, readinessScope })
+      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, content as BetaMessageParam['content'], attached, onText, onMcp, signal, { prepared, onMedia, maxResumes, seen, call, sdk, readinessScope, readOnly:opts.readOnly })
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (!deep) {
@@ -407,16 +417,16 @@ async function streamWithMcp(
   /** the model thinks with an effort and has the refusal fallback (thinks(caps)) */
   opus: boolean,
   system: string,
-  prompt: string,
+  prompt: BetaMessageParam['content'],
   mcp: McpAttachment,
   onText: (delta: string) => void,
   onMcp: ((calls: McpCall[]) => void) | undefined,
   signal: AbortSignal | undefined,
-  more: { prepared: Prepared; readinessScope?:ReadinessScope|null; onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null;schema?:Record<string,unknown> },
+  more: { readOnly?:boolean; prepared: Prepared; readinessScope?:ReadinessScope|null; onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null;schema?:Record<string,unknown> },
 ): Promise<BetaMessage> {
   const messages:BetaMessageParam[]=[{role:'user',content:prompt}],calls:McpCall[]=[]
   const event=(c:McpCall)=>{const i=calls.findIndex(v=>v.id===c.id);if(i<0)calls.push(c);else calls[i]=c;onMcp?.([...calls])}
-  const task=createTaskContract({prepared:more.prepared,goal:taskInputOf(more.prepared).typed||more.prepared.purpose,instructions:system+'\n'+WORKER_MCP_GUIDE+'\n'+ATLAS_FACT_POLICY,input:messages,tools:[],one:false,atlas:true,interactive:!!onMcp,signal,output:more.schema?'json':'text',onReport:r=>event({id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r})})
+  const task=createTaskContract({prepared:more.prepared,goal:taskInputOf(more.prepared).typed||more.prepared.purpose,instructions:system+'\n'+WORKER_MCP_GUIDE+'\n'+ATLAS_FACT_POLICY,input:messages,tools:[],one:false,atlas:true,interactive:!!onMcp,signal,bounds:readOnlyBounds(more.readOnly),output:more.schema?'json':'text',onReport:r=>event({id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r})})
   try{
     if(!mcp.worker)throw new AIError('capability','Selected MCP connections need a personal worker or the prepared Atlas proxy.')
     const remote=workerMcpSession(mcp.worker,signal,event,12000,undefined,task)

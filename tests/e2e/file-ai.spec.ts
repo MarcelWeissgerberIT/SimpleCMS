@@ -648,3 +648,91 @@ test.describe('Claude for files', () => {
     await flush(page)
   })
 })
+
+// The real file UI uses the ordinary host-owned MCP loop; remote sources and models are fixtures.
+test.describe('file questions with repository sources',()=>{
+ test.describe.configure({mode:'default'})
+ let fake:import('./helpers/fakeWorker').FakeWorker
+ test.beforeEach(async({page})=>{
+  const {startFakeWorker}=await import('./helpers/fakeWorker')
+  const {WORKER_CAN}=await import('../../src/app/features/coding/protocol')
+  fake=await startFakeWorker(47625,{worker:'1.35.3',name:'file-repo-fixture',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true});fake.can=[...WORKER_CAN]
+  await openApp(page)
+  await setKey(page,{mcpServers:[{id:'file-atlas',name:'atlas',url:'https://atlas.example.org/mcp',scope:'free',codeword:'repo',token:'file-repo-test-secret',enabled:true,prompt:'Read actual repository sources.',tools:['atlas_code_search','atlas_code_repos','atlas_update'],checkedAt:Date.now()}]})
+  await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
+  await page.getByRole('tab',{name:/Coding worker/}).click();await page.getByLabel('Port',{exact:true}).fill('47625');await page.getByLabel('Port',{exact:true}).press('Enter')
+  await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click();await expect(page.getByTestId('coding-conn')).toContainText('file-repo-fixture');await page.keyboard.press('Escape')
+ })
+ test.afterEach(async()=>{await fake?.close()})
+ const schema={type:'object',properties:{repo:{type:'string'},snapshot:{type:'string'},query:{type:'string'}},required:['repo','snapshot','query'],additionalProperties:false}
+ const tool=(id:string,name:string,input:Record<string,unknown>)=>({blocks:[{type:'tool_use' as const,id,name,input}]})
+ const envelope=(data:unknown)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(data)}]})
+ async function ask(page:Page,file:FileSpec,question:string){
+  const {id}=await setup(page,[file]);await viaKey(page,id,file.name,/Ask about the file/)
+  await panel(page).getByRole('textbox').first().fill(question)
+  await option(page,/^Ask about the file “/).click();return id
+ }
+ for(const file of [DOCX,PDF])test(file.name+' retains the original cached document through repo tool rounds and reports reads',async({page})=>{
+  const {mockClaudeScript,text:answer}=await import('./helpers/providers')
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_code_search',inputSchema:schema}]}:{result:envelope(r.name==='atlas_code_repos'?{items:[{id:'repo-icm',modelProcessing:true}],next:null}:{hits:[{path:'Parameters.cs',line:10,text:'BlowoutVolume'}],next:null})}
+  const host=await mockClaudeScript(page,[tool('discover','one_mcp_search',{query:'atlas_code_search'}),tool('search','one_remote_1',{repo:'repo-icm',snapshot:'snapshot-icm',query:'BlowoutVolume'}),answer('The file and the search result are separate sources. Parameters.cs, line 10 contains BlowoutVolume. This is a search hit, not a verified citation.')])
+  await ask(page,file,(file===PDF?'repo: ':'')+'Compare this file with repository repo-icm at snapshot-icm; search for BlowoutVolume.')
+  await expect(panel(page)).toContainText('This is a search hit, not a verified citation.')
+  expect(host.requests).toHaveLength(3)
+  const original=host.requests[0].body.messages[0].content[0]
+  expect(original).toMatchObject({type:'document',title:file.name,cache_control:{type:'ephemeral'},source:{type:file===PDF?'base64':'text'}})
+  for(const request of host.requests){expect(request.body.messages[0].content[0]).toEqual(original);expect(JSON.stringify(request.body)).not.toContain('file-repo-test-secret')}
+  expect(fake.mcpAsked.filter(r=>r.name==='atlas_code_search').map(r=>r.arguments)).toEqual([{repo:'repo-icm',snapshot:'snapshot-icm',query:'BlowoutVolume'}])
+  await expect(panel(page).locator('.ai-mcp')).toContainText('atlas_code_search')
+  await page.screenshot({path:test.info().outputPath(file===PDF?'file-pdf-repo.png':'file-docx-repo.png')})
+ })
+ test('a file question cannot write even when the user prompt asks to update a record',async({page})=>{
+  const {mockClaudeScript}=await import('./helpers/providers')
+  fake.onModelMcp=()=>({tools:[{server:'atlas',name:'atlas_update',inputSchema:{type:'object',properties:{ref:{type:'integer'},appendBody:{type:'string'}},required:['ref','appendBody'],additionalProperties:false}}]})
+  await mockClaudeScript(page,[tool('discover','one_mcp_search',{query:'atlas_update'}),tool('write','one_remote_1',{ref:42,appendBody:'Changed from file'})])
+  await ask(page,DOCX,'Update Atlas record 42 from this file.')
+  await expect(panel(page)).toContainText(/Read-only|read.only|blocked|angehalten/i)
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(0)
+ })
+ test('failed repo calls are visible and never turn into a successful code comparison',async({page})=>{
+  const {mockClaudeScript,text:answer}=await import('./helpers/providers')
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_code_search',inputSchema:schema}]}:{result:r.name==='atlas_code_repos'?envelope({items:[{id:'repo-icm',modelProcessing:true}],next:null}):JSON.stringify({isError:true,content:[{type:'text',text:'Repository snapshot is unavailable.'}]})}
+  await mockClaudeScript(page,[tool('discover','one_mcp_search',{query:'atlas_code_search'}),tool('search','one_remote_1',{repo:'repo-icm',snapshot:'snapshot-icm',query:'BlowoutVolume'}),answer('The repository snapshot was unavailable. I could read only the file; the code comparison remains incomplete.')])
+  await ask(page,DOCX,'Compare this file with repository repo-icm, snapshot-icm. Search for BlowoutVolume.')
+  await expect(panel(page).locator('.ai-mcp__issues')).toContainText('ATLAS could not run atlas_code_search')
+  await expect(panel(page).locator('.ai-mcp__issues')).toBeVisible()
+  await expect(option(page,/^Insert below the file/)).toBeVisible()
+  await expect(panel(page)).toContainText('comparison remains incomplete')
+ })
+ test('summarizing with a connection configured remains a file-only streamed request',async({page,context})=>{
+  const claude=await mockClaude(context),{id}=await setup(page,[DOCX])
+  await viaKey(page,id,DOCX.name,/Summarise/);await expect(panel(page)).toContainText('Invoice **2025-117**'.replaceAll('**',''))
+  expect(claude.kinds).toEqual(['summarize']);expect(claude.bodies[0].tools??[]).toEqual([]);expect(fake.mcpAsked).toHaveLength(0)
+ })
+ test('workspace rules can deny MCP while still allowing a file-only answer',async({page})=>{
+  const {mockClaudeScript,text:answer}=await import('./helpers/providers')
+  await wsEval(page,s=>s.setWorkspaceAI({policy:{providers:{anthropic:{allow:['public','structure','selection','page','rows','workspace','files'],forbid:['mcp']}},restricted:[]}}))
+  const host=await mockClaudeScript(page,[answer('I can describe the attached report, but cannot compare repository code in this request.')])
+  await ask(page,DOCX,'Compare the attached report with repository code.')
+  await expect(panel(page)).toContainText('cannot compare repository code')
+  await expect(panel(page).locator('.ai-mcp')).toContainText(/rule|policy|not allowed/i)
+  expect(fake.mcpAsked).toHaveLength(0);expect(host.requests[0].body.tools??[]).toEqual([])
+  expect(host.requests[0].body.messages[0].content[0].type).toBe('document')
+ })
+
+ test('a local file answer keeps the original document and the denied-source notice',async({page})=>{
+  const model='file-repo:latest'
+  fake.textModels=[{provider:'local',model,context:32768,chat:true,maxOutput:8192}]
+  fake.onText=r=>({model:r.model,text:'File reviewed; repository comparison is unavailable in this request.',calls:[],inputTokens:200,outputTokens:40,usd:0})
+  await wsEval(page,s=>s.setWorkspaceAI({policy:{providers:{local:{allow:['public','structure','selection','page','rows','workspace','files'],forbid:['mcp']}},restricted:[]}}))
+  await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
+  await page.getByRole('tab',{name:/AI$/}).click();await expect(page.getByTestId('worker-model-settings')).toContainText(model);await page.keyboard.press('Escape')
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),model)
+  await ask(page,DOCX,'Compare this file with the repository.')
+  await expect(panel(page)).toContainText('repository comparison is unavailable')
+  await expect(panel(page).locator('.ai-mcp')).toContainText(/rule|policy|not allowed/i)
+  expect(fake.mcpAsked).toHaveLength(0);expect(fake.textAsked).toHaveLength(1)
+  expect(JSON.stringify(fake.textAsked[0].messages)).toContain('Quarterly report Q3')
+ })
+
+})

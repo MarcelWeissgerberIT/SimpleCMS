@@ -66,7 +66,7 @@ export function maxPdfPages(caps?: Caps | null, purpose: 'documents.file' | 'ter
 export async function runFileRequest(
   req: FileRunRequest,
   context: string,
-  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal: AbortSignal; onFile?: (meta: FileMeta) => void } & Pick<RouteOptions, 'route' | 'applied' | 'carries'>,
+  opts: { sources: readonly SourceRef[]; onToken?: (delta: string) => void; signal: AbortSignal; onMcp?: import('../client').StreamOptions['onMcp']; onFile?: (meta: FileMeta) => void } & Pick<RouteOptions, 'route' | 'applied' | 'carries'>,
 ): Promise<string> {
   const { signal } = opts
   // the route the caller built the page context for (its chip / the rules), what that text went through
@@ -105,6 +105,7 @@ export async function runFileRequest(
     lang,
     // tables are not shown while they stream (the panel waits for the whole JSON)
     onToken: action === 'tables' ? undefined : opts.onToken,
+    onMcp: opts.onMcp,
     signal,
   })
   // whatever the file said: an image in the answer never loads by itself (it becomes a link)

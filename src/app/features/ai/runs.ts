@@ -510,7 +510,7 @@ async function execute(id: string, editor: Editor) {
       if (pre && !pr) notes.push('selectionOnly')
       if (pre) patch(id, { reads: pr?.reads ?? { mode: 'none', selection: false, blocks: 0, words: 0 }, ...(notes.length ? { notes: [...notes] } : {}) })
       const withPage = !!pr?.context
-      const text = await runFileRequest(req, pr?.context ?? '', { sources: withPage ? pageRef(run.pageId) : selectionRef(run.pageId), ...(pre ? { ...routed(pre), carries: withPage ? ['page'] : [] } : {}), onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
+      const text = await runFileRequest(req, pr?.context ?? '', { sources: withPage ? pageRef(run.pageId) : selectionRef(run.pageId), ...(pre ? { ...routed(pre), carries: withPage ? ['page'] : [] } : {}), onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }), onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, calls.some(c=>!!c.contract?.questions.length)) })
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
