@@ -1,3 +1,5 @@
+import {readOverviewReviews,writeOverviewReviews} from './overview'
+import {sanitizeOverview} from '../shell/page/overview/model'
 /**
  * The workspace meta document (docs/CLOUD.md § Meta document schema) ⇄ store shapes.
  *
@@ -34,7 +36,7 @@ export const roots = (doc: Y.Doc) => ({
 })
 
 /** Synced page fields stored as plain values (everything else is per device or nested). */
-const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType', 'localization'] as const
+const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType', 'localization', 'overview'] as const
 type PageField = (typeof PAGE_FIELDS)[number]
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -108,6 +110,7 @@ export function newPageMap(page: Page, userId: string): YMap {
     for (const r of Array.isArray(c.replies) ? c.replies : []) comments.set(`${c.id}${REPLY_SEP}${r.id}`, clone(r))
   }
   yp.set('comments', comments)
+  writeOverviewReviews(yp,page.overviewReviews)
   return yp
 }
 
@@ -136,6 +139,10 @@ export function writePage(yp: YMap, page: Page, before: Page, userId: string): b
   if (page.comments !== before.comments && !deepEqual(page.comments ?? [], before.comments ?? [])) {
     writeComments(childMap(yp, 'comments'), page.comments, before.comments)
     changed = true
+  }
+  if(page.overviewReviews!==before.overviewReviews&&!deepEqual(page.overviewReviews??{},before.overviewReviews??{})){
+    writeOverviewReviews(yp,page.overviewReviews,before.overviewReviews)
+    changed=true
   }
   if (changed) yp.set('updatedBy', userId)
   return changed
@@ -217,6 +224,10 @@ export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: bool
     settings: { ...DEFAULT_PAGE_SETTINGS, ...(isObj(settings) ? (clone(settings) as Partial<Page['settings']>) : {}) },
     plain: str(g('plain'), cur?.plain ?? ''),
   }
+  const overview=sanitizeOverview(g('overview'))
+  if(overview)next.overview=overview
+  const reviews=readOverviewReviews(yp)
+  if(Object.keys(reviews).length)next.overviewReviews=reviews
   const localization = sanitizeLocalization(g('localization'))
   if (localization) next.localization = localization
   const hidden = g('hidden')

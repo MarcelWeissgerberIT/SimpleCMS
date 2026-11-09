@@ -1,3 +1,8 @@
+import {Overview} from './overview/Overview'
+import {overviewSources,type OverviewItem} from './overview/model'
+import {safeLocalGet,safeLocalSet} from '@/shared/brand'
+import {useCloud} from '../../cloud'
+import {jumpToBlockId,scrollToBlock} from './outline'
 import {KnowledgePageControl} from '../../features'
 import { useContentLanguage } from '../../lib/contentLanguage'
 import { localizePage } from '../../store/localization'
@@ -38,22 +43,31 @@ export type PageVariant = 'main' | 'pane' | 'peek'
 
 export function PageView({ pageId, variant }: { pageId: ID; variant: PageVariant }) {
   const source = usePage(pageId)
+  const scope=useCloud(s=>s.active.kind+':'+s.active.id+':'+(s.user?.id??'local'))
   const { lang } = useContentLanguage()
   const db = useWorkspace(s => source ? s.databases[source.kind === 'database' ? source.id : source.databaseId ?? ''] : undefined)
   const page = useMemo(() => source ? localizePage(source, lang, db) : undefined, [source, lang, db])
   const language = source?.localization && lang !== source.localization.source ? lang : null
   if (!page) return <NotFound kind="page" />
-  return <PageViewInner key={pageId} page={page} variant={variant} language={language} />
+  return <PageViewInner key={scope+':'+pageId} page={page} variant={variant} language={language} />
 }
 
 function PageViewInner({ page, variant, language }: { page: Page; variant: PageVariant; language: import('@/shared/i18n').Lang | null }) {
   const trashed = useWorkspace((s) => isEffectivelyTrashed(s.pages, page.id))
   const editorRef = useRef<Editor | null>(null)
+  const original=useWorkspace(s=>s.pages[page.id])
+  const active=useCloud(s=>s.active),person=useCloud(s=>s.user?.id)
+  const prefKey='one.page-view:'+active.kind+':'+active.id+':'+(person??'local')+':'+page.id
+  const [pageView,setPageView]=useState<'overview'|'document'>(()=>{const pref=safeLocalGet(prefKey);return pref==='document'||pref==='overview'?pref:page.overview?'overview':'document'})
+  const [sourceNotice,setSourceNotice]=useState('')
+  const chooseView=(v:'overview'|'document')=>{setPageView(v);safeLocalSet(prefKey,v);setSourceNotice('')}
   const isDb = page.kind === 'database'
   const isRow = !!page.databaseId
   const lang=useLang()
   const guided=variant==='main'&&!!firstStart(page)&&!trashed
   const [referenceOpen,setReferenceOpen]=useState(false)
+  const overviewEnabled=!isDb&&!guided&&!trashed
+  const showOverview=overviewEnabled&&pageView==='overview'
   const locked = page.settings.locked
   // a viewer in a team workspace reads every page like a locked one
   const viewer = useReadOnly()
@@ -62,7 +76,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
 
   const articleRef = useRef<HTMLElement>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
-  const rail = useRail(articleRef, variant === 'main' && !wide && (!guided||referenceOpen))
+  const rail = useRail(articleRef, variant === 'main' && !wide && !showOverview && (!guided||referenceOpen))
   const railOpen = useMarginRailOpen()
   // an empty rail (no outline, no reminders) leaves the text centred; the first layout reads the
   // stored content, the rail reports the live document from then on
@@ -74,9 +88,23 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
       const dom = articleRef.current?.querySelector('.pv-content .ProseMirror') as (HTMLElement & { editor?: Editor }) | null
       ed = dom?.editor ?? null
     }
+    if(showOverview){chooseView('document');requestAnimationFrame(()=>{if(ed&&!ed.isDestroyed&&ed.isEditable)ed.commands.focus(where)});return}
     if (ed && !ed.isDestroyed && ed.isEditable) ed.commands.focus(where)
   }
 
+  const showDocument=(item?:OverviewItem)=>{
+    chooseView('document')
+    if(!item)return
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      const ed=editorRef.current
+      if(!ed||ed.isDestroyed)return
+      const source=overviewSources({content:ed.getJSON()}).find(s=>s.id===item.sourceId&&s.text.includes(item.quote))
+      if(!source){setSourceNotice(lang==='de'?'Diese Quellenstelle hat sich geändert. Bitte im aktuellen Dokument prüfen.':'This source passage changed. Please check the current document.');return}
+      if(source.blockId&&jumpToBlockId(ed,source.blockId))return
+      const element=ed.view.dom.children.item(source.index)
+      if(element instanceof HTMLElement)scrollToBlock(element,ed.view.dom)
+    }))
+  }
   const editorContent = <PageEditor pageId={page.id} language={language} readOnly={readOnly} onReady={(ed) => { editorRef.current=ed;setEditor(ed) }} />
   return (
     <article
@@ -98,6 +126,8 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
+          {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button></div>}
+          {sourceNotice&&<p role="status">{sourceNotice}</p>}
           {!trashed && <><KnowledgePageControl pageId={page.id}/><TranslationControls pageId={page.id} /></>}
           {!trashed && <PageAgentActivity pageId={page.id} />}
           {variant === 'main' && !trashed && <FirstStartTools page={page} />}
@@ -110,6 +140,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
           {isDb && !trashed && <RecorderDbRead dbId={page.id} />}
           {/* the work-orders database: how many are open, the way back to #/coding (features/coding/orders) */}
           {isDb && !trashed && <OrderDbSlot dbId={page.id} />}
+          <div hidden={showOverview}>
           {isRow && (
             <div className="pv-props">
               <RowProperties pageId={page.id} />
@@ -121,10 +152,13 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
           {isRow && <OrderSlot pageId={page.id} />}
           {/* a mirrored row: its open slips and send routes (features/outbox; nothing elsewhere) */}
           {isRow && !trashed && <RowSlips pageId={page.id} />}
+          </div>
         </div>
       </header>
       <div className="pv-body">
         <div className="pv-col pv-content">
+          {overviewEnabled&&<div hidden={!showOverview}><Overview page={original??page} readOnly={readOnly} onDocument={showDocument} onGenerated={()=>chooseView('overview')}/></div>}
+          <div hidden={showOverview}>
           {isDb ? (
             <>
               <DatabaseView databaseId={page.id} />
@@ -136,6 +170,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
               <div hidden={!referenceOpen}>{editorContent}</div>
             </>
           ) : editorContent}
+          </div>
         </div>
         {rail && <MarginRail page={page} editor={editor} onFill={setRailFilled} />}
         {!isDb && (
