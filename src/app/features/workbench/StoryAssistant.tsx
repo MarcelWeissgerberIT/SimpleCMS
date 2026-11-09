@@ -1,0 +1,30 @@
+import {useEffect,useRef,useState} from 'react'
+import type {Route} from '@/shared/ai/types'
+import {useWorkspace} from '../../store/store'
+import {headingOnly} from './guidance'
+import {useLang} from '../../i18n'
+import {RouteChip} from '../ai/routing/RouteChip'
+import {type Card} from './model'
+import {wordCount,cardText} from './story'
+import {generateStory,adoptStory,type StoryDraft} from './storyGenerate'
+import {StorySlide} from './StorySlide'
+export function StoryAssistant({pageId,cards,readOnly,onAdded}:{pageId:string;cards:Card[];readOnly:boolean;onAdded:(id:string)=>void}){
+ const de=useLang()==='de',[selected,setSelected]=useState<string[]>(()=>cards.slice(0,20).map(c=>c.id)),[goal,setGoal]=useState(''),[count,setCount]=useState(3),[route,setRoute]=useState<Route|null>(null),[busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[draft,setDraft]=useState<StoryDraft|null>(null)
+ const pages=useWorkspace(s=>s.pages)
+ const controller=useRef<AbortController|null>(null),result=useRef<HTMLDivElement>(null)
+ useEffect(()=>()=>controller.current?.abort(),[pageId])
+ useEffect(()=>{if(readOnly){controller.current?.abort();setBusy(false)}},[readOnly])
+ const chosen=cards.filter(c=>selected.includes(c.id)),words=chosen.reduce((sum,c)=>sum+wordCount(c.source.quote),0)
+ const refs=[{page:pageId},...[...new Set(chosen.map(c=>c.source.pageId))].map(page=>({page}))]
+ const carries=[...(chosen.some(c=>c.source.kind==='file')?['files' as const]:[]),...(chosen.some(c=>c.source.kind==='code')?['mcp' as const]:[])]
+ const generate=async()=>{const c=new AbortController();controller.current=c;setBusy(true);setError('');setDraft(null);try{const next=await generateStory(pageId,chosen.map(c=>c.id),goal.trim()||(de?'Bereite die wichtigsten Aussagen, offenen Fragen und nächsten Schritte für ein Review auf.':'Prepare the key messages, open questions and next steps for a review.'),count,route,c.signal,setProgress);if(!c.signal.aborted){setDraft(next);requestAnimationFrame(()=>result.current?.scrollIntoView({block:'start',behavior:'smooth'}))}}catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:String(e))}finally{if(controller.current===c)setBusy(false)}}
+ return <section className="story-assistant" aria-label={de?'Mit KI aufbereiten':'Prepare with AI'}>
+  <div className="story-assistant-heading"><div><span className="label">{de?'AUS INHALTEN WIRD EINE GESCHICHTE':'TURN CONTENT INTO A STORY'}</span><h3>{de?'Lass das Modell die Folien vorbereiten.':'Let the model prepare your slides.'}</h3><p>{de?'Inhalte auswählen, Ziel nennen, Entwurf prüfen. Originale und Quellen bleiben erhalten.':'Choose content, describe your goal, review the draft. Originals and sources are preserved.'}</p></div><strong>{chosen.length} {de?'Karten':'cards'} · {words} {de?'Quellwörter':'source words'}</strong></div>
+  <details><summary>{de?'Inhalte auswählen und vollständig ansehen':'Select and inspect full content'} ({chosen.length}/{cards.length})</summary><div className="story-material">{cards.map(c=><div key={c.id}><label><input type="checkbox" checked={selected.includes(c.id)} disabled={busy||readOnly||!selected.includes(c.id)&&chosen.length>=20} onChange={e=>setSelected(ids=>e.target.checked?[...ids,c.id]:ids.filter(id=>id!==c.id))}/><strong>{c.title}</strong></label><small>{c.source.label} · {wordCount(c.source.quote)} {de?'Quellwörter':'source words'}</small>{headingOnly(c,pages[c.source.pageId])&&<p className="story-issue">{de?'Nur eine Überschrift – zugehörige Absätze im Denkraum dazunehmen.':'Heading only — collect the related passages in the desk.'}</p>}<details><summary>{de?'Vollständiger Inhalt':'Full content'}</summary><p>{cardText(c)}</p>{c.detail!==c.source.quote&&<blockquote>{c.source.quote}</blockquote>}</details></div>)}</div></details>
+  <div className="story-ai-controls"><label>{de?'Wofür ist die Präsentation?':'What is the presentation for?'}<input maxLength={6000} value={goal} disabled={busy||readOnly} onChange={e=>setGoal(e.target.value)} placeholder={de?'z. B. Review: Fortschritt, offene Punkte, nächste Schritte':'e.g. Review: progress, open issues, next steps'}/></label><label>{de?'Max. Folien':'Max. slides'}<select value={count} disabled={busy||readOnly} onChange={e=>setCount(Number(e.target.value))}>{[1,2,3,4,5,6,7,8].map(n=><option key={n}>{n}</option>)}</select></label><button className="btn" disabled={busy||readOnly||!chosen.length} onClick={()=>void generate()}>{de?'✦ Folienentwurf erstellen':'✦ Create slide draft'}</button></div>
+  <RouteChip purpose="workbench.analyze" chip={route} onChip={setRoute} sources={refs} carries={carries} reads={de?'Ausgewählte Karten und ihre vollständigen Auszüge':'Selected cards and their full excerpts'} disabled={busy||readOnly}/>
+  {busy&&<p role="status">{progress} <button className="btn btn--sm" onClick={()=>{controller.current?.abort();setBusy(false);setProgress('')}}>{de?'Abbrechen':'Cancel'}</button></p>}
+  {error&&<p role="alert">{error}</p>}
+  {draft&&<div ref={result} className="story-draft" aria-label={de?'Folienentwurf prüfen':'Review slide draft'}><h3>{de?'Dein Entwurf – noch nicht übernommen':'Your draft — not yet adopted'}</h3><p>{de?'Prüfe Aussagen und Quellen. Nach dem Übernehmen kannst du alle Folientexte bearbeiten. Bestehende Folien bleiben erhalten.':'Review the statements and sources. After adopting, all slide text is editable. Existing slides are preserved.'}</p><div className="story-draft-grid">{draft.frames.map(frame=><div className="story-draft-preview" key={frame.id}><StorySlide slide={{frame,cards:frame.cards.map(id=>cards.find(c=>c.id===id))}}/></div>)}</div><div className="wb-actions"><button className="btn" disabled={readOnly||busy} onClick={()=>{try{onAdded(adoptStory(pageId,draft));setDraft(null);setError('')}catch(e){setError(e instanceof Error?e.message:String(e))}}}>{de?`${draft.frames.length} Folien übernehmen`:`Adopt ${draft.frames.length} slides`}</button><button className="btn" onClick={()=>setDraft(null)}>{de?'Verwerfen':'Discard'}</button></div></div>}
+ </section>
+}

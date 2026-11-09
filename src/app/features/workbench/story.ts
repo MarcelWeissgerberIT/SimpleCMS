@@ -20,3 +20,16 @@ export function storyIssue(slide:StorySlide,de:boolean){
  if(slide.frame.layout==='metric'&&!slide.frame.metric.trim())return de?'Trage die Zahl aus deiner Quelle ein.':'Enter the number from your source.'
  return ''
 }
+
+export const wordCount=(text:string)=>text.trim()?text.trim().split(/\s+/u).length:0
+export const cardText=(card:Card)=>card.detail||card.source.quote
+
+export function parseStoryDraft(raw:string,ids:string[],count:number,author:{at:number;by:string}):StoryFrame[]{
+ const data=JSON.parse(raw)
+ if(!Array.isArray(data.slides)||!data.slides.length||data.slides.length>count)throw Error('Invalid slides')
+ return data.slides.map((s:any,i:number)=>{
+  const id=crypto.randomUUID(),frame:StoryFrame={type:'slide',id,...author,layout:s.layout,title:s.title,caption:s.caption,metric:'',cards:s.cards,content:s.content,generated:true,order:i}
+  if(!sanitizeDeskRecords({[id]:frame})[id]||!['statement','compare','timeline'].includes(frame.layout)||!frame.title.trim()||!frame.cards.length||frame.cards.length>capacity(frame.layout)||frame.layout==='compare'&&frame.cards.length!==2||frame.cards.some(c=>!ids.includes(c))||!frame.content||frame.content.length!==frame.cards.length||frame.content.some(c=>!c.title?.trim()||!c.text.trim()))throw Error('Invalid source references')
+  return frame
+ })
+}

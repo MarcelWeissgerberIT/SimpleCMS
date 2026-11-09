@@ -58,3 +58,12 @@ Open **Present**:
 5. **Start presentation** opens the existing fullscreen player. Arrow keys navigate; **Esc** exits.
 
 Up to 30 slides are saved in the desk and follow their assigned cards. Long excerpts are shortened with “…”; source links lead to the originals. The Decision layout organizes a proposal without approving it. Missing statements must be replaced before starting. No automatic model call or PowerPoint export is performed.
+
+
+### Prepare content for slides
+
+In **Present**, drag a statement onto the empty stage or click its **＋** button. This creates a slide automatically. When the current slide is full, a new slide is added. Layout cards remain available for choosing a specific design.
+
+The source picker shows text block and word counts. Expand long excerpts to read them in full; the full block is collected, not just its preview. A heading does not automatically include the section below it. Collect those passages too.
+
+**Create slide draft** lets the selected model prepare your cards: select content, describe the goal and request up to eight slides. The model reads only the selected cards and their declared excerpts or code evidence. It proposes concise text, order and suitable layouts. Review the preview, then use **Adopt slides** to append it to the existing presentation. Headlines, captions and slide text remain editable. Original cards and sources are preserved. Changed or unavailable sources prevent adoption; refresh them and generate again.
