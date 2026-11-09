@@ -1,3 +1,4 @@
+import {waitForSource} from './sourceReady'
 import {acquireContentDoc,releaseContentDoc,flushPageContent,useCloud} from '../../../cloud'
 
 /** Keep sources subscribed until the caller releases them, so concurrent edits stay visible.
@@ -16,18 +17,8 @@ export async function holdOverviewPages(ids:readonly string[],signal:AbortSignal
     const handle=acquireContentDoc(id)
     if(!handle)throw Error('Source not available')
     held.push(id)
-    let timer:ReturnType<typeof setTimeout>|undefined,abort:()=>void=()=>{}
-    try{
-     await Promise.race([handle.ready,new Promise((_,reject)=>{
-      abort=()=>reject(new DOMException('Aborted','AbortError'))
-      signal.addEventListener('abort',abort,{once:true})
-      timer=setTimeout(()=>reject(Error('Source sync timed out')),20000)
-      if(signal.aborted)abort()
-     })])
-     signal.throwIfAborted()
-     if(!handle.provider.isSynced)throw Error('Source not synced')
-     flushPageContent(id)
-    }finally{clearTimeout(timer);signal.removeEventListener('abort',abort)}
+    await waitForSource(handle,signal)
+    flushPageContent(id)
    }))
    const failed=results.find(r=>r.status==='rejected')
    if(failed?.status==='rejected')throw failed.reason
