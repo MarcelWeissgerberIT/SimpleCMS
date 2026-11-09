@@ -30,6 +30,7 @@ export const RUN_MODES: Readonly<Record<PurposeId, ModeRow>> = {
   'menu.action': row('interactive', 'text', 'ai'),
   'menu.ask': row('interactive', 'text', 'ai'),
   'menu.tasks': row('interactive', 'text', 'ai'),
+  'page.overview': row('interactive', 'structured', 'overview'),
   'palette.ask': row('interactive', 'text', 'palette'),
   'workspace.ask': row('interactive', 'text', 'workspace'),
   'help.ask': row('interactive', 'text', 'help'),

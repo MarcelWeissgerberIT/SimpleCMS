@@ -75,6 +75,8 @@ export interface PageSettings {
 }
 
 export interface Page {
+  overview?: import('../shell/page/overview/model').PageOverview
+  overviewReviews?: Record<string, import('../shell/page/overview/model').OverviewReview>
   id: ID
   kind: 'page' | 'database'
   title: string

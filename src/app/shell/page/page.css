@@ -238,6 +238,8 @@
   letter-spacing: inherit;
 }
 .pv-title {
+  /* Autosizing measures height synchronously; even reduced-motion durations must not animate it. */
+  transition-property: none;
   display: block;
   width: 100%;
   margin: 0;
