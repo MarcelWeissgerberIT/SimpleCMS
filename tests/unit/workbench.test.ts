@@ -53,3 +53,18 @@ test('a question dimension and its selected cards survive cloud serialization',(
  assert.deepEqual(sanitizeDeskRecords({focus:{...focus,question:' '}}),{})
  assert.deepEqual(sanitizeDeskRecords({focus:{...focus,cards:Array.from({length:21},(_,i)=>String(i))}}),{})
 })
+
+import {buildStory,framesOf,storyIssue} from '../../src/app/features/workbench/story.ts'
+test('presentation frames sync independently and preserve ordered references and removals',()=>{
+ const frame:any={type:'slide',id:'slide-a',layout:'compare',title:'Two views',caption:'Scope',metric:'',cards:['a','b'],order:1,at:1,by:'Anna'}
+ const a=new Y.Doc(),b=new Y.Doc();writeWorkbench(a.getMap('page'),{'slide-a':frame});Y.applyUpdate(b,Y.encodeStateAsUpdate(a))
+ writeWorkbench(a.getMap('page'),{'slide-b':{...frame,id:'slide-b',layout:'quote',cards:['a'],order:0}})
+ writeWorkbench(b.getMap('page'),{'slide-a':{...frame,title:'Edited'}})
+ Y.applyUpdate(a,Y.encodeStateAsUpdate(b));Y.applyUpdate(b,Y.encodeStateAsUpdate(a))
+ const records=readWorkbench(a.getMap('page'));assert.deepEqual(records,readWorkbench(b.getMap('page')))
+ assert.deepEqual(framesOf(records).map(f=>f.id),['slide-b','slide-a'])
+ assert.equal(storyIssue(buildStory(records,[card('a'),card('b')])[1],false),'')
+ assert.ok(storyIssue(buildStory(records,[card('a')])[1],false))
+ assert.equal(buildStory({'slide-a':{...frame,removed:true}},[]).length,0)
+ for(const patch of [{layout:'unknown'},{order:NaN},{cards:['a','a']},{cards:Array(5).fill('a')},{title:'x'.repeat(181)}])assert.deepEqual(sanitizeDeskRecords({'slide-a':{...frame,...patch}}),{})
+})

@@ -42,3 +42,19 @@ Cards distinguish **Assumption**, **Source available**, **Code reviewed**, **Tes
 A desk supports up to 100 active cards. AI requests read only the selected cards and their declared excerpts. Atlas references are checked before sending code, and the repository must permit model processing. Normal data rules, model selection and budgets apply. Changed sources and cancelled runs do not become new saved results.
 
 Full backups retain desks. Document-only exports do not reproduce the interactive card map. A single-page export does not include source pages outside its scope.
+
+## Own statements and connections
+**＋ Own statement** captures a thought as a card. A headline is enough; details are optional. It starts as an **Assumption** and can be used in presentations like a source card.
+
+At card size 64 or above, drag the **＋ on the right** of one card to the **dot on the left** of another. Choose **Supports**, **May conflict** or **Depends on**. The direction is first card → second card. Clicking both connectors works too; **Esc** cancels. Remove connections under **Threads**. A connection alone does not verify a statement.
+
+## Build a presentation
+Open **Present**:
+
+1. Click a layout or drag it onto the preview: **Key message**, **Number in focus**, **Comparison**, **Sequence**, **Evidence** or **Decision**.
+2. Drag statements from the left onto the slide, or use **＋** on touch devices. Source references and assumptions stay visible.
+3. Adjust the headline and caption. Enter a metric from your source yourself. Comparisons need two statements; sequences take up to four steps.
+4. Reorder slides by dragging or using the arrows. **×** removes a slide or its assignment, keeping the original statement.
+5. **Start presentation** opens the existing fullscreen player. Arrow keys navigate; **Esc** exits.
+
+Up to 30 slides are saved in the desk and follow their assigned cards. Long excerpts are shortened with “…”; source links lead to the originals. The Decision layout organizes a proposal without approving it. Missing statements must be replaced before starting. No automatic model call or PowerPoint export is performed.

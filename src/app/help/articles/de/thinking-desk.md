@@ -42,3 +42,19 @@ Karten unterscheiden **Vermutung**, **Quelle vorhanden**, **Im Code geprüft**, 
 Ein Denkraum hält bis zu 100 aktive Karten. KI-Aufträge lesen ausschließlich die ausdrücklich ausgewählten Karten und ihre angegebenen Auszüge. Atlas-Code wird vor der Übermittlung anhand des gespeicherten Belegs geprüft; die Repository-Freigabe für Modellverarbeitung muss vorliegen. Datenregeln, Modellwahl und Budget gelten wie bei anderen KI-Aufträgen. Geänderte Quellen oder abgebrochene Aufträge werden nicht als neues Ergebnis gespeichert.
 
 Komplett-Backups erhalten den Denkraum. Reine Dokumentexporte bilden die interaktive Kartenfläche nicht ab. Ein einzelner Seitenexport enthält keine außerhalb seines Umfangs liegenden Quellseiten.
+
+## Eigene Aussagen und Verbindungen
+**＋ Eigene Aussage** hält deinen Gedanken als Karte fest. Eine Überschrift genügt; Details sind optional. Die Karte startet als **Vermutung** und kann genauso wie eine Quellkarte in eine Präsentation aufgenommen werden.
+
+Ab Kartengröße 64 siehst du die Anschlüsse: Ziehe das **＋ rechts** einer Karte auf den **Punkt links** einer anderen. Wähle dann **Stützt**, **Widerspricht möglicherweise** oder **Hängt ab von**. Die Richtung ist erste Karte → zweite Karte. Alternativ beide Anschlüsse nacheinander anklicken; **Esc** bricht ab. Unter **Verbindungen** kannst du eine Verbindung wieder entfernen. Eine Verbindung allein bestätigt keine Aussage.
+
+## Aus Aussagen eine Präsentation machen
+Im Reiter **Präsentieren**:
+
+1. Wähle eine Layoutkarte oder ziehe sie auf die Vorschau: **Kernaussage**, **Zahl im Fokus**, **Gegenüberstellung**, **Ablauf**, **Beleg** oder **Entscheidung**.
+2. Ziehe Aussagen aus der linken Liste auf die Folie. Mit **＋** geht es auch per Klick oder auf dem Handy. Quellen und eigene Aussagen bleiben gekennzeichnet.
+3. Passe Überschrift und Einordnung an. Bei einer Zahlenfolie trägst du die Zahl aus deiner Quelle selbst ein. Eine Gegenüberstellung braucht zwei Aussagen; ein Ablauf fasst bis zu vier Schritte.
+4. Sortiere unten die Folien durch Ziehen oder mit den Pfeilen. **×** entfernt nur die Folie oder ihre Zuordnung, nicht die ursprüngliche Aussage.
+5. **Präsentation starten** öffnet den vorhandenen Vollbildmodus. Pfeiltasten wechseln die Folie; **Esc** beendet die Präsentation.
+
+Bis zu 30 Folien werden direkt im Denkraum gespeichert. Die Inhalte folgen den zugeordneten Karten; lange Auszüge werden auf der Folie mit „…“ gekürzt, der Quellenlink führt zum Original. Die Layoutkarte „Entscheidung“ gliedert deinen Vorschlag, sie erteilt keine Freigabe. Fehlende Aussagen müssen vor dem Start ergänzt werden. Es erfolgt kein automatischer KI-Aufruf und kein PowerPoint-Export.
