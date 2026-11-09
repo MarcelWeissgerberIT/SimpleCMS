@@ -43,6 +43,7 @@ export const PURPOSES = {
   'menu.action': p('write', ['selection'], ['page', 'mcp']),
   'menu.ask': p('ask', ['selection'], ['page', 'memory', 'mcp']),
   'menu.tasks': p('write', ['selection', 'people'], ['page', 'mcp']),
+  'workbench.analyze': p('ask', ['page'], ['files','mcp'], ['structured']),
   'page.overview': p('ask', ['page'], [], ['structured']),
   'palette.ask': p('ask', [], ['page', 'memory', 'mcp'], [], { mayBeEmpty: true }),
   'workspace.ask': p('workspace', ['workspace'], ['mcp']),

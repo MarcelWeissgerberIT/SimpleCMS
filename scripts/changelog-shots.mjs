@@ -41,6 +41,7 @@ import { playStoryPage, storyTime } from '../tests/e2e/helpers/recorderStory.mjs
 import {seedFailedAnalysis} from '../tests/e2e/helpers/failedAnalysisStory.mjs'
 import {analysisFixture} from '../tests/e2e/helpers/codeAnalysisStory.mjs'
 import { routeAIHosts } from './lib/aiHosts.mjs'
+import {seedThinkingDesk} from '../tests/e2e/helpers/thinkingDeskStory.mjs'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
 const ONLY = process.argv.slice(3)
@@ -944,6 +945,16 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'thinking-desk'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    await seedThinkingDesk(page)
+    const desk=page.getByRole('region',{name:'Thinking desk',exact:true})
+    await desk.locator('.wb-card-hit').first().waitFor()
+    await desk.locator('.wb-zoom-steps').getByRole('button',{name:'128',exact:true}).click()
+    await rest(page)
+    await save(page,'thinking-desk')
+    await ctx.close()
+  },
   async 'mermaid-recovery'(browser) {
     const {ctx,page}=await freshPage(browser)
     const id=await createPage(page,'Diagram review',doc(

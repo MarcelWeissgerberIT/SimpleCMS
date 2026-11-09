@@ -13,8 +13,8 @@ function savedSize(key:string):Size {
 }
 
 /** A view of the original overview items: no second copy, inferred status or model call. */
-export function MiniCards({items,labels,preferenceKey,reviews,isTracked,renderItem}:{
- items:OverviewItem[];labels:Record<OverviewKind,string>;preferenceKey:string
+export function MiniCards({items,labels,preferenceKey,pageId,reviews,isTracked,renderItem}:{
+ items:OverviewItem[];labels:Record<OverviewKind,string>;preferenceKey:string;pageId:string
  reviews?:Record<string,OverviewReview>;isTracked:(item:OverviewItem)=>boolean
  renderItem:(item:OverviewItem)=>ReactNode
 }){
@@ -47,7 +47,7 @@ export function MiniCards({items,labels,preferenceKey,reviews,isTracked,renderIt
       const number=String(items.indexOf(item)+1).padStart(2,'0'),review=reviews?.[item.id],tracked=isTracked(item)
       const state=review?(review.state==='confirmed'?(de?'Festgehalten':'Recorded'):review.state==='deferred'?(de?'Zurückgestellt':'Deferred'):(de?'Rückfrage':'Question')):tracked?(de?'Nachverfolgt':'Tracked'):''
       const accessible=[number,item.title,labels[kind],state].filter(Boolean).join(' · ')
-      return <Tooltip key={item.id} label={accessible}><button type="button" className="mini-card-trigger" ref={el=>{if(el)triggers.current.set(item.id,el);else triggers.current.delete(item.id)}} aria-label={accessible} aria-expanded={selectedId===item.id} aria-controls={selectedId===item.id?detailId:undefined} onClick={()=>setSelectedId(item.id)}>
+      return <Tooltip key={item.id} label={accessible}><button type="button" className="mini-card-trigger" draggable onDragStart={e=>{e.dataTransfer.setData('application/x-one-overview',JSON.stringify({pageId,itemId:item.id}));e.dataTransfer.effectAllowed='copy'}} ref={el=>{if(el)triggers.current.set(item.id,el);else triggers.current.delete(item.id)}} aria-label={accessible} aria-expanded={selectedId===item.id} aria-controls={selectedId===item.id?detailId:undefined} onClick={()=>setSelectedId(item.id)}>
        <span className="mini-card-face" data-kind={kind} data-tracked={tracked||undefined} aria-hidden="true">
         {size>=32&&<span className="mini-card-number">{number}{size>=128&&state&&<span>{state}</span>}</span>}
         {size>=64&&<span className="mini-card-title">{item.title}</span>}
