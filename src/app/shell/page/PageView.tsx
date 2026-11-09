@@ -132,11 +132,13 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
       <Cover page={page} editable={!readOnly} />
       <header className="pv-head">
         <div className="pv-col">
+          <div className="pv-heading">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
           <div className="pv-toolbar">
           {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview&&pageView==='overview'} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button><button aria-pressed={showOverview&&pageView==='mini'} onClick={()=>chooseView('mini')}>Mini Cards</button>{followUp?.overviewFollowUp?.pageId===page.id&&<a href={'#/p/'+followUp.id}>{lang==='de'?'Nachverfolgung':'Follow-up'} ↗</a>}</div>}
           {!trashed&&<TranslationControls pageId={page.id} compact/>}
+          </div>
           </div>
           {sourceNotice&&<p role="status">{sourceNotice}</p>}
           {!trashed && <KnowledgePageControl pageId={page.id}/>}
@@ -262,21 +264,23 @@ function PageHeaderControls({ page, readOnly }: { page: Page; readOnly: boolean 
           aria-label={t('shell.page.changeIcon')}
           onClick={(e) => setIconAnchor(iconAnchor ? null : e.currentTarget)}
         >
-          <PageIcon icon={page.icon} kind={page.kind} size={78} />
+          <PageIcon icon={page.icon} kind={page.kind} size={page.kind==='database'?32:78} />
         </button>
       )}
       {!readOnly && (!page.icon || !page.cover) && (
         <div className="pv-adds">
           {!page.icon && (
-            <button type="button" className="pv-add" onClick={(e) => setIconAnchor(e.currentTarget)}>
+            <button type="button" className="pv-add" aria-label={t('shell.page.addIcon')} title={t('shell.page.addIcon')} onClick={(e) => setIconAnchor(e.currentTarget)}>
               <SmilePlus size={14} />
-              {t('shell.page.addIcon')}
+              <span>{t('shell.page.addIcon')}</span>
             </button>
           )}
           {!page.cover && (
             <button
               type="button"
               className="pv-add"
+              aria-label={t('shell.page.addCover')}
+              title={t('shell.page.addCover')}
               onClick={() => {
                 // one click gives a tasteful default (Notion-style); "Change cover" opens the picker
                 void loadCoverManifest(resolveAssetUrl).then((list) => {
@@ -289,7 +293,7 @@ function PageHeaderControls({ page, readOnly }: { page: Page; readOnly: boolean 
               }}
             >
               <ImagePlus size={14} />
-              {t('shell.page.addCover')}
+              <span>{t('shell.page.addCover')}</span>
             </button>
           )}
         </div>
