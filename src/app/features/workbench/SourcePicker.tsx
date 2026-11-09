@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react'
 import {useWorkspace} from '../../store/store'
+import {isEffectivelyTrashed} from '../../store/selectors'
 import {useLang} from '../../i18n'
 import {holdOverviewPages} from '../../shell/page/overview/sources'
 import {overviewSources,overviewSignature} from '../../shell/page/overview/model'
@@ -7,25 +8,35 @@ import {codeReference} from '@/shared/mcp/codeReference'
 import {codeConnections} from '../code-evidence/load'
 import {addCard,addOverviewCard,readAttachment,sourcePage} from './actions'
 import {pageFiles} from '../ai/agent/documentTools'
-export function SourcePicker({deskId,onAdded}:{deskId:string;onAdded:(id:string)=>void}){
+export function SourcePicker({deskId,onAdded,onContinue,onChoose}:{deskId:string;onAdded:(id:string)=>void;onContinue:()=>void;onChoose:(chosen:boolean)=>void}){
  const de=useLang()==='de',pages=useWorkspace(s=>s.pages),desk=pages[deskId]
- const [query,setQuery]=useState(''),[pageId,setPageId]=useState(''),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const [query,setQuery]=useState(''),[pageId,setPageId]=useState(''),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[retry,setRetry]=useState(0),[addedIds,setAddedIds]=useState<string[]>([])
  const [file,setFile]=useState<{id:string;text:string;hash:string;name:string}|null>(null),[quote,setQuote]=useState(''),[note,setNote]=useState(''),[server,setServer]=useState('')
+ useEffect(()=>{onChoose(!!pageId);return()=>onChoose(false)},[pageId,onChoose])
  const controller=useRef<AbortController|null>(null)
  useEffect(()=>{const c=new AbortController();let release:()=>void=()=>{};setReady(false);setBusy(false);setFile(null);setQuote('');setError('')
  if(pageId)void holdOverviewPages([pageId],c.signal).then(r=>{release=r;if(c.signal.aborted)r();else setReady(true)}).catch(e=>{if(!c.signal.aborted)setError(String(e.message??e))})
  return()=>{c.abort();release();controller.current?.abort()}
- },[pageId,deskId])
+ },[pageId,deskId,retry])
  const run=async(fn:(signal:AbortSignal)=>Promise<void>|void)=>{controller.current?.abort();const c=new AbortController();controller.current=c;setBusy(true);setError('');try{await fn(c.signal)}catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:String(e))}finally{if(!c.signal.aborted)setBusy(false)}}
- const p=pages[pageId],eligible=Object.values(pages).filter(p=>p.id!==deskId&&!p.workbench&&!p.hidden&&!p.trashed&&!!p.private===!!desk.private&&p.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
- const add=(title:string,detail:string,blockId:string,kind:'page'|'code'='page',code?:ReturnType<typeof codeReference>)=>run(()=>{const source=sourcePage(deskId,pageId);onAdded(addCard(deskId,{title:title.slice(0,300),detail,source:{kind,pageId,blockId,quote:detail,signature:overviewSignature(source),label:source.title.slice(0,300),...(code?{code:{...code,server:code.server||server}}:{})}}))})
+ const p=pages[pageId],eligible=Object.values(pages).filter(p=>p.id!==deskId&&!p.workbench&&!p.hidden&&!isEffectivelyTrashed(pages,p.id)&&!!p.private===!!desk.private&&p.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+ const suggested=pages[desk.parentId??''],suggestion=suggested&&eligible.some(p=>p.id===suggested.id)?suggested:undefined
+ const collected=(id:string)=>{setAddedIds(ids=>[...new Set([...ids,id])]);onAdded(id)}
+ const added=addedIds.length
+ const add=(title:string,detail:string,blockId:string,kind:'page'|'code'='page',code?:ReturnType<typeof codeReference>)=>run(()=>{const source=sourcePage(deskId,pageId);collected(addCard(deskId,{title:title.slice(0,300),detail,source:{kind,pageId,blockId,quote:detail,signature:overviewSignature(source),label:source.title.slice(0,300),...(code?{code:{...code,server:code.server||server}}:{})}}))})
  return <div className="wb-source-picker">
-  <label>{de?'Seite suchen':'Find a page'}<input value={query} onChange={e=>setQuery(e.target.value)} placeholder={de?'Titel …':'Title …'}/></label>
-  <label>{de?'Quelle auswählen':'Select source'}<select aria-label={de?'Quelle auswählen':'Select source'} value={pageId} onChange={e=>setPageId(e.target.value)}><option value="">—</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
+  <div className="wb-picker-heading"><h2>{de?'1. Eine Seite auswählen':'1. Choose a page'}</h2><p>{de?'Übernimm anschließend die Aussagen, die du untersuchen möchtest.':'Then collect the statements you want to investigate.'}</p></div>
+  {!pageId&&suggestion&&<div className="wb-source-suggestion"><span className="label">{de?'VORSCHLAG · AUSGANGSSEITE':'SUGGESTED · ORIGINAL PAGE'}</span><button className="btn" onClick={()=>setPageId(suggestion.id)}>{suggestion.title}</button></div>}
+  <label>{de?'Seitentitel filtern':'Filter page titles'}<input value={query} onChange={e=>{setQuery(e.target.value);setPageId('')}} placeholder={de?'z. B. Roadmap — sucht im Titel':'e.g. Roadmap — searches titles'}/></label>
+  <label>{de?'Quelle auswählen':'Select source'}<select aria-label={de?'Quelle auswählen':'Select source'} value={pageId} onChange={e=>setPageId(e.target.value)}><option value="">{de?'Seite wählen …':'Choose a page …'}</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
   {pageId&&!ready&&!error&&<p role="status">{de?'Quelle wird geladen …':'Loading source …'}</p>}
-  {error&&<p role="alert">{error}</p>}
+  {!eligible.length&&<p role="status">{de?'Keine Seite mit diesem Titel gefunden. Suche nach dem Seitennamen, nicht nach einem Thema im Text.':'No page with this title found. Search by page name, not by a topic in its text.'} <button className="btn btn--sm" onClick={()=>setQuery('')}>{de?'Alle Seiten zeigen':'Show all pages'}</button></p>}
+  {error&&<div className="wb-alert" role="alert"><p>{error.startsWith('Source ')?(de?'Die Seite konnte noch nicht aus der Cloud geladen werden. Prüfe deine Verbindung und versuche es erneut.':'The page could not be loaded from the cloud yet. Check your connection and try again.'):error}</p>{pageId&&!ready&&<button className="btn" onClick={()=>setRetry(n=>n+1)}>{de?'Erneut laden':'Try again'}</button>}</div>}
+  {!!added&&<div className="wb-collected" role="status"><strong>{de?`${added} Aussage${added===1?'':'n'} übernommen`:`${added} statement${added===1?'':'s'} collected`}</strong><button className="btn" onClick={onContinue}>{de?'Weiter: Frage stellen →':'Next: ask a question →'}</button></div>}
   {ready&&p&&<>
-   {p.overview&&<details><summary>{de?'Karten aus dem Überblick':'Cards from overview'}</summary>{p.overview.items.map(item=><button className="wb-source-choice" key={item.id} disabled={busy} onClick={()=>void run(async signal=>onAdded(await addOverviewCard(deskId,pageId,item,signal)))}>{item.title} <span>＋</span></button>)}</details>}
+   <div className="wb-picker-heading"><h2>{de?'2. Aussagen übernehmen':'2. Collect statements'}</h2><p>{de?'Eine Aussage reicht für den Start. Nimm eine zweite dazu, wenn du vergleichen möchtest.':'One statement is enough to start. Add a second if you want to compare.'}</p></div>
+   {!overviewSources(p).length&&!p.overview?.items.length&&!pageFiles(p.content).length&&<p>{de?'Diese Seite enthält noch keine übernehmbaren Aussagen. Wähle eine andere Seite oder schreibe unten eine eigene Notiz.':'This page has no statements to collect yet. Choose another page or write your own note below.'}</p>}
+   {p.overview&&<details open><summary>{de?'Vorschläge aus dem Überblick':'Suggestions from overview'}</summary>{p.overview.items.map(item=><button className="wb-source-choice" key={item.id} disabled={busy} onClick={()=>void run(async signal=>collected(await addOverviewCard(deskId,pageId,item,signal)))}>{item.title} <span>＋</span></button>)}</details>}
    <details open><summary>{de?'Absätze und Code-Belege':'Passages and code references'}</summary>
     {overviewSources(p).map(source=>{const ref=codeReference(source.text)
      return <div key={source.id} className="wb-source-excerpt"><p>{ref?(ref.finding||ref.citation.path):source.text.slice(0,350)+(source.text.length>350?' …':'')}</p>
@@ -36,9 +47,9 @@ export function SourcePicker({deskId,onAdded}:{deskId:string;onAdded:(id:string)
     })}
    </details>
    {!!pageFiles(p.content).length&&<details><summary>{de?'Anhänge auswerten':'Read attachments'}</summary>{pageFiles(p.content).map(f=><button className="wb-source-choice" disabled={busy} key={f.file_id} onClick={()=>void run(async signal=>{const epoch=useWorkspace.getState().epoch;sourcePage(deskId,pageId);const result=await readAttachment(pageId,f.file_id,signal);signal.throwIfAborted();if(epoch!==useWorkspace.getState().epoch)throw Error(de?'Arbeitsbereich gewechselt.':'Workspace changed.');sourcePage(deskId,pageId);setFile({id:f.file_id,...result});setQuote('')})}>{f.name} · {de?'Text laden':'Load text'}</button>)}</details>}
-   {file&&<div><label>{file.name}<textarea aria-label={file.name} readOnly rows={8} value={file.text}/></label><label>{de?'Gewünschten Originalauszug hier einfügen (max. 12.000 Zeichen)':'Paste the original excerpt here (up to 12,000 characters)'}<textarea value={quote} maxLength={12000} onChange={e=>setQuote(e.target.value)}/></label><button className="btn" disabled={busy||!quote.trim()||!file.text.includes(quote)} onClick={()=>void run(()=>onAdded(addCard(deskId,{title:file.name.slice(0,300),detail:quote,source:{kind:'file',pageId,blockId:file.id,quote,signature:overviewSignature(sourcePage(deskId,pageId)),label:file.name.slice(0,300),fileId:file.id,fileHash:file.hash}})))}>{de?'Dateiauszug hinzufügen':'Add file excerpt'}</button></div>}
+   {file&&<div><label>{file.name}<textarea aria-label={file.name} readOnly rows={8} value={file.text}/></label><label>{de?'Gewünschten Originalauszug hier einfügen (max. 12.000 Zeichen)':'Paste the original excerpt here (up to 12,000 characters)'}<textarea value={quote} maxLength={12000} onChange={e=>setQuote(e.target.value)}/></label><button className="btn" disabled={busy||!quote.trim()||!file.text.includes(quote)} onClick={()=>void run(()=>collected(addCard(deskId,{title:file.name.slice(0,300),detail:quote,source:{kind:'file',pageId,blockId:file.id,quote,signature:overviewSignature(sourcePage(deskId,pageId)),label:file.name.slice(0,300),fileId:file.id,fileHash:file.hash}})))}>{de?'Dateiauszug hinzufügen':'Add file excerpt'}</button></div>}
   </>}
-  <details><summary>{de?'Eigene Annahme':'Your own assumption'}</summary><label>{de?'Notiz':'Note'}<textarea maxLength={12000} value={note} onChange={e=>setNote(e.target.value)}/></label><button className="btn" disabled={busy||!note.trim()} onClick={()=>void run(()=>{onAdded(addCard(deskId,{title:note.slice(0,100),detail:note,source:{kind:'note',pageId:deskId,blockId:'',quote:note,signature:'',label:de?'Eigene Annahme':'Own assumption'}}));setNote('')})}>{de?'Als Annahme hinzufügen':'Add as assumption'}</button></details>
+  <details><summary>{de?'Eigene Annahme':'Your own assumption'}</summary><label>{de?'Notiz':'Note'}<textarea maxLength={12000} value={note} onChange={e=>setNote(e.target.value)}/></label><button className="btn" disabled={busy||!note.trim()} onClick={()=>void run(()=>{collected(addCard(deskId,{title:note.slice(0,100),detail:note,source:{kind:'note',pageId:deskId,blockId:'',quote:note,signature:'',label:de?'Eigene Annahme':'Own assumption'}}));setNote('')})}>{de?'Als Annahme hinzufügen':'Add as assumption'}</button></details>
   {busy&&<p role="status">{de?'Quelle wird verarbeitet …':'Processing source …'} <button className="btn btn--sm" onClick={()=>{controller.current?.abort();setBusy(false)}}>{de?'Abbrechen':'Cancel'}</button></p>}
  </div>
 }

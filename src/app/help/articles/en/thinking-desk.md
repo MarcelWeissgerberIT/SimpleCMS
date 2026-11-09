@@ -9,6 +9,13 @@ summary: Arrange statements from several sources and develop reviewable decision
 ---
 Choose **Open thinking desk** on a page. Create a desk as a child page or select an existing one. **Add to desk** on an overview card carries that card into the desk.
 
+## Start in three steps
+1. **Choose first source**: The original page is suggested, or choose another page. **Filter page titles** searches page names, not their contents.
+2. **Add to desk**: Collect a statement or a suggestion from the existing overview. One statement is enough to start; add more to compare.
+3. **Next: ask a question**: Choose a suggested question or write your own. Only **Analyze selection** starts the AI request.
+
+New desks initially display 256 × 256 pixel cards. **Display & filters** contains other sizes and filters. **More tools: decisions & scenarios** reveals advanced analysis modes. If a source fails to load, use **Try again**.
+
 ## Sources and zoom
 **Collect sources** offers passages, overview cards, attachment excerpts and saved Atlas code references. Attachments are first read locally as text; select a verbatim excerpt. Your own notes start as **Assumptions**. Sources must share the desk's private or shared visibility scope.
 

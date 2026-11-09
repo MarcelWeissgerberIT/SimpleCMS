@@ -9,6 +9,13 @@ summary: Aussagen aus mehreren Quellen als Karten ordnen und daraus überprüfba
 ---
 Öffne auf einer Seite **Denkraum öffnen**. Lege einen Denkraum als Unterseite an oder wähle einen vorhandenen. Aus dem Überblick führt **Auf den Schreibtisch** direkt mit der gewählten Karte dorthin.
 
+## In drei Schritten starten
+1. **Erste Quelle auswählen**: Die Ausgangsseite wird vorgeschlagen. Du kannst auch eine andere Seite wählen. **Seitentitel filtern** sucht im Seitennamen, nicht im Inhalt.
+2. **Auf den Schreibtisch**: Übernimm eine Aussage oder einen Vorschlag aus dem vorhandenen Überblick. Eine Aussage reicht zum Start; für Vergleiche kannst du weitere hinzufügen.
+3. **Weiter: Frage stellen**: Wähle einen Fragevorschlag oder schreibe selbst eine Frage. Erst **Auswahl untersuchen** startet die KI.
+
+Neue Denkräume zeigen Karten zunächst mit 256 × 256 Pixeln. **Darstellung & Filter** enthält die anderen Größen und Filter. Unter **Weitere Werkzeuge: Entscheidungen & Szenarien** findest du die erweiterten Untersuchungen. Bei Ladeproblemen kannst du die Quelle mit **Erneut laden** nochmals abrufen.
+
 ## Quellen sammeln und zoomen
 **Quellen sammeln** bietet Absätze, Überblick-Karten, Dateiauszüge und gespeicherte Atlas-Code-Belege an. Dateien werden zunächst lokal als Text gelesen; du wählst einen wörtlichen Auszug. Eigene Notizen beginnen als **Vermutung**. Quellen müssen im selben privaten oder gemeinsamen Bereich liegen wie der Denkraum.
 
