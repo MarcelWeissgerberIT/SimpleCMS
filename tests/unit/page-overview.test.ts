@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import * as Y from 'yjs'
-import {overviewSources,overviewSignature,parseOverview,sanitizeOverview,sanitizeOverviewReviews} from '../../src/app/shell/page/overview/model.ts'
+import {overviewSources,overviewSignature,overviewPreview,parseOverview,sanitizeOverview,sanitizeOverviewReviews} from '../../src/app/shell/page/overview/model.ts'
 import {writeOverviewReviews,readOverviewReviews} from '../../src/app/cloud/overview.ts'
 const page={title:'Release',content:{type:'doc',content:[{type:'paragraph',attrs:{id:'block-a'},content:[{type:'text',text:'Das Team entscheidet über Tip Touch.'}]}]}}
 const sources=overviewSources(page),signature=overviewSignature(page)
@@ -34,4 +34,23 @@ test('concurrent first reviews of distinct items converge without losing either 
  assert.equal(Object.keys(readOverviewReviews(a.getMap('page'))).length,2)
  writeOverviewReviews(a.getMap('page'),{},left)
  assert.equal(Object.keys(readOverviewReviews(a.getMap('page'))).length,2)
+})
+
+test('stream previews show only complete source-checked cards, even across escaped strings and byte-sized chunks',()=>{
+ const values=[{...item,detail:'Text with "quotes", \\ escapes and {braces}.'},{...item,kind:'action',doneWhen:'Fachlich bestätigt.',title:'Klären'}]
+ const raw=JSON.stringify({items:values}),feed=overviewPreview(sources,signature,'de')
+ const counts:number[]=[]
+ for(const c of raw){const next=feed(c);if(next)counts.push(next.length)}
+ assert.deepEqual(counts,[1,2])
+ const first=JSON.stringify({items:[values[0]]}).slice(0,-2)
+ assert.equal(overviewPreview(sources,signature,'de')(first)?.length,1)
+})
+test('invalid or duplicate streamed cards never enter the preview; final validation remains mandatory',()=>{
+ for(const bad of [{...item,quote:'Invented quotation that is not on the page.'},{...item,kind:'action',doneWhen:''},item]){
+  const feed=overviewPreview(sources,signature,'de')
+  assert.equal(feed('{"items":['+JSON.stringify(item))?.length,1)
+  assert.equal(feed(','+JSON.stringify(bad)),undefined)
+  assert.throws(()=>parsed([item,bad]))
+ }
+ assert.equal(overviewPreview(sources,signature,'de')('{"items":[{"kind":"summary"'),undefined)
 })

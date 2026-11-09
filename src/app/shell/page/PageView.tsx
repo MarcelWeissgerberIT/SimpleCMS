@@ -157,7 +157,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
       </header>
       <div className="pv-body">
         <div className="pv-col pv-content">
-          {overviewEnabled&&<div hidden={!showOverview}><Overview page={original??page} readOnly={readOnly} onDocument={showDocument} onGenerated={()=>chooseView('overview')}/></div>}
+          {overviewEnabled&&<div hidden={!showOverview}><Overview page={original??page} readOnly={readOnly} onDocument={showDocument}/></div>}
           <div hidden={showOverview}>
           {isDb ? (
             <>

@@ -51,3 +51,39 @@ export function sanitizeOverviewReviews(v:unknown):Record<string,OverviewReview>
  }
  return out
 }
+
+/** Incremental JSON scanner: only complete, source-checked cards become a preview.
+ * A malformed prefix stops previews; the final response must still pass parseOverview.
+ * Strings/escapes are tracked across network chunks, including braces inside quotes.
+ */
+export function overviewPreview(sources:OverviewSource[],signature:string,language:'de'|'en') {
+ let raw='',cursor=0,start=-1,depth=0,inString=false,escaped=false,stopped=false,count=0
+ return (delta:string):OverviewItem[]|undefined=>{
+  if(stopped)return
+  raw+=delta
+  if(raw.length>200000){stopped=true;return}
+  if(start<0){
+   const head=/^\s*\{\s*"items"\s*:\s*\[/.exec(raw)
+   if(!head)return
+   start=head[0].length;cursor=start
+  }
+  let latest:OverviewItem[]|undefined
+  for(;cursor<raw.length;cursor++){
+   const c=raw[cursor]
+   if(inString){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c==='"')inString=false;continue}
+   if(c==='"'){inString=true;continue}
+   if(c==='{')depth++
+   if(c==='}'){
+    depth--
+    if(depth===0){
+     try{
+      const parsed=parseOverview('{"items":['+raw.slice(start,cursor+1)+']}',sources,signature,language)
+      if(parsed.items.length>count){count=parsed.items.length;latest=parsed.items}
+     }catch{stopped=true;return latest}
+    }
+   }
+   if(c===']'&&depth===0){stopped=true;break}
+  }
+  return latest
+ }
+}

@@ -521,6 +521,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
   let attached: McpAttachment | null = null
   // a paused turn made MCP calls: no retry without a server after that
   let sawMcp = false
+  let sawText = false
   try {
     const got = await configuredClient()
     sdk = got.sdk
@@ -544,6 +545,17 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     if (attached) {
       const msg=await streamWithMcp(client,model,opus,system+'\n'+attached.system,prompt,attached,()=>{},calls=>{sawMcp ||= calls.some(c=>!c.contract&&c.tool!=='one_mcp_search');opts.onMcpActivity?.({attached:attached!.names,blocks:[],calls})},signal,{prepared,call,sdk,schema})
       const receipt=call.receipt();if(receipt)onUsage?.({p:'anthropic',model,input:receipt.usage.input,output:receipt.usage.output,cacheRead:receipt.usage.cacheRead,cacheWrite:receipt.usage.cacheWrite+receipt.usage.cacheWrite1h,usd:receipt.usd??0});stopReason=msg.stop_reason;blocks=msg.content
+    } else if (opts.onToken) {
+      // Stream the same constrained answer; previews never replace the final contract check.
+      const common = { model, max_tokens: capped(maxTokens, prepared), system, messages }
+      const onText = (delta: string) => { sawText = true; opts.onToken?.(delta) }
+      const stream = opus
+        ? client.beta.messages.stream({ ...common, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', output_config: { effort: 'low', format } }, { signal, maxRetries: requestRetries }).on('text', onText)
+        : client.messages.stream({ ...common, output_config: { format } }, { signal, maxRetries: requestRetries }).on('text', onText)
+      const tapped: MeterCall = { receipt: call.receipt, response: x => { const entry = call.response(x); used(entry); return entry } }
+      const msg = await finalOf<AnthropicSDK.Message | AnthropicSDK.Beta.BetaMessage>(stream, tapped, promptChars, sdk, signal)
+      stopReason = msg.stop_reason
+      blocks = msg.content
     } else if (!opus) {
       const { msg, entry } = await metered(call, (sig) => client.messages.create({ model, max_tokens: capped(maxTokens, prepared), system, messages, output_config: { format } }, { signal: sig, maxRetries:requestRetries }), promptChars, sdk, signal)
       used(entry)
@@ -578,7 +590,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!attached && !again && retryWithout(err, forced, sawMcp)) return structuredOnce(opts, true, prepared, call)
+    if (!attached && !again && !sawText && retryWithout(err, forced, sawMcp)) return structuredOnce(opts, true, prepared, call)
     throw err
   }finally{task?.release()}
 }
