@@ -113,3 +113,22 @@ export async function refreshCard(deskId:string,cardId:string,signal:AbortSignal
  saveRecords(deskId,[{...card,...stamp(),source,level:source.kind==='note'?0:1,evidence:'',evidenceUrl:'',assessment:undefined}],{[cardId]:JSON.stringify(card)})
  }finally{release()}
 }
+
+/** A focused desk is an independent selection; source references and assessments stay intact. */
+export function createFocusedDesk(parentId:string,cardIds:string[],dimension:string,question:string){
+ const parent=writable(parentId),records=sanitizeDeskRecords(parent.workbenchRecords)
+ const cards=cardsOf(records).filter(c=>cardIds.includes(c.id))
+ if(!cards.length||cards.length>20||cards.length!==new Set(cardIds).size||!question.trim()||question.length>6000||!dimension.trim()||dimension.length>100)fail('Wähle 1 bis 20 Karten und eine Frage.','Choose 1 to 20 cards and a question.')
+ for(const card of cards)sourcePage(parentId,card.source.pageId)
+ const copies=cards.map((c,i)=>{const {taskId,removed,...copy}=c;return {...copy,x:(i%3)*280,y:Math.floor(i/3)*280}})
+ return withWriter({kind:'you',via:'ui'},()=>{
+  const id=createDesk(parentId,dimension)
+  saveRecords(id,[...copies,{type:'focus',id:crypto.randomUUID(),...stamp(),dimension,question:question.trim(),cards:copies.map(c=>c.id)}])
+  return id
+ })
+}
+export function placeCard(deskId:string,id:string,point:{x:number;y:number}){
+ const card=writable(deskId).workbenchRecords?.[id]
+ if(card?.type!=='card'||card.removed||![point.x,point.y].every(Number.isFinite))return
+ saveRecords(deskId,[{...card,...stamp(),x:Math.min(10000,Math.max(0,point.x)),y:Math.min(10000,Math.max(0,point.y))}],{[id]:JSON.stringify(card)})
+}

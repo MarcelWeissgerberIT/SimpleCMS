@@ -9,19 +9,22 @@ summary: Aussagen aus mehreren Quellen als Karten ordnen und daraus überprüfba
 ---
 Öffne auf einer Seite **Denkraum öffnen**. Lege einen Denkraum als Unterseite an oder wähle einen vorhandenen. Aus dem Überblick führt **Auf den Schreibtisch** direkt mit der gewählten Karte dorthin.
 
-## In drei Schritten starten
-1. **Erste Quelle auswählen**: Die Ausgangsseite wird vorgeschlagen. Du kannst auch eine andere Seite wählen. **Seitentitel filtern** sucht im Seitennamen, nicht im Inhalt.
-2. **Auf den Schreibtisch**: Übernimm eine Aussage oder einen Vorschlag aus dem vorhandenen Überblick. Eine Aussage reicht zum Start; für Vergleiche kannst du weitere hinzufügen.
-3. **Weiter: Frage stellen**: Wähle einen Fragevorschlag oder schreibe selbst eine Frage. Erst **Diese Frage beantworten** startet die KI.
+## Mit Karten arbeiten
+1. Öffne **Quellen sammeln** und wähle eine Seite. Ziehe passende Absätze aus der Quellenliste auf die Arbeitsfläche. **Auf den Schreibtisch** bietet denselben Einstieg ohne Ziehen.
+2. Ziehe die Karten, die zusammengehören, in den **Fragebereich**. Alternativ setzt du ihre Kästchen. Du kannst Karten über das × wieder aus der Auswahl nehmen.
+3. Ziehe eine **Fragekarte** dazu: **Widersprüche**, **Offene Punkte** oder **Nächste Schritte**. Die Vorschau zeigt die konkrete Frage und die Anzahl der Aussagen.
+4. **Denkraum erstellen** legt eine eigene Unterseite mit diesen Karten, ihren Quellen und der Frage an. Der Ausgangsraum bleibt erhalten. Erst **Diese Frage beantworten** startet die KI im neuen Raum.
 
-Neue Denkräume zeigen Karten zunächst mit 256 × 256 Pixeln. **Darstellung & Filter** enthält die anderen Größen und Filter. Unter **Weitere Werkzeuge: Entscheidungen & Szenarien** findest du die erweiterten Untersuchungen. Bei Ladeproblemen kannst du die Quelle mit **Erneut laden** nochmals abrufen.
+Fragekarten kannst du auch anklicken. Eine Fragekarte lässt sich auch auf die Arbeitsfläche ziehen. Ohne bestehende Auswahl übernimmt die Vorschau dann alle dort sichtbaren Karten. Auf kleinen Bildschirmen stehen Quellen, Arbeitsfläche und Fragebereich untereinander. Für eine eigene Frage wählst du Karten aus und verwendest das Fragefeld direkt; eine abgelegte Fragekarte kannst du vorher entfernen.
 
-Während der Arbeit erklärt **Jetzt dran** den nächsten Schritt. Ein Fragevorschlag füllt das Textfeld; **Diese Frage beantworten** startet die Auswertung. Die Frage steht oberhalb der Karten. Bei einer übernommenen Überschrift kannst du mit **Absatz dazu auswählen** direkt zur passenden Quellseite zurückkehren und konkrete Inhalte ergänzen. Nach der Antwort helfen die Quellenlinks bei der Prüfung. Die Bestätigung der gesammelten Aussagen steht am Ende der Quellenauswahl und scrollt mit.
+Ein Klick auf eine Aussage zeigt ihren Auszug und Quellenlink. Erst **Bearbeiten** öffnet die Felder für Titel, Einordnung, Gruppe und Gewissheit. Ziehen auf der Fläche ordnet Karten an; **Alt + Pfeiltasten** funktioniert per Tastatur. Neue Denkräume verwenden 256 × 256 Pixel; **Darstellung & Filter** enthält weitere Größen.
+
+Bei reinen Überschriften führt **Absatz dazu auswählen** zur Quellseite zurück. Fragevorschläge füllen nur das Textfeld. Nach einer Antwort prüfst du die verlinkten Quellen.
 
 ## Quellen sammeln und zoomen
 **Quellen sammeln** bietet Absätze, Überblick-Karten, Dateiauszüge und gespeicherte Atlas-Code-Belege an. Dateien werden zunächst lokal als Text gelesen; du wählst einen wörtlichen Auszug. Eigene Notizen beginnen als **Vermutung**. Quellen müssen im selben privaten oder gemeinsamen Bereich liegen wie der Denkraum.
 
-Zoome in sechs Stufen von **8 × 8** bis **256 × 256 Pixel**. Kleine Punkte zeigen die Verteilung; größere Karten zeigen Titel, Einordnung und Gruppe. Ein Klick öffnet den vollständigen Auszug und seinen Quellenlink. Ziehen oder **Alt + Pfeiltasten** ordnet die Karten an. Kästchen wählen Karten für eine Untersuchung aus. Zoom ist persönlich; Karten und Anordnung werden gespeichert und im Team synchronisiert.
+Zoome in sechs Stufen von **8 × 8** bis **256 × 256 Pixel**. Kleine Punkte zeigen die Verteilung; größere Karten zeigen Titel, Einordnung und Gruppe. Ein Klick öffnet den vollständigen Auszug und seinen Quellenlink. Ziehen oder **Alt + Pfeiltasten** ordnet die Karten an. Ziehen in den Fragebereich oder die Kästchen wählt Karten für eine Untersuchung aus. Zoom ist persönlich; Karten und Anordnung werden gespeichert und im Team synchronisiert.
 
 ## Verbindungen und Entscheidungen
 Wähle zwei Karten und **Faden anlegen**, um einen möglichen Widerspruch, eine Unterstützung oder eine Abhängigkeit festzuhalten. **Vergleichen & Widersprüche finden** untersucht bis zu 20 ausgewählte Karten. KI-Fäden sind mögliche Widersprüche und brauchen fachliche Prüfung.
