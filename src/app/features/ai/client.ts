@@ -283,6 +283,8 @@ export async function viaNeutral(
 /* ------------------------------------------------------------------ */
 
 export interface StructuredOptions extends RouteOptions {
+  /** Optional JSON text deltas for provisional previews; final validation still belongs to the caller. Requires mcp:false. */
+  onToken?: (delta: string) => void
   /** Bind fixed BA/PO phases to the owning live-test trace; credentials never enter this value. */
   audit?: import('./core/liveAudit').LiveAudit
   /** what the request is for (features/ai/core/purposes.ts) */
@@ -348,11 +350,12 @@ export interface StructuredUsage {
 }
 
 /**
- * One non-streaming request whose answer is constrained to a JSON schema (structured outputs,
+ * One request whose answer is constrained to a JSON schema (structured outputs,
  * `output_config.format`). Resolves with the raw answer text; parsing and validation are the
  * caller's job, so a malformed answer can become a per-item error instead of an exception here.
  */
 export async function completeStructured(opts: StructuredOptions): Promise<string> {
+  if (opts.onToken && opts.mcp !== false) throw new Error('Structured previews require mcp:false')
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
   // the servers set to "All AI calls" join a structured request too (structuredOnce) — or exactly `setup`'s: the brake
   // counts their rounds. `mcp: false`: none, whatever else was given

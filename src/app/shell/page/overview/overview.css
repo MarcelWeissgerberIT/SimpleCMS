@@ -28,3 +28,12 @@
 .overview-filter-menu{font-size:13px;margin:12px 0;color:var(--ink-2)}
 .overview-filter-menu>summary{cursor:pointer;width:fit-content}
 .overview-section+.overview-generation{border-top:1px solid var(--rule-strong);margin-top:24px;padding-top:16px}
+
+.overview-progress{border:1px solid var(--rule-strong);border-left:3px solid var(--signal-ink);background:var(--surface-2);padding:16px 20px;margin:16px 0}
+.overview-progress-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.overview-progress-head [role=timer]{font:13px var(--font-mono);font-variant-numeric:tabular-nums;flex-shrink:0;color:var(--ink-2)}
+.overview-progress ol{display:flex;flex-wrap:wrap;gap:8px 18px;padding:0;margin:14px 0;list-style:none;font-size:12px;color:var(--ink-2)}
+.overview-progress li[aria-current=step]{color:var(--signal-ink);font-weight:600}
+.overview-progress li[data-complete=true]{color:var(--ink)}
+.overview-preview{margin:24px 0}.overview-preview>h3{margin-bottom:4px}
+@media(max-width:600px){.overview-progress{padding:14px}.overview-progress-head{align-items:flex-start}.overview-progress ol{display:grid;gap:6px}}
