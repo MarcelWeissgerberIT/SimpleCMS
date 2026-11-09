@@ -1,5 +1,6 @@
 import {openPage} from '../../lib/router'
 import {Overview} from './overview/Overview'
+import {trackingId} from './overview/tracking'
 import {overviewSources,type OverviewItem} from './overview/model'
 import {safeLocalGet,safeLocalSet} from '@/shared/brand'
 import {useCloud} from '../../cloud'
@@ -57,6 +58,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
   const trashed = useWorkspace((s) => isEffectivelyTrashed(s.pages, page.id))
   const editorRef = useRef<Editor | null>(null)
   const original=useWorkspace(s=>s.pages[page.id])
+  const followUp=useWorkspace(s=>s.pages[trackingId(page.id)])
   const active=useCloud(s=>s.active),person=useCloud(s=>s.user?.id)
   const prefKey='one.page-view:'+active.kind+':'+active.id+':'+(person??'local')+':'+page.id
   const [pageView,setPageView]=useState<'overview'|'document'>(()=>{const pref=safeLocalGet(prefKey);return pref==='document'||pref==='overview'?pref:page.overview?'overview':'document'})
@@ -131,7 +133,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
-          {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button></div>}
+          {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button>{followUp?.overviewFollowUp?.pageId===page.id&&<a href={'#/p/'+followUp.id}>{lang==='de'?'Nachverfolgung':'Follow-up'} ↗</a>}</div>}
           {sourceNotice&&<p role="status">{sourceNotice}</p>}
           {!trashed && <><KnowledgePageControl pageId={page.id}/><TranslationControls pageId={page.id} /></>}
           {!trashed && <PageAgentActivity pageId={page.id} />}
