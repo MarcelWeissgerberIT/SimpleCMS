@@ -268,6 +268,7 @@ test('own statements, visible wiring and a drag-built presentation persist and w
  await desk(page).getByLabel('Details (optional)',{exact:true}).fill('Confirm the release scope before promising SSO.')
  await desk(page).getByRole('button',{name:'Add statement',exact:true}).click()
  await expect(desk(page).locator('.wb-card-hit')).toHaveCount(3)
+ await desk(page).getByRole('button',{name:'Start connection: SSO supported',exact:true}).click();await page.keyboard.press('Escape');await expect(desk(page).locator('.wb-wire-hint')).toHaveCount(0)
  await desk(page).getByRole('button',{name:'Start connection: SSO supported',exact:true}).dragTo(desk(page).getByRole('button',{name:'Connect to: Local accounts only',exact:true}))
  await desk(page).getByRole('button',{name:'May conflict',exact:true}).click()
  await expect(desk(page).locator('.wb-threads [data-relation=conflict]')).toHaveCount(1)
