@@ -944,6 +944,18 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'mermaid-recovery'(browser) {
+    const {ctx,page}=await freshPage(browser)
+    const id=await createPage(page,'Diagram review',doc(
+      {type:'heading',attrs:{level:2},content:[{type:'text',text:'Volume calculation'}]},
+      {type:'mermaid',attrs:{code:'flowchart LR\n  A["Read volume"] --> B["Book volume"] --> C["Restore speed"]'}},
+      {type:'heading',attrs:{level:2},content:[{type:'text',text:'Time and speed'}]},
+      {type:'mermaid',attrs:{code:'flowchart TD\n  A[Start] --> B[Finish]\n  Not a valid statement @@@'}}))
+    await openPage(page,id)
+    await page.locator('.mermaid-view__error').waitFor()
+    await page.locator('.mermaid-view__svg svg').waitFor()
+    await rest(page);await save(page,'mermaid-recovery');await ctx.close()
+  },
   async 'connection-recovery'(browser) {
     const {ctx,page}=await freshPage(browser)
     const id=await createPage(page,'Repository security review',doc(para('Review the documented security findings and derive test proposals.')))

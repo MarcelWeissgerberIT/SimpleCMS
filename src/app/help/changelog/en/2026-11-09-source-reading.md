@@ -1,6 +1,6 @@
 ---
 id: 2026-11-09-source-reading
-order: 2
+order: 3
 summary: Contiguous sources, bounded parallel reads and visible cache usage.
 image: assets/shots/changelog/source-reading.webp
 alt: Source-reading summary in a One document pipeline log.
