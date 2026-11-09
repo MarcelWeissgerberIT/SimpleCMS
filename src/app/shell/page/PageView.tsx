@@ -1,3 +1,4 @@
+import {openPage} from '../../lib/router'
 import {Overview} from './overview/Overview'
 import {overviewSources,type OverviewItem} from './overview/model'
 import {safeLocalGet,safeLocalSet} from '@/shared/brand'
@@ -93,6 +94,10 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
   }
 
   const showDocument=(item?:OverviewItem)=>{
+    if(item?.sourcePageId&&item.sourcePageId!==page.id){
+      safeLocalSet('one.page-view:'+active.kind+':'+active.id+':'+(person??'local')+':'+item.sourcePageId,'document')
+      openPage(item.sourcePageId,item.sourceBlockId??undefined);return
+    }
     chooseView('document')
     if(!item)return
     requestAnimationFrame(()=>requestAnimationFrame(()=>{

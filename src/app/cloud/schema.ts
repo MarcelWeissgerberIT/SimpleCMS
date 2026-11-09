@@ -1,5 +1,5 @@
 import {readOverviewReviews,writeOverviewReviews} from './overview'
-import {sanitizeOverview} from '../shell/page/overview/model'
+import {sanitizeOverview,sanitizeOverviewFollowUp} from '../shell/page/overview/model'
 /**
  * The workspace meta document (docs/CLOUD.md § Meta document schema) ⇄ store shapes.
  *
@@ -36,7 +36,7 @@ export const roots = (doc: Y.Doc) => ({
 })
 
 /** Synced page fields stored as plain values (everything else is per device or nested). */
-const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType', 'localization', 'overview'] as const
+const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType', 'localization', 'overview', 'overviewFollowUp'] as const
 type PageField = (typeof PAGE_FIELDS)[number]
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -224,6 +224,8 @@ export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: bool
     settings: { ...DEFAULT_PAGE_SETTINGS, ...(isObj(settings) ? (clone(settings) as Partial<Page['settings']>) : {}) },
     plain: str(g('plain'), cur?.plain ?? ''),
   }
+  const followUp=sanitizeOverviewFollowUp(g('overviewFollowUp'))
+  if(followUp)next.overviewFollowUp=followUp
   const overview=sanitizeOverview(g('overview'))
   if(overview)next.overview=overview
   const reviews=readOverviewReviews(yp)
