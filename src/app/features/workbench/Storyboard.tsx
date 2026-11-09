@@ -1,0 +1,42 @@
+import {useState} from 'react'
+import {useLang} from '../../i18n'
+import {useUI} from '../../store/ui'
+import {CARD_DRAG} from './drag'
+import {type Card,type DeskRecords,type SlideLayout,slideLayouts} from './model'
+import {buildStory,layouts,capacity,storyIssue,LAYOUT_DRAG,SLIDE_DRAG,slideLimit} from './story'
+import {addFrame,updateFrame,moveFrame} from './storyActions'
+import {StorySlide} from './StorySlide'
+export function Storyboard({pageId,records,cards,readOnly,onError}:{pageId:string;records:DeskRecords;cards:Card[];readOnly:boolean;onError:(e:unknown)=>void}){
+ const de=useLang()==='de',[active,setActive]=useState(''),[over,setOver]=useState(false),[notice,setNotice]=useState('')
+ const slides=buildStory(records,cards),slide=slides.find(s=>s.frame.id===active)??slides[0],frame=slide?.frame,palette=layouts(de)
+ const act=(fn:()=>void)=>{try{fn()}catch(e){onError(e)}}
+ const add=(layout:SlideLayout)=>{if(!readOnly)act(()=>{setActive(addFrame(pageId,layout));setNotice(de?'Folie angelegt. Ziehe jetzt eine Aussage hinein.':'Slide added. Drag a statement into it.')} )}
+ const attach=(id:string)=>{if(readOnly||!frame||!cards.some(c=>c.id===id))return;if(frame.cards.includes(id))return;if(frame.cards.length>=capacity(frame.layout)){setNotice(de?'Diese Folie ist voll. Entferne zuerst eine Aussage.':'This slide is full. Remove a statement first.');return}act(()=>{updateFrame(pageId,frame.id,{cards:[...frame.cards,id]});setNotice(de?'Aussage hinzugefügt.':'Statement added.')})}
+ const issues=slides.filter(s=>storyIssue(s,de)).length
+ return <div className="story-builder" onDragEnd={()=>setOver(false)}>
+  <header className="story-header"><div><span className="label">{de?'VOM GEDANKEN ZUR GESCHICHTE':'FROM THOUGHT TO STORY'}</span><h2>{de?'Deine Bühne. Deine Aussagen.':'Your stage. Your statements.'}</h2><p>{de?'Layout wählen → Aussagen hineinziehen → Reihenfolge festlegen.':'Choose a layout → Drop in statements → Arrange your story.'}</p></div><button className="btn story-present" disabled={!slides.length||!!issues} onClick={()=>useUI.getState().present(pageId)}>{de?'Präsentation starten':'Start presentation'} ↗</button></header>
+  <div role="status" className="story-status">{notice|| (issues?(de?`${issues} Folien brauchen noch Inhalte.`:`${issues} slides still need content.`):(de?'Deine Folien werden im Denkraum gespeichert.':'Your slides are saved in this thinking desk.'))}</div>
+  <div className="story-studio">
+   <aside className="story-palette" aria-label={de?'Layouts und Aussagen':'Layouts and statements'}>
+    {!readOnly&&<><h3>{de?'01 / Layout wählen':'01 / Choose a layout'}</h3><div className="story-layouts">{palette.map(l=><button key={l.id} className="story-layout" aria-label={(de?'Folie hinzufügen: ':'Add slide: ')+l.title} title={l.hint} disabled={slides.length>=slideLimit} draggable={slides.length<slideLimit} onDragStart={e=>{e.dataTransfer.setData(LAYOUT_DRAG,l.id);e.dataTransfer.effectAllowed='copy'}} onClick={()=>add(l.id)}><span aria-hidden="true">{l.symbol}</span><strong>{l.title}</strong></button>)}</div></>}
+    <h3>{de?'02 / Aussagen hineinziehen':'02 / Drop in statements'}</h3><p className="wb-muted">{de?'Oder mit + zur aktuellen Folie hinzufügen.':'Or use + to add to the current slide.'}</p>
+    <div className="story-sources">{cards.map(c=><div className="story-source" key={c.id} draggable={!readOnly} onDragStart={e=>{e.dataTransfer.setData(CARD_DRAG,c.id);e.dataTransfer.effectAllowed='copy'}}><span className="wb-grip" aria-hidden="true">⠿</span><div><strong>{c.title}</strong><small>{c.source.kind==='note'?(de?'Eigene Aussage · Vermutung':'Own statement · Assumption'):c.source.label}</small></div>{!readOnly&&<button className="btn btn--sm" disabled={!frame||frame.cards.includes(c.id)||frame.cards.length>=capacity(frame.layout)} aria-label={(de?'Zur Folie hinzufügen: ':'Add to slide: ')+c.title} onClick={()=>attach(c.id)}>＋</button>}</div>)}</div>
+   </aside>
+   <div className="story-stage">
+    <div className="story-canvas" data-drop-active={over} aria-label={de?'Folienvorschau und Ablagefläche':'Slide preview and drop area'} onDragOver={e=>{if(!readOnly&&e.dataTransfer.types.some(t=>[CARD_DRAG,LAYOUT_DRAG].includes(t))){e.preventDefault();e.dataTransfer.dropEffect='copy';setOver(true)}}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setOver(false)}} onDrop={e=>{e.preventDefault();setOver(false);if(readOnly)return;const layout=e.dataTransfer.getData(LAYOUT_DRAG);if(slideLayouts.includes(layout as SlideLayout))add(layout as SlideLayout);else attach(e.dataTransfer.getData(CARD_DRAG))}}>
+     {slide?<StorySlide slide={slide}/>:<div className="story-empty"><span aria-hidden="true">Aa ↗</span><h3>{de?'Gib deinen Gedanken eine Bühne.':'Give your thoughts a stage.'}</h3><p>{de?'Ziehe eine Layoutkarte hierher oder klicke links auf ein Layout.':'Drop a layout card here or choose one from the palette.'}</p></div>}
+    </div>
+    {slide&&<div className="story-editor">
+     {storyIssue(slide,de)&&<p className="story-issue">{storyIssue(slide,de)}</p>}
+     {!readOnly&&<><div className="story-fields"><label>{de?'Überschrift':'Headline'}<input maxLength={180} value={frame!.title} placeholder={de?'Aus der ersten Aussage':'From the first statement'} onChange={e=>act(()=>updateFrame(pageId,frame!.id,{title:e.target.value}))}/></label>{frame!.layout==='metric'&&<label>{de?'Zahl aus der Quelle':'Number from source'}<input maxLength={40} value={frame!.metric} placeholder="42 %" onChange={e=>act(()=>updateFrame(pageId,frame!.id,{metric:e.target.value}))}/></label>}<label>{de?'Kurze Einordnung (optional)':'Short caption (optional)'}<textarea rows={2} maxLength={800} value={frame!.caption} onChange={e=>act(()=>updateFrame(pageId,frame!.id,{caption:e.target.value}))}/></label></div>
+     <div className="story-assigned">{frame!.cards.map((id,i)=><div key={id}><span>{String(i+1).padStart(2,'0')} · {cards.find(c=>c.id===id)?.title??(de?'Nicht verfügbar':'Unavailable')}</span><button className="btn btn--sm" aria-label={(de?'Aussage entfernen: ':'Remove statement: ')+(i+1)} onClick={()=>act(()=>updateFrame(pageId,frame!.id,{cards:frame!.cards.filter(cid=>cid!==id)}))}>×</button></div>)}{frame!.cards.length<capacity(frame!.layout)&&<span className="story-slot">＋ {de?`${capacity(frame!.layout)-frame!.cards.length} freie Plätze`:`${capacity(frame!.layout)-frame!.cards.length} open slots`}</span>}</div></>}
+    </div>}
+   </div>
+  </div>
+  <div className="story-strip-heading"><h3>{de?'03 / Deine Geschichte':'03 / Your story'}</h3><span>{slides.length} / {slideLimit} {de?'Folien · Ziehen zum Sortieren':'slides · Drag to reorder'}</span></div>
+  <div className="story-strip" aria-label={de?'Folienreihenfolge':'Slide order'}>{slides.map((s,i)=><div key={s.frame.id} className="story-thumb" data-active={s.frame.id===frame?.id} draggable={!readOnly} onDragStart={e=>{e.dataTransfer.setData(SLIDE_DRAG,s.frame.id);e.dataTransfer.effectAllowed='move'}} onDragOver={e=>{if(!readOnly&&e.dataTransfer.types.includes(SLIDE_DRAG)){e.preventDefault();e.dataTransfer.dropEffect='move'}}} onDrop={e=>{e.preventDefault();if(!readOnly)act(()=>moveFrame(pageId,e.dataTransfer.getData(SLIDE_DRAG),s.frame.id))}}>
+   <button className="story-thumb-open" aria-label={(de?'Folie öffnen: ':'Open slide: ')+(i+1)} onClick={()=>setActive(s.frame.id)}><span>{String(i+1).padStart(2,'0')} / {palette.find(l=>l.id===s.frame.layout)?.title}</span><strong>{s.frame.title||s.cards[0]?.title||(de?'Aussage hinzufügen':'Add a statement')}</strong>{storyIssue(s,de)&&<small>{de?'Noch ergänzen':'Needs content'}</small>}</button>
+   {!readOnly&&<div className="story-thumb-actions"><button className="btn btn--sm" disabled={i===0} aria-label={(de?'Folie nach links: ':'Move slide left: ')+(i+1)} onClick={()=>act(()=>moveFrame(pageId,s.frame.id,slides[i-1].frame.id))}>←</button><button className="btn btn--sm" disabled={i===slides.length-1} aria-label={(de?'Folie nach rechts: ':'Move slide right: ')+(i+1)} onClick={()=>act(()=>moveFrame(pageId,s.frame.id,slides[i+2]?.frame.id??''))}>→</button><button className="btn btn--sm" aria-label={(de?'Folie entfernen: ':'Remove slide: ')+(i+1)} onClick={()=>act(()=>updateFrame(pageId,s.frame.id,{removed:true}))}>×</button></div>}
+  </div>)}</div>
+ </div>
+}

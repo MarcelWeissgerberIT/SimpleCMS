@@ -7,6 +7,10 @@ import { createPortal } from 'react-dom'
 import type { JSONContent } from '@tiptap/core'
 import { ChevronLeft, ChevronRight, LayoutGrid, Maximize, Minimize, Moon, Sun, X } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
+import {useWorkspace} from '../../store/store'
+import {buildStory} from '../workbench/story'
+import {cardsOf,sanitizeDeskRecords} from '../workbench/model'
+import {StorySlide} from '../workbench/StorySlide'
 import { usePage } from '../../store/selectors'
 import type { ID } from '../../store/types'
 import { ReadOnlyDoc } from '../../editor'
@@ -26,13 +30,16 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
   const t = useT()
   const lang = useLang()
   const page = usePage(pageId)
+  const pages=useWorkspace(s=>s.pages)
   const title = page?.title?.trim() || t('common.untitled')
   // Embedded databases are shown as static tables: a click during a talk must never create rows.
   const { slides } = useMemo(() => {
+    const story=page?.workbench?buildStory(page.workbenchRecords,cardsOf(sanitizeDeskRecords(page.workbenchRecords)).filter(c=>pages[c.source.pageId]&&!pages[c.source.pageId].hidden&&!pages[c.source.pageId].trashed&&!!pages[c.source.pageId].private===!!page.private)):[]
+    if(story.length)return {slides:story.map(s=>({kind:'content' as const,heading:s.frame.title||s.cards[0]?.title||title,blocks:[],story:s}))}
     const deck = buildDeck(page?.content, title)
     const staticDb = (n: JSONContent) => (n.type === 'databaseBlock' ? databaseTable(String(n.attrs?.databaseId ?? '')) : null)
     return { ...deck, slides: deck.slides.map((sl) => ({ ...sl, blocks: mapBlocks(sl.blocks, staticDb) })) }
-  }, [page?.content, title])
+  }, [page?.content,page?.workbenchRecords,page?.workbench,page?.private,pages,title])
   const [index, setIndex] = useState(0)
   const [dir, setDir] = useState<1 | -1>(1)
   const [dark, setDark] = useState(() => safeLocalGet(DARK_KEY) === '1')
@@ -390,7 +397,7 @@ function SlideView({ slide, dir, icon, title, meta, hint, more, scrollerRef }: S
         }}
       >
         <div className={`pres__content pres__content--${slide.kind}`} ref={contentRef} style={{ ['--dir' as string]: dir }}>
-          {slide.kind === 'title' ? (
+          {slide.story ? <StorySlide slide={slide.story}/> : slide.kind === 'title' ? (
             <div className="pres__title-slide">
               {icon && (
                 <div className="pres__icon">

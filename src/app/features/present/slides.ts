@@ -1,7 +1,9 @@
 /** Split a page into slides: a new slide starts at every H1/H2 and at every horizontal rule. */
 import type { JSONContent } from '@tiptap/core'
 
+import type {StorySlide} from '../workbench/story'
 export interface Slide {
+  story?: StorySlide
   kind: 'title' | 'content'
   blocks: JSONContent[]
   /** heading text of the slide (for the overview / aria) */
