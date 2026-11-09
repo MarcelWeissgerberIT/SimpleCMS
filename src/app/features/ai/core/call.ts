@@ -102,6 +102,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   })
 
 export interface NeutralOpts {
+  readOnly?: boolean
   audit?: import('./liveAudit').LiveAudit
   mcp?: import('../mcp-servers/config').McpAttachment | null
   onMcp?: (calls: import('../mcp-servers/activity').McpCall[]) => void
@@ -117,7 +118,7 @@ export interface NeutralOpts {
 /** One request on the neutral wire → the whole turn (or an AIError). */
 export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   if(prepared.route?.p==='copilot'||prepared.route?.p==='local'&&prepared.caps?.tools)return (await import('./copilotCall')).sendCopilotCompletion(prepared,req,o)
-  const task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:req.system,input:req.messages,tools:[],one:false,atlas:false,signal:o.signal,output:req.output.kind==='json'?'json':'text',onReport:r=>o.onMcp?.([{id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r}])})
+  const task=createTaskContract({prepared,goal:taskInputOf(prepared).typed||prepared.purpose,instructions:req.system,input:req.messages,tools:[],one:false,atlas:false,signal:o.signal,bounds:o.readOnly?{readOnly:true,externalWrite:false,execute:false,authenticate:false}:undefined,output:req.output.kind==='json'?'json':'text',onReport:r=>o.onMcp?.([{id:r.id,server:'ONE',tool:'compiled_task',arg:'',state:'ok',contract:r}])})
   try{const turn=await sendPlainNeutral(prepared,{...req,system:task.packet()},{...o,onToken:undefined});const answer=turn.parts.filter(p=>p.type==='text').map(p=>p.text).join('\n');task.finish(answer);o.onToken?.(answer);return turn}finally{task.release()}
 }
 async function sendPlainNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {

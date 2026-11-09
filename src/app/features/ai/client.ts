@@ -16,7 +16,7 @@ import { priceRow } from '@/shared/ai/prices'
 import { AIError } from './core/errors'
 import { usesDemo } from './core/demoMode'
 import { capped, precheck, prepare, settle, type Applied, type Prepared, type PrepareInput } from './core/gate'
-import { meterCall, type MeterCall, type Receipt } from './core/meter'
+import { meterCall, pdfChars, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
 import type { Need, PurposeId } from './core/purposes'
 import { demoAnswer, streamDemo } from './demo'
@@ -171,6 +171,10 @@ export interface StreamOptions extends RouteOptions {
   typed?: string | ReadonlyArray<string | null | undefined> | null
   system: string
   prompt: string
+  /** Original file sources, kept before the task and cacheable across tool rounds. */
+  documents?: Extract<Part, { type: 'document' }>[]
+  /** Host-enforced analysis surface: no external writes, execution or sign-in actions. */
+  readOnly?: boolean
   onToken?: (delta: string) => void
   signal?: AbortSignal
   /**
@@ -204,7 +208,8 @@ export interface StreamOptions extends RouteOptions {
 export async function streamCompletion(opts: StreamOptions): Promise<string> {
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
   // its size: the prompt; the answer budget as streamOnce sets it (16 000 for a model that thinks, else 8 000)
-  const size = { promptChars: opts.system.length + opts.prompt.length, maxTokens: (caps: Caps | null) => (thinks(caps) ? 16000 : 8000) }
+  const documentChars = (opts.documents ?? []).reduce((n, d) => n + (d.pdf ? pdfChars(d.pdf.pages) : (d.text?.length ?? 0)), 0)
+  const size = { promptChars: opts.system.length + opts.prompt.length + documentChars, maxTokens: (caps: Caps | null) => (thinks(caps) ? 16000 : 8000) }
   const cw = opts.mcp === false ? null : opts.codewords
   let prepared: Prepared
   try {
@@ -212,7 +217,7 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
     // never caps such a request)
     const servers = opts.mcp === false ? 0 : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', cw?.forced).length
     const rounds = 1 + (opts.maxResumes ?? MAX_RESUMES)
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw), ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), ...(servers ? { mcp: { servers, rounds } } : {}) })
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords({...opts, needs: [...new Set([...(opts.needs ?? []), ...(opts.documents?.some(d => d.pdf) ? ['pdf' as const] : [])])]}, cw), ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), ...(servers ? { mcp: { servers, rounds } } : {}) })
   } catch (e) {
     throw codewordRefusal(e, opts, cw)
   }
@@ -223,8 +228,12 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
       const names = opts.mcp === false ? [] : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', cw?.forced)
       const workerMcp = ['copilot','local'].includes(prepared.provider) && prepared.caps?.mcp && opts.mcp !== false && prepared.allows('mcp') ? await attachMcp(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', { forced: cw?.forced, picked: cw?.picked }) : null
-      if (names.length && (!['copilot','local'].includes(prepared.provider) || !prepared.caps?.mcp)) opts.onMcp?.(names.map((n) => skippedCall(n, 'provider', providerLabel(prepared.provider as ProviderId))))
-      return await viaNeutral(prepared, call, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000, mcp: workerMcp }, opts)
+      const skipped = !['copilot','local'].includes(prepared.provider) || !prepared.caps?.mcp
+        ? names.map(n=>skippedCall(n,'provider',providerLabel(prepared.provider as ProviderId)))
+        : !prepared.allows('mcp') ? names.map(n=>skippedCall(n,'policy')) : []
+      const onMcp = opts.onMcp ? (calls:McpCall[])=>opts.onMcp!([...skipped,...calls]) : undefined
+      if(skipped.length)onMcp?.([])
+      return await viaNeutral(prepared, call, { system: opts.system, parts: [...(opts.documents ?? []), { type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000, promptChars: size.promptChars, cache: opts.documents?.length ? 'auto' : 'none', mcp: workerMcp }, {...opts,onMcp})
     }
     return await streamOnce(opts, false, prepared, call)
   } finally {
@@ -262,7 +271,7 @@ export async function viaNeutral(
   prepared: Prepared,
   call: MeterCall,
   r: { system: string; parts: Part[]; output: ChatRequest['output']; maxTokens: number; promptChars?: number; cache?: ChatRequest['cache']; mcp?: import('./mcp-servers/config').McpAttachment | null },
-  o: { audit?: import('./core/liveAudit').LiveAudit; signal?: AbortSignal; onToken?: (delta: string) => void; onMcp?: (calls: import('./mcp-servers/activity').McpCall[]) => void },
+  o: { readOnly?: boolean; audit?: import('./core/liveAudit').LiveAudit; signal?: AbortSignal; onToken?: (delta: string) => void; onMcp?: (calls: import('./mcp-servers/activity').McpCall[]) => void },
 ): Promise<string> {
   if (!prepared.route) throw new AIError('no_key')
   const { sendNeutral } = await import('./core/call')
@@ -271,7 +280,7 @@ export async function viaNeutral(
   // the governor's cap (a text answer near the red line): the visible budget, never above the call's own
   const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: capped(r.maxTokens, prepared), cache: r.cache ?? 'none' }
   const promptChars = r.promptChars ?? r.system.length + r.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 0), 0)
-  const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars, mcp: r.mcp, onMcp: o.onMcp, audit:o.audit })
+  const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars, mcp: r.mcp, onMcp: o.onMcp, audit:o.audit, readOnly:o.readOnly })
   if (turn.stop === 'refusal' || turn.stop === 'content_filter') throw new AIError('refusal')
   const text = turn.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
   if (!text.trim()) throw new AIError('empty')

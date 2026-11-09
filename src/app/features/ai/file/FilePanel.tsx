@@ -382,6 +382,7 @@ export function useFilePanel({ editor, pageId, run, phase, start, finish, discar
     body: meta || main ? (
       <>
         {meta}
+        {req.action==='ask'&&<p className="ai-file__meta">{lang==='de'?'Dateifragen können verbundene Atlas- und Repo-Quellen lesend prüfen. Abrufe und Fehler erscheinen im Verlauf.':'File questions can consult connected Atlas and repository sources in read-only mode. Reads and errors appear in the activity.'}</p>}
         {main}
       </>
     ) : null,

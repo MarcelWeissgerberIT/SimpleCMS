@@ -58,7 +58,7 @@ export const PURPOSES = {
   'vision.image': p('vision', ['files'], ['page'], ['vision']),
   'vision.design': p('vision', ['files'], [], ['vision']),
   // a PDF needs a model that reads PDFs (the call says so); a text file goes to any
-  'documents.file': p('documents', ['files'], ['page']),
+  'documents.file': p('documents', ['files'], ['page', 'mcp']),
   'generate.media': p('generate', ['mcp'], ['page', 'files'], ['mcp']),
   'mcp-setup.inspect': p('mcp-setup', ['mcp'], [], ['mcp', 'listing']),
   'terminal.task': p('terminal', ['workspace'], ['memory', 'files', 'selection', 'mcp', 'private'], ['tools']),
