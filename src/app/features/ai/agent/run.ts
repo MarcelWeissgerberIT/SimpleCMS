@@ -1,3 +1,5 @@
+import {useWorkspace} from '../../../store/store'
+import {ReadRunMetrics} from '@/shared/ai/readMetrics'
 import { scrubSecrets } from '@/shared/ai/keys'
 import type {McpResultSession} from '@/shared/mcp/results'
 import {fitNativeToolContext} from '@/shared/ai/native-context'
@@ -140,7 +142,7 @@ export interface HaltWait {
 /** The answer budget the wire keeps for every step of the loop (the brake counts FIRST_STEP_OUT for the first). */
 const LOOP_MAX_TOKENS = 64000
 /** A tool result as the next request carries it, at most (tools.ts clipResult + its note). */
-const RESULT_MAX = RESULT_CHARS + 2000
+const RESULT_MAX = 44_000
 
 /** The runner's request parameters for a model (golden: the same bytes as before the Regler). */
 export interface ParamsInput {
@@ -314,6 +316,8 @@ export async function runAgent(opts: {
   /** the run: its ledger source and run mode (an agent's: manual · scheduled · trigger — core/gate.ts PrepareInput.run) */
   run?: PrepareInput['run']
 }): Promise<RunEnd> {
+  const readMetrics=new ReadRunMetrics(),originalHooks=opts.hooks
+  opts={...opts,hooks:{...originalHooks,mcp:c=>{readMetrics.observeMcp(c);originalHooks.mcp(c)},usage:(u,entry)=>{readMetrics.observe(u,entry?.usd);originalHooks.usage(u,entry)}}}
   const { stage, signal, hooks } = opts
   opts={...opts,reviewProfile:opts.reviewProfile!==undefined?opts.reviewProfile:opts.purpose==='terminal.task'?await activeReviewProfile():null}
   const mockSources=new MockSources()
@@ -423,12 +427,12 @@ export async function runAgent(opts: {
           throw new Error(msg)
         }
         task.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
-          if(tool.name==='read_page'&&out.state==='ok'&&!/\[Content withheld\./u.test(out.content))task.observeSource('one',String(input.id??''))
+          if(tool.name==='read_page'&&out.state==='ok'&&out.sourceComplete===true)task.observeSource('one',String(input.id??''))
           task.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
         ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
         if(tool.write)atlasFacts.noteOtherWrite()
-        const visible = clipResult(out.content, RESULT_CHARS + 2000)
+        const visible = out.pageRead ? out.content : clipResult(out.content, RESULT_CHARS + 2000)
         if (tool.name === 'read_page') return reviewSources.observe(visible, `One page ${String(input.id ?? '')}`)
         if (out.state === 'staged') reviewSources.clear()
         return visible
@@ -691,6 +695,7 @@ export async function runAgent(opts: {
     if (e instanceof ToolInputError) throw new AIError('bad_request',e.message)
     throw toAIError(e, sdk, mcp)
   } finally {
+    if(delivery.sourceReads.metrics().reads||readMetrics.snapshot().mcpReads)hooks.note(readMetrics.summary(delivery.sourceReads.metrics(),useWorkspace.getState().settings.language==='de'))
     compiledTask?.release()
     settle(prepared)
   }

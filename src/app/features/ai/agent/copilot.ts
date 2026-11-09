@@ -182,10 +182,10 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
             if(tool.data && !prepared.allows(tool.data)) throw new Error('File content is excluded for the selected model by the active AI data rules.')
             const out = await audit.tool('ONE',tool.name,input,()=>withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage)))))
             task!.capture({kind:'tool',tool:tool.name,schema:tool.input_schema,args:input,effect:oneTaskEffect(tool.name,tool.write) as 'read'|'stage'});
-          if(tool.name==='read_page'&&out.state==='ok'&&!/\[Content withheld\./u.test(out.content))task!.observeSource('one',String(input.id??''))
+          if(tool.name==='read_page'&&out.state==='ok'&&out.sourceComplete===true)task!.observeSource('one',String(input.id??''))
           task!.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
             hooks.toolEnd(id, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - start })
-            content = clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
+            content = out.pageRead ? out.content : clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
             if(tool.write)remote?.facts.noteOtherWrite()
           } catch (e) { task!.observe('one',false,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query'].includes(tool.name));if(e instanceof LiveAuditError)throw e;failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: scrubSecrets(content).slice(0, 2000), ms: performance.now() - start }) }
         } else if (remote && remote.hasFunction(c.name)) {

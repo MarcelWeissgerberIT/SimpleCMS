@@ -25,6 +25,7 @@ export interface McpCall {
   receipt?: AtlasReceipt
   input?: Record<string,unknown>
   resultBytes?:number
+  readMeasurement?:{reused:boolean}
   /**
    * Not a call: a server that did not join — 'off' = switched off, 'token' = no token in this browser, 'refused' = its
    * token was rejected, 'provider' = the route's provider connects no MCP servers (OpenRouter), 'policy' = the route

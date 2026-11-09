@@ -1,3 +1,4 @@
+import {ReadPool} from '@/shared/ai/readPlanning'
 import {McpActivityNames} from '@/shared/mcp/activityDisplay'
 import {guardedAtlasCodeCall,codeHumanOnly} from '@/shared/mcp/atlasCode'
 import {McpReadReuse,reusableMcpRead} from '@/shared/mcp/readReuse'
@@ -39,12 +40,13 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
   const schemas=new Map<string,DiscoveredMcpTool>(),discovered=new Set<string>(),evidence=new McpEvidence(),facts=new AtlasFacts(),bindings=new McpBindings(),shownGuides=new Set<string>()
   const activityNames=new McpActivityNames()
   const readBodies=new Set<string>(),bodyKey=(server:string,args:Record<string,unknown>)=>JSON.stringify([server,args.tenant??null,args.ref])
+  const readPool=new ReadPool(3)
   const request=async(input:Parameters<typeof requestWorkerMcp>[0],proof?:QuantumProof)=>{
     let waiting:McpCall|undefined
     try{
       const result=await retryMcpRead(async()=>{
         if(signature()!==pinned)throw new AIError('policy','features.ai.mcp.sessionChanged')
-        const send=(request:typeof input)=>requestWorkerMcp(request,signal)
+        const send=(request:typeof input)=>{const execute=()=>{if(signature()!==pinned)throw new AIError('policy','features.ai.mcp.sessionChanged');assertMcpFlow(servers.map(s=>s.url));return requestWorkerMcp(request,signal)};const read=request.action!=='call'||mcpTaskEffect(request.name,request.arguments,schemas.get(JSON.stringify([request.server,request.name])))==='read';return read?readPool.run(execute,signal):execute()}
         const guarded=async()=>{if(input.action!=='call'||!input.name.startsWith('atlas_code_')||!workerOnline())return send(input)
           const selected=input.servers.find(s=>s.name===input.server)!
           const result=await guardedAtlasCodeCall(input.name,input.arguments,async(name,args)=>{const out=await send({...input,name,arguments:args}) as {result:string};return JSON.parse(out.result)},name=>(selected.allow===null||selected.allow.includes(name))&&!selected.deny.includes(name))
@@ -147,7 +149,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const reuseKey=readReuse.key(actual.server,actual.name,actual.arguments),canReuse=reusableMcpRead(actual.name,effect)
       if(effect!=='read')readReuse.clear()
       const reused=canReuse&&args.fresh!==true?readReuse.get(reuseKey):null
-      if(reused){event({...activity,state:'ok',arg:activity.arg+' · reused task read',notExecuted:true});return JSON.stringify({...JSON.parse(reused.value),oneReadReuse:{readAt:new Date(reused.at).toISOString(),fresh:false,note:'Same permitted read already completed in this task; no new server request. Use fresh=true to recheck current state.'}})}
+      if(reused){event({...activity,state:'ok',arg:activity.arg+' · reused task read',notExecuted:true,readMeasurement:{reused:true}});return JSON.stringify({...JSON.parse(reused.value),oneReadReuse:{readAt:new Date(reused.at).toISOString(),fresh:false,note:'Same permitted read already completed in this task; no new server request. Use fresh=true to recheck current state.'}})}
       attempts++;dispatched=true
       const out=await request({action:'call',servers,server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>},proof) as {result:string}
       if(signature()!==pinned)throw new AIError('policy','features.ai.mcp.sessionChanged')
@@ -190,7 +192,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
       const {packed,sourceError}=packObservedMcpResult(results,failed?JSON.stringify({...JSON.parse(out.result),isError:true}):out.result,effect==='read',failed)
       if(!failed&&args.name.startsWith('atlas_')){const server=servers.find(s=>s.name===args.server);if(server)evidence.observe(out.result,new URL(server.url).origin,{server:args.server,name:args.name,arguments:args.arguments as Record<string,unknown>})}
       if(!failed&&!sourceError&&activity.display)activityNames.retain(packed,activity.display)
-      event({...activity,state:failed||sourceError&&effect==='read'?'err':'ok',...(failed?{error:mcpConnectionMessage(out.result,'call')}:sourceError?{error:sourceError}:{}),resultBytes:new TextEncoder().encode(out.result).length,...(receipt?{receipt}:{})})
+      event({...activity,state:failed||sourceError&&effect==='read'?'err':'ok',...(failed?{error:mcpConnectionMessage(out.result,'call')}:sourceError?{error:sourceError}:{}),resultBytes:new TextEncoder().encode(out.result).length,...(effect==='read'?{readMeasurement:{reused:false}}:{}),...(receipt?{receipt}:{})})
       const searchEvidence=['atlas_search','atlas_query'].includes(args.name)?evidence.searchResult():null
       const response=receipt||evidence.hint()||mockSource?JSON.stringify({...JSON.parse(packed),...(mockSource?{oneMockSource:mockSource}:{}),...(receipt?{oneObservedFacts:modelAtlasReceipt(receipt)}:{}),oneSourceLinks:evidence.hint(),...(searchEvidence?{oneSearchEvidence:searchEvidence}:{} )}):packed
       if(canReuse&&!failed&&!sourceError)readReuse.put(reuseKey,response)

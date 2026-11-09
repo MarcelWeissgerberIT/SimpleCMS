@@ -13,7 +13,7 @@ test.describe('Saved executable compiled programs',()=>{
   await openApp(page)
   await wsEval(page,s=>{s.setWorkspaceAI({policy:{providers:{local:{allow:['public','structure','selection','page','rows','workspace']},copilot:{allow:['public','structure','selection','page','rows','workspace']}},restricted:[]}});s.updateSettings({ai:{allow:{local:['mcp'],copilot:['mcp']}},mcpServers:[{id:'atlas-fixture',name:'atlas',url:'https://atlas.example.org/mcp',scope:'all',token:'fixture-private-token',enabled:true,tools:['atlas_get'],checkedAt:Date.now()}]})})
   await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}));await page.getByRole('tab',{name:/Coding worker/}).click();await page.getByLabel('Port',{exact:true}).fill(String(PORT));await page.getByLabel('Port',{exact:true}).press('Enter');await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click();await expect(page.getByTestId('coding-conn')).toContainText('program-fixture');await page.getByRole('tab',{name:/AI$/}).click();await expect(page.getByTestId('worker-model-settings')).toContainText(MODEL);await page.keyboard.press('Escape')
-  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:MODEL});await page.keyboard.press(`${MOD}+j`)
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'local',m:MODEL});await page.keyboard.press(`${MOD}+j`);await page.getByRole('button',{name:'Settings and tools',exact:true}).click()
  })
  test.afterEach(async()=>{await fake?.close()})
  test('same saved artifact survives reload, refreshes sources and decisions, rejects changed MCP schema before effects',async({page},info)=>{
@@ -119,6 +119,27 @@ test.describe('Saved executable compiled programs',()=>{
   await expect(term.locator('.term-answer').last()).toContainText('Fresh source briefing',{timeout:25000});await expect(term).toContainText('Program run receipt saved')
   expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1);const requests=host?host.requests.map(r=>r.body):fake.textAsked;expect(requests).toHaveLength(1);expect(requests[0].tools??[]).toHaveLength(0)
   const wire=JSON.stringify(requests[0]);expect(wire.match(/RECORDED SOURCE START/g)).toHaveLength(1);expect(wire).toContain('RECORDED SOURCE START');expect(wire).toContain('RECORDED SOURCE END');expect(wire).not.toContain('mcp-result-')
+ })
+
+ test('independent compiled reads run in groups of three and generation waits for every source',async({page})=>{
+  let active=0,peak=0,finished=0
+  fake.onModelMcp=async r=>{
+   if(r.action==='search')return {tools:[{server:'atlas',name:'atlas_get',inputSchema:schema}]}
+   active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,150));active--;finished++
+   return {result:JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:r.arguments.ref,body:'Fresh source '+r.arguments.ref}})}]})}
+  }
+  fake.onText=r=>{expect(finished).toBe(4);return {model:r.model,text:'All four fresh sources were supplied.',inputTokens:200,outputTokens:40,usd:0}}
+  const term=page.getByRole('region',{name:'AI terminal'});await term.getByRole('button',{name:'Saved compiled programs'}).click()
+  const dialog=page.getByRole('dialog',{name:'Saved compiled programs'});await dialog.getByRole('button',{name:'New program',exact:true}).click()
+  const editor=dialog.getByRole('textbox',{name:'Executable JSON definition'}),p=JSON.parse(await editor.inputValue())
+  p.goal='Read four independent Atlas documents and summarize their actual content.';p.parameters={}
+  p.steps=[...Array.from({length:4},(_,i)=>({id:'source'+i,kind:'tool',server:'atlas',endpoint:'https://atlas.example.org/mcp',tool:'atlas_get',schema,effect:'read',args:{literal:{ref:40+i}}})),{id:'answer',kind:'generate',instruction:'Summarize the supplied sources.',context:{array:Array.from({length:4},(_,i)=>({result:'source'+i,path:[]}))}}]
+  p.output={result:'answer',path:[]}
+  await editor.fill(JSON.stringify(p));await dialog.getByLabel('Name',{exact:true}).fill('Bounded parallel source reads');await dialog.getByRole('button',{name:'Compile and save'}).click();await dialog.getByRole('button',{name:'Run this version'}).click()
+  await expect(term.locator('.term-answer').last()).toContainText('All four fresh sources',{timeout:25000})
+  expect(peak).toBe(3);expect(finished).toBe(4);expect(fake.textAsked).toHaveLength(1)
+  await expect(term).toContainText('MCP: 4 successful reads, 0 reused')
+  await expect(term).toContainText('Program run receipt saved')
  })
 
  test('fixed MCP JSON bindings select the fresh body instead of sending large unrelated metadata',async({page})=>{

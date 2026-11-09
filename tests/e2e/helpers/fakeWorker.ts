@@ -25,7 +25,7 @@ export interface FakeWorker {
   mcpAsked: Json[]
   onRepoFiles: ((request: Json) => Json) | null
   repoFilesAsked: Json[]
-  onModelMcp: ((request: Json) => Json) | null
+  onModelMcp: ((request: Json) => Json | Promise<Json>) | null
   textModels: Json[]
   textAsked: Json[]
   onText: ((request: Json) => Json) | null
@@ -152,7 +152,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
       if (m.type === 'req' && m.op === 'text-models') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: fake.textModels })); return }
       if (m.type === 'req' && m.op === 'model-mcp') {
         fake.mcpAsked.push(m.request)
-        const result = fake.onModelMcp?.(m.request) ?? { tools: [] }
+        const result = await fake.onModelMcp?.(m.request) ?? { tools: [] }
         ws.send(JSON.stringify(result instanceof Error ? { type: 'res', id: m.id, ok: false, error: result.message } : { type: 'res', id: m.id, ok: true, result })); return
       }
       if (m.type === 'req' && m.op === 'text-request') {
