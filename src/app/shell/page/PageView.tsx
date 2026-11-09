@@ -61,16 +61,16 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
   const followUp=useWorkspace(s=>s.pages[trackingId(page.id)])
   const active=useCloud(s=>s.active),person=useCloud(s=>s.user?.id)
   const prefKey='one.page-view:'+active.kind+':'+active.id+':'+(person??'local')+':'+page.id
-  const [pageView,setPageView]=useState<'overview'|'document'>(()=>{const pref=safeLocalGet(prefKey);return pref==='document'||pref==='overview'?pref:page.overview?'overview':'document'})
+  const [pageView,setPageView]=useState<'overview'|'document'|'mini'>(()=>{const pref=safeLocalGet(prefKey);return pref==='document'||pref==='overview'||pref==='mini'?pref:page.overview?'overview':'document'})
   const [sourceNotice,setSourceNotice]=useState('')
-  const chooseView=(v:'overview'|'document')=>{setPageView(v);safeLocalSet(prefKey,v);setSourceNotice('')}
+  const chooseView=(v:'overview'|'document'|'mini')=>{setPageView(v);safeLocalSet(prefKey,v);setSourceNotice('')}
   const isDb = page.kind === 'database'
   const isRow = !!page.databaseId
   const lang=useLang()
   const guided=variant==='main'&&!!firstStart(page)&&!trashed
   const [referenceOpen,setReferenceOpen]=useState(false)
   const overviewEnabled=!isDb&&!guided&&!trashed
-  const showOverview=overviewEnabled&&pageView==='overview'
+  const showOverview=overviewEnabled&&pageView!=='document'
   const locked = page.settings.locked
   // a viewer in a team workspace reads every page like a locked one
   const viewer = useReadOnly()
@@ -135,7 +135,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
           <div className="pv-toolbar">
-          {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button>{followUp?.overviewFollowUp?.pageId===page.id&&<a href={'#/p/'+followUp.id}>{lang==='de'?'Nachverfolgung':'Follow-up'} ↗</a>}</div>}
+          {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview&&pageView==='overview'} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button><button aria-pressed={showOverview&&pageView==='mini'} onClick={()=>chooseView('mini')}>Mini Cards</button>{followUp?.overviewFollowUp?.pageId===page.id&&<a href={'#/p/'+followUp.id}>{lang==='de'?'Nachverfolgung':'Follow-up'} ↗</a>}</div>}
           {!trashed&&<TranslationControls pageId={page.id} compact/>}
           </div>
           {sourceNotice&&<p role="status">{sourceNotice}</p>}
@@ -168,7 +168,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
       </header>
       <div className="pv-body">
         <div className="pv-col pv-content">
-          {overviewEnabled&&<div hidden={!showOverview}><Overview page={original??page} readOnly={readOnly} onDocument={showDocument}/></div>}
+          {overviewEnabled&&<div hidden={!showOverview}><Overview page={original??page} readOnly={readOnly} onDocument={showDocument} presentation={pageView==='mini'?'mini':'overview'} preferenceKey={prefKey+':mini-size'}/></div>}
           <div hidden={showOverview}>
           {isDb ? (
             <>

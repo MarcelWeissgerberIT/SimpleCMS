@@ -1,0 +1,42 @@
+.mini-cards{margin-top:16px}
+.mini-cards-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;border-block:1px solid var(--rule-strong);padding:10px 0}
+.mini-cards-toolbar label{display:flex;align-items:center;gap:10px;font-size:13px}
+.mini-cards-toolbar select{font:inherit;background:var(--surface);color:var(--ink);border:1px solid var(--rule-strong);padding:6px 8px}
+.mini-cards-level{font:11px var(--font-mono);color:var(--ink-2)}
+.mini-cards-legend{display:flex;gap:8px 16px;flex-wrap:wrap;margin:16px 0;font-size:11px;color:var(--ink-2)}
+.mini-cards-legend>span{display:flex;align-items:center;gap:6px}
+.mini-cards-legend>span>span{font:10px var(--font-mono)}
+.mini-cards-legend i{display:inline-block;width:12px;border-top:3px solid var(--ink-2)}
+.mini-cards-legend i[data-kind=summary]{border-color:var(--signal)}
+.mini-cards-legend i[data-kind=decision]{border-color:var(--signal-ink)}
+.mini-cards-legend i[data-kind=question]{border-top-style:dotted;border-color:var(--signal-ink)}
+.mini-cards-legend i[data-kind=action]{border-top-style:double;border-color:var(--ink)}
+.mini-cards-grid{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.mini-card-trigger{display:grid;place-items:center;flex:none;box-sizing:border-box;width:max(var(--mini-size),24px);height:max(var(--mini-size),24px);padding:0;border:0;background:transparent;color:var(--ink);text-align:left;font:inherit;cursor:pointer}
+.mini-card-face{box-sizing:border-box;display:flex;flex-direction:column;gap:8px;width:var(--mini-size);height:var(--mini-size);padding:12px;overflow:hidden;background:var(--surface-2);border:1px solid var(--rule-strong);border-top:3px solid var(--ink-2);border-radius:2px}
+.mini-card-face[data-kind=summary]{border-top-color:var(--signal)}
+.mini-card-face[data-kind=decision]{border-top-color:var(--signal-ink)}
+.mini-card-face[data-kind=question]{border-top-style:dotted;border-top-color:var(--signal-ink)}
+.mini-card-face[data-kind=action]{border-top-style:double;border-top-color:var(--ink)}
+.mini-card-trigger[aria-expanded=true] .mini-card-face{outline:2px solid var(--signal-ink);outline-offset:3px}
+.mini-card-trigger:hover .mini-card-face{background:var(--surface)}
+.mini-card-number{display:flex;justify-content:space-between;align-items:baseline;gap:6px;flex-shrink:0;font:11px var(--font-mono);color:var(--ink-2)}
+.mini-card-number>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
+.mini-card-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;overflow-wrap:anywhere;font-size:17px;font-weight:600;line-height:1.25}
+.mini-card-context{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;overflow-wrap:anywhere;font-size:13px;line-height:1.45;color:var(--ink-2)}
+.mini-card-foot{margin-top:auto;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--ink-2);max-width:100%}
+.mini-cards[data-size="128"] .mini-card-face{padding:8px;gap:6px}
+.mini-cards[data-size="128"] .mini-card-title{font-size:13px;-webkit-line-clamp:3}
+.mini-cards[data-size="128"] .mini-card-number>span{display:none}
+.mini-cards[data-size="64"] .mini-card-face{padding:3px;gap:3px}
+.mini-cards[data-size="64"] .mini-card-title{font-size:11px;line-height:1.2;-webkit-line-clamp:3}
+.mini-cards[data-size="64"] .mini-card-number{font-size:10px;line-height:1}
+.mini-cards[data-size="32"] .mini-card-face{padding:0;align-items:center;justify-content:center}
+.mini-cards[data-size="16"] .mini-card-face,.mini-cards[data-size="8"] .mini-card-face{padding:0;gap:0}
+.mini-cards-detail{margin:16px 0 24px;padding:16px;border:1px solid var(--rule-strong);border-left:3px solid var(--signal);background:var(--surface)}
+.mini-cards-detail-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;font:11px var(--font-mono);color:var(--ink-2)}
+.mini-cards-detail .overview-card{padding:0;border:0;background:transparent;box-shadow:none}
+.mini-cards-detail .overview-card::before{display:none}
+.mini-cards-detail .overview-card[data-kind=summary] h4{font-size:20px}
+@media(pointer:coarse){.mini-card-trigger{width:max(var(--mini-size),44px);height:max(var(--mini-size),44px)}}
+@media(max-width:600px){.mini-cards-detail{padding:12px}.mini-cards-toolbar{gap:8px}.mini-cards-grid{gap:10px}}

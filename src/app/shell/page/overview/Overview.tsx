@@ -1,3 +1,4 @@
+import {MiniCards} from './MiniCards'
 import {ScopePicker,useOverviewSources} from './ScopePicker'
 import {trackingId,trackedRow,trackOverviewItems} from './tracking'
 import {useEffect,useMemo,useRef,useState} from 'react'
@@ -10,7 +11,7 @@ import {pageRef} from '../../../features/ai/core/refs'
 import {currentOverviewSignature,overviewChildren,kinds,type OverviewItem,type OverviewReview} from './model'
 import {generateOverview,reviewOverview,adoptOverviewAction,type OverviewProgress} from './run'
 import './overview.css'
-export function Overview({page,readOnly,onDocument}:{page:Page;readOnly:boolean;onDocument:(item?:OverviewItem)=>void}){
+export function Overview({page,readOnly,onDocument,presentation='overview',preferenceKey}:{page:Page;readOnly:boolean;onDocument:(item?:OverviewItem)=>void;presentation?:'overview'|'mini';preferenceKey:string}){
  const de=useLang()==='de',labels=de?{summary:'Darum geht es',finding:'Wichtigste Erkenntnisse',decision:'Zu entscheiden',action:'Nächste Schritte',question:'Offene Fragen'}:{summary:'What this is about',finding:'Key findings',decision:'Decisions to make',action:'Next steps',question:'Open questions'}
  const [route,setRoute]=useState<Route|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[role,setRole]=useState(''),[focus,setFocus]=useState('all')
  const pages=useWorkspace(s=>s.pages)
@@ -32,6 +33,8 @@ export function Overview({page,readOnly,onDocument}:{page:Page;readOnly:boolean;
   try{await generateOverview(page.id,de?'de':'en',route,c.signal,p=>{if(mounted.current&&!c.signal.aborted)setProgress(p)},selectedPages)}catch(e){if(mounted.current&&!c.signal.aborted)setError(e instanceof Error?e.message:String(e))}finally{if(mounted.current)setBusy(false)}
  }
  const action=(fn:()=>unknown)=>{try{fn();setError('')}catch(e){setError(e instanceof Error?e.message:String(e))}}
+ const mini=presentation==='mini'
+ const renderItem=(item:OverviewItem)=><OverviewCard key={item.id} item={item} review={page.overviewReviews?.[item.id]} signature={signature} readOnly={readOnly||stale||busy||!scopeState.ready} selected={marked.includes(item.id)} onSelect={checked=>{setNotice('');setMarked(current=>checked?[...new Set([...current,item.id])]:current.filter(id=>id!==item.id))}} tracked={trackedRow(pages,page.id,item.id)} onSource={()=>onDocument(item)} onReview={(state,note,owner)=>action(()=>reviewOverview(page.id,item,state,note,owner))} onAdopt={()=>action(()=>adoptOverviewAction(page.id,item))}/>
  const generation=<div className="overview-generation">
    {!readOnly&&<ScopePicker children={childPages} selected={selectedPages} onChange={setSelectedPages} disabled={busy} de={de}/>}
    {!readOnly&&<details className="overview-settings" open={saved?undefined:true}><summary>{de?'Modell und Datengrundlage':'Model and source scope'}</summary><RouteChip purpose="page.overview" chip={route} onChip={setRoute} sources={sources} reads={de?`${selectedPages.length+1} ausgewählte Seiten`:`${selectedPages.length+1} selected pages`} disabled={busy}/><p className="overview-scope">{de?'Grundlage: Text dieser Seite und der ausgewählten Unterseiten. Weitere verlinkte Seiten, Atlas-Quellen und Anhänge werden nicht neu gelesen.':'Source: text on this page and the selected subpages. Other linked pages, Atlas sources and attachments are not read again.'}</p></details>}
@@ -42,7 +45,8 @@ export function Overview({page,readOnly,onDocument}:{page:Page;readOnly:boolean;
    {readOnly&&<p className="overview-scope">{de?'Grundlage: die gespeicherte Seitenauswahl; externe Quellen wurden nicht neu gelesen.':'Source: the saved page selection; external sources were not read again.'}</p>}
    {saved&&<p className="overview-date">{de?'Erstellt am ':'Created on '}{new Date(saved.at).toLocaleString(de?'de-DE':'en-GB')} · {saved.language==='de'?'Deutsch':'English'}</p>}
   </div>
- return <section className="page-overview" aria-label={de?'Seitenüberblick':'Page overview'}>
+ return <section className="page-overview" aria-label={mini?'Mini Cards':de?'Seitenüberblick':'Page overview'}>
+  {mini&&!saved&&<p className="overview-meta">{de?'Mini Cards verdichtet den Überblick dieser Seite. Erstelle einmal den Überblick; danach kannst du die Kartengröße ohne neue KI-Anfrage wechseln.':'Mini Cards condenses this page’s overview. Create the overview once; resizing cards needs no new AI request.'}</p>}
   {!saved&&!busy&&<div className="overview-intro"><span className="label">{de?'VERSTEHEN · ENTSCHEIDEN · HANDELN':'UNDERSTAND · DECIDE · ACT'}</span><h2>{de?'Das Wesentliche. Der nächste Schritt.':'What matters. What comes next.'}</h2><p>{de?'Ein kurzer Einstieg mit direkten Verweisen ins Dokument. Entscheidungen und Schritte bleiben Vorschläge, bis du sie übernimmst.':'A short introduction with direct links into the document. Decisions and actions remain proposals until you adopt them.'}</p></div>}
   {!saved&&!busy&&generation}
   {saved&&<p className="overview-meta">{de?'KI-Entwurf · Entscheidungen bleiben beim Team':'AI draft · Decisions remain with the team'}</p>}
@@ -75,7 +79,7 @@ export function Overview({page,readOnly,onDocument}:{page:Page;readOnly:boolean;
     <div className="overview-actions">{!readOnly&&<button className="btn btn--sm" disabled={!marked.length||stale||busy||!scopeState.ready} onClick={()=>action(()=>{trackOverviewItems(page.id,marked);setNotice(de?`${marked.length} Punkte hinzugefügt.`:`${marked.length} items added.`);setMarked([])})}>{de?`Auswahl nachverfolgen (${marked.length})`:`Track selected (${marked.length})`}</button>}{hasFollowUp&&<a className="btn btn--sm" href={'#/p/'+followUp.id}>{de?'Nachverfolgung öffnen':'Open follow-up'}</a>}</div>
    </div>}
    {notice&&marked.length===0&&<p className="overview-notice" role="status">{notice} {hasFollowUp&&<a href={'#/p/'+followUp.id}>{de?'Nachverfolgung öffnen':'Open follow-up'}</a>}</p>}
-   {kinds.map(kind=>{const items=saved.items.filter(i=>i.kind===kind&&(focus==='all'||focus===kind)&&(!role||i.kind==='summary'||i.role===role));return items.length?<section className="overview-section" data-section={kind} key={kind}><h3>{labels[kind]} <span>{String(items.length).padStart(2,'0')}</span></h3><div className="overview-entries">{items.map(item=><OverviewCard key={item.id} item={item} review={page.overviewReviews?.[item.id]} signature={signature} readOnly={readOnly||stale||busy||!scopeState.ready} selected={marked.includes(item.id)} onSelect={checked=>{setNotice('');setMarked(current=>checked?[...current,item.id]:current.filter(id=>id!==item.id))}} tracked={trackedRow(pages,page.id,item.id)} onSource={()=>onDocument(item)} onReview={(state,note,owner)=>action(()=>reviewOverview(page.id,item,state,note,owner))} onAdopt={()=>action(()=>adoptOverviewAction(page.id,item))}/>)}</div></section>:null})}
+   {mini?<MiniCards items={saved.items.filter(i=>(focus==='all'||focus===i.kind)&&(!role||i.kind==='summary'||i.role===role))} labels={labels} preferenceKey={preferenceKey} reviews={page.overviewReviews} isTracked={item=>!!trackedRow(pages,page.id,item.id)} renderItem={renderItem}/>:kinds.map(kind=>{const items=saved.items.filter(i=>i.kind===kind&&(focus==='all'||focus===kind)&&(!role||i.kind==='summary'||i.role===role));return items.length?<section className="overview-section" data-section={kind} key={kind}><h3>{labels[kind]} <span>{String(items.length).padStart(2,'0')}</span></h3><div className="overview-entries">{items.map(renderItem)}</div></section>:null})}
    {archived.length>0&&<section className="overview-section"><h3>{de?'Festgehaltene Punkte aus früheren Überblicken':'Recorded items from earlier overviews'}</h3><p>{de?'Diese Einträge bleiben erhalten und sollten mit dem aktuellen Dokument abgeglichen werden.':'These entries are retained and should be checked against the current document.'}</p>{archived.map(r=><OverviewCard key={r.item.id} item={r.item} review={r} signature={signature} readOnly onSource={()=>onDocument(r.item)} onReview={()=>{}} onAdopt={()=>{}}/>)}</section>}
    {!busy&&generation}
   </>}
