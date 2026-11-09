@@ -1,3 +1,4 @@
+import {DeskEntry} from '../../../features'
 import {MiniCards} from './MiniCards'
 import {ScopePicker,useOverviewSources} from './ScopePicker'
 import {trackingId,trackedRow,trackOverviewItems} from './tracking'
@@ -34,7 +35,7 @@ export function Overview({page,readOnly,onDocument,presentation='overview',prefe
  }
  const action=(fn:()=>unknown)=>{try{fn();setError('')}catch(e){setError(e instanceof Error?e.message:String(e))}}
  const mini=presentation==='mini'
- const renderItem=(item:OverviewItem)=><OverviewCard key={item.id} item={item} review={page.overviewReviews?.[item.id]} signature={signature} readOnly={readOnly||stale||busy||!scopeState.ready} selected={marked.includes(item.id)} onSelect={checked=>{setNotice('');setMarked(current=>checked?[...new Set([...current,item.id])]:current.filter(id=>id!==item.id))}} tracked={trackedRow(pages,page.id,item.id)} onSource={()=>onDocument(item)} onReview={(state,note,owner)=>action(()=>reviewOverview(page.id,item,state,note,owner))} onAdopt={()=>action(()=>adoptOverviewAction(page.id,item))}/>
+ const renderItem=(item:OverviewItem)=><OverviewCard key={item.id} deskPageId={page.id} item={item} review={page.overviewReviews?.[item.id]} signature={signature} readOnly={readOnly||stale||busy||!scopeState.ready} selected={marked.includes(item.id)} onSelect={checked=>{setNotice('');setMarked(current=>checked?[...new Set([...current,item.id])]:current.filter(id=>id!==item.id))}} tracked={trackedRow(pages,page.id,item.id)} onSource={()=>onDocument(item)} onReview={(state,note,owner)=>action(()=>reviewOverview(page.id,item,state,note,owner))} onAdopt={()=>action(()=>adoptOverviewAction(page.id,item))}/>
  const generation=<div className="overview-generation">
    {!readOnly&&<ScopePicker children={childPages} selected={selectedPages} onChange={setSelectedPages} disabled={busy} de={de}/>}
    {!readOnly&&<details className="overview-settings" open={saved?undefined:true}><summary>{de?'Modell und Datengrundlage':'Model and source scope'}</summary><RouteChip purpose="page.overview" chip={route} onChip={setRoute} sources={sources} reads={de?`${selectedPages.length+1} ausgewählte Seiten`:`${selectedPages.length+1} selected pages`} disabled={busy}/><p className="overview-scope">{de?'Grundlage: Text dieser Seite und der ausgewählten Unterseiten. Weitere verlinkte Seiten, Atlas-Quellen und Anhänge werden nicht neu gelesen.':'Source: text on this page and the selected subpages. Other linked pages, Atlas sources and attachments are not read again.'}</p></details>}
@@ -79,13 +80,13 @@ export function Overview({page,readOnly,onDocument,presentation='overview',prefe
     <div className="overview-actions">{!readOnly&&<button className="btn btn--sm" disabled={!marked.length||stale||busy||!scopeState.ready} onClick={()=>action(()=>{trackOverviewItems(page.id,marked);setNotice(de?`${marked.length} Punkte hinzugefügt.`:`${marked.length} items added.`);setMarked([])})}>{de?`Auswahl nachverfolgen (${marked.length})`:`Track selected (${marked.length})`}</button>}{hasFollowUp&&<a className="btn btn--sm" href={'#/p/'+followUp.id}>{de?'Nachverfolgung öffnen':'Open follow-up'}</a>}</div>
    </div>}
    {notice&&marked.length===0&&<p className="overview-notice" role="status">{notice} {hasFollowUp&&<a href={'#/p/'+followUp.id}>{de?'Nachverfolgung öffnen':'Open follow-up'}</a>}</p>}
-   {mini?<MiniCards items={saved.items.filter(i=>(focus==='all'||focus===i.kind)&&(!role||i.kind==='summary'||i.role===role))} labels={labels} preferenceKey={preferenceKey} reviews={page.overviewReviews} isTracked={item=>!!trackedRow(pages,page.id,item.id)} renderItem={renderItem}/>:kinds.map(kind=>{const items=saved.items.filter(i=>i.kind===kind&&(focus==='all'||focus===kind)&&(!role||i.kind==='summary'||i.role===role));return items.length?<section className="overview-section" data-section={kind} key={kind}><h3>{labels[kind]} <span>{String(items.length).padStart(2,'0')}</span></h3><div className="overview-entries">{items.map(renderItem)}</div></section>:null})}
+   {mini?<MiniCards items={saved.items.filter(i=>(focus==='all'||focus===i.kind)&&(!role||i.kind==='summary'||i.role===role))} labels={labels} pageId={page.id} preferenceKey={preferenceKey} reviews={page.overviewReviews} isTracked={item=>!!trackedRow(pages,page.id,item.id)} renderItem={renderItem}/>:kinds.map(kind=>{const items=saved.items.filter(i=>i.kind===kind&&(focus==='all'||focus===kind)&&(!role||i.kind==='summary'||i.role===role));return items.length?<section className="overview-section" data-section={kind} key={kind}><h3>{labels[kind]} <span>{String(items.length).padStart(2,'0')}</span></h3><div className="overview-entries">{items.map(renderItem)}</div></section>:null})}
    {archived.length>0&&<section className="overview-section"><h3>{de?'Festgehaltene Punkte aus früheren Überblicken':'Recorded items from earlier overviews'}</h3><p>{de?'Diese Einträge bleiben erhalten und sollten mit dem aktuellen Dokument abgeglichen werden.':'These entries are retained and should be checked against the current document.'}</p>{archived.map(r=><OverviewCard key={r.item.id} item={r.item} review={r} signature={signature} readOnly onSource={()=>onDocument(r.item)} onReview={()=>{}} onAdopt={()=>{}}/>)}</section>}
    {!busy&&generation}
   </>}
  </section>
 }
-function OverviewCard({item,review,signature,readOnly,onSource,onReview,onAdopt,selected,onSelect,tracked}:{item:OverviewItem;review?:OverviewReview;signature:string;readOnly:boolean;onSource?:()=>void;onReview:(state:OverviewReview['state'],note:string,owner:string)=>void;onAdopt:()=>void;selected?:boolean;onSelect?:(checked:boolean)=>void;tracked?:Page}){
+function OverviewCard({item,deskPageId,review,signature,readOnly,onSource,onReview,onAdopt,selected,onSelect,tracked}:{item:OverviewItem;deskPageId?:string;review?:OverviewReview;signature:string;readOnly:boolean;onSource?:()=>void;onReview:(state:OverviewReview['state'],note:string,owner:string)=>void;onAdopt:()=>void;selected?:boolean;onSelect?:(checked:boolean)=>void;tracked?:Page}){
  const de=useLang()==='de',[open,setOpen]=useState(false),[editingAt,setEditingAt]=useState(review?.at),[note,setNote]=useState(review?.note??''),[owner,setOwner]=useState(review?.owner??'')
  const task=useWorkspace(s=>review?.taskId?s.pages[review.taskId]:undefined),reviewOld=review&&(review.signature!==signature||JSON.stringify(review.item)!==JSON.stringify(item))
  const conflict=open&&editingAt!==review?.at
@@ -100,6 +101,7 @@ function OverviewCard({item,review,signature,readOnly,onSource,onReview,onAdopt,
    </div>
   </div>
   <p>{item.detail}</p>
+  {deskPageId&&!readOnly&&<DeskEntry pageId={deskPageId} item={item}/>}
   {!!item.role&&<p className="overview-meta">{de?'Vorgeschlagener Verantwortungsbereich: ':'Suggested area of responsibility: '}{item.role}</p>}
   {item.options.length>0&&<ul>{item.options.map((option,i)=><li key={i}>{option}</li>)}</ul>}
   {item.doneWhen&&<p><strong>{de?'Erledigt, wenn: ':'Done when: '}</strong>{item.doneWhen}</p>}

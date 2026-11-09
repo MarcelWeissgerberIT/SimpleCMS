@@ -5,7 +5,7 @@ import {overviewSources,type OverviewItem} from './overview/model'
 import {safeLocalGet,safeLocalSet} from '@/shared/brand'
 import {useCloud} from '../../cloud'
 import {jumpToBlockId,scrollToBlock} from './outline'
-import {KnowledgePageControl} from '../../features'
+import {KnowledgePageControl,DeskEntry,Workbench} from '../../features'
 import { useContentLanguage } from '../../lib/contentLanguage'
 import { localizePage } from '../../store/localization'
 import { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react'
@@ -69,13 +69,13 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
   const lang=useLang()
   const guided=variant==='main'&&!!firstStart(page)&&!trashed
   const [referenceOpen,setReferenceOpen]=useState(false)
-  const overviewEnabled=!isDb&&!guided&&!trashed
+  const overviewEnabled=!isDb&&!guided&&!trashed&&!page.workbench
   const showOverview=overviewEnabled&&pageView!=='document'
   const locked = page.settings.locked
   // a viewer in a team workspace reads every page like a locked one
   const viewer = useReadOnly()
   const readOnly = locked || trashed || viewer || !!language
-  const wide = page.settings.fullWidth || isDb
+  const wide = page.settings.fullWidth || isDb || !!page.workbench
 
   const articleRef = useRef<HTMLElement>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
@@ -121,6 +121,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
       data-wide={wide || undefined}
       data-overview={showOverview || undefined}
       data-db={isDb || undefined}
+      data-workbench={page.workbench || undefined}
       data-font={page.settings.font}
       data-small={page.settings.smallText || undefined}
       data-has-cover={page.cover ? true : undefined}
@@ -137,6 +138,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
           <div className="pv-toolbar">
           {overviewEnabled&&<div className="page-view-switch" role="group" aria-label={lang==='de'?'Seitenansicht':'Page view'}><button aria-pressed={showOverview&&pageView==='overview'} onClick={()=>chooseView('overview')}>{lang==='de'?'Überblick':'Overview'}</button><button aria-pressed={!showOverview} onClick={()=>chooseView('document')}>{lang==='de'?'Dokument':'Document'}</button><button aria-pressed={showOverview&&pageView==='mini'} onClick={()=>chooseView('mini')}>Mini Cards</button>{followUp?.overviewFollowUp?.pageId===page.id&&<a href={'#/p/'+followUp.id}>{lang==='de'?'Nachverfolgung':'Follow-up'} ↗</a>}</div>}
+          {!readOnly&&!isDb&&!page.workbench&&!guided&&<DeskEntry pageId={page.id}/>}
           {!trashed&&<TranslationControls pageId={page.id} compact/>}
           </div>
           </div>
@@ -172,7 +174,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
         <div className="pv-col pv-content">
           {overviewEnabled&&<div hidden={!showOverview}><Overview page={original??page} readOnly={readOnly} onDocument={showDocument} presentation={pageView==='mini'?'mini':'overview'} preferenceKey={prefKey+':mini-size'}/></div>}
           <div hidden={showOverview}>
-          {isDb ? (
+          {page.workbench ? <Workbench pageId={page.id} readOnly={readOnly}/> : isDb ? (
             <>
               <DatabaseView databaseId={page.id} />
               {!trashed && <OutboxDbFoot dbId={page.id} />}
@@ -264,7 +266,7 @@ function PageHeaderControls({ page, readOnly }: { page: Page; readOnly: boolean 
           aria-label={t('shell.page.changeIcon')}
           onClick={(e) => setIconAnchor(iconAnchor ? null : e.currentTarget)}
         >
-          <PageIcon icon={page.icon} kind={page.kind} size={page.kind==='database'?32:78} />
+          <PageIcon icon={page.icon} kind={page.kind} size={page.kind==='database'||page.workbench?32:78} />
         </button>
       )}
       {!readOnly && (!page.icon || !page.cover) && (

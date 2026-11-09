@@ -1,3 +1,4 @@
+import {writeWorkbench,readWorkbench} from './workbench'
 import {readOverviewReviews,writeOverviewReviews} from './overview'
 import {sanitizeOverview,sanitizeOverviewFollowUp} from '../shell/page/overview/model'
 /**
@@ -36,7 +37,7 @@ export const roots = (doc: Y.Doc) => ({
 })
 
 /** Synced page fields stored as plain values (everything else is per device or nested). */
-const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType', 'localization', 'overview', 'overviewFollowUp'] as const
+const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType', 'localization', 'overview', 'overviewFollowUp', 'workbench'] as const
 type PageField = (typeof PAGE_FIELDS)[number]
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -111,6 +112,7 @@ export function newPageMap(page: Page, userId: string): YMap {
   }
   yp.set('comments', comments)
   writeOverviewReviews(yp,page.overviewReviews)
+  writeWorkbench(yp,page.workbenchRecords)
   return yp
 }
 
@@ -144,6 +146,7 @@ export function writePage(yp: YMap, page: Page, before: Page, userId: string): b
     writeOverviewReviews(yp,page.overviewReviews,before.overviewReviews)
     changed=true
   }
+  if(page.workbenchRecords!==before.workbenchRecords&&!deepEqual(page.workbenchRecords??{},before.workbenchRecords??{})){writeWorkbench(yp,page.workbenchRecords,before.workbenchRecords);changed=true}
   if (changed) yp.set('updatedBy', userId)
   return changed
 }
@@ -224,6 +227,8 @@ export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: bool
     settings: { ...DEFAULT_PAGE_SETTINGS, ...(isObj(settings) ? (clone(settings) as Partial<Page['settings']>) : {}) },
     plain: str(g('plain'), cur?.plain ?? ''),
   }
+  if(g('workbench')===true)next.workbench=true
+  const desk=readWorkbench(yp);if(Object.keys(desk).length)next.workbenchRecords=desk
   const followUp=sanitizeOverviewFollowUp(g('overviewFollowUp'))
   if(followUp)next.overviewFollowUp=followUp
   const overview=sanitizeOverview(g('overview'))

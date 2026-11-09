@@ -1,3 +1,4 @@
+import {requireModelProcessing} from './modelPermission'
 import {codeData,guardedAtlasCodeCall,readCodeCitation} from '@/shared/mcp/atlasCode'
 import {checkedCodeExcerpt,sameCodeCitation,type CodeReference} from '@/shared/mcp/codeReference'
 import {useWorkspace} from '../../store/store'
@@ -19,8 +20,9 @@ async function evidenceSession(server:string,signal:AbortSignal){
  const invoke=async(name:string,args:Record<string,unknown>)=>{if(!allowed(name))throw Error('connection');const out=await (cloudAtlasMcpReady(servers)?call(name,args):guardedAtlasCodeCall(name,args,call,allowed));guard();return codeData(out)}
  return {invoke,guard,scope}
 }
-export async function loadCodeEvidence(ref:CodeReference,server:string,context:boolean,signal:AbortSignal,progress:(step:'verify'|'read')=>void){
+export async function loadCodeEvidence(ref:CodeReference,server:string,context:boolean,signal:AbortSignal,progress:(step:'verify'|'read')=>void,forModel=false){
  const {invoke,guard,scope}=await evidenceSession(server,signal)
+ if(forModel)await requireModelProcessing(ref.citation.repo,invoke)
  const verified=(data:Record<string,any>|null,citation:CodeReference['citation'])=>{const proof=readCodeCitation(data?.citation);return data?.valid===true&&(!data.citation||!!proof&&sameCodeCitation(proof,citation))}
  progress('verify')
  const verification=await invoke('atlas_code_verify',{citation:ref.citation});if(!verified(verification,ref.citation))throw Error('verification')

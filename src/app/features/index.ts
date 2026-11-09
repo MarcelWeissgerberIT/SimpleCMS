@@ -701,3 +701,6 @@ export {useCodeDrafts,codeDraftScope,downloadCodeDraft,forgetCodeDraft} from './
 export {openTeamHub,TeamHubHost,KnowledgePageControl} from './team-hub'
 
 export {CompanySignIn,ConnectedCalendars} from './team-hub'
+
+export {DeskEntry} from './workbench/DeskEntry'
+export const Workbench=lazy(()=>import('./workbench/Workbench').then(m=>({default:m.Workbench})))

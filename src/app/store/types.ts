@@ -75,6 +75,8 @@ export interface PageSettings {
 }
 
 export interface Page {
+  workbench?: boolean
+  workbenchRecords?: import('../features/workbench/model').DeskRecords
   /** Provenance for the page-specific overview follow-up database and its rows. */
   overviewFollowUp?: import('../shell/page/overview/model').OverviewFollowUp
   overview?: import('../shell/page/overview/model').PageOverview
