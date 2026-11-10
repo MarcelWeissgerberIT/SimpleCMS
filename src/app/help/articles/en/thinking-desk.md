@@ -67,3 +67,12 @@ In **Present**, drag a statement onto the empty stage or click its **＋** butto
 The source picker shows text block and word counts. Expand long excerpts to read them in full; the full block is collected, not just its preview. A heading does not automatically include the section below it. Collect those passages too.
 
 **Create slide draft** lets the selected model prepare your cards: select content, describe the goal and request up to eight slides. The model reads only the selected cards and their declared excerpts or code evidence. It proposes concise text, order and suitable layouts. Review the preview, then use **Adopt slides** to append it to the existing presentation. Headlines, captions and slide text remain editable. Original cards and sources are preserved. Changed or unavailable sources prevent adoption; refresh them and generate again.
+
+## Start with a template
+Open **Templates & sources** in a document page’s **Overview**. Choose **Review**, **Decision**, **Check contradictions**, **Plan a release** or **Presentation**. Each template provides useful sections; Review includes key figures, completed work, pending confirmations, blockers and next steps.
+
+The current page is always included. Use **Add more pages** to search other document pages in the same visibility scope. Drag a result into the source tray or use **+**. Text-block and word counts show the volume; unloaded content is labelled accordingly. The entire selected page text is read, without automatically opening attachments or external links.
+
+**Prepare with AI** creates a preview. Open statements for the full text and source passages. Unsupported sections stay visibly empty; section counters count statements, not project metrics. Only **Adopt template** saves the new overview. Discarding retains the previous version. Changed sources or a concurrent overview edit require a new preview.
+
+**Open as thinking desk** creates a child page with sourced cards grouped by template section. **Open as presentation** also creates an editable key-message slide per statement and opens the slide editor. You can choose other layouts or ask AI to condense further there. This handoff creates no automatic connections or approvals and leaves the source document unchanged.
