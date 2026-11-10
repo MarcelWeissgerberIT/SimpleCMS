@@ -141,6 +141,12 @@ test('a source moved under a hidden parent is excluded and cannot be adopted fro
 test('a new desk question is offered without overwriting an existing work goal',async({page,context})=>{
  const calls=await mockClaude(context,raw=>answer(raw));await seed(page);const view=organizer(page)
  await view.getByLabel('What should this view help you achieve?').fill('Keep my review goal')
+ await expect(view.getByRole('button',{name:'Select all',exact:true})).toBeVisible()
+ await view.getByRole('button',{name:'Add sources',exact:true}).click();await expect(page.locator('.wb-source-picker')).toBeVisible()
+ await page.getByRole('button',{name:/^Organize work /}).click()
+ const collect=page.getByRole('button',{name:'＋ Collect sources',exact:true});await expect(collect).toHaveAttribute('aria-expanded','false');await collect.click()
+ await expect(page.locator('.wb-source-picker')).toBeVisible();await page.getByRole('button',{name:'Close source picker',exact:true}).click();await expect(page.locator('.wb-source-picker')).not.toBeVisible()
+ await page.getByRole('button',{name:/^Organize work /}).click();await expect(view.getByLabel('What should this view help you achieve?')).toHaveValue('Keep my review goal')
  await page.getByRole('button',{name:/^Map & desk /}).click()
  await page.getByRole('checkbox',{name:'Select: Local accounts only',exact:true}).check()
  await page.getByLabel('Question about the selection',{exact:true}).fill('Which evidence is missing for local accounts?')
