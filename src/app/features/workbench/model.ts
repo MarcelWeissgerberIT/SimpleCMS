@@ -19,6 +19,19 @@ export type SlideLayout=typeof slideLayouts[number]
 export type StoryFrame=Stamp&{type:'slide';id:string;layout:SlideLayout;title:string;caption:string;metric:string;cards:string[];order:number;content?:{card:string;title?:string;text:string}[];generated?:boolean;removed?:boolean}
 export type DeskRecord=StoryFrame|Card|Link|Decision|Analysis|Adoption|Focus
 export type DeskRecords=Record<string,DeskRecord>
+/** A usable source must stay inside the desk's scope all the way to its root. */
+export function deskSourceVisible(pages:Record<string,Page>,deskId:string,sourceId:string):boolean{
+ const desk=pages[deskId];if(!desk)return false
+ const seen=new Set<string>();let current:Page|undefined=pages[sourceId]
+ if(!current)return false
+ while(current){
+  if(seen.has(current.id)||current.hidden||current.trashed||current.template||!!current.private!==!!desk.private)return false
+  seen.add(current.id)
+  if(current.parentId&&!pages[current.parentId])return false
+  current=current.parentId?pages[current.parentId]:undefined
+ }
+ return true
+}
 const obj=(x:unknown):x is Record<string,any>=>!!x&&typeof x==='object'&&!Array.isArray(x)
 const str=(x:unknown,max=6000)=>typeof x==='string'&&x.length<=max
 const ids=(x:unknown,max=30):x is string[]=>Array.isArray(x)&&x.length<=max&&x.every(v=>str(v,160))

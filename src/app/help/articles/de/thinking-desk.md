@@ -3,7 +3,7 @@ id: thinking-desk
 title: Denkraum – sammeln, verbinden, entscheiden
 section: ai
 order: 18
-keywords: Denkraum, Schreibtisch, Mini Cards, Zoom, Widerspruch, Entscheidung, Szenario, Gewissheit
+keywords: Denkraum, Schreibtisch, Mini Cards, Zoom, Widerspruch, Entscheidung, Szenario, Gewissheit, Aufgaben, Board, Datenbank, Prüfplan
 related: ai, export
 summary: Aussagen aus mehreren Quellen als Karten ordnen und daraus überprüfbare Entscheidungen und Szenarien entwickeln.
 ---
@@ -37,6 +37,29 @@ Unter **Entscheidungen** hältst du fest, was künftig gelten soll. Eine Entsche
 Karten unterscheiden **Vermutung**, **Quelle vorhanden**, **Im Code geprüft**, **Getestet** und **Freigegeben**. Für die letzten drei Stufen sind Begründung und Beleglink nötig. Sie halten eine menschliche Bestätigung samt Person und Zeitpunkt fest; One führt dadurch keine Tests aus und öffnet den Beleglink nicht automatisch.
 
 **Was-wäre-wenn-Szenario** untersucht eine alternative Annahme. Das Ergebnis kann als eigener vorläufiger Szenarioplan mit Aufgaben gespeichert werden. Die Originalseiten bleiben dabei unverändert.
+
+## Aus dem Denkraum ins Arbeiten
+Im Reiter **Arbeit organisieren** wählst du, was du voranbringen möchtest:
+
+- **Umsetzen:** Aufgaben mit Status, Verantwortlichen, Termin und Erledigungskriterium. Das Board steht im Vordergrund.
+- **Klären:** offene Fragen mit Klärungsbedarf, Antwort und Status.
+- **Prüfen:** Prüfplan mit Akzeptanzkriterium, Ergebnis und Status.
+- **Entscheiden:** Entscheidungsfragen mit Grundlage, benötigten Informationen und Beschluss.
+
+1. Klicke auf eine Vorlage oder ziehe eine Materialkarte am **⠿** auf den gewünschten Fokus. Die Karte wird zur Auswahl hinzugefügt.
+2. Wähle bis zu 20 Karten. Die Wortzahl zeigt, wie viel Quelltext enthalten ist; **Inhalt ansehen** öffnet den vollständigen Auszug. **Quellen ergänzen** führt zurück zur Quellenauswahl.
+3. Beschreibe dein Arbeitsziel oder übernimm den Vorschlag. **Arbeitsentwurf erstellen** startet das ausgewählte Modell mit genau diesem Material.
+4. Prüfe die vorgeschlagenen Punkte, bearbeite ihre Texte und entferne die Häkchen bei unpassenden Vorschlägen. **Grundlage prüfen** zeigt ihre Quellen.
+5. **Punkte als Arbeitsansicht anlegen** erstellt eine normale One-Datenbank als Unterseite des Denkraums. Jede Vorlage bietet ein **Arbeitsboard** und **Alle Punkte** als Tabelle.
+
+Im Board verschiebst du Einträge zwischen Statusspalten. In der Tabelle pflegst du Verantwortung, Fälligkeit und Ergebnis. Öffne einen Eintrag für seine vollständigen Quellauszüge und den Rückweg zum Denkraum. Im Denkraum findest du die erstellten Ansichten unter **Deine Arbeit · Aktueller Stand**.
+
+Auch unter einer Denkraum-Antwort führt **Daraus Arbeit organisieren** mit den zugehörigen Karten und der Frage in diesen Ablauf. Der Fokus empfiehlt eine Vorlage; du kannst jederzeit eine andere wählen.
+
+Der Entwurf legt keine Verantwortlichen, Termine, Prüfergebnisse oder Beschlüsse fest. Die Punkte starten offen beziehungsweise ungeprüft. Geänderte Quellen müssen vor der Übernahme erneut geprüft werden. Private Denkräume erzeugen private Arbeitsansichten; ursprüngliche Quellen werden nicht verändert.
+
+Bereits angelegte Arbeitsansichten erscheinen mit Eintragszahl und aktuellem Abschlussstand im Denkraum. Der Fortschritt folgt den Statuswerten der Datenbank, auch wenn ein Teammitglied sie bearbeitet. Gelöschte Einträge zählen nicht mit. Beim Wechsel zwischen Denkraum-Reitern bleibt ein bearbeiteter Entwurf erhalten; beim Verlassen der Seite oder Neuladen muss er neu erstellt werden.
+
 
 ## Umfang und Grenzen
 Ein Denkraum hält bis zu 100 aktive Karten. KI-Aufträge lesen ausschließlich die ausdrücklich ausgewählten Karten und ihre angegebenen Auszüge. Atlas-Code wird vor der Übermittlung anhand des gespeicherten Belegs geprüft; die Repository-Freigabe für Modellverarbeitung muss vorliegen. Datenregeln, Modellwahl und Budget gelten wie bei anderen KI-Aufträgen. Geänderte Quellen oder abgebrochene Aufträge werden nicht als neues Ergebnis gespeichert.
