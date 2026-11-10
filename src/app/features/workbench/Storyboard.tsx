@@ -7,7 +7,7 @@ import {buildStory,layouts,capacity,storyIssue,LAYOUT_DRAG,SLIDE_DRAG,slideLimit
 import {addFrame,updateFrame,moveFrame} from './storyActions'
 import {StoryAssistant} from './StoryAssistant'
 import {StorySlide} from './StorySlide'
-export function Storyboard({pageId,records,cards,readOnly,onError}:{pageId:string;records:DeskRecords;cards:Card[];readOnly:boolean;onError:(e:unknown)=>void}){
+export function Storyboard({visible,pageId,records,cards,readOnly,onError}:{visible:boolean;pageId:string;records:DeskRecords;cards:Card[];readOnly:boolean;onError:(e:unknown)=>void}){
  const de=useLang()==='de',[active,setActive]=useState(''),[over,setOver]=useState(false),[notice,setNotice]=useState('')
  const slides=buildStory(records,cards),slide=slides.find(s=>s.frame.id===active)??slides[0],frame=slide?.frame,palette=layouts(de)
  const act=(fn:()=>void)=>{try{fn()}catch(e){onError(e)}}
@@ -17,7 +17,7 @@ export function Storyboard({pageId,records,cards,readOnly,onError}:{pageId:strin
  return <div className="story-builder" onDragEnd={()=>setOver(false)}>
   <header className="story-header"><div><span className="label">{de?'VOM GEDANKEN ZUR GESCHICHTE':'FROM THOUGHT TO STORY'}</span><h2>{de?'Deine Bühne. Deine Aussagen.':'Your stage. Your statements.'}</h2><p>{de?'Aussage hineinziehen oder mit KI einen Folienentwurf erstellen.':'Drop in a statement or create a slide draft with AI.'}</p></div><button className="btn story-present" disabled={!slides.length||!!issues} onClick={()=>useUI.getState().present(pageId)}>{de?'Präsentation starten':'Start presentation'} ↗</button></header>
   <div role="status" className="story-status">{notice|| (issues?(de?`${issues} Folien brauchen noch Inhalte.`:`${issues} slides still need content.`):(de?'Deine Folien werden im Denkraum gespeichert.':'Your slides are saved in this thinking desk.'))}</div>
-  {!readOnly&&<StoryAssistant pageId={pageId} cards={cards} readOnly={readOnly} onAdded={id=>{setActive(id);setNotice(de?'KI-Entwurf übernommen. Du kannst alle Texte bearbeiten.':'AI draft adopted. You can edit all text.')}}/>}
+  <div hidden={readOnly}><StoryAssistant active={visible&&!readOnly} pageId={pageId} cards={cards} readOnly={readOnly} onAdded={id=>{setActive(id);setNotice(de?'KI-Entwurf übernommen. Du kannst alle Texte bearbeiten.':'AI draft adopted. You can edit all text.')}}/></div>
   <div className="story-studio">
    <aside className="story-palette" aria-label={de?'Layouts und Aussagen':'Layouts and statements'}>
     {!readOnly&&<><h3>{de?'01 / Layout wählen':'01 / Choose a layout'}</h3><div className="story-layouts">{palette.map(l=><button key={l.id} className="story-layout" aria-label={(de?'Folie hinzufügen: ':'Add slide: ')+l.title} title={l.hint} disabled={slides.length>=slideLimit} draggable={slides.length<slideLimit} onDragStart={e=>{e.dataTransfer.setData(LAYOUT_DRAG,l.id);e.dataTransfer.effectAllowed='copy'}} onClick={()=>add(l.id)}><span aria-hidden="true">{l.symbol}</span><strong>{l.title}</strong></button>)}</div></>}

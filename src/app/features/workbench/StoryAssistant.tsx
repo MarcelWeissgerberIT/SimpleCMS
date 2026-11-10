@@ -8,12 +8,12 @@ import {type Card} from './model'
 import {wordCount,cardText} from './story'
 import {generateStory,adoptStory,type StoryDraft} from './storyGenerate'
 import {StorySlide} from './StorySlide'
-export function StoryAssistant({pageId,cards,readOnly,onAdded}:{pageId:string;cards:Card[];readOnly:boolean;onAdded:(id:string)=>void}){
+export function StoryAssistant({active,pageId,cards,readOnly,onAdded}:{active:boolean;pageId:string;cards:Card[];readOnly:boolean;onAdded:(id:string)=>void}){
  const de=useLang()==='de',[selected,setSelected]=useState<string[]>(()=>cards.slice(0,20).map(c=>c.id)),[goal,setGoal]=useState(''),[count,setCount]=useState(3),[route,setRoute]=useState<Route|null>(null),[busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[draft,setDraft]=useState<StoryDraft|null>(null)
  const pages=useWorkspace(s=>s.pages)
  const controller=useRef<AbortController|null>(null),result=useRef<HTMLDivElement>(null)
  useEffect(()=>()=>controller.current?.abort(),[pageId])
- useEffect(()=>{if(readOnly){controller.current?.abort();setBusy(false)}},[readOnly])
+ useEffect(()=>{if(readOnly||!active){controller.current?.abort();setBusy(false)}},[readOnly,active])
  const chosen=cards.filter(c=>selected.includes(c.id)),words=chosen.reduce((sum,c)=>sum+wordCount(c.source.quote),0)
  const refs=[{page:pageId},...[...new Set(chosen.map(c=>c.source.pageId))].map(page=>({page}))]
  const carries=[...(chosen.some(c=>c.source.kind==='file')?['files' as const]:[]),...(chosen.some(c=>c.source.kind==='code')?['mcp' as const]:[])]
