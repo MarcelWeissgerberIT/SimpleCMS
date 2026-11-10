@@ -5,6 +5,15 @@ import {MOCK_SCHEMA} from '../../src/shared/ai/designMock.ts'
 import {anthropicOutputSchema} from '../../src/shared/ai/anthropic-schema.ts'
 import {validateValue} from '../../src/shared/quandprofile/program.ts'
 const ids=Array.from({length:18},(_,i)=>'design-source-test-'+(i+1))
+test('catalogue display names survive initial and correction schemas without identifier conversion',()=>{
+ const schema=mockDraftSchema(ids,ids[0]!,null)
+ for(const name of ['Progress Indicator','Button','DataTable_C12','État / progression (v2)','Zahl & Größe','A']){
+  for(const candidate of [MOCK_SCHEMA,schema])validateValue(name,candidate.properties.components.items.properties.name)
+ }
+ for(const name of ['', ' Progress Indicator','Progress Indicator ', 'Progress\nIndicator','Progress\tIndicator','Progress\u0000Indicator','x'.repeat(161)]){
+  assert.throws(()=>validateValue(name,schema.properties.components.items.properties.name),name)
+ }
+})
 test('Epic draft keeps the selected root pinned independently of child citations',()=>{
  const before=JSON.stringify(MOCK_SCHEMA),schema=mockDraftSchema(ids,ids[0]!,null)
  assert.deepEqual(schema.properties.design.properties.source.enum,[ids[0]])

@@ -14,6 +14,17 @@ test('a changed catalogue invalidates old quote claims, while keeping source ide
 test('tenant and server wall source ids never alias',()=>{const s=new MockSources(),raw=JSON.stringify({item:{ref:12,title:'Kit',body:design}}),a=s.observe('atlas','https://atlas.example.org','atlas_get',{ref:12,tenant:'a'},raw)!,b=s.observe('atlas','https://atlas.example.org','atlas_get',{ref:12,tenant:'b'},raw)!;assert.notEqual(a.id,b.id)})
 test('tokens cannot silently replace source values or carry active CSS',()=>{for(const value of ['#ABCDEF','url(https://evil.test/x)','red;}body{color:red']){const {s,draft}=fixture();draft.tokens[0].value=value;assert(mockIssues(draft,s).length)}})
 test('non-catalogue components cannot be invented',()=>{const {s,draft}=fixture();draft.components[0].name='MagicDialog';assert(mockIssues(draft,s).length)})
+test('spaced catalogue names require exact evidence, never a normalized alias',()=>{
+ const {s,draft}=fixture(),quote='Progress Indicator displays completion of a process.'
+ observe(s,12,design+' '+quote)
+ draft.components.push({source:draft.design.source,name:'Progress Indicator',quote})
+ assert.deepEqual(mockIssues(draft,s),[])
+ draft.components[1].name='ProgressIndicator'
+ assert(mockIssues(draft,s).some(i=>i.includes('"ProgressIndicator" must be named verbatim')))
+ draft.components[1].name='Progress Indicator'
+ draft.components[1].quote='Progress Indicator is an invented source quotation.'
+ assert(mockIssues(draft,s).some(i=>i.includes('not an exact substring')))
+})
 test('layout colour literals, external assets, CSS escapes and unknown variables are held',()=>{for(const css of ['a{color:#ff0000}','a{background:url(https://evil.test/x)}','@import "https://evil.test/x";','a{color:var(--invented)}','a{color:var(--primary);\\63olor:red}','a{--primary:red;color:var(--primary)}']){const {s,draft}=fixture();draft.css=css;assert(mockIssues(draft,s).length,css)}})
 test('MCP text envelopes and canonical source links use actual returned ref',()=>{const s=new MockSources(),source=s.observe('atlas','https://atlas.example.org/path','atlas_get',{ref:12},JSON.stringify({content:[{type:'text',text:JSON.stringify({item:{ref:12,title:'Design',body:design}})}]}))!;assert.equal(s.get(source.id)?.url,'https://atlas.example.org/r/12')})
 test('source excerpts are original bounded windows, with version and token keyword matches',()=>{const {s,d}=fixture(),read=s.excerpt(d.id,'Button');assert.equal(read.matches,1);assert(read.excerpts[0].text.includes('Button uses --primary: #A50034'));assert.throws(()=>s.excerpt('other-run','Button'));assert.throws(()=>s.excerpt(d.id,'Button',-1))})
