@@ -33,6 +33,7 @@ import { fileMenuEntries } from './fileMenu'
 import { chartMenuEntries } from './chartMenu'
 import { diagramMenuEntries } from './diagramMenu'
 import { ColorGrid } from './BubbleToolbar'
+import { codeEvidenceMenuEntry } from './codeEvidenceMenu'
 import { blockMenuSyncedEntries } from '../synced/menu'
 import { redoBlockMenuEntries } from '../context/menu'
 import { splitMenuEntries } from '../split/menu'
@@ -503,6 +504,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       })
     // Claude on a text block: Ask AI (the AI panel on its text) · Redo with instructions… (the redo picker, this
     // block pre-marked) — together under one label, like the image and file groups below
+    if (textual || node.type.name === 'table')
+      items.push(codeEvidenceMenuEntry(editor, t, () => editor.state.doc.nodeAt(ref.pos) === node ? {from:ref.pos,to:ref.pos+node.nodeSize} : null))
     const redo = redoBlockMenuEntries(editor, ref, t)
     if (textual && editor.isEditable)
       items.push(

@@ -10,8 +10,8 @@ import type {TermRef} from './types'
 import '../../code-evidence/code-evidence.css'
 import {codeEvidenceRequest} from '@/shared/ai/codeEvidenceRequest'
 const useRequest=create<{ref:TermRef|null;epoch:string|undefined}>(()=>({ref:null,epoch:undefined}))
-export function requestCodeEvidence(editor:Editor){
- const ref=captureRef(editor),ws=useWorkspace.getState(),de=ws.settings.language==='de'
+export function requestCodeEvidence(editor:Editor,at?:{from:number;to:number}){
+ const ref=captureRef(editor,at),ws=useWorkspace.getState(),de=ws.settings.language==='de'
  if(!ref||ref.image||ref.file||ref.clipped){useUI.getState().toast({message:de?'Bitte eine Textstelle mit höchstens 8.000 Zeichen markieren.':'Select a text passage of at most 8,000 characters.',kind:'error'});return}
  useRequest.setState({ref,epoch:ws.epoch})
 }

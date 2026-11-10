@@ -36,3 +36,7 @@ A list, a few headings with text below them, or a table: **Turn into → Sub-pag
 
 ## Colours
 **Colour** offers ten text colours and ten backgrounds (gray, brown, orange, yellow, green, blue, purple, pink, red). For words inside a line, select them and use the colour button of the toolbar.
+
+
+## Check claims against code
+The block menu of a text block, a table or several selected text blocks includes **Request source-code evidence**. Search the menu for **Atlas**, **Repo** or **evidence**. The action previews exactly the selected blocks. Optionally specify a repository and branch, commit or snapshot, then choose **Prepare in terminal**. Only **Start** in the AI terminal begins the read-only investigation using available Atlas code sources. Linked child pages are not automatically read in full; open the relevant page and select its requirement text. Selections over 8,000 characters need to be narrowed.
