@@ -7,12 +7,12 @@ import {withWriter,type Writer} from '../../store/writer'
 import {flushOpenEditors} from '../../editor'
 import {holdOverviewPages} from '../../shell/page/overview/sources'
 import {overviewSignature,overviewSources,type OverviewItem} from '../../shell/page/overview/model'
-import {sanitizeDeskRecords,cardsOf,basisOf,sourceState,type Card,type CardSource,type DeskRecord,type Decision,type Analysis} from './model'
+import {sanitizeDeskRecords,cardsOf,basisOf,sourceState,deskSourceVisible,type Card,type CardSource,type DeskRecord,type Decision,type Analysis} from './model'
 const fail=(de:string,en:string):never=>{throw Error(useWorkspace.getState().settings.language==='de'?de:en)}
 export const stamp=()=>({at:Date.now(),by:(useCloud.getState().user?.name??useWorkspace.getState().settings.userName??'').slice(0,200)})
 export function writable(id:string){const s=useWorkspace.getState(),p=s.pages[id];if(!p||isEffectivelyTrashed(s.pages,id)||p.hidden||p.settings.locked||useCloud.getState().readOnly||useCloud.getState().outdated)fail('Die Seite ist nicht mehr bearbeitbar.','This page can no longer be edited.');return p!}
-export function sourcePage(deskId:string,id:string){const s=useWorkspace.getState(),p=s.pages[id],desk=s.pages[deskId];if(!p||!desk||isEffectivelyTrashed(s.pages,id)||p.hidden||!!p.private!==!!desk.private)fail('Quelle fehlt oder gehört zu einem anderen Sichtbarkeitsbereich.','The source is unavailable or belongs to a different visibility scope.');return p!}
-function prepareRecords(deskId:string,records:DeskRecord[],expected?:Record<string,string>){
+export function sourcePage(deskId:string,id:string){const s=useWorkspace.getState();if(!deskSourceVisible(s.pages,deskId,id))fail('Quelle fehlt oder gehört zu einem anderen Sichtbarkeitsbereich.','The source is unavailable or belongs to a different visibility scope.');return s.pages[id]}
+export function prepareRecords(deskId:string,records:DeskRecord[],expected?:Record<string,string>){
  const p=writable(deskId);if(!p.workbench)fail('Kein Denkraum.','Not a thinking desk.')
  const existing=p.workbenchRecords??{}
  for(const [id,before] of Object.entries(expected??{}))if(!deepEqual(sanitizeDeskRecords({[id]:existing[id]}),sanitizeDeskRecords({[id]:JSON.parse(before)})))fail('Dieser Eintrag wurde inzwischen geändert. Bitte erneut öffnen.','This item changed. Please reopen it.')

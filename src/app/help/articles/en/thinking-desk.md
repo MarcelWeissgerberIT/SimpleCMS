@@ -76,3 +76,21 @@ The current page is always included. Use **Add more pages** to search other docu
 **Prepare with AI** creates a preview. Open statements for the full text and source passages. Unsupported sections stay visibly empty; section counters count statements, not project metrics. Only **Adopt template** saves the new overview. Discarding retains the previous version. Changed sources or a concurrent overview edit require a new preview.
 
 **Open as thinking desk** creates a child page with sourced cards grouped by template section. **Open as presentation** also creates an editable key-message slide per statement and opens the slide editor. You can choose other layouts or ask AI to condense further there. This handoff creates no automatic connections or approvals and leaves the source document unchanged.
+
+## Turn thinking into work
+Open **Organize work** and choose a focus:
+
+- **Deliver:** tasks, status, owner, due date and completion criterion, starting with a board.
+- **Clarify:** open questions, clarification needed, answer and status.
+- **Verify:** checks, acceptance criteria, results and status.
+- **Decide:** decision questions, supporting information and the eventual decision.
+
+Click a template or drag a material card by its **⠿** handle onto a focus. Select up to 20 cards, inspect their full text and word counts, and enter your work goal or use the suggestion. **Create work draft** asks the selected model to prepare proposed items from that material.
+
+Review and edit the draft, uncheck unwanted items, and inspect their source basis. **Create working view** creates a normal One database below the desk with both **Work board** and **All items** table views. Move cards between board columns; use the table to add owners, dates and outcomes. Open an item for its complete source excerpts and a link back to the desk. Created databases remain linked under **Your work · Current status**.
+
+**Organize work from this**, below an analysis answer, carries its question and cards into this flow. The desk's focus suggests a template; you can choose another.
+
+Proposals start open or unchecked. The model does not assign owners, dates, test outcomes or decisions. Changed sources require a fresh draft. Private desks produce private working views, and the original sources stay unchanged.
+
+Existing working views appear in the desk with an item count and current completion status. Progress follows the database status values, including changes made by teammates. Trashed items are excluded. An edited draft survives desk tab changes; leaving the page or reloading requires a new draft.

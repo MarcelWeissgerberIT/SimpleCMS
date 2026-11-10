@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState,type DragEvent} from 'react'
 import {SOURCE_DRAG,type SourceDrag,type Point} from './drag'
 import {useWorkspace} from '../../store/store'
-import {isEffectivelyTrashed} from '../../store/selectors'
+import {deskSourceVisible} from './model'
 import {useLang} from '../../i18n'
 import {holdOverviewPages} from '../../shell/page/overview/sources'
 import {overviewSources,overviewSignature} from '../../shell/page/overview/model'
@@ -12,7 +12,7 @@ import {wordCount} from './story'
 import {pageFiles} from '../ai/agent/documentTools'
 export function SourcePicker({deskId,onAdded,onContinue,initialPageId,onDragSource}:{deskId:string;onAdded:(id:string,forQuestion?:boolean)=>void;onContinue:()=>void;initialPageId?:string;onDragSource:(source:SourceDrag|null)=>void}){
  const de=useLang()==='de',pages=useWorkspace(s=>s.pages),desk=pages[deskId]
- const [query,setQuery]=useState(''),[pageId,setPageId]=useState(()=>{const p=pages[initialPageId??''];return p&&!p.workbench&&!p.hidden&&!isEffectivelyTrashed(pages,p.id)&&!!p.private===!!desk.private?p.id:''}),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[retry,setRetry]=useState(0),[addedIds,setAddedIds]=useState<string[]>([])
+ const [query,setQuery]=useState(''),[pageId,setPageId]=useState(()=>{const p=pages[initialPageId??''];return p&&!p.workbench&&deskSourceVisible(pages,deskId,p.id)?p.id:''}),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[retry,setRetry]=useState(0),[addedIds,setAddedIds]=useState<string[]>([])
  const [file,setFile]=useState<{id:string;text:string;hash:string;name:string}|null>(null),[quote,setQuote]=useState(''),[note,setNote]=useState(''),[server,setServer]=useState('')
  const controller=useRef<AbortController|null>(null)
  useEffect(()=>{const c=new AbortController();let release:()=>void=()=>{};setReady(false);setBusy(false);setFile(null);setQuote('');setError('')
@@ -20,7 +20,7 @@ export function SourcePicker({deskId,onAdded,onContinue,initialPageId,onDragSour
  return()=>{c.abort();release();controller.current?.abort()}
  },[pageId,deskId,retry])
  const run=async(fn:(signal:AbortSignal)=>Promise<void>|void)=>{controller.current?.abort();const c=new AbortController();controller.current=c;setBusy(true);setError('');try{await fn(c.signal)}catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:String(e))}finally{if(!c.signal.aborted)setBusy(false)}}
- const p=pages[pageId],eligible=Object.values(pages).filter(p=>p.id!==deskId&&!p.workbench&&!p.hidden&&!isEffectivelyTrashed(pages,p.id)&&!!p.private===!!desk.private&&p.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+ const p=pages[pageId],eligible=Object.values(pages).filter(p=>p.id!==deskId&&!p.workbench&&deskSourceVisible(pages,deskId,p.id)&&p.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
  const suggested=pages[desk.parentId??''],suggestion=suggested&&eligible.some(p=>p.id===suggested.id)?suggested:undefined
  const collected=(id:string,point?:Point)=>{if(point)placeCard(deskId,id,point);setAddedIds(ids=>[...new Set([...ids,id])]);onAdded(id,!point)}
  const beginDrag=(e:DragEvent,collect:(point:Point)=>void)=>{if(busy){e.preventDefault();return}const token=crypto.randomUUID();e.dataTransfer.setData(SOURCE_DRAG,token);e.dataTransfer.effectAllowed='copy';onDragSource({token,collect})}
