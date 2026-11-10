@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import * as Y from 'yjs'
-import {overviewSources,overviewSignature,overviewPreview,overviewChildren,overviewScope,overviewScopeSignature,overviewScopeSources,currentOverviewSignature,sanitizeOverviewFollowUp,parseOverview,sanitizeOverview,sanitizeOverviewReviews} from '../../src/app/shell/page/overview/model.ts'
+import {overviewSources,overviewSignature,overviewPreview,overviewChildren,overviewEligible,overviewScope,overviewScopeSignature,overviewScopeSources,currentOverviewSignature,sanitizeOverviewFollowUp,parseOverview,sanitizeOverview,sanitizeOverviewReviews} from '../../src/app/shell/page/overview/model.ts'
 import {writeOverviewReviews,readOverviewReviews} from '../../src/app/cloud/overview.ts'
 const page={title:'Release',content:{type:'doc',content:[{type:'paragraph',attrs:{id:'block-a'},content:[{type:'text',text:'Das Team entscheidet über Tip Touch.'}]}]}}
 const sources=overviewSources(page),signature=overviewSignature(page)
@@ -75,4 +75,29 @@ test('selected descendant scope excludes hidden/private/database branches, quali
  child.parentId=null;assert.equal(currentOverviewSignature(root,pages),'unavailable')
  assert.deepEqual(sanitizeOverviewFollowUp({pageId:'root',itemId:overview.items[0].id,unwanted:true}),{pageId:'root',itemId:overview.items[0].id})
  assert.equal(sanitizeOverviewFollowUp({pageId:'root',itemId:'bad'}),undefined)
+})
+
+test('template sections survive storage and reject unsupported or mismatched assignments',()=>{
+ const value={...item,section:'summary'}
+ const result=parseOverview(JSON.stringify({items:[value,{...item,kind:'finding',section:'pending'}]}),sources,signature,'de','review')
+ assert.equal(result.template,'review');assert.deepEqual(sanitizeOverview(result),result)
+ for(const section of ['approval','summary',undefined])assert.throws(()=>parseOverview(JSON.stringify({items:[value,{...item,kind:'finding',section}]}),sources,signature,'de','review'))
+ assert.equal(sanitizeOverview({...result,template:'invented'}),undefined)
+ assert.equal(sanitizeOverview({...result,items:[{...result.items[0],section:'pending'}]}),undefined)
+})
+
+
+test('template scope accepts other pages but rejects hidden ancestors, private scope, cycles and database rows',()=>{
+ const make=(id:string,parentId:string|null=null,extra:any={})=>({...page,id,parentId,kind:'page',order:0,trashed:false,databaseId:null,settings:{},...extra}) as any
+ const root=make('root'),other=make('other'),hidden=make('hidden',null,{hidden:true}),inside=make('inside','hidden'),privatePage=make('private',null,{private:true}),cycle=make('cycle','cycle'),row=make('row',null,{databaseId:'db'})
+ const pages=Object.fromEntries([root,other,hidden,inside,privatePage,cycle,row].map(p=>[p.id,p]))
+ assert.deepEqual(overviewEligible(root,pages).map(p=>p.id),['other'])
+ assert.throws(()=>overviewScope(root,pages,['other']))
+ assert.deepEqual(overviewScope(root,pages,['other'],true).map(p=>p.id),['root','other'])
+ for(const id of ['inside','private','cycle','row'])assert.throws(()=>overviewScope(root,pages,[id],true))
+ const scope=overviewScope(root,pages,['other'],true),sig=overviewScopeSignature(scope)
+ root.overview={template:'review',sourcePages:scope.map(p=>({id:p.id,title:p.title,signature:overviewSignature(p)}))}
+ assert.equal(currentOverviewSignature(root,pages),sig)
+ other.title='Updated';assert.notEqual(currentOverviewSignature(root,pages),sig)
+ other.trashed=true;assert.equal(currentOverviewSignature(root,pages),'unavailable')
 })
