@@ -17,6 +17,7 @@ import type { Bridge } from '../lib/bridge'
 import { turnIntoChoices } from '../lib/catalog'
 import { BlockGlyph } from '../menus/SlashMenu'
 import { ColorGrid } from '../menus/BubbleToolbar'
+import { codeEvidenceMenuEntry } from '../menus/codeEvidenceMenu'
 import { topBlockKeys } from '../context/api'
 import { startRedo } from '../context/redo'
 import { itemsMenuEntries, splitMenuEntries } from '../split/menu'
@@ -83,6 +84,7 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
       ],
     })
   if (someText) {
+    items.push(codeEvidenceMenuEntry(editor,t,()=>fresh(editor,b)))
     // Claude: the three that hand the blocks to the AI panel, under one label (Transform into first — the most used)
     items.push({ kind: 'separator' }, { kind: 'section', label: t('editor.select.claude') })
     const picks = transformChoicesAt(editor.state.doc, b.from, b.to)

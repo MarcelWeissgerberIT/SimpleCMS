@@ -36,3 +36,7 @@ Eine Liste, ein paar Überschriften mit Text darunter oder eine Tabelle: **Umwan
 
 ## Farben
 **Farbe** bietet zehn Textfarben und zehn Hintergründe (grau, braun, orange, gelb, grün, blau, lila, pink, rot). Für Wörter in einer Zeile: markieren und die Farbe in der Werkzeugleiste wählen.
+
+
+## Aussagen mit Code abgleichen
+Im Blockmenü eines Textblocks, einer Tabelle oder mehrerer ausgewählter Textblöcke findest du **Quellcode-Belege nachfordern**. Du kannst im Menü auch nach **Atlas**, **Repo** oder **Belege** suchen. Die Aktion übernimmt genau die ausgewählten Blöcke in eine Vorschau. Gib optional Repository und Branch, Commit oder Snapshot an und wähle **Im Terminal vorbereiten**. Erst **Starten** im KI-Terminal beginnt den lesenden Abgleich mit den verfügbaren Atlas-Codequellen. Verlinkte Unterseiten werden dabei nicht automatisch vollständig mitgelesen; öffne für eine konkrete Anforderung ihre Seite und wähle dort den Text. Auswahlen über 8.000 Zeichen müssen verkleinert werden.
