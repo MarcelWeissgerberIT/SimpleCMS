@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto'
 import {test,expect,openApp,createPage,gotoPage,wsEval,doc,para,reloadApp,mockClaude} from './fixtures'
 import {claudeSse} from './helpers/providers'
 const organizer=(p:any)=>p.getByRole('region',{name:'Organize work',exact:true})
-test.beforeEach(async({page})=>{if(process.env.E2E_ROOT==='1')await page.route('**/api/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<!doctype html>'}))})
+test.beforeEach(async({context})=>{if(process.env.E2E_ROOT==='1')await context.route('**/api/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<!doctype html>'}))})
 async function seed(page:any){
  await openApp(page);await page.emulateMedia({reducedMotion:'reduce'})
  const a=await createPage(page,{title:'Release requirements',content:doc(para('The release needs SSO. The authentication scope must be agreed with the team.'))})
@@ -162,4 +162,30 @@ test('locking a desk preserves its draft for reading and blocks creation',async(
  expect(await output(page,id)).toHaveLength(0);expect(calls).toHaveLength(1)
  await wsEval(page,(s,id)=>s.updatePageSettings(id,{locked:false}),id)
  await expect(view.getByRole('button',{name:'Create working view with 2 items'})).toBeEnabled()
+})
+
+test('reviewing an original source opens a separate tab and keeps work draft edits',async({page,context})=>{
+ await mockClaude(context,raw=>answer(raw));const {id,a}=await seed(page),view=organizer(page)
+ await view.getByRole('button',{name:'✦ Create work draft'}).click()
+ const draft=view.getByRole('region',{name:'Review work draft'});await expect(draft).toBeVisible()
+ await draft.getByLabel('Working view name').fill('Keep this reviewed title')
+ await draft.getByText('Review source basis · 2 cards',{exact:true}).click()
+ const popupPromise=page.waitForEvent('popup');await draft.getByRole('link',{name:'Release requirements ↗',exact:true}).click();const source=await popupPromise
+ await source.waitForURL(url=>url.hash.split('?')[0]==='#/p/'+a);await expect(source.locator('.pv-title')).toContainText('Release requirements');await source.close()
+ await expect(draft.getByLabel('Working view name')).toHaveValue('Keep this reviewed title')
+ expect(new URL(page.url()).hash).toContain(id);expect(await output(page,id)).toHaveLength(0)
+})
+
+test('large material stays bounded, deleted selections free a slot and oversized input is never truncated',async({page,context})=>{
+ const calls=await mockClaude(context,raw=>answer(raw)),{id}=await seed(page)
+ await wsEval(page,(s,id)=>{const p=s.pages[id],base=p.workbenchRecords['card-0'];s.updatePage(id,{workbenchRecords:Object.fromEntries(Array.from({length:21},(_,i)=>{const key='note-'+i,quote=('Evidence '+i+' ').repeat(500);return [key,{...base,id:key,title:'Working note '+i,detail:quote,source:{kind:'note',pageId:id,blockId:'',quote,signature:'',label:'Own statement'},level:0}]}))})},id)
+ const view=organizer(page);await view.getByRole('button',{name:'Select first 20',exact:true}).click()
+ await expect(view.getByRole('checkbox',{name:'Working note 20',exact:true})).toBeDisabled()
+ await wsEval(page,(s,id)=>{const p=s.pages[id];s.updatePage(id,{workbenchRecords:{...p.workbenchRecords,'note-0':{...p.workbenchRecords['note-0'],removed:true}}})},id)
+ const last=view.getByRole('checkbox',{name:'Working note 20',exact:true});await expect(last).toBeEnabled();await last.check()
+ await view.getByRole('button',{name:'✦ Create work draft'}).click();await expect(view.getByRole('alert')).toContainText('nothing was truncated')
+ expect(calls).toHaveLength(0);expect(await output(page,id)).toHaveLength(0)
+ await view.getByRole('button',{name:'Clear selection',exact:true}).click();await last.check();await view.getByRole('button',{name:'✦ Create work draft'}).click()
+ await expect(view.getByRole('region',{name:'Review work draft'})).toBeVisible();expect(calls).toHaveLength(1)
+ const request=JSON.stringify(JSON.parse(calls[0]).messages);expect(request).toContain('Working note 20');expect(request).not.toContain('Working note 1"')
 })

@@ -3,7 +3,7 @@ import {test,expect,openApp,createPage,gotoPage,wsEval,doc,para,flush,reloadApp,
 import {docxBytes} from './helpers/files'
 import {claudeSse} from './helpers/providers'
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex')
-test.beforeEach(async({page})=>{if(process.env.E2E_ROOT==='1')await page.route('**/api/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<!doctype html>'}))})
+test.beforeEach(async({context})=>{if(process.env.E2E_ROOT==='1')await context.route('**/api/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<!doctype html>'}))})
 const desk=(p:any)=>p.getByRole('region',{name:'Thinking desk',exact:true})
 async function seed(page:any){
  await openApp(page);await page.emulateMedia({reducedMotion:'reduce'})
@@ -394,4 +394,48 @@ test('invalid model references and source changes cannot be adopted as slides',a
  await expect(ai.getByRole('alert')).toContainText('Sources changed')
  expect(Object.values(await wsEval(page,(s,id)=>s.pages[id].workbenchRecords,id)).filter((r:any)=>r.type==='slide')).toHaveLength(0)
  expect(calls.length).toBeGreaterThan(0)
+})
+
+test('slide drafts survive desk tab changes and opening an original source',async({page,context})=>{
+ const calls=await mockClaude(context,storyAnswer),{id,a}=await seed(page)
+ // Normalize the synthetic source through the real editor before capturing its citation.
+ await gotoPage(page,a);await flush(page);const normalized=await wsEval(page,(s,id)=>s.pages[id],a)
+ await wsEval(page,(s,v)=>{const p=s.pages[v.id],c=p.workbenchRecords['card-0'];s.updatePage(v.id,{workbenchRecords:{...p.workbenchRecords,'card-0':{...c,source:{...c.source,blockId:v.block,signature:v.signature}}}})},{id,block:normalized.content.content[0].attrs.id,signature:hash(JSON.stringify([normalized.title,normalized.content]))})
+ await gotoPage(page,id)
+ await desk(page).getByRole('button',{name:/^Present /}).click()
+ const ai=desk(page).getByRole('region',{name:'Prepare with AI'})
+ await ai.getByLabel('What is the presentation for?').fill('Preserve this presentation goal')
+ await ai.getByRole('button',{name:'✦ Create slide draft'}).click();await expect(ai.getByLabel('Review slide draft')).toBeVisible()
+ await desk(page).getByRole('button',{name:/^Map & desk /}).click();await expect(ai).not.toBeVisible()
+ await wsEval(page,(s,id)=>s.updatePageSettings(id,{locked:true}),id);await wsEval(page,(s,id)=>s.updatePageSettings(id,{locked:false}),id)
+ await desk(page).getByRole('button',{name:/^Present /}).click();await expect(ai.getByLabel('Review slide draft')).toContainText('Clarify the release promise')
+ await expect(ai.getByLabel('What is the presentation for?')).toHaveValue('Preserve this presentation goal')
+ const popupPromise=page.waitForEvent('popup');await ai.getByLabel('Review slide draft').getByRole('link').first().click();const source=await popupPromise
+ await source.waitForURL(url=>url.hash.split('?')[0]==='#/p/'+a);await expect(source.locator('.pv-title')).toBeVisible();await source.close()
+ await expect(ai.getByLabel('Review slide draft')).toBeVisible();expect(calls).toHaveLength(1)
+ await ai.getByRole('button',{name:'Adopt 1 slides'}).click();await expect(desk(page).locator('.story-thumb')).toHaveCount(1)
+ expect(new URL(page.url()).hash).toContain(id)
+})
+
+test('leaving the presentation tab cancels a pending draft without adopting a late response',async({page,context})=>{
+ await mockClaude(context,storyAnswer);const {id}=await seed(page)
+ let release!:()=>void,reading=false;const wait=new Promise<void>(resolve=>{release=resolve})
+ await context.route('**/api.anthropic.com/v1/messages**',async r=>{if(r.request().method()==='OPTIONS')return r.fallback();reading=true;const raw=r.request().postData()!;await wait;await r.fulfill({headers:{'content-type':'text/event-stream','access-control-allow-origin':'*'},body:claudeSse({blocks:[{type:'text',text:storyAnswer(raw)}]})}).catch(()=>{})})
+ await desk(page).getByRole('button',{name:/^Present /}).click();const ai=desk(page).getByRole('region',{name:'Prepare with AI'})
+ await ai.getByRole('button',{name:'✦ Create slide draft'}).click();await expect.poll(()=>reading).toBe(true)
+ await desk(page).getByRole('button',{name:/^Map & desk /}).click();release()
+ await desk(page).getByRole('button',{name:/^Present /}).click();await expect(ai.getByRole('button',{name:'✦ Create slide draft'})).toBeEnabled()
+ await expect(ai.getByLabel('Review slide draft')).toHaveCount(0)
+ expect(Object.values(await wsEval(page,(s,id)=>s.pages[id].workbenchRecords,id)).filter((r:any)=>r.type==='slide')).toHaveLength(0)
+})
+
+test('the source picker stops displaying a page moved into a hidden parent',async({page})=>{
+ const {id,a}=await seed(page);await desk(page).getByRole('button',{name:'＋ Collect sources'}).click()
+ await desk(page).getByLabel('Select source',{exact:true}).selectOption(a)
+ await expect(desk(page).locator('.wb-source-excerpt')).toContainText('SSO is supported in release 1.0.')
+ await wsEval(page,(s,id)=>{const parent=s.createPage({title:'Hidden source holder',hidden:true});s.updatePage(id,{parentId:parent})},a)
+ await expect(desk(page).locator('.wb-source-excerpt')).toHaveCount(0)
+ await expect(desk(page)).toContainText('This source is no longer available. Choose another page.')
+ await expect(desk(page).getByLabel('Select source').locator('option',{hasText:'Questionnaire'})).toHaveCount(0)
+ expect(new URL(page.url()).hash).toContain(id)
 })

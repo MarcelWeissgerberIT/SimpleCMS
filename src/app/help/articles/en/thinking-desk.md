@@ -94,3 +94,5 @@ Review and edit the draft, uncheck unwanted items, and inspect their source basi
 Proposals start open or unchecked. The model does not assign owners, dates, test outcomes or decisions. Changed sources require a fresh draft. Private desks produce private working views, and the original sources stay unchanged.
 
 Existing working views appear in the desk with an item count and current completion status. Progress follows the database status values, including changes made by teammates. Trashed items are excluded. An edited draft survives desk tab changes; leaving the page or reloading requires a new draft.
+
+Source links in work drafts and slides open the original page in a new tab, keeping the draft available while you read. Slide drafts also survive desk tab changes; leaving the tab cancels a model call that is still running.

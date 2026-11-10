@@ -18,6 +18,6 @@ export function StorySlide({slide}:{slide:StorySlideData}){
     {['compare','timeline','decision'].includes(frame.layout)&&<h3>{frame.content?.find(item=>item.card===c?.id)?.title??c?.title??(de?'Aussage nicht verfügbar':'Statement unavailable')}</h3>}
     <p>{c?excerpt(frame.content?.find(item=>item.card===c.id)?.text??(c.detail||c.source.quote),frame.content?.some(item=>item.card===c.id)?600:frame.layout==='statement'?500:320):(de?'Bitte Aussage ersetzen.':'Please replace this statement.')}</p>
    </div>):<p className="story-placeholder">{de?'Ziehe deine Aussage in diese Folie.':'Drag your statement into this slide.'}</p>}</div>}
-  <footer className="story-slide-sources">{cards.map((c,i)=>c?<a href={sourceHref(c)} key={c.id} data-no-nav="">{i+1}. {c.source.label} · {(de?levels:levelsEn)[c.level]} ↗</a>:<span key={i}>{de?'Quelle nicht verfügbar':'Source unavailable'}</span>)}</footer>
+  <footer className="story-slide-sources">{cards.map((c,i)=>c?<a href={sourceHref(c)} target="_blank" rel="noopener noreferrer" title={de?'Quelle in neuem Tab öffnen':'Open source in a new tab'} key={c.id} data-no-nav="">{i+1}. {c.source.label} · {(de?levels:levelsEn)[c.level]} ↗</a>:<span key={i}>{de?'Quelle nicht verfügbar':'Source unavailable'}</span>)}</footer>
  </article>
 }

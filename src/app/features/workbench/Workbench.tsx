@@ -29,8 +29,8 @@ export function Workbench({pageId,readOnly}:{pageId:string;readOnly:boolean}){
  const sourceDrag=useRef<SourceDrag|null>(null),questionDimensions=dimensions(de),pickedDimension=questionDimensions.find(d=>d.id===dimension)
  const preference=`one.desk:${cloud.kind}:${cloud.id}:${person??'local'}:${pageId}`
  const [size,setSize]=useState(()=>{const n=Number(safeLocalGet(preference));return sizes.includes(n)?n:256}),[selected,setSelected]=useState<string[]>(()=>focus?.cards??[]),[detail,setDetail]=useState(''),[sources,setSources]=useState(false),[sourceSuggestion,setSourceSuggestion]=useState(''),[panel,setPanel]=useState<'map'|'threads'|'decisions'|'scenarios'|'present'|'work'>(()=>{const tab=new URLSearchParams(window.location.hash.split('?')[1]).get('desk');return tab==='present'||tab==='work'?tab:'map'}),[filter,setFilter]=useState(-1),[group,setGroup]=useState('')
- const [workMounted,setWorkMounted]=useState(panel==='work')
- useEffect(()=>{if(panel==='work')setWorkMounted(true)},[panel])
+ const [workMounted,setWorkMounted]=useState(panel==='work'),[storyMounted,setStoryMounted]=useState(panel==='present')
+ useEffect(()=>{if(panel==='work')setWorkMounted(true);if(panel==='present')setStoryMounted(true)},[panel])
  const [question,setQuestion]=useState(()=>focus?.question??''),[mode,setMode]=useState<Analysis['mode']>('compare'),[decisionId,setDecisionId]=useState(''),[decisionText,setDecisionText]=useState(''),[resolveIds,setResolveIds]=useState<string[]>([]),[relation,setRelation]=useState<Link['relation']>('conflict'),[linkText,setLinkText]=useState(''),[route,setRoute]=useState<Route|null>(null)
  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[seconds,setSeconds]=useState(0),[ready,setReady]=useState(false),[loadError,setLoadError]=useState(''),[retry,setRetry]=useState(0),[resultId,setResultId]=useState('')
  const controller=useRef<AbortController|null>(null),resultRef=useRef<HTMLDivElement>(null),questionRef=useRef<HTMLTextAreaElement>(null)
@@ -81,7 +81,7 @@ export function Workbench({pageId,readOnly}:{pageId:string;readOnly:boolean}){
   {!ready&&!loadError&&<p role="status">{de?'Quellseiten werden geladen …':'Loading source pages …'}</p>}
   {(panel==='work'||workMounted)&&<div hidden={panel!=='work'}><WorkOrganizer active={panel==='work'} pageId={pageId} cards={cards.filter(c=>deskSourceVisible(pages,pageId,c.source.pageId))} records={records} initialSelected={selected} initialGoal={question} dimension={focus?.dimension??''} readOnly={readOnly||busy} onCollect={()=>collectMore()}/></div>}
   {workMounted&&panel==='map'&&sources&&<button className="btn btn--sm" onClick={()=>{setSources(false);setPanel('work')}}>{de?'← Zur Arbeitsplanung':'← Back to work planning'}</button>}
-  {panel==='present'&&<Storyboard pageId={pageId} records={records} cards={cards.filter(c=>deskSourceVisible(pages,pageId,c.source.pageId))} readOnly={readOnly||busy} onError={onError}/>}
+  {(panel==='present'||storyMounted)&&<div hidden={panel!=='present'}><Storyboard visible={panel==='present'} pageId={pageId} records={records} cards={cards.filter(c=>deskSourceVisible(pages,pageId,c.source.pageId))} readOnly={readOnly||busy} onError={onError}/></div>}
   {panel==='map'&&<><div className="wb-studio" data-sources={sources}>
    {sources&&!readOnly&&<SourcePicker deskId={pageId} onAdded={(id,forQuestion=true)=>{if(forQuestion)setSelected(current=>[...new Set([...current,id])]);setPanel('map')}} onContinue={ask} initialPageId={sourceSuggestion} onDragSource={value=>{sourceDrag.current=value}}/>}
    <div className="wb-workspace"><div className="wb-workspace-heading"><div><span className="label">{de?'AUSSAGEN':'STATEMENTS'}</span><h2>{de?'Deine Arbeitsfläche':'Your workspace'}</h2></div><span className="wb-muted">{de?'Ziehen zum Ordnen · Klick für Vorschau':'Drag to arrange · Click to preview'}</span></div>

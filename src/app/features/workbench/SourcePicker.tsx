@@ -20,7 +20,7 @@ export function SourcePicker({deskId,onAdded,onContinue,initialPageId,onDragSour
  return()=>{c.abort();release();controller.current?.abort()}
  },[pageId,deskId,retry])
  const run=async(fn:(signal:AbortSignal)=>Promise<void>|void)=>{controller.current?.abort();const c=new AbortController();controller.current=c;setBusy(true);setError('');try{await fn(c.signal)}catch(e){if(!c.signal.aborted)setError(e instanceof Error?e.message:String(e))}finally{if(!c.signal.aborted)setBusy(false)}}
- const p=pages[pageId],eligible=Object.values(pages).filter(p=>p.id!==deskId&&!p.workbench&&deskSourceVisible(pages,deskId,p.id)&&p.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+ const p=deskSourceVisible(pages,deskId,pageId)?pages[pageId]:undefined,eligible=Object.values(pages).filter(p=>p.id!==deskId&&!p.workbench&&deskSourceVisible(pages,deskId,p.id)&&p.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
  const suggested=pages[desk.parentId??''],suggestion=suggested&&eligible.some(p=>p.id===suggested.id)?suggested:undefined
  const collected=(id:string,point?:Point)=>{if(point)placeCard(deskId,id,point);setAddedIds(ids=>[...new Set([...ids,id])]);onAdded(id,!point)}
  const beginDrag=(e:DragEvent,collect:(point:Point)=>void)=>{if(busy){e.preventDefault();return}const token=crypto.randomUUID();e.dataTransfer.setData(SOURCE_DRAG,token);e.dataTransfer.effectAllowed='copy';onDragSource({token,collect})}
@@ -32,6 +32,7 @@ export function SourcePicker({deskId,onAdded,onContinue,initialPageId,onDragSour
   <label>{de?'Seitentitel filtern':'Filter page titles'}<input value={query} onChange={e=>{setQuery(e.target.value);setPageId('')}} placeholder={de?'z. B. Roadmap — sucht im Titel':'e.g. Roadmap — searches titles'}/></label>
   <label>{de?'Quelle auswählen':'Select source'}<select aria-label={de?'Quelle auswählen':'Select source'} value={pageId} onChange={e=>setPageId(e.target.value)}><option value="">{de?'Seite wählen …':'Choose a page …'}</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
   {pageId&&!ready&&!error&&<p role="status">{de?'Quelle wird geladen …':'Loading source …'}</p>}
+  {pageId&&!p&&<p role="status">{de?'Diese Quelle ist nicht mehr verfügbar. Wähle eine andere Seite.':'This source is no longer available. Choose another page.'}</p>}
   {!eligible.length&&<p role="status">{de?'Keine Seite mit diesem Titel gefunden. Suche nach dem Seitennamen, nicht nach einem Thema im Text.':'No page with this title found. Search by page name, not by a topic in its text.'} <button className="btn btn--sm" onClick={()=>setQuery('')}>{de?'Alle Seiten zeigen':'Show all pages'}</button></p>}
   {error&&<div className="wb-alert" role="alert"><p>{error.startsWith('Source ')?(de?'Die Seite konnte noch nicht aus der Cloud geladen werden. Prüfe deine Verbindung und versuche es erneut.':'The page could not be loaded from the cloud yet. Check your connection and try again.'):error}</p>{pageId&&!ready&&<button className="btn" onClick={()=>setRetry(n=>n+1)}>{de?'Erneut laden':'Try again'}</button>}</div>}
 
