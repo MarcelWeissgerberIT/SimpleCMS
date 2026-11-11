@@ -28,6 +28,11 @@ export function mediaNode(m: Pick<SavedMedia, 'src' | 'kind' | 'name' | 'size' |
   }
 }
 
+/** File provenance is retained beside its original attachment, including in page exports. */
+export function mediaNodes(m: Pick<SavedMedia, 'src' | 'kind' | 'name' | 'size' | 'caption' | 'alt'>): JSONContent[] {
+  return [mediaNode(m), ...(m.kind==='file'&&m.caption?[{type:'paragraph',content:[{type:'text',text:m.caption}]}]:[])]
+}
+
 const alive = (id: ID | null | undefined): id is ID => {
   const pages = useWorkspace.getState().pages
   return !!id && !!pages[id] && !pages[id].trashed && !isEffectivelyTrashed(pages, id)
@@ -40,7 +45,7 @@ const isEmptyDoc = (doc: JSONContent | null | undefined) => (doc?.content ?? [])
  * page "Generated media" — private in a team workspace when `privateNew`. Returns the page id.
  */
 export async function appendMedia(pageId: ID | null, saved: SavedMedia[], opts: { privateNew?: boolean; writer?: Writer } = {}): Promise<ID> {
-  const nodes = saved.map(mediaNode)
+  const nodes = saved.flatMap(mediaNodes)
   // media from Claude's answer, saved by the person's click: an AI write of its own (store/writer.ts)
   const writer: Writer = opts.writer ?? { kind: 'ai', run: newId(), action: 'media' }
   if (alive(pageId)) {

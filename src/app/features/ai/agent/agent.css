@@ -2624,3 +2624,7 @@
 .term-awaiting p { margin: 4px 0 0; max-height: 4.5em; overflow: auto; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
 .term-awaiting .btn { flex-shrink: 0; white-space: normal; }
 @media(max-width:600px){ .term-awaiting { align-items: stretch; flex-direction: column; gap: 8px; } }
+
+.term-pdf-export { overflow-wrap: anywhere; }
+.term-pdf-export > strong, .term-pdf-export > p { flex-basis: 100%; min-width: 0; }
+.term-pdf-export .btn { max-width: 100%; white-space: normal; }

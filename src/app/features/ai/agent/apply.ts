@@ -21,7 +21,7 @@ import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
 import { applyItemChanges, applyNotes, itemCtx, itemPageOf, pagePrivate, sourceOfWriter, stagedTasksOf, type ItemApply, type ItemApplyOpts } from './workItems'
 import { livePage, withPageNodes, type LinkTarget } from './links'
-import { mediaNode } from '../media/blocks'
+import { mediaNodes } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
 import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
@@ -681,7 +681,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       // media saved from an MCP result (the files are in One already): their blocks at the end of the page
       const id = resolveRow(c.pageId)
       if (!alive(id)) throw new Error('the page is gone')
-      const add = (c.media ?? []).map(mediaNode)
+      const add = (c.media ?? []).flatMap(mediaNodes)
       if (!add.length) throw new Error('nothing to insert')
       await guardTask(id, opts)
       await snapshotNow(id, 'ai')
