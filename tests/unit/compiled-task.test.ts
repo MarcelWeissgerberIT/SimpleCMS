@@ -105,3 +105,20 @@ test('document source policy permits real One reads without forcing optional Atl
  // Availability still controls prerequisite questions; the document policy does not fake source checks.
  assert.equal(check({contract:c,phase:'question',evidence:{...evidence(),one_checked:true}}).decision,'block')
 })
+
+
+test('the reported German sign-in instruction grants only the Polarion authentication effect',()=>{
+ const goal='melde dich bei polarion an',bounds=taskBoundaries(goal)
+ assert.deepEqual(bounds,{readOnly:false,externalWrite:false,execute:false,authenticate:true})
+ const c={...contract(),goal,authenticate:bounds.authenticate,external_write:bounds.externalWrite,execute:bounds.execute,allowed_tools:['atlas:atlas_polarion_connect','atlas:atlas_update','atlas:atlas_polarion_apply_change']}
+ assert.equal(check({contract:c,phase:'dispatch',tool:'atlas:atlas_polarion_connect',effect:'authenticate'}).decision,'allow')
+ for(const [tool,effect] of [['atlas:atlas_update','write'],['atlas:atlas_polarion_apply_change','execute']])assert.equal(check({contract:c,phase:'dispatch',tool,effect}).decision,'block')
+})
+test('natural login commands support separable German verbs and English sign-in',()=>{
+ for(const goal of ['Melde mich bei Polarion an.','Bitte melde dich bei Polarion an. Nur lesen.','Melde dich bitte bei Polarion an','Melde dich in Polarion bitte an','Melde bitte mich bei Polarion an','  MELDE   dich\nbei Polarion an  ','Logge dich bei Polarion ein','Bitte logge mich in Polarion ein.','Log in to Polarion','Please sign me in to Polarion','Sign into Polarion']){
+  const b=taskBoundaries(goal);assert.equal(b.authenticate,true,goal);assert.equal(b.externalWrite,false,goal);assert.equal(b.execute,false,goal)
+ }
+})
+test('login mentions, status questions, incomplete verbs and negation do not grant authentication',()=>{
+ for(const goal of ['Melde dich bei Polarion nicht an','Bitte melde dich nicht bei Polarion an','Melde dich bei Polarion an ohne Anmeldung','Logge dich nicht bei Polarion ein','Do not log in to Polarion','Never sign in to Polarion','Wie melde ich mich bei Polarion an?','Bin ich bei Polarion angemeldet?','Erkläre: melde dich bei polarion an','Erkläre „melde dich bei polarion an“.','"Melde dich bei Polarion an"','`log in to Polarion`','Melde dich bei Polarion','Melde dich bei Atlas an','Logge dich bei Polarion','Sign in to Atlas'])assert.equal(taskBoundaries(goal).authenticate,false,goal)
+})
