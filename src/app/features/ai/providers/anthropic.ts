@@ -1,4 +1,5 @@
 import {anthropicOutputSchema} from '@/shared/ai/anthropic-schema'
+import {claudeUnicodeMiddleware} from '@/shared/ai/anthropic-unicode'
 import {centralTransport,centralAI} from '../core/centralAI'
 import {taskInputOf} from '../core/gate'
 import {createTaskContract,TASK_QUESTION,sourceReadMissing,sourceReadFailure,SOURCE_READ_REPAIR} from '../core/taskContract'
@@ -113,7 +114,7 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
   }
   if (!cached || cached.key !== apiKey) {
     const Anthropic = sdk.default
-    cached = { key: apiKey, client: new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, middleware: [wireMiddleware] }) }
+    cached = { key: apiKey, client: new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, middleware: [claudeUnicodeMiddleware,wireMiddleware] }) }
   }
   return { client: cached.client, sdk }
 }
@@ -121,7 +122,7 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
 /** Resolve a centrally managed connection before opening any personal vault key. */
 async function configuredClient(): Promise<{client:AnthropicSDK;sdk:SDKModule;maxRetries?:0}> {
   const central=await centralTransport()
-  if(central){const sdk=await loadSDK();return {sdk,maxRetries:0,client:new sdk.default({apiKey:'central-managed',dangerouslyAllowBrowser:true,maxRetries:0,fetch:central.fetch,middleware:[wireMiddleware]})}}
+  if(central){const sdk=await loadSDK();return {sdk,maxRetries:0,client:new sdk.default({apiKey:'central-managed',dangerouslyAllowBrowser:true,maxRetries:0,fetch:central.fetch,middleware:[claudeUnicodeMiddleware,wireMiddleware]})}}
   const key=await getAIKey('anthropic')
   if(!key)throw new AIError('no_key')
   return getClient(key)
