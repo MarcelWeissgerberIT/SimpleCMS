@@ -141,3 +141,12 @@ test('Kai ticket request with explicit /KI prefix and common typo recognizes the
  for(const goal of ['/KI Bitte die Ticets im Atlas entsprecehd des Seiteninhalstes anlegen.','Bitte die Tickets im Atlas entsprechend des Seiteninhaltes anlegen.','Please create the tickets in Atlas.'])assert.equal(taskBoundaries(goal).externalWrite,true,goal)
  for(const goal of ['/KI Bitte die Ticets nicht im Atlas anlegen.','Erkläre den Satz „Bitte die Ticets in Atlas anlegen“.','Only read. Please create the tickets in Atlas.'])assert.equal(taskBoundaries(goal).externalWrite,false,goal)
 })
+
+test('Kai confirmed-risk follow-up permits only the explicit ticket write through the compiled gate',()=>{
+ const goal='/KI Risikoklasse "C" ist bestätigt. Bitte ein Ticket für T1 erstellen und mit einem klickbaren Link bestätigen.'
+ const bounds=taskBoundaries(goal)
+ const c={...contract(),goal,read_only:bounds.readOnly,external_write:bounds.externalWrite,execute:bounds.execute}
+ assert.equal(check({contract:c,phase:'dispatch',tool:'write',effect:'write'}).decision,'allow')
+ assert.equal(check({contract:c,phase:'dispatch',tool:'execute',effect:'execute'}).decision,'block')
+ assert.equal(check({contract:c,phase:'dispatch',tool:'write',effect:'write',evidence:{...evidence(),pending_decisions:1}}).decision,'block')
+})
