@@ -2,6 +2,7 @@ import {ATLAS_CODE_READ_TOOLS,readCodeCitation,type AtlasCodeCitation} from './a
 import {type QuantumProof} from '../quandprofile/runtime.ts'
 /** Run-local facts from tool responses. Model prose, discovery and document bodies cannot mint facts. */
 export type AtlasReceipt = {
+  authentication?: { url: string }
   code?:{citation:AtlasCodeCitation;verified:boolean}
   quantum?: QuantumProof
   server?: string
@@ -55,6 +56,19 @@ export function atlasData(raw: unknown): Record<string, any> | null {
   } catch { return null }
 }
 
+/** Only a structured Polarion response can produce an automatic sign-in action. */
+export function polarionSignInUrl(tool: string, data: Record<string, any> | null): string | undefined {
+  if (!['atlas_polarion_connect', 'atlas_polarion_status'].includes(tool)) return
+  const interaction = data?.result?.interaction ?? data?.interaction
+  if (interaction?.type !== 'url' || interaction?.purpose !== 'authentication' || typeof interaction.url !== 'string') return
+  try {
+    const url = new URL(interaction.url)
+    if (url.origin !== 'https://aj-atlas.com' || url.username || url.password || url.search || url.hash
+      || !/^\/mcp\/secure-input\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(url.pathname)) return
+    return url.href
+  } catch { return }
+}
+
 export function atlasReceipt(tool: string, raw: unknown, failed = false): AtlasReceipt {
   const data = atlasData(raw), envelope = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return null } })() : raw
   const error = failed || envelope?.isError === true || data?.ok === false || typeof data?.error === 'string'
@@ -89,7 +103,8 @@ export function atlasReceipt(tool: string, raw: unknown, failed = false): AtlasR
   if (tool === 'atlas_agent_flow' && data?.flow === undefined) effect = 'unknown'
   if (['atlas_flow_start','atlas_agent_trigger'].includes(tool) && data?.job?.status !== 'done') effect = 'queued'
   const citation=!error&&['atlas_code_read','atlas_code_verify'].includes(tool)?readCodeCitation(data?.citation):undefined
-  return { ...(citation?{code:{citation,verified:tool==='atlas_code_verify'&&data?.valid===true}}:{}),tool, outcome:error ? 'error' : Number(data?.failed) > 0 ? 'partial' : 'ok', effect, refs:[...refs].slice(0,200), ...(linkedRefs.size?{linkedRefs:[...linkedRefs].slice(0,200)}:{}), ids:[...ids].slice(0,200), counts,
+  const signInUrl = !error ? polarionSignInUrl(tool, data) : undefined
+  return { ...(signInUrl ? {authentication:{url:signInUrl}} : {}), ...(citation?{code:{citation,verified:tool==='atlas_code_verify'&&data?.valid===true}}:{}),tool, outcome:error ? 'error' : Number(data?.failed) > 0 ? 'partial' : 'ok', effect, refs:[...refs].slice(0,200), ...(linkedRefs.size?{linkedRefs:[...linkedRefs].slice(0,200)}:{}), ids:[...ids].slice(0,200), counts,
     ...(typeof data?.person === 'string' ? { person:data.person.slice(0,120) } : {}),
     ...(typeof (data?.job?.status ?? data?.proposal?.status ?? data?.chain?.status) === 'string' ? { status:String(data?.job?.status ?? data?.proposal?.status ?? data?.chain?.status).slice(0,60) } : {}),
     ...(effect === 'write_accepted' ? { verification:'not_checked' as const } : {}) }

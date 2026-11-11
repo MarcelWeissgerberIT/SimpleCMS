@@ -1,3 +1,4 @@
+import { PolarionSignIn } from './PolarionSignIn'
 import {WorkflowRepair} from '../workflow/WorkflowRepair'
 import {RunPreflight} from '../workflow/RunPreflight'
 import {oneActivity} from '../workflow/activity'
@@ -773,6 +774,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           </li>
         )}
       </ol>
+      <PolarionSignIn steps={steps}/>
       {live && (
         <div className="term-live">
           <MarkdownLite source={live} />
