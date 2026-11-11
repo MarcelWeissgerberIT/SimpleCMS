@@ -58,6 +58,8 @@ for(const goal of [
   'Polarion "nicht" anmelden','Polarion „nicht“ anmelden','Please "never" reconnect to Polarion',
   'melde dich bei Atlas an','login to Salesforce','Please reconnect to PolarionX',
   'Please reconnect to Polarion on behalf of another user',
+  'Falls ich zustimme, dann Polarion anmelden','If I approve then reconnect to Polarion',
+  'Erkläre den Ablauf und Polarion anmelden','Explain the steps and log in to Polarion',
 ])test(`No login authority from mention or restriction: ${goal}`,()=>{
   assert.equal(taskBoundaries(goal).authenticate,false)
 })

@@ -40,6 +40,12 @@ export function polarionAuthenticationIntent(goal:string):{requested:boolean;oth
     // Keep a marker: removing a quote entirely could join its neighbours into a command.
     .replace(/["“„`][^"“”„`]*["”`]|‘[^’]*’|(?<![\p{L}\p{N}])'[^']*'(?![\p{L}\p{N}])/gu,' [quoted] ')
     .replace(/’/gu,"'").replace(/\s+/gu,' ')
+  // A trailing "then sign in" must not detach from an unresolved condition or
+  // a request to explain steps. Splitting conjunctions cannot manufacture consent.
+  if (/\b(?:if|unless|wenn|falls)\b/u.test(text)
+    || /^\s*(?:bitte |please )?(?:erkläre|erklaere|explain|beschreibe|describe|wie|how)\b/u.test(text)) {
+    return {requested:false,otherInstructions:text}
+  }
   const clauses=text.split(/[.!?;]\s*|\s+(?:und|and|dann|then)(?:\s+(?:dann|then))?\s+/u)
   let requested=false
   const otherInstructions=clauses.filter(clause=>{
