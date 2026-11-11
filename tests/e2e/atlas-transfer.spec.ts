@@ -21,6 +21,31 @@ test.describe('Source and effect validation',()=>{
  })
  test.afterEach(async()=>{await fake?.close()})
 
+ for(const repair of [true,false])test('retained source lookup '+(repair?'recovers a wrong path without another server read':'keeps repeated missing sources visibly incomplete'),async({page})=>{
+  const body='Original retained requirement.\n'+'Evidence text.\n'.repeat(700)
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,title:'Retained requirement',body}})}
+  let n=0
+  fake.onText=r=>{
+   const step=n++,id=JSON.stringify(r.messages).match(/mcp-result-[a-f0-9]+-\d+/)?.[0]
+   const calls=[{name:'one_mcp_search',arguments:{query:'atlas_get'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_get',arguments:{ref:42}}},{name:'one_mcp_read_result',arguments:{result_id:id,path:'/wrong/path'}},{name:'one_mcp_read_result',arguments:{result_id:id,path:repair?'':'/still/wrong'}},{name:'one_mcp_read_result',arguments:{result_id:id,path:repair?'/item/body':'/missing/again'}}]
+   const call=calls[step]
+   return{model:r.model,text:call?'':repair?'The retained source says: Original retained requirement.':'The requested source section could not be read.',calls:call?[{id:'lookup-'+step,...call}]:[],inputTokens:200,outputTokens:40,usd:0}
+  }
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`)
+  const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Read Atlas Ref 42 and report the opening sentence. Read only.');await input.press('Enter')
+  await expect(term.locator('.term-head__status')).toHaveText(repair?'Done':'Error',{timeout:25000})
+  expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_get'])
+  const results=(fake.textAsked.at(-1)?.messages??[]).flatMap((m:any)=>{try{return JSON.parse(m.content)}catch{return []}}).filter((b:any)=>b.type==='tool_result')
+  const repairs=results.flatMap((r:any)=>{try{const out=JSON.parse(r.content);return out.code==='source_lookup'?[out]:[]}catch{return []}})
+  expect(repairs).toHaveLength(repair?1:2)
+  for(const feedback of repairs){expect(feedback.externalRequestSent).toBe(false);expect(feedback.retainedSources.items).toHaveLength(1);expect(feedback.retainedSources.items[0].result_id).toMatch(/^mcp-result-/)}
+  if(!repair)expect(results.find((r:any)=>r.tool_use_id==='lookup-4')?.is_error).toBe(true)
+  if(repair)await expect(term).toContainText('Original retained requirement.')
+  else await expect(term.locator('[data-problem="source_cache"]').first()).toBeVisible()
+ })
+
  test('a budget model switch keeps the discovered Atlas tool and executes its pending read once',async({page})=>{
   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,title:'Fixture requirement',body:'Original requirement text.'}})}
   await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test'}))

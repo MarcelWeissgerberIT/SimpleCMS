@@ -64,7 +64,7 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
   const readReuse=new McpReadReuse()
   const discoveryCache=new Map<string,{schemas:DiscoveredMcpTool[];result:string}>()
   const argumentRepairs=new Map<string,number>()
-  let attempts=0
+  let attempts=0,sourceRepairs=0
   const signature=()=>JSON.stringify([useWorkspace.getState().epoch??'local',useCloud.getState().active,useCloud.getState().user?.id,flowSignature(),currentSetup().servers.map(mcpAccessIdentity),useWorkspace.getState().integrations])
   const pinned=signature()
   const results=resultSession?.get(JSON.stringify([pinned,servers]))??new McpResults()
@@ -81,7 +81,16 @@ export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|un
     if(name==='one_mcp_read_result'||name==='one_mcp_find_result'||name==='one_mcp_list_results'){
       const activity:McpCall={id,server:'MCP',tool:name,arg:String(args.path??''),display:activityNames.describe('MCP',name,args),state:'run'};event(activity)
       const read=()=>name==='one_mcp_list_results'?results.catalogue(args):name==='one_mcp_find_result'?results.find(args):results.read(args)
-      try{const result=audit?await audit.tool('MCP',name,args,read):read();event({...activity,state:'ok'});return result}catch(e){if(e instanceof LiveAuditError)throw e;const error='Source page unavailable. Use one_mcp_list_results to find retained sources, then a returned result_id, path and next_offset.';event({...activity,state:'err',error});throw new AIError('mcp',error)}
+      try{const result=audit?await audit.tool('MCP',name,args,read):read();event({...activity,state:'ok'});return result}catch(e){
+        if(e instanceof LiveAuditError)throw e
+        const error='Retained source lookup failed. Use a listed result_id, read its root with path "", then use the returned path and next_offset. If the source is absent, make a fresh permitted read or report the gap. This local lookup sent no server request.'
+        // Keep the failure visible until a real successful lookup resolves it.
+        // At most two bounded indexes help repair stale IDs/paths without
+        // downloading sources again or replaying any external operation.
+        event({...activity,state:'err',error})
+        if(sourceRepairs++<2)return JSON.stringify({isError:true,code:'source_lookup',externalRequestSent:false,error,retainedSources:JSON.parse(results.catalogue())})
+        throw new AIError('mcp',error)
+      }
     }
     if(!workerOnline()&&!cloudAtlasMcpReady(servers))throw new AIError('capability','features.ai.local.mcpWorker')
     if(name==='one_mcp_search'){

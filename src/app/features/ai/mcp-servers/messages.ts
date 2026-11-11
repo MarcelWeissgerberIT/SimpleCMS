@@ -24,6 +24,8 @@ export const messages: Messages = {
     'features.ai.connection.task_boundary.title': 'Action blocked before it was sent',
     'features.ai.connection.task_boundary.next': 'Check the task scope and any unanswered question in this run. This call sent no external request. A new sign-in will not resolve a task-scope restriction.',
     'features.ai.connection.source_missing.title': 'File missing from the selected repository snapshot',
+    'features.ai.connection.source_cache.title': 'Section in retained sources could not be read',
+    'features.ai.connection.source_cache.next': 'Ask ONE to find the section in the sources already loaded. If the source is no longer retained, request a fresh read of that source. Already read content remains usable; missing sections remain unverified.',
     'features.ai.connection.source_missing.next': 'Search the file list in the same repository and snapshot. Use the exact returned path, or record the source as missing. Other successful reads remain usable.',
     'features.ai.connection.unknown.next': 'Open the failed call to see which connection and action were affected. Check the connection before trying again.',
 
@@ -123,6 +125,8 @@ export const messages: Messages = {
     'features.ai.connection.task_boundary.title': 'Aktion vor dem Absenden blockiert',
     'features.ai.connection.task_boundary.next': 'Prüfe den Auftragsumfang und eine eventuell offene Rückfrage in diesem Lauf. Dieser Aufruf hat keine externe Anfrage gesendet. Eine neue Anmeldung behebt keine Einschränkung des Auftrags.',
     'features.ai.connection.source_missing.title': 'Datei im gewählten Repository-Stand nicht gefunden',
+    'features.ai.connection.source_cache.title': 'Abschnitt in geladenen Quellen konnte nicht gelesen werden',
+    'features.ai.connection.source_cache.next': 'Lass ONE den Abschnitt in den bereits geladenen Quellen suchen. Falls die Quelle nicht mehr vorliegt, fordere einen neuen Leseabruf dieser Quelle an. Bereits gelesene Inhalte bleiben nutzbar; fehlende Abschnitte bleiben ungeprüft.',
     'features.ai.connection.source_missing.next': 'Suche in der Dateiliste desselben Repositorys und Snapshots. Verwende den exakt gefundenen Pfad oder halte die Quelle als fehlend fest. Andere erfolgreiche Abrufe bleiben nutzbar.',
     'features.ai.connection.unknown.next': 'Öffne den fehlgeschlagenen Aufruf, um die betroffene Verbindung und Aktion zu sehen. Prüfe die Verbindung vor einem neuen Versuch.',
 
