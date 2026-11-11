@@ -1,11 +1,12 @@
 /** Classify without echoing raw errors, URLs or credentials into guidance. */
-export type ConnectionProblem = 'tls' | 'auth' | 'permission' | 'timeout' | 'network' | 'worker' | 'identity' | 'policy' | 'tools' | 'schema' | 'response' | 'limit' | 'query' | 'rate' | 'server' | 'source_missing' | 'task_boundary' | 'unknown'
+export type ConnectionProblem = 'tls' | 'auth' | 'permission' | 'timeout' | 'network' | 'worker' | 'identity' | 'policy' | 'tools' | 'schema' | 'response' | 'limit' | 'query' | 'rate' | 'server' | 'source_missing' | 'source_cache' | 'task_boundary' | 'unknown'
 export function connectionProblem(error: unknown): ConnectionProblem {
   const e = error as { message?: unknown; detail?: unknown; code?: unknown; status?: unknown; cause?: { code?: unknown } } | null
   const text = (typeof error === 'string' ? error : [e?.message, e?.detail, e?.code, e?.status, e?.cause?.code].filter(v => typeof v === 'string' || typeof v === 'number').join(' ')).toLowerCase()
   // Prefer transport status over prose, including guidance that mentions an invalid token only to exclude it.
   if (e?.status === 401) return 'auth'
   if (e?.status === 403) return 'permission'
+  if (/retained source lookup failed|source page unavailable|source_lookup/.test(text)) return 'source_cache'
   if (/(?:path|file) not found in (?:this|the selected) snapshot|datei.{0,30}(?:snapshot|repository-stand).{0,20}nicht gefunden/.test(text)) return 'source_missing'
   if (/compiled task blocked|compiled task binding|human selected atlas delivery mode|task_boundary/.test(text)) return 'task_boundary'
   if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text)) return 'tls'
@@ -48,6 +49,7 @@ export function mcpConnectionMessage(error:unknown, phase:'discovery'|'call'='di
     server:'MCP server returned a server error (5xx). The failed call has no verified result; check already accepted writes before retrying.',
     task_boundary:'The current task blocks this operation before dispatch. Inspect the task scope and unresolved decision; no external request was sent for this call.',
     source_missing:'Path not found in the selected snapshot. List or search files in the same repository and snapshot, then read the exact returned path. Keep this source gap visible; do not infer missing content or repeat the same path unchanged.',
+    source_cache:'Retained source lookup failed. List retained sources, read the selected result root, then use its returned paths and offsets. If absent, make a fresh permitted read or report the gap. This local lookup sent no server request.',
     unknown:`MCP ${phase} failed without a classified cause. This call has no verified source result. Inspect its request and receipt before retrying.`,
   }
   return details[problem]

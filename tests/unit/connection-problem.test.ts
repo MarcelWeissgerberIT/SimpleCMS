@@ -43,3 +43,14 @@ test('pre-dispatch task restrictions are distinct from provider policy and authe
  assert.equal(connectionProblem('A data policy blocks the selected MCP destination or tool.'),'policy')
  assert.match(mcpConnectionMessage('Compiled task blocked this action.'),/no external request was sent/)
 })
+
+test('retained source lookup errors preserve their category without requesting connection changes',()=>{
+ for(const raw of ['Source page unavailable. Use one_mcp_list_results.','Retained source lookup failed. private-source-secret']){
+  assert.equal(connectionProblem(raw),'source_cache')
+  const safe=mcpConnectionMessage(raw,'call')
+  assert.equal(connectionProblem(safe),'source_cache')
+  assert.match(safe,/returned paths and offsets/)
+  assert.doesNotMatch(safe,/private-source-secret|token|sign-in|worker unavailable/i)
+  assert.equal(connectionProblem({status:403,message:raw}),'permission')
+ }
+})
