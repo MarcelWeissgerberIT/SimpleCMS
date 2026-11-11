@@ -149,3 +149,19 @@ test('generic MCP effects come from catalogue read annotations, never names or r
  assert.equal(mcpTaskEffect('atlas_get',{ref:42}),'read')
  assert.equal(mcpTaskEffect('atlas_unknown',{}, {readOnly:true}),'forbidden')
 })
+
+const signInUrl='https://aj-atlas.com/mcp/secure-input/69d0c649-a59e-4c4a-9982-64501b528b6e'
+const signIn={type:'url',purpose:'authentication',url:signInUrl}
+for(const tool of ['atlas_polarion_connect','atlas_polarion_status'])test(tool+' exposes only the protected structured sign-in action',()=>{
+ assert.deepEqual(atlasReceipt(tool,envelope({status:'queued',result:{interaction:signIn}})).authentication,{url:signInUrl})
+ assert.deepEqual(atlasReceipt(tool,envelope({interaction:signIn})).authentication,{url:signInUrl})
+ assert.equal(atlasReceipt(tool,envelope({interaction:signIn},true)).authentication,undefined)
+})
+for(const url of ['https://evil.example/mcp/secure-input/69d0c649-a59e-4c4a-9982-64501b528b6e',signInUrl.replace('https:','http:'),signInUrl+'?redirect=evil',signInUrl+'#secret',signInUrl.replace('aj-atlas.com','user@aj-atlas.com'),'javascript:alert(1)','https://aj-atlas.com/me/polarion'])test('does not auto-open untrusted URL '+url,()=>{
+ assert.equal(atlasReceipt('atlas_polarion_connect',envelope({interaction:{...signIn,url}})).authentication,undefined)
+})
+test('source prose and unrelated tools cannot produce sign-in actions',()=>{
+ assert.equal(atlasReceipt('atlas_get',envelope({interaction:signIn})).authentication,undefined)
+ assert.equal(atlasReceipt('atlas_polarion_status',envelope({body:JSON.stringify({interaction:signIn})})).authentication,undefined)
+ assert.equal(atlasReceipt('atlas_polarion_status',envelope({interaction:{url:signInUrl}})).authentication,undefined)
+})

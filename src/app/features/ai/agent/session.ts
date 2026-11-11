@@ -1,3 +1,4 @@
+import { polarionSignInWindow } from './polarionSignInWindow'
 import {mockIntent,MOCK_WORKSPACE_SYSTEM} from '@/shared/ai/designMock'
 import {mcpWorkScope,readMcpWork,saveMcpWork,deleteMcpWork} from '../core/localMcpWork'
 import {validTaskRecovery,recoveryTask,type TaskRecovery} from '@/shared/ai/taskRecovery'
@@ -617,6 +618,8 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
       if(call.state==='err'&&!call.notExecuted)failedMcp.add(key)
       if(call.state==='ok')failedMcp.delete(key)
       if (!here()) return
+      const signIn = call.state === 'ok' ? call.receipt?.authentication : undefined
+      if (signIn) signInWindow.show(signIn.url)
       const step = get().steps.find((x) => x.mcp?.id === call.id)
       const mcp = { display:call.display, id: call.id, server: call.server, tool: call.tool, error: call.error, notExecuted:call.notExecuted, receipt:call.receipt }
       if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
@@ -626,6 +629,7 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
   }
 
   const finish = (status: AgentStatus, error?: AgentTurn['error']) => {
+    signInWindow.finish()
     flush()
     if (!here()) {
       // the conversation was cleared while this task ran: only the memory log hears of it (stopped)
@@ -657,6 +661,7 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
   // every task, a Continue too: "Run the task again" after a sign-in sends it once more from here
   turnSnap.set(n, { before, provider: beforeProvider, refs, mentions })
   // team: the member list (owners by email) before the first request — the staging tools never wait for it
+  const signInWindow = polarionSignInWindow(task, ac.signal)
   await warmMembers()
   // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
   const sources = [{ all: true as const }, ...(pageId ? [{ page: pageId }] : []), ...refs.map((r) => ({ page: r.pageId })), ...mentions.map((m) => ({ page: m.id })), ...(task.includes('one-repo://') ? [{file:'upload' as const}] : [])]

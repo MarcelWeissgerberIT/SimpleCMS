@@ -156,7 +156,7 @@ function parse(src: string): Block[] {
   return out
 }
 
-const INLINE_RE = /(\[\[[^\]\n]+\]\]|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|\*[^*\n]+\*|_[^_\n]+_)/g
+const INLINE_RE = /(https?:\/\/[^\s<>`*\[\]()]+|\[\[[^\]\n]+\]\]|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|\*[^*\n]+\*|_[^_\n]+_)/g
 
 function inline(text: string, resolve: Props['resolveCitation'], keyBase: string): ReactNode[] {
   const out: ReactNode[] = []
@@ -168,7 +168,11 @@ function inline(text: string, resolve: Props['resolveCitation'], keyBase: string
     if (at > last) out.push(text.slice(last, at))
     last = at + tok.length
     const key = `${keyBase}-${k++}`
-    if (tok.startsWith('[[')) {
+    if (/^https?:\/\//i.test(tok)) {
+      const href = tok.replace(/[.,;:!?]+$/, '')
+      out.push(<a key={key} href={href} target="_blank" rel="noopener noreferrer">{href}</a>)
+      if (href.length < tok.length) out.push(tok.slice(href.length))
+    } else if (tok.startsWith('[[')) {
       const title = tok.slice(2, -2)
       const c = resolve?.(title)
       out.push(

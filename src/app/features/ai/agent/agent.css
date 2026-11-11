@@ -2601,3 +2601,9 @@
 .term-activity__elapsed {display:block;color:var(--ink-2);font-size:10px;margin-top:3px;}
 .term-activity__execution small {font-size:10px;color:var(--ink-2);}
 @media(max-width:640px){.term-head{gap:4px;}.term-head__title{font-size:10px;}.term-head__options:not([hidden]){gap:6px;}.term-activity{max-height:180px;}}
+
+.term-sign-in { margin: 16px 0; padding: 18px; border: 1px solid currentColor; border-left: 4px solid var(--accent, #ff5a00); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.term-sign-in > div { flex: 1 1 280px; min-width: 0; }
+.term-sign-in p { margin: 8px 0 0; }
+.term-sign-in small { flex-basis: 100%; opacity: .75; }
+.term-sign-in a { white-space: normal; }
