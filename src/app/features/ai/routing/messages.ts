@@ -8,7 +8,11 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
-    'features.ai.task.waiting': 'This request is waiting for your answer. Bind it to continue the same run.',
+    'features.ai.task.attention': 'Your answer is needed',
+    'features.ai.task.awaiting': 'Waiting for you',
+    'features.ai.task.answerNow': 'Answer now',
+    'features.ai.task.choiceHint': 'Selecting an option sends that answer and continues this task.',
+    'features.ai.task.waiting': 'The task is paused until you answer. Choose an option or enter your own answer below.',
     'features.ai.task.closed': 'The previous run has ended. Your answer can be prepared as a new request; current sources and existing changes must be checked again. Nothing starts automatically.',
     'features.ai.task.recover': 'Prepare answer as a new request',
 
@@ -451,8 +455,8 @@ export const messages: Messages = {
     "features.ai.task.decision": "Your decision is needed",
     "features.ai.task.depends": "Dependent step:",
     "features.ai.task.sources": "Source inspection attempted (a failure is not evidence of absence):",
-    "features.ai.task.answer": "Your specification",
-    "features.ai.task.resume": "Bind answer and continue",
+    "features.ai.task.answer": "Your answer",
+    "features.ai.task.resume": "Send answer and continue",
     "features.ai.task.stale": "This task is no longer active here. Continue in the current workspace.",
     "features.ai.task.limit": "Checks cover the task boundary, actual tool observations and output format. Domain meaning and completeness still need human review. A checked source can also be unavailable.",
     "features.ai.task.accept": "I reviewed the result",
@@ -706,7 +710,11 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
-    'features.ai.task.waiting': 'Dieser Auftrag wartet auf deine Antwort. Binde sie, um denselben Lauf fortzusetzen.',
+    'features.ai.task.attention': 'Deine Antwort wird benötigt',
+    'features.ai.task.awaiting': 'Wartet auf dich',
+    'features.ai.task.answerNow': 'Jetzt antworten',
+    'features.ai.task.choiceHint': 'Mit einem Klick auf eine Option sendest du diese Antwort und setzt den Auftrag fort.',
+    'features.ai.task.waiting': 'Der Auftrag pausiert, bis du antwortest. Wähle eine Option oder schreibe unten deine eigene Antwort.',
     'features.ai.task.closed': 'Der vorige Lauf ist beendet. Du kannst deine Antwort als neuen Auftrag vorbereiten; aktuelle Quellen und vorhandene Änderungen werden erneut geprüft. Es startet nichts automatisch.',
     'features.ai.task.recover': 'Antwort als neuen Auftrag vorbereiten',
 
@@ -1149,8 +1157,8 @@ export const messages: Messages = {
     "features.ai.task.decision": "Deine Entscheidung wird gebraucht",
     "features.ai.task.depends": "Abhängiger Schritt:",
     "features.ai.task.sources": "Quellenprüfung versucht (ein Fehler beweist keine Abwesenheit):",
-    "features.ai.task.answer": "Deine Spezifikation",
-    "features.ai.task.resume": "Antwort binden und fortsetzen",
+    "features.ai.task.answer": "Deine Antwort",
+    "features.ai.task.resume": "Antwort senden und fortsetzen",
     "features.ai.task.stale": "Dieser Auftrag ist hier nicht mehr aktiv. Fahre im aktuellen Workspace fort.",
     "features.ai.task.limit": "Geprüft werden Auftragsgrenzen, echte Werkzeugbeobachtungen und das Ausgabeformat. Fachliche Bedeutung und Vollständigkeit brauchen eure Prüfung. Eine geprüfte Quelle kann auch nicht erreichbar sein.",
     "features.ai.task.accept": "Ergebnis von mir geprüft",

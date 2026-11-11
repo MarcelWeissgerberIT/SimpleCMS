@@ -13,6 +13,16 @@ Drück <kbd>Mod+J</kbd> (oder ⌘K → *KI-Terminal*, oder **KI** in der Statusl
 2. Claude durchsucht und liest deine Seiten und Datenbanken; die Antwort läuft live ein, jeder Tool-Aufruf ist eine Zeile im Protokoll (`→ search_pages "Delta"`, `✓ create_row … vorgemerkt #2`).
 3. Änderungen werden **vorgeschlagen**, nicht geschrieben: neue Seiten, Einträge, Datenbanken und Eigenschaften, geänderte Werte und Titel landen in einer Prüfliste. Einzeln übernehmen, **Alle übernehmen** (<kbd>Mod+Enter</kbd> oder `/übernehmen`) oder verwerfen. Ein **Rückgängig** nimmt einen übernommenen Stapel zurück.
 
+## Große Aufträge aufteilen
+
+Bei umfangreichen Repository-Analysen bietet das Terminal **Auftrag in 4 Schritte aufteilen** an: Überblick, ein Feature am Code prüfen, belegte Requirements formulieren und geprüfte Teile zusammenführen. **Schritt vorbereiten** setzt nur einen bearbeitbaren Entwurf ins Eingabefeld. Erst **Starten** führt ihn aus. Der ursprüngliche Auftrag lässt sich wiederherstellen.
+
+Für Polarion-Exporte lautet die Reihenfolge: Quellen festlegen → native PDF aus Polarion exportieren → Original als Anhang in ONE ablegen → auf ausdrücklichen Wunsch nach Atlas übertragen. Suchtreffer und KI-Zusammenfassungen ersetzen keine Original-PDF. Ist kein Export- oder Upload-Werkzeug verfügbar, bleibt dieser Schritt offen; die PDF kann in Polarion exportiert und an ONE angehängt werden.
+
+## Wenn eine Antwort von dir fehlt
+
+**Deine Antwort wird benötigt** bleibt über dem Protokoll sichtbar. **Jetzt antworten** führt zur konkreten Frage. Eine angebotene Option sendet deine Antwort sofort; alternativ kannst du eine eigene Antwort eingeben und **Antwort senden und fortsetzen** wählen. Solange du nicht antwortest, pausiert der abhängige Schritt. Die Anzeige unterscheidet dieses Warten von einem technischen Fehler.
+
 ## BA und PO · Anforderungen prüfen
 
 Öffne die Seite mit dem tatsächlichen Sachverhalt und starte im Terminal **`/ba S9`** oder **`/po S9`**. Ohne Zusatz analysiert `/ba` die geöffnete Seite. Ein Ticketkürzel wie S9 muss genau eine vorhandene Überschrift treffen; ONE begrenzt dann die Quellen auf diesen Abschnitt. Freier Text wie `/ba Zeitstempel-Präzision` beschreibt ein Thema für die gesamte Seite.

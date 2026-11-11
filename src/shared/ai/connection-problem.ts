@@ -1,11 +1,13 @@
 /** Classify without echoing raw errors, URLs or credentials into guidance. */
-export type ConnectionProblem = 'tls' | 'auth' | 'permission' | 'timeout' | 'network' | 'worker' | 'identity' | 'policy' | 'tools' | 'schema' | 'response' | 'limit' | 'query' | 'rate' | 'server' | 'unknown'
+export type ConnectionProblem = 'tls' | 'auth' | 'permission' | 'timeout' | 'network' | 'worker' | 'identity' | 'policy' | 'tools' | 'schema' | 'response' | 'limit' | 'query' | 'rate' | 'server' | 'source_missing' | 'task_boundary' | 'unknown'
 export function connectionProblem(error: unknown): ConnectionProblem {
   const e = error as { message?: unknown; detail?: unknown; code?: unknown; status?: unknown; cause?: { code?: unknown } } | null
   const text = (typeof error === 'string' ? error : [e?.message, e?.detail, e?.code, e?.status, e?.cause?.code].filter(v => typeof v === 'string' || typeof v === 'number').join(' ')).toLowerCase()
   // Prefer transport status over prose, including guidance that mentions an invalid token only to exclude it.
   if (e?.status === 401) return 'auth'
   if (e?.status === 403) return 'permission'
+  if (/(?:path|file) not found in (?:this|the selected) snapshot|datei.{0,30}(?:snapshot|repository-stand).{0,20}nicht gefunden/.test(text)) return 'source_missing'
+  if (/compiled task blocked|compiled task binding|human selected atlas delivery mode|task_boundary/.test(text)) return 'task_boundary'
   if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text)) return 'tls'
   if (/\b401\b|\bmcp_auth\b/.test(text)) return 'auth'
   if (/\b403\b|mcp_permission|permission (?:denied|refused)|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text)) return 'permission'
@@ -44,6 +46,8 @@ export function mcpConnectionMessage(error:unknown, phase:'discovery'|'call'='di
     query:'The connected service rejected the search query. Check the query syntax, supported filters and actual tool schema; preserve the requested tenant and project scope.',
     rate:'MCP rate limit reached. Wait before explicitly retrying a read; do not automatically repeat writes.',
     server:'MCP server returned a server error (5xx). The failed call has no verified result; check already accepted writes before retrying.',
+    task_boundary:'The current task blocks this operation before dispatch. Inspect the task scope and unresolved decision; no external request was sent for this call.',
+    source_missing:'Path not found in the selected snapshot. List or search files in the same repository and snapshot, then read the exact returned path. Keep this source gap visible; do not infer missing content or repeat the same path unchanged.',
     unknown:`MCP ${phase} failed without a classified cause. This call has no verified source result. Inspect its request and receipt before retrying.`,
   }
   return details[problem]

@@ -165,3 +165,41 @@ test('source prose and unrelated tools cannot produce sign-in actions',()=>{
  assert.equal(atlasReceipt('atlas_polarion_status',envelope({body:JSON.stringify({interaction:signIn})})).authentication,undefined)
  assert.equal(atlasReceipt('atlas_polarion_status',envelope({interaction:{url:signInUrl}})).authentication,undefined)
 })
+
+test('EARS requirements do not claim assistant writes, in German or English',()=>{
+ const facts=new AtlasFacts();observe(facts,'atlas_search',{items:[{ref:42}]})
+ for(const draft of [
+  'Wenn eine Änderung an einer freigegebenen SOP gespeichert wird, soll die Anwendung die SOP wieder in den Status Entwurf setzen.',
+  'When an approved procedure is updated, the application shall set its status to Draft.',
+  'Wenn ein Datensatz angelegt wird, muss das System einen Zeitstempel setzen.',
+  'When a record is created, the system must store a timestamp.',
+  'The system shall show saved changes. No changes saved.',
+ ])assert.deepEqual(facts.check(draft),[],draft)
+ for(const draft of ['Ich habe die Seite erstellt.','I have saved the changes.','Die Seite wurde erstellt. Das System soll starten.','No records were created. I saved the changes.','Es wurde nichts gespeichert. Ich habe die Seite erstellt.','I have created the page with the requirements the system shall fulfil.'])assert.ok(facts.check(draft).some(i=>i.kind==='effect'),draft)
+})
+test('correction keeps cumulative read metadata and staged proposals beyond the recent receipt excerpt',()=>{
+ const facts=new AtlasFacts();facts.noteDiscovery('atlas',true)
+ const citation={repo:'repo-a',snapshot:'snapshot-a',commit:'a'.repeat(40),path:'src/first.ts',lines:[5,12],digest:'d'.repeat(64)}
+ observe(facts,'atlas_code_read',{citation,text:'private-source-body'})
+ for(let i=0;i<40;i++)observe(facts,'atlas_record_kinds',{kinds:[]})
+ facts.noteOtherWrite()
+ const issues=facts.check('ONE-Seite erstellt. Ref: 999.')
+ assert.deepEqual(issues.map(i=>i.kind),['reference'])
+ const repair=facts.repair(issues),packet=JSON.parse(repair.slice(repair.lastIndexOf('\n')+1))
+ assert.equal(packet.stagedOneChanges,true);assert.equal(packet.recentReceiptsOnly,true)
+ assert.equal(packet.sourceChecks[0].contentRead,true)
+ assert.deepEqual(packet.codeReads,[citation])
+ assert.ok(packet.observedCalls.some((r:any)=>r.tool==='atlas_code_read'&&r.ok===1))
+ assert.equal(packet.receipts.length,8)
+ assert.match(repair,/not infer that a source was not read/)
+ assert.doesNotMatch(repair,/private-source-body/)
+})
+test('recovery explains verification gaps without dumping JSON or losing successful reads',()=>{
+ const facts=new AtlasFacts();observe(facts,'atlas_get',{item:{ref:42,body:'source body'}})
+ observe(facts,'atlas_code_read',{error:'Path not found in this snapshot.'},{},true)
+ facts.noteOtherWrite();facts.check('Ref: 999.')
+ const fallback=facts.fallback({heading:'Verification open',failed:'Failed',issues:{reference:'Unconfirmed reference'},staged:'Existing proposal is staged'})
+ assert.match(fallback,/Unconfirmed reference/);assert.match(fallback,/Existing proposal is staged/)
+ assert.match(fallback,/atlas_get: Read.*42/);assert.match(fallback,/atlas_code_read: Failed/)
+ assert.doesNotMatch(fallback,/"outcome"|source body|999/)
+})

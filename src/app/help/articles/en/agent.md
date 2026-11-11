@@ -13,6 +13,16 @@ Press <kbd>Mod+J</kbd> (or ⌘K → *AI terminal*, or **AI** in the status bar).
 2. Claude searches and reads your pages and databases; the answer streams in, and every tool call is one line in the log (`→ search_pages "Delta"`, `✓ create_row … staged #2`).
 3. Changes are **proposed**, not written: new pages, rows, databases and properties, changed values and titles land in a review list. Apply them one by one, **Apply all** (<kbd>Mod+Enter</kbd> or `/apply`) or discard them. One **Undo** reverts an applied batch.
 
+## Split a large request
+
+For broad repository analyses, the terminal offers **Split request into 4 stages**: map the sources, inspect one feature, write evidenced requirements, then combine reviewed parts. **Prepare step** puts an editable draft in the input. Only **Run** executes it. You can restore the original request.
+
+For Polarion exports, use: select sources → export the native PDF from Polarion → attach the original in ONE → transfer to Atlas only when explicitly requested. Search hits and AI summaries do not replace the original PDF. If no export or upload tool is available, that step remains open; export the PDF in Polarion and attach it in ONE.
+
+## When your answer is needed
+
+**Your answer is needed** remains visible above the log. **Answer now** takes you to the specific question. Selecting an option sends that answer immediately; alternatively, enter your own answer and choose **Send answer and continue**. The dependent step stays paused until you answer. Waiting for you is shown separately from a technical error.
+
 ## BA and PO · review requirements
 
 Open the page containing the actual facts, then run **`/ba S9`** or **`/po S9`** in the terminal. `/ba` without a focus analyses the open page. An identifier such as S9 must match one real heading; ONE bounds the source catalogue to that section. Free text such as `/ba timestamp precision` supplies a topic for the entire page.

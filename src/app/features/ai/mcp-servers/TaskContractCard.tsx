@@ -23,6 +23,13 @@ export function TaskContractCard({report,historical=false,onRecover}:{report:Tas
   <details open={report.questions.length>0?true:undefined}>
    <summary><span className="label">{t('features.ai.task.title')} · {c.contract_hash.slice(0,12)} · R{c.contract.revision}</span><strong>{t('features.ai.task.phase.'+report.phase)}</strong></summary>
    <div className="task-contract__body">
+    {question&&!historical&&<form className="task-contract__decision" tabIndex={-1} onKeyDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();submit(answer)}}>
+      <h4>{t('features.ai.task.decision')}</h4><p role="status">{t(live?'features.ai.task.waiting':'features.ai.task.closed')}</p><p><strong>{question.question}</strong></p><p>{t('features.ai.task.depends')} {question.neededFor}</p>
+      <p>{t('features.ai.task.choiceHint')}</p><p>{t('features.ai.task.sources')} ONE: {question.sourceChecks.one?'✓':'—'} · Atlas: {question.sourceChecks.atlas?'✓':'—'}</p>
+      {question.options.map((o,i)=><button type="button" className="btn task-contract__option" key={i} onClick={()=>live?submit(o.label+' — '+o.effect):setAnswer(o.label+' — '+o.effect)}><strong>{o.label}</strong><span>{o.effect}</span></button>)}
+      <label>{t('features.ai.task.answer')}<textarea value={answer} maxLength={4000} onChange={e=>setAnswer(e.target.value)} rows={3}/></label><button className="btn btn--primary" disabled={!answer.trim()||(!live&&!onRecover)}>{t(live?'features.ai.task.resume':'features.ai.task.recover')}</button>
+      {error&&<p role="alert">{t('features.ai.task.stale')}</p>}
+    </form>}
     <p>{c.contract.goal}</p>
     {!!report.skills?.length&&<p className="label">{t('features.ai.skills.short')} · {report.skills.map(s=>s.name+' V'+s.version+' · '+s.hash.slice(0,12)+(s.source?' · '+s.source.origin+' · '+s.source.tenant+'/'+s.source.project+' · Ref '+s.source.ref:'')).join(' / ')}</p>}
     {c.contract.review_profile&&<p className="label">{c.contract.review_profile.spec.name} · V{c.contract.review_profile.version} · {c.contract.review_profile.hash.slice(0,12)}</p>}
@@ -33,13 +40,7 @@ export function TaskContractCard({report,historical=false,onRecover}:{report:Tas
     {report.program&&<p className="label">IR · V{report.program.version} · {report.program.hash.slice(0,12)} · {report.program.runId.slice(0,8)}</p>}
     {report.program&&<button className="btn btn--sm" onClick={()=>openPrograms()}>{t('features.ai.program.history')}</button>}
     {question&&historical&&<p><strong>{question.question}</strong><br/>{question.neededFor}</p>}
-    {question&&!historical&&<form className="task-contract__decision" tabIndex={-1} onKeyDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();submit(answer)}}>
-      <h4>{t('features.ai.task.decision')}</h4><p role="status">{t(live?'features.ai.task.waiting':'features.ai.task.closed')}</p><p><strong>{question.question}</strong></p><p>{t('features.ai.task.depends')} {question.neededFor}</p>
-      <p>{t('features.ai.task.sources')} ONE: {question.sourceChecks.one?'✓':'—'} · Atlas: {question.sourceChecks.atlas?'✓':'—'}</p>
-      {question.options.map((o,i)=><button type="button" className="btn task-contract__option" key={i} onClick={()=>live?submit(o.label+' — '+o.effect):setAnswer(o.label+' — '+o.effect)}><strong>{o.label}</strong><span>{o.effect}</span></button>)}
-      <label>{t('features.ai.task.answer')}<textarea value={answer} maxLength={4000} onChange={e=>setAnswer(e.target.value)} rows={3}/></label><button className="btn btn--primary" disabled={!answer.trim()||(!live&&!onRecover)}>{t(live?'features.ai.task.resume':'features.ai.task.recover')}</button>
-      {error&&<p role="alert">{t('features.ai.task.stale')}</p>}
-    </form>}
+
     {report.questions.filter(q=>q.state==='answered').map(q=><p key={q.id}><strong>{q.question}</strong><br/>{q.answer}</p>)}
     <details><summary>{t('features.ai.task.cube')}</summary>
     <QuantumCube dimensions={dimensions} references={references} coreId={c.contract_hash} selected={dimension} onSelect={setDimension} label={t('features.ai.task.cube')}/>
