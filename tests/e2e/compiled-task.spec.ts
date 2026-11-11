@@ -143,7 +143,7 @@ test.describe('Compiled tasks and human decision cube',()=>{
   const wire=host?host.requests.map(r=>r.body):fake.textAsked;expect(JSON.stringify(wire.at(-1))).toContain('oneNotExecuted');expect(JSON.stringify(wire.at(-1))).toContain('without pausing')
  })
 
- for(const goal of ['verbinde dich mit polarion','melde dich bei polarion an'])for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: explicit Polarion authentication (${goal}) dispatches without granting content writes`,async({page})=>{
+ for(const goal of ['verbinde dich mit polarion','melde dich bei polarion an','polarion anmelden','Kannst du mich bitte wieder bei Polarion anmelden? Nur lesen.','Please reconnect me to Polarion. Read only.','Could you log me back in to Polarion?'])for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: explicit Polarion authentication (${goal}) dispatches without granting content writes`,async({page})=>{
   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_polarion_connect',inputSchema:{type:'object',properties:{},additionalProperties:false}}]}:{result:envelope({job:{id:'auth-job-fixture',status:'running'},interaction:{url:'https://atlas.example.org/secure-input/fixture'}})}
   const calls=[{name:'one_mcp_search',arguments:{query:'atlas_polarion_connect'}},{name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_polarion_connect',arguments:{}}}]
   const final='Sign-in started; use the protected link. This is not a successful Polarion read.'
