@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.35.9 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.35.10 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -21338,7 +21338,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.35.9" : "dev";
+var VERSION = true ? "1.35.10" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -21847,8 +21847,8 @@ import { realpath as realpath5 } from "node:fs/promises";
 
 // ../src/shared/mcp/atlasCode.ts
 var ATLAS_CODE_READ_TOOLS = ["atlas_code_repos", "atlas_code_versions", "atlas_code_files", "atlas_code_search", "atlas_code_read", "atlas_code_compare", "atlas_code_verify", "atlas_code_drafts"];
-var guarded = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS.filter((n) => n !== "atlas_code_repos"), "atlas_code_propose"]);
-var codeHumanOnly = (name) => ["atlas_code_review", "atlas_code_repo_create", "atlas_code_repo_update"].includes(name);
+var guarded = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS.filter((n) => n !== "atlas_code_repos"), "atlas_code_propose", "atlas_code_change_save", "atlas_code_change_get", "atlas_code_change_publish"]);
+var codeHumanOnly = (name) => ["atlas_code_change_publish", "atlas_code_review", "atlas_code_repo_create", "atlas_code_repo_update"].includes(name);
 var object3 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 function codeData(raw) {
   try {
@@ -21868,8 +21868,8 @@ function codeData(raw) {
 var AtlasCodePolicyError = class extends Error {
 };
 var codeRefusal = (error2) => ({ isError: true, oneNotExecuted: true, content: [{ type: "text", text: JSON.stringify({ error: error2 }) }] });
-async function guardedAtlasCodeCall(name, args, call, allowed) {
-  if (codeHumanOnly(name)) return codeRefusal("Repository imports, model-switch changes and code-draft reviews require the person to act in Atlas. This agent operation was not executed.");
+async function guardedAtlasCodeCall(name, args, call, allowed, human) {
+  if (codeHumanOnly(name) && !(name === "atlas_code_change_publish" && human === "code-change-publish")) return codeRefusal("Repository imports, model-switch changes and code-draft reviews require the person to act in Atlas. This agent operation was not executed.");
   if (!guarded.has(name)) return call(name, args);
   const repo = name === "atlas_code_verify" ? args.citation && object3(args.citation) ? args.citation.repo : void 0 : args.repo;
   if (typeof repo !== "string" || !repo.trim()) return codeRefusal("An explicit repository identity is required for this Atlas code operation.");
@@ -21918,6 +21918,8 @@ function connectionProblem(error2) {
   const text2 = (typeof error2 === "string" ? error2 : [e?.message, e?.detail, e?.code, e?.status, e?.cause?.code].filter((v) => typeof v === "string" || typeof v === "number").join(" ")).toLowerCase();
   if (e?.status === 401) return "auth";
   if (e?.status === 403) return "permission";
+  if (/(?:path|file) not found in (?:this|the selected) snapshot|datei.{0,30}(?:snapshot|repository-stand).{0,20}nicht gefunden/.test(text2)) return "source_missing";
+  if (/compiled task blocked|compiled task binding|human selected atlas delivery mode|task_boundary/.test(text2)) return "task_boundary";
   if (/certificate|zertifikat|cert_|self.signed|\btls\b|issuer/.test(text2)) return "tls";
   if (/\b401\b|\bmcp_auth\b/.test(text2)) return "auth";
   if (/\b403\b|mcp_permission|permission (?:denied|refused)|access denied|forbidden|fehlende berechtigung|zugriff verweigert/.test(text2)) return "permission";
@@ -21954,6 +21956,8 @@ function mcpConnectionMessage(error2, phase = "discovery") {
     query: "The connected service rejected the search query. Check the query syntax, supported filters and actual tool schema; preserve the requested tenant and project scope.",
     rate: "MCP rate limit reached. Wait before explicitly retrying a read; do not automatically repeat writes.",
     server: "MCP server returned a server error (5xx). The failed call has no verified result; check already accepted writes before retrying.",
+    task_boundary: "The current task blocks this operation before dispatch. Inspect the task scope and unresolved decision; no external request was sent for this call.",
+    source_missing: "Path not found in the selected snapshot. List or search files in the same repository and snapshot, then read the exact returned path. Keep this source gap visible; do not infer missing content or repeat the same path unchanged.",
     unknown: `MCP ${phase} failed without a classified cause. This call has no verified source result. Inspect its request and receipt before retrying.`
   };
   return details[problem];
@@ -40017,7 +40021,7 @@ var strings2 = (v) => object6(v) && Object.values(v).every((s) => typeof s === "
 var expand = (s, env) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => {
   throw new Error("Required MCP environment variable is missing.");
 })());
-var ATLAS_READ = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS, "atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
+var ATLAS_READ = /* @__PURE__ */ new Set([...ATLAS_CODE_READ_TOOLS, "atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list", "atlas_project_list", "atlas_record_kinds", "atlas_graph", "atlas_similar", "atlas_flow_list", "atlas_agent_inbox", "atlas_agent_approvals", "atlas_my_agent_jobs", "atlas_polarion_export_pdf", "atlas_polarion_pdf_chunk", "atlas_polarion_status", "atlas_polarion_resolve", "atlas_polarion_read", "atlas_polarion_inspect", "atlas_polarion_search"]);
 var LocalMcp = class {
   clients = /* @__PURE__ */ new Map();
   tools = [];
@@ -50466,7 +50470,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.35.9" : "dev";
+var VERSION2 = true ? "1.35.10" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
