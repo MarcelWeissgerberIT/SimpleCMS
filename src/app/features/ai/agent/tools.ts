@@ -1,4 +1,5 @@
 import {sourceWindowEnd} from '@/shared/ai/readPlanning'
+import {textExcerpt,searchSnippet} from '@/shared/ai/text-excerpts'
 import {sha256Hex} from '@/shared/mcp/sha256'
 import {currentPageReadBudget} from './toolScope'
 import {TERMINAL_TOOL_CALLS,TERMINAL_MODEL_ROUNDS} from '@/shared/ai/requestLimits'
@@ -97,7 +98,7 @@ export const RESULT_CHARS = 16_000
 export function clipResult(text: string, max = RESULT_CHARS, hint = 'Narrow the request (filters, a smaller limit) to see the rest.'): string {
   if (text.length <= max) return text
   const cut = text.lastIndexOf('\n', max)
-  const end = cut > max * 0.7 ? cut : max
+  const end = textExcerpt(text,0,cut > max * 0.7 ? cut : max).length
   return `${text.slice(0, end)}\n[Truncated: showing ${end.toLocaleString('en')} of ${text.length.toLocaleString('en')} characters. ${hint}]`
 }
 
@@ -199,21 +200,6 @@ function rowFacts(db: Database, row: Page): Record<string, string> {
     if (v) out[prop.name] = v.length > 300 ? `${v.slice(0, 297)}…` : v
   }
   return out
-}
-
-function snippet(text: string, query: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
-  if (!flat) return ''
-  const words = [query, ...query.split(/\s+/)].map((w) => w.toLowerCase()).filter((w) => w.length > 2)
-  const lower = flat.toLowerCase()
-  let at = -1
-  for (const w of words) {
-    at = lower.indexOf(w)
-    if (at >= 0) break
-  }
-  const start = Math.max(0, at < 0 ? 0 : at - 80)
-  const s = flat.slice(start, start + 220)
-  return `${start > 0 ? '…' : ''}${s}${start + 220 < flat.length ? '…' : ''}`
 }
 
 /** The pending staged change that creates a page, row or database with this id, if any. */
@@ -356,7 +342,7 @@ const searchPages: AgentTool = {
       const kind = p ? kindOf(p) : 'page'
       const where = p?.databaseId ? `row of database ${q(titleOf(pages[p.databaseId]))}` : pathOf(h.id) ? `in ${q(pathOf(h.id))}` : 'top level'
       const edited = p ? day(p.updatedAt) : ''
-      const text = snippet(h.text, query)
+      const text = searchSnippet(h.text, query)
       return `- id: ${h.id} · ${kind} · ${q(h.title)} · ${where} · edited ${edited}${text ? `\n  ${text}` : ''}`
     })
     return { content: clipResult(`${hits.length} results for ${q(query)}:\n${lines.join('\n')}`), summary: t('features.agent.res.results', { count: hits.length }), state: 'ok' }
