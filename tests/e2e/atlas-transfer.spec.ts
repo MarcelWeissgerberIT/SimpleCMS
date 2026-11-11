@@ -3,6 +3,7 @@ import {startFakeWorker,type FakeWorker} from './helpers/fakeWorker'
 import {WORKER_CAN} from '../../src/app/features/coding/protocol'
 import {mockClaudeScript,text} from './helpers/providers'
 import {DEFAULT_CLAUDE_MODEL} from '../../src/shared/ai/models'
+import {budget,spend} from './helpers/governor'
 const PORT=47495,LOCAL='atlas-flow:latest',COPILOT='gpt-6.1-sol'
 const envelope=(data:unknown)=>JSON.stringify({content:[{type:'text',text:JSON.stringify(data)}]})
 test.describe('Source and effect validation',()=>{
@@ -19,6 +20,32 @@ test.describe('Source and effect validation',()=>{
   await page.getByRole('tab',{name:/AI$/}).click();await expect(page.getByTestId('worker-model-settings')).toContainText(LOCAL);await expect(page.getByTestId('worker-model-settings')).toContainText(COPILOT);await page.keyboard.press('Escape')
  })
  test.afterEach(async()=>{await fake?.close()})
+
+ test('a budget model switch keeps the discovered Atlas tool and executes its pending read once',async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,title:'Fixture requirement',body:'Original requirement text.'}})}
+  await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test'}))
+  await page.evaluate(async()=>{(window as any).__oneGovernor.acrossThinking(true);await (await (window as any).__oneAI.rules()).setDeviceDefault([{p:'anthropic',m:'claude-opus-5-5'}])})
+  const host=await mockClaudeScript(page,[
+   {blocks:[{type:'tool_use',id:'discover',name:'one_mcp_search',input:{query:'atlas_get'}}],usage:{input:2000,output:100}},
+   {blocks:[{type:'tool_use',id:'pending-read',name:'one_remote_1',input:{ref:42}}],usage:{input:2000,output:20000}},
+   text('Atlas Ref 42 contains the original requirement text.'),
+  ])
+  await budget(page,{v:1,day:2});await spend(page,1.3)
+  await page.keyboard.press(`${MOD}+j`)
+  const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Read Atlas Ref 42. Read only.');await input.press('Enter')
+  const halt=page.getByTestId('gv-halt')
+  await expect(halt).toBeVisible()
+  expect(host.requests).toHaveLength(2)
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(0)
+  await halt.getByRole('button',{name:/Finish with .*Haiku 4\.5/}).click()
+  await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000})
+  expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>[r.name,r.arguments])).toEqual([['atlas_get',{ref:42}]])
+  expect(host.requests).toHaveLength(3)
+  expect(host.requests[2].body.model).toBe('claude-haiku-4-5')
+  expect(host.requests[2].body.tools.some((t:any)=>t.name==='one_remote_1')).toBe(true)
+  expect(JSON.stringify(host.requests[2].body.messages)).not.toContain("Tool 'one_remote_1' not found")
+ })
 
  test('changing the prepared workspace Atlas access stops a running task before its next call',async({page})=>{
   await wsEval(page,s=>{const id=s.createPage({title:'Prepared Atlas access',parentId:null});s.setWorkspaceAI({...s.ai,onboarding:{startPageId:id,mcpName:'atlas',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',project:'Fixture'}});s.updateSettings({workspaceMcpServers:[{...s.settings.mcpServers[0],url:'https://aj-atlas.com/api/atlas/mcp'}]})})
