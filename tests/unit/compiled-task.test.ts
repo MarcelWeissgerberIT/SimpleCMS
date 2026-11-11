@@ -122,3 +122,17 @@ test('natural login commands support separable German verbs and English sign-in'
 test('login mentions, status questions, incomplete verbs and negation do not grant authentication',()=>{
  for(const goal of ['Melde dich bei Polarion nicht an','Bitte melde dich nicht bei Polarion an','Melde dich bei Polarion an ohne Anmeldung','Logge dich nicht bei Polarion ein','Do not log in to Polarion','Never sign in to Polarion','Wie melde ich mich bei Polarion an?','Bin ich bei Polarion angemeldet?','Erkläre: melde dich bei polarion an','Erkläre „melde dich bei polarion an“.','"Melde dich bei Polarion an"','`log in to Polarion`','Melde dich bei Polarion','Melde dich bei Atlas an','Logge dich bei Polarion','Sign in to Atlas'])assert.equal(taskBoundaries(goal).authenticate,false,goal)
 })
+
+
+test('short Polarion commands authorize authentication through the compiled gate, including read-only work',()=>{
+ for(const goal of ['polarion anmelden','Polarion anmelden!','Bitte Polarion anmelden. Nur lesen.','bei Polarion anmelden','Polarion bitte erneut anmelden','Polarion wieder anmelden bitte','Bitte in Polarion neu einloggen','anmelden bei Polarion','erneut einloggen in Polarion','Polarion-Login starten','Polarion Anmeldung bitte starten']){
+  const b=taskBoundaries(goal)
+  assert.equal(b.authenticate,true,goal);assert.equal(b.externalWrite,false,goal);assert.equal(b.execute,false,goal)
+  const c={...contract(),goal,read_only:b.readOnly,authenticate:b.authenticate,external_write:b.externalWrite,execute:b.execute,allowed_tools:['atlas:atlas_polarion_connect','atlas:atlas_update','atlas:atlas_polarion_apply_change']}
+  assert.equal(check({contract:c,phase:'dispatch',tool:'atlas:atlas_polarion_connect',effect:'authenticate'}).decision,'allow',goal)
+  for(const [tool,effect] of [['atlas:atlas_update','write'],['atlas:atlas_polarion_apply_change','execute']])assert.equal(check({contract:c,phase:'dispatch',tool,effect}).decision,'block',goal)
+ }
+})
+test('short login mentions and qualified requests do not authorize authentication',()=>{
+ for(const goal of ['Polarion anmelden erklären','Polarion anmelden Anleitung','Wie bei Polarion anmelden?','Kann ich mich bei Polarion anmelden?','Warum wieder bei Polarion anmelden?','Polarion nicht anmelden','Bitte Polarion niemals anmelden','Polarion anmelden ohne Anmeldung','Polarion anmelden erst nach Freigabe','Erkläre: polarion anmelden','„polarion anmelden“','`polarion anmelden`','Polarion Anmeldung','Polarion Login Status','Atlas anmelden'])assert.equal(taskBoundaries(goal).authenticate,false,goal)
+})

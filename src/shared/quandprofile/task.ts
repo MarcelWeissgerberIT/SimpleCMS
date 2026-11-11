@@ -3,6 +3,8 @@ import type {ReviewProfile} from './review-profile.ts'
 import {atlasTransferChoice} from './atlas-transfer.ts'
 import {oneOnlyTask} from '../ai/oneTask.ts'
 import {writeActionRequested} from '../ai/actionIntent.ts'
+import {polarionAuthenticationIntent} from './polarion-auth-intent.ts'
+export {polarionAuthenticationRequested} from './polarion-auth-intent.ts'
 import type {EvidenceQuantum,QuantumStatus} from './runtime.ts'
 export type TaskContract={review_profile?:ReviewProfile;id:string;revision:number;goal:string;instruction_context:string;input_hash:string;scope_hash:string;source_pointers:string[];allowed_tools:string[];read_only:boolean;external_write:boolean;execute:boolean;authenticate?:boolean;requires_sources:boolean;requires_atlas_sources?:boolean;search_one:boolean;search_atlas:boolean;output:'text'|'json';required_literals:string[];decisions:Array<{question:string;answer:string}>}
 export type TaskEvidence={one_pages?:string[];atlas_records?:string[];typed_sources?:string[];typed_sources_current?:boolean;other_sources?:string[];source_reads:number;atlas_reads:number;one_checked:boolean;atlas_checked:boolean;staged_changes:number;issues:number;denied_actions:number;pending_decisions:number;scope_current:boolean;provider_checked:boolean;answer:string|null;human_accepted:boolean}
@@ -25,9 +27,10 @@ export function taskBoundaries(goal:string){
   const negatedAction=/\b(?:nicht|kein|keine|not|never)\b.{0,40}(?:updaten|aktualisieren|einfügen|einfuegen|hinzufügen|hinzufuegen|insert|append|add)/u.test(text)
   const transfer=/^(?:bitte\s+)?mach(?:e)?\s+aus\s+(?:dieser|der)\s+seite\s+(?:in|nach)\s+atlas\b/u.test(text.trim())
   const externalWrite=!readOnly&&!negative&&!negatedAction&&(transfer||writeActionRequested(text)||/(?:^|[.!?;]\s*|\b(?:und|and)\s+)(?:bitte\s+)?(?:erstelle|erzeuge|lege|aktualisiere|ändere|aendere|speichere|create|update|save|replace|kommentiere|verlinke|übertrage|uebertrage)\b/u.test(text.trim()))
-  const execute=!readOnly&&!negative&&/(?:^|[.!?;]\s*|\b(?:und|and)\s+)(?:bitte\s+)?(?:starte|führe|fuehre|start|execute|run)\b/u.test(text.trim())
+  const authentication=polarionAuthenticationIntent(goal)
+  const execute=!readOnly&&!negative&&/(?:^|[.!?;]\s*|\b(?:und|and)\s+)(?:bitte\s+)?(?:starte|führe|fuehre|start|execute|run)\b/u.test(authentication.otherInstructions.trim())
   const oneOnly=oneOnlyTask(goal)
-  return {readOnly,externalWrite:!oneOnly&&externalWrite,execute:!oneOnly&&execute,authenticate:!oneOnly&&polarionAuthenticationRequested(goal)}
+  return {readOnly,externalWrite:!oneOnly&&externalWrite,execute:!oneOnly&&execute,authenticate:!oneOnly&&authentication.requested}
 }
 
 
@@ -42,14 +45,4 @@ export function atlasIdentityTask(goal:string):boolean {
  const call=new RegExp('^rufe atlas_whoami (?:über mcp |ueber mcp )?(?:tatsächlich |tatsaechlich )?auf(?: und '+summary+')?$','iu')
  const limited=/^(?:nur lesen|read[ -]only|keine änderungen|do not change anything|keine weiteren quellen lesen(?: und nichts ändern)?|nichts ändern)$/iu
  return clauses.length>0&&clauses.some(c=>identity.test(c)||call.test(c))&&clauses.every(c=>identity.test(c)||call.test(c)||limited.test(c)||new RegExp('^'+summary+'$','iu').test(c))
-}
-
-/** Narrow login intent from the human instruction, never from source text or a model plan. */
-export function polarionAuthenticationRequested(goal:string){
- const text=goal.normalize('NFKC').toLowerCase().replace(/["“„`][^"“”„`]*["”`]/g,'').replace(/\s+/gu,' ')
- const clauses=text.split(/[.!?;]\s*/u)
- const connect=/^(?:bitte\s+)?(?:verbinde (?:bitte )?(?:(?:dich|mich) mit (?:meinem |dem )?polarion|(?:meinen? |den )?polarion[- ](?:zugang|anmeldung))|starte (?:bitte )?(?:die |meine )?polarion[- ](?:anmeldung|login)|connect (?:to |my |the )?polarion(?: access| sign[- ]in)?|start (?:my |the )?polarion (?:login|sign[- ]in))\b/u
- // German login verbs are separable: the final "an" / "ein" must be present.
- const login=/^(?:bitte )?(?:(?:melde (?:bitte )?(?:dich|mich) (?:bitte )?(?:bei|in) polarion (?:bitte )?an|logge? (?:bitte )?(?:dich|mich) (?:bitte )?(?:bei|in) polarion (?:bitte )?ein)|(?:please )?(?:log|sign) (?:me )?in(?:to| to)? polarion)\b/u
- return clauses.some(c=>! /\b(?:nicht|not|never|kein|keine)\b|\bohne\s+(?:anmeldung|login)\b/u.test(c)&&(connect.test(c.trim())||login.test(c.trim())))
 }
