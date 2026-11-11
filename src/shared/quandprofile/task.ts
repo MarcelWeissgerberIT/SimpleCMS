@@ -46,7 +46,10 @@ export function atlasIdentityTask(goal:string):boolean {
 
 /** Narrow login intent from the human instruction, never from source text or a model plan. */
 export function polarionAuthenticationRequested(goal:string){
- const text=goal.toLowerCase().replace(/["“„`][^"“”„`]*["”`]/g,'')
+ const text=goal.normalize('NFKC').toLowerCase().replace(/["“„`][^"“”„`]*["”`]/g,'').replace(/\s+/gu,' ')
  const clauses=text.split(/[.!?;]\s*/u)
- return clauses.some(c=>! /\b(?:nicht|not|never|kein|keine)\b|\bohne\s+(?:anmeldung|login)\b/u.test(c)&&/^(?:bitte\s+)?(?:verbinde (?:bitte )?(?:(?:dich|mich) mit (?:meinem |dem )?polarion|(?:meinen? |den )?polarion[- ](?:zugang|anmeldung))|starte (?:bitte )?(?:die |meine )?polarion[- ](?:anmeldung|login)|connect (?:to |my |the )?polarion(?: access| sign[- ]in)?|start (?:my |the )?polarion (?:login|sign[- ]in))\b/u.test(c.trim()))
+ const connect=/^(?:bitte\s+)?(?:verbinde (?:bitte )?(?:(?:dich|mich) mit (?:meinem |dem )?polarion|(?:meinen? |den )?polarion[- ](?:zugang|anmeldung))|starte (?:bitte )?(?:die |meine )?polarion[- ](?:anmeldung|login)|connect (?:to |my |the )?polarion(?: access| sign[- ]in)?|start (?:my |the )?polarion (?:login|sign[- ]in))\b/u
+ // German login verbs are separable: the final "an" / "ein" must be present.
+ const login=/^(?:bitte )?(?:(?:melde (?:bitte )?(?:dich|mich) (?:bitte )?(?:bei|in) polarion (?:bitte )?an|logge? (?:bitte )?(?:dich|mich) (?:bitte )?(?:bei|in) polarion (?:bitte )?ein)|(?:please )?(?:log|sign) (?:me )?in(?:to| to)? polarion)\b/u
+ return clauses.some(c=>! /\b(?:nicht|not|never|kein|keine)\b|\bohne\s+(?:anmeldung|login)\b/u.test(c)&&(connect.test(c.trim())||login.test(c.trim())))
 }
