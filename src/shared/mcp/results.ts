@@ -111,7 +111,7 @@ export class McpResults {
   if(typeof query!=='string'||!query.trim()||query.length>120||Object.keys(args).some(k=>!['result_id','path','query'].includes(k)))throw new Error('Supply result_id, a listed text path and a literal query (1–120 characters).')
   // Reuse the same path/ownership validation. Searching itself must not count the first page as read.
   const before=new Map([...this.seen].map(([key,ranges])=>[key,ranges.map(r=>[...r] as [number,number])]))
-  const first=JSON.parse(this.read({result_id,path}));this.seen=before
+  this.read({result_id,path});this.seen=before
   let value=this.entries.get(String(result_id))!.data
   for(const part of path?String(path).slice(1).split('/'):[])value=(value as Record<string,unknown>)[part.replace(/~1/g,'/').replace(/~0/g,'~')]
   if(typeof value!=='string'){
