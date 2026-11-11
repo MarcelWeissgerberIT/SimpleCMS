@@ -449,7 +449,10 @@ export async function runAgent(opts: {
     }})
     tools.push(remoteTool(TASK_QUESTION),...(remote?WORKER_MCP_FUNCTIONS.map(remoteTool):[]))
 
-    const paramsOf = (m: string, p: Prepared) => ({ ...paramsFor({ model: m, maxTokens: capped(LOOP_MAX_TOKENS, p), thinks: thinks(p.caps), system:task.packet(), tools, mcp:null, effort: opts.effort }), max_iterations: Number.isFinite(opts.maxRounds) ? Math.max(1, Math.min(MAX_MODEL_ROUNDS, Math.floor(opts.maxRounds!))) : MAX_MODEL_ROUNDS })
+    // Identity preparation may already have discovered tools. Re-read the live
+    // catalogue on a budget model switch too: a pending native call still needs
+    // its runnable definition when the runner resumes after the decision.
+    const paramsOf = (m: string, p: Prepared) => ({ ...paramsFor({ model: m, maxTokens: capped(LOOP_MAX_TOKENS, p), thinks: thinks(p.caps), system:task.packet(), tools:[...tools,...(remote?.functions()??[]).map(remoteTool)], mcp:null, effort: opts.effort }), max_iterations: Number.isFinite(opts.maxRounds) ? Math.max(1, Math.min(MAX_MODEL_ROUNDS, Math.floor(opts.maxRounds!))) : MAX_MODEL_ROUNDS })
     let params = paramsOf(model, prepared)
 
     let end: RunEnd = 'done'
