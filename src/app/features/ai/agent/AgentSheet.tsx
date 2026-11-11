@@ -1,3 +1,4 @@
+import { PolarionPdfExport } from './PolarionPdfExport'
 import {DraftTaskPlan,TaskPlan} from './TaskPlan'
 import { PolarionSignIn } from './PolarionSignIn'
 import {WorkflowRepair} from '../workflow/WorkflowRepair'
@@ -782,6 +783,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
         )}
       </ol>
       <PolarionSignIn steps={steps}/>
+      <PolarionPdfExport steps={steps} pageId={turn.context?.pageId??null}/>
       {live && (
         <div className="term-live">
           <MarkdownLite source={live} />

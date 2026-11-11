@@ -72,7 +72,7 @@ export interface AgentStep {
   kind: 'tool' | 'note' | 'mcp'
   tool?: ToolName
   /** kind 'mcp': the call (server, tool name, the error text of a failed call) */
-  mcp?: { display?:import('@/shared/mcp/activityDisplay').McpDisplay; id: string; server: string; tool: string; error?: string; notExecuted?:boolean; receipt?: import('@/shared/mcp/facts').AtlasReceipt }
+  mcp?: { pdfImported?:{src:string;pageId:string}; display?:import('@/shared/mcp/activityDisplay').McpDisplay; id: string; server: string; tool: string; error?: string; notExecuted?:boolean; receipt?: import('@/shared/mcp/facts').AtlasReceipt }
   /** what the tool was asked for (a query, a page title …) */
   arg?: string
   /** readout after the call: "4 results", "staged #2" */
