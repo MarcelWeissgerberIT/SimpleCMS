@@ -27,3 +27,19 @@ test('search syntax, provider limits and server failures give bounded remedies w
  }
  assert.ok(!mcpConnectionMessage('unclassified','call').includes('personal worker'))
 })
+
+test('a missing snapshot path is a source gap, not an authentication or worker failure',()=>{
+ const raw=JSON.stringify({content:[{type:'text',text:'Error: Path not found in this snapshot. private-path-secret'}],isError:true})
+ assert.equal(connectionProblem(raw),'source_missing')
+ const safe=mcpConnectionMessage(raw,'call')
+ assert.equal(connectionProblem(safe),'source_missing')
+ assert.match(safe,/same repository and snapshot/)
+ assert.doesNotMatch(safe,/private-path-secret|token|sign-in|worker unavailable/i)
+ assert.equal(connectionProblem({status:403,message:raw}),'permission')
+})
+
+test('pre-dispatch task restrictions are distinct from provider policy and authentication',()=>{
+ assert.equal(connectionProblem('Compiled task blocked this action. Read-only bounds, an unresolved decision prevent dispatch.'),'task_boundary')
+ assert.equal(connectionProblem('A data policy blocks the selected MCP destination or tool.'),'policy')
+ assert.match(mcpConnectionMessage('Compiled task blocked this action.'),/no external request was sent/)
+})

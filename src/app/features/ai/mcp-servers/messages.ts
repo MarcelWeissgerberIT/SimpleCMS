@@ -21,6 +21,10 @@ export const messages: Messages = {
     'features.ai.connection.server.title': 'The connected service reported an error',
     'features.ai.connection.server.next': 'This call has no confirmed result. Other successful calls remain valid. Check already accepted writes before a new attempt.',
     'features.ai.connection.unknown.title': 'The cause of this tool failure is still unclear',
+    'features.ai.connection.task_boundary.title': 'Action blocked before it was sent',
+    'features.ai.connection.task_boundary.next': 'Check the task scope and any unanswered question in this run. This call sent no external request. A new sign-in will not resolve a task-scope restriction.',
+    'features.ai.connection.source_missing.title': 'File missing from the selected repository snapshot',
+    'features.ai.connection.source_missing.next': 'Search the file list in the same repository and snapshot. Use the exact returned path, or record the source as missing. Other successful reads remain usable.',
     'features.ai.connection.unknown.next': 'Open the failed call to see which connection and action were affected. Check the connection before trying again.',
 
     'features.ai.connection.open': 'Check connection and tools',
@@ -116,6 +120,10 @@ export const messages: Messages = {
     'features.ai.connection.server.title': 'Der verbundene Dienst meldet einen Fehler',
     'features.ai.connection.server.next': 'Für diesen Aufruf gibt es kein bestätigtes Ergebnis. Andere erfolgreiche Abrufe bleiben gültig. Prüfe vor einem neuen Versuch bereits angenommene Schreibvorgänge.',
     'features.ai.connection.unknown.title': 'Die Ursache dieses Werkzeugfehlers ist noch unklar',
+    'features.ai.connection.task_boundary.title': 'Aktion vor dem Absenden blockiert',
+    'features.ai.connection.task_boundary.next': 'Prüfe den Auftragsumfang und eine eventuell offene Rückfrage in diesem Lauf. Dieser Aufruf hat keine externe Anfrage gesendet. Eine neue Anmeldung behebt keine Einschränkung des Auftrags.',
+    'features.ai.connection.source_missing.title': 'Datei im gewählten Repository-Stand nicht gefunden',
+    'features.ai.connection.source_missing.next': 'Suche in der Dateiliste desselben Repositorys und Snapshots. Verwende den exakt gefundenen Pfad oder halte die Quelle als fehlend fest. Andere erfolgreiche Abrufe bleiben nutzbar.',
     'features.ai.connection.unknown.next': 'Öffne den fehlgeschlagenen Aufruf, um die betroffene Verbindung und Aktion zu sehen. Prüfe die Verbindung vor einem neuen Versuch.',
 
     'features.ai.connection.open': 'Verbindung und Werkzeuge prüfen',

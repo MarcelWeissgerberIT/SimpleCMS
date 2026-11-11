@@ -1,6 +1,6 @@
 /** Permission intent from the person's instruction only; never selects a service or function. */
 export function writeActionRequested(text:string):boolean{
- const instruction=text.normalize('NFKC').toLowerCase().trim().replace(/^(?:bitte\s+|please\s+)?(?:kannst du|könntest du|koenntest du|can you|could you)\s+(?:bitte\s+|please\s+)?/u,'')
+ const instruction=text.normalize('NFKC').replace(/^\s*\/ki\s+/iu,'').replace(/^(?:Arbeitsabschnitt|Work stage) [1-4]\/4:[^\n]*\n/iu,'').replace(/\bticets?\b/giu,m=>m.toLowerCase().endsWith('s')?'tickets':'ticket').toLowerCase().trim().replace(/^(?:bitte\s+|please\s+)?(?:kannst du|könntest du|koenntest du|can you|could you)\s+(?:bitte\s+|please\s+)?/u,'')
  if(/^(?:wie|how|warum|why|was|what|welche|which|erklär|erklaer|explain|zeige|show|lies|read|prüf|pruef|check)\b/u.test(instruction))return false
  const lead='(?:bitte\\s+|please\\s+)?'
  const imperative='(?:erstelle|erzeuge|lege|aktualisiere|ändere|aendere|speichere|kommentiere|verlinke|übertrage|uebertrage|create|update|save|replace|insert|append|add)'
@@ -13,10 +13,10 @@ export const CONTEXT_TOOL_POLICY='A connected server is a tool, not a predefined
 
 /** Requested semantic scope only; the adapter validates effects, inference still chooses the function. */
 export function requestedWriteKind(text:string):'create'|'update'|'comment'|null{
- const s=text.normalize('NFKC').toLowerCase().replace(/["“„`][^"“”„`]*["”`]/gu,'').trim().replace(/^(?:bitte\s+|please\s+)?(?:(?:kannst du|könntest du|koenntest du|can you|could you)\s+)?(?:bitte\s+|please\s+)?/u,'')
+ const s=text.normalize('NFKC').replace(/^\s*\/ki\s+/iu,'').replace(/^(?:Arbeitsabschnitt|Work stage) [1-4]\/4:[^\n]*\n/iu,'').replace(/\bticets?\b/giu,m=>m.toLowerCase().endsWith('s')?'tickets':'ticket').toLowerCase().replace(/["“„`][^"“”„`]*["”`]/gu,'').trim().replace(/^(?:bitte\s+|please\s+)?(?:(?:kannst du|könntest du|koenntest du|can you|could you)\s+)?(?:bitte\s+|please\s+)?/u,'')
  if(!writeActionRequested(s))return null
  if(/^(?:kommentiere\b|(?:einen? |den |the |a |this )?(?:comment|kommentar)\b)/u.test(s)||/\b(?:als kommentar|kommentieren)\b/u.test(s))return 'comment'
- if(/^(?:erstelle|erzeuge|lege|create)\b/u.test(s)||/\b(?:record|ticket|seite|page|issue)\b.{0,60}\b(?:anlegen|erstellen|create)\b/u.test(s))return 'create'
+ if(/^(?:erstelle|erzeuge|lege|create)\b/u.test(s)||/\b(?:records?|tickets?|seiten?|pages?|issues?)\b.{0,60}\b(?:anlegen|erstellen|create)\b/u.test(s))return 'create'
  if(/^(?:aktualisiere|ändere|aendere|update|replace)\b/u.test(s)||/\b(?:records?|tickets?|issues?|seiten?|pages?|inhalt)\b.{0,60}\b(?:updaten|aktualisieren|ändern|aendern|update|replace|schließen|abschließen|close)\b/u.test(s))return 'update'
  return null
 }

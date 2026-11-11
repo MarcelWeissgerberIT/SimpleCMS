@@ -35,15 +35,15 @@ test.describe('Compiled tasks and human decision cube',()=>{
   await expect(async()=>{await ed.locator('p').last().click();await page.keyboard.press('End');await page.keyboard.press('Space');try{await expect(ask).toBeFocused({timeout:1500})}catch(e){if(!(await ask.count()))await page.keyboard.press('Backspace');throw e}}).toPass({timeout:15000})
   await ask.fill('Prepare a proposed reply for Atlas ref 42. Read its body and ask me whether closing means the questions or the ticket before preparing the reply. Do not change records.');await page.locator('#ai-row-custom').click()
   const panel=page.getByRole('dialog',{name:'Ask AI'}),card=panel.getByRole('region',{name:'Compiled task'})
-  await expect(card.getByRole('button',{name:'Bind answer and continue',exact:true})).toBeVisible({timeout:20000})
-  await expect(card).toContainText('This request is waiting for your answer')
+  await expect(card.getByRole('button',{name:'Send answer and continue',exact:true})).toBeVisible({timeout:20000})
+  await expect(card).toContainText('The task is paused until you answer')
   expect(host?.requests??fake.textAsked).toHaveLength(3)
   if(restore){
    // Persist a genuinely waiting run, then reload: no old waiter is resurrected and no request repeats.
    await reloadApp(page);await gotoPage(page,id);await page.getByTestId('ai-runs').getByRole('button').click()
    const restored=page.getByRole('dialog',{name:'Ask AI'}),closed=restored.getByRole('region',{name:'Compiled task'})
    await expect(closed).toContainText('The previous run has ended')
-   await closed.getByLabel('Your specification').fill('Only the questions. The ticket status stays unchanged.')
+   await closed.getByLabel('Your answer').fill('Only the questions. The ticket status stays unchanged.')
    for(const width of [1440,390])for(const theme of ['light','dark']){
     await page.setViewportSize({width,height:width===390?844:900});await wsEval(page,(s,x)=>s.updateSettings(x),{theme,language:'de'})
     expect(await page.locator('.task-contract').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
@@ -57,8 +57,8 @@ test.describe('Compiled tasks and human decision cube',()=>{
    await expect(term).toContainText('Kai clarification fixture');expect(host!.requests).toHaveLength(3);expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
    await term.screenshot({path:info.outputPath('recovered-answer.png'),animations:'disabled'});return
   }
-  await card.getByLabel('Your specification').fill('Only the questions. The ticket status stays unchanged.')
-  await card.getByRole('button',{name:'Bind answer and continue',exact:true}).click()
+  await card.getByLabel('Your answer').fill('Only the questions. The ticket status stays unchanged.')
+  await card.getByRole('button',{name:'Send answer and continue',exact:true}).click()
   await expect(panel.locator('.ai-out__body')).toContainText(final,{timeout:20000})
   expect(host?.requests??fake.textAsked).toHaveLength(4);expect(JSON.stringify((host?.requests??fake.textAsked)[3])).toContain('Only the questions. The ticket status stays unchanged.')
   await expect(card).not.toContainText('no longer active')
@@ -80,6 +80,7 @@ test.describe('Compiled tasks and human decision cube',()=>{
   await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
   await page.keyboard.press(`${MOD}+j`)
   const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await term.getByRole('button',{name:'Settings and tools',exact:true}).click()
   await term.getByRole('button',{name:'Edit cube profiles',exact:true}).click()
   const profiles=page.getByRole('dialog',{name:'Edit cube profiles'})
   await profiles.getByLabel('Profile name',{exact:true}).fill('Source review '+provider)
@@ -92,6 +93,11 @@ test.describe('Compiled tasks and human decision cube',()=>{
   const card=term.getByRole('region',{name:'Compiled task'}),question=card.getByRole('heading',{name:'Your decision is needed'})
   await expect(question).toBeVisible({timeout:25000});await expect(card).toContainText('Which project should this proposal address?')
   expect(await page.evaluate(()=>(window as any).__one.workspace.getState().pages&&Object.values((window as any).__one.workspace.getState().pages).some((p:any)=>p.title==='Compiler decision fixture'))).toBe(false)
+  const attention=term.getByRole('region',{name:'Your answer is needed',exact:true})
+  await expect(attention).toContainText('Which project should this proposal address?')
+  await expect(term.locator('.term-head__status')).toHaveText('Waiting for you')
+  await attention.getByRole('button',{name:'Answer now',exact:true}).click()
+  await expect(card.locator('.task-contract__decision')).toBeFocused()
   const rawBefore=await card.locator('pre').last().textContent(),before=JSON.parse(rawBefore!)
   expect(before.compiled.contract.review_profile.spec.name).toBe('Source review '+provider);expect(before.evidence.atlas_records).toEqual(['42']);expect(before.questions[0].state).toBe('open');expect(before.evidence.one_checked).toBe(true);expect(before.evidence.atlas_checked).toBe(true)
   await term.getByRole('button',{name:'Maximise',exact:true}).click()
@@ -115,6 +121,7 @@ test.describe('Compiled tasks and human decision cube',()=>{
   for(const theme of ['light','dark'])for(const width of [1440,390]){await page.setViewportSize({width,height:900});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);expect(await card.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);const labels=await term.locator('.term-key--label').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,contained:el.scrollWidth<=el.clientWidth}}));expect(labels.every(r=>r.contained)).toBe(true);expect(labels[0].right<=labels[1].left||labels[0].bottom<=labels[1].top).toBe(true);await page.screenshot({path:info.outputPath(`decision-${provider}-${theme}-${width}.png`),animations:'disabled'});await cube.screenshot({path:info.outputPath(`cube-${provider}-${theme}-${width}.png`),animations:'disabled'})}
   expect(host?host.requests.length:fake.textAsked.length).toBe(modelRequests);expect(fake.mcpAsked.length).toBe(mcpRequests)
   await card.getByRole('button',{name:'Project A',exact:false}).click();await expect(term.locator('.term-answer')).toContainText(final,{timeout:25000})
+  await expect(attention).toHaveCount(0)
   await expect(card).toContainText('Ready for review');const after=JSON.parse((await card.locator('pre').last().textContent())!)
   expect(after.compiled.contract_hash).not.toBe(before.compiled.contract_hash);expect(after.compiled.contract.decisions[0].answer).toContain('Project A');expect(after.evidence.human_accepted).toBe(false);expect(after.evidence.staged_changes).toBe(1)
   await card.getByRole('button',{name:'I reviewed the result'}).click();await expect(card).toContainText('Reviewed by person')
@@ -159,6 +166,7 @@ test.describe('Compiled tasks and human decision cube',()=>{
  test('profile editor explains compilation, exposes cross-dimension edges and keeps immutable versions',async({page},info)=>{
   await page.keyboard.press(`${MOD}+j`)
   const term=page.getByRole('region',{name:'AI terminal'})
+  await term.getByRole('button',{name:'Settings and tools',exact:true}).click()
   await term.getByRole('button',{name:'Edit cube profiles',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'Edit cube profiles'})
   await dialog.getByLabel('Profile name',{exact:true}).fill('Private source review')

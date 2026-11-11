@@ -431,7 +431,7 @@ export async function runAgent(opts: {
           task.observe('one',true,['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),out.state==='staged',['search_pages','read_page','query_database','read_requested_source','read_tables','read_page_files','recall','run_query','list_work_items','read_task'].includes(tool.name),tool.name)
         ;(runner.params as unknown as {system:string}).system=task.packet()
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
-        if(tool.write)atlasFacts.noteOtherWrite()
+        if(tool.write&&out.state==='staged')(remote?.facts??atlasFacts).noteOtherWrite()
         const visible = out.pageRead ? out.content : clipResult(out.content, RESULT_CHARS + 2000)
         if (tool.name === 'read_page') return reviewSources.observe(visible, `One page ${String(input.id ?? '')}`)
         if (out.state === 'staged') reviewSources.clear()

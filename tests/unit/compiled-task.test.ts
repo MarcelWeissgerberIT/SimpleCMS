@@ -136,3 +136,8 @@ test('short Polarion commands authorize authentication through the compiled gate
 test('short login mentions and qualified requests do not authorize authentication',()=>{
  for(const goal of ['Polarion anmelden erklären','Polarion anmelden Anleitung','Wie bei Polarion anmelden?','Kann ich mich bei Polarion anmelden?','Warum wieder bei Polarion anmelden?','Polarion nicht anmelden','Bitte Polarion niemals anmelden','Polarion anmelden ohne Anmeldung','Polarion anmelden erst nach Freigabe','Erkläre: polarion anmelden','„polarion anmelden“','`polarion anmelden`','Polarion Anmeldung','Polarion Login Status','Atlas anmelden'])assert.equal(taskBoundaries(goal).authenticate,false,goal)
 })
+
+test('Kai ticket request with explicit /KI prefix and common typo recognizes the requested write',()=>{
+ for(const goal of ['/KI Bitte die Ticets im Atlas entsprecehd des Seiteninhalstes anlegen.','Bitte die Tickets im Atlas entsprechend des Seiteninhaltes anlegen.','Please create the tickets in Atlas.'])assert.equal(taskBoundaries(goal).externalWrite,true,goal)
+ for(const goal of ['/KI Bitte die Ticets nicht im Atlas anlegen.','Erkläre den Satz „Bitte die Ticets in Atlas anlegen“.','Only read. Please create the tickets in Atlas.'])assert.equal(taskBoundaries(goal).externalWrite,false,goal)
+})

@@ -12,12 +12,12 @@ export function WorkerConnectionHelp({ error,server }: { error: unknown;server?:
   const tr = (de: string, en: string) => lang === 'de' ? de : en
   const problem=connectionProblem(error)
   if(problem!=='tls'){
-    if(!['auth','permission','timeout','network','worker','policy','tools','schema','response','limit','query','rate','server','unknown'].includes(problem))return null
+    if(!['auth','permission','timeout','network','worker','policy','tools','schema','response','limit','query','rate','server','source_missing','task_boundary','unknown'].includes(problem))return null
     const connection=()=>{const id=readServers().find(s=>s.name===server)?.id;void import('../../mcp').then(m=>m.openMcpConnections({...(id?{server:id}:{}),focus:'test'}))}
     return <div className="worker-connection-help" data-testid="worker-connection-help" data-problem={problem}>
       <strong>{t('features.ai.connection.'+problem+'.title')}</strong>
       <p>{t('features.ai.connection.'+problem+'.next')}</p>
-      {!['query','rate','server','unknown'].includes(problem)&&<div className="worker-connection-help__actions"><button className="btn btn--sm" onClick={problem==='worker'?openCodingSettings:connection}>{t(problem==='worker'?'features.ai.connection.worker.open':'features.ai.connection.open')}</button></div>}
+      {!['query','rate','server','source_missing','task_boundary','unknown'].includes(problem)&&<div className="worker-connection-help__actions"><button className="btn btn--sm" onClick={problem==='worker'?openCodingSettings:connection}>{t(problem==='worker'?'features.ai.connection.worker.open':'features.ai.connection.open')}</button></div>}
     </div>
   }
   return <div className="worker-connection-help" data-testid="worker-tls-help">

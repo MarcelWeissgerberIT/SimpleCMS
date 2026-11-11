@@ -2607,3 +2607,20 @@
 .term-sign-in p { margin: 8px 0 0; }
 .term-sign-in small { flex-basis: 100%; opacity: .75; }
 .term-sign-in a { white-space: normal; }
+
+.term-task-plan { margin: 12px 0; padding: 12px 16px; border: 1px solid var(--rule); border-left: 3px solid var(--accent, #ff5a00); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.term-task-plan summary { cursor: pointer; font-weight: 650; }
+.term-task-plan p { margin: 8px 0; color: var(--ink-2); }
+.term-task-plan label { display: grid; gap: 6px; }
+.term-task-plan input { width: 100%; min-width: 0; box-sizing: border-box; }
+.term-task-plan ol { padding-left: 20px; margin: 12px 0; }
+.term-task-plan li { margin: 12px 0; }
+.term-task-plan li p { margin: 3px 0 6px; }
+.term-task-plan .btn { max-width: 100%; white-space: normal; text-align: left; min-height: 32px; }
+.term-task-plan details[open] { max-height: min(430px, 50vh); overflow-y: auto; padding-right: 6px; }
+.term-awaiting { flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 2px solid #ff9a32; background: #332514; color: #fff4df; }
+.term-awaiting > div { flex: 1; min-width: 0; }
+.term-awaiting strong { color: #ffbd69; font-size: 14px; }
+.term-awaiting p { margin: 4px 0 0; max-height: 4.5em; overflow: auto; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
+.term-awaiting .btn { flex-shrink: 0; white-space: normal; }
+@media(max-width:600px){ .term-awaiting { align-items: stretch; flex-direction: column; gap: 8px; } }

@@ -1,3 +1,4 @@
+import {DraftTaskPlan,TaskPlan} from './TaskPlan'
 import { PolarionSignIn } from './PolarionSignIn'
 import {WorkflowRepair} from '../workflow/WorkflowRepair'
 import {RunPreflight} from '../workflow/RunPreflight'
@@ -167,7 +168,8 @@ export default function AgentSheet() {
     else followLatest()
   },[followLatest])
   const waitingTurn=[...turns].reverse().find(turn=>turn.status==='running'&&turn.contract?.phase==='decision')
-  const waitingQuestion=waitingTurn?.contract?.questions.find(question=>question.state==='open')?.id
+  const openQuestion=waitingTurn?.contract?.questions.find(question=>question.state==='open')
+  const waitingQuestion=openQuestion?.id
   const lastQuestion=useRef<string|undefined>(savedReader?.question)
 
   // focus the prompt on open (and when asked again: ⌘⇧J); give focus back on hide
@@ -356,6 +358,10 @@ export default function AgentSheet() {
       <div className="term__panel">
         <Grip />
         <Head side={side} wide={wide} />
+        {openQuestion&&<aside className="term-awaiting" role="region" aria-label={t('features.ai.task.attention')}>
+          <div role="status"><strong>{t('features.ai.task.attention')}</strong><p>{openQuestion.question}</p></div>
+          <button type="button" className="btn btn--primary" onClick={()=>goToCurrent('latest')}>{t('features.ai.task.answerNow')}</button>
+        </aside>}
         <CurrentActivity following={following} unread={unread} onTask={()=>goToCurrent('task')} onLatest={()=>goToCurrent('latest')} onResult={()=>goToCurrent('result')} />
         <div
           className="term-scroll"
@@ -505,6 +511,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
   const max = useAgent((s) => s.max)
   const pinned = useAgent((s) => s.mcp?.names.length ?? null)
   const halted = useAgent((s) => !!s.halt)
+  const awaiting=useAgent(s=>s.turns.some(turn=>turn.status==='running'&&turn.contract?.phase==='decision'&&turn.contract.questions.some(q=>q.state==='open')))
   const nextMcp = useWorkspace((s) => readServers(s.settings).filter((x) => x.enabled).length)
   const route = useAgent(s => s.route)
   const running = status === 'running'
@@ -532,7 +539,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
         </span>
       ) : null}
       <span className="term-head__status" aria-live="polite">
-        {halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
+        {awaiting?t('features.ai.task.awaiting'):halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
       </span>
       <button type="button" className="term-key" aria-label={lang==='de'?'Einstellungen und Werkzeuge':'Settings and tools'} aria-expanded={optionsOpen} aria-controls="term-options" onClick={()=>setOptionsOpen(!optionsOpen)}><Settings2 size={15} aria-hidden /></button>
       {wide&&<button type="button" className="term-key term-key--label" aria-pressed={side} onClick={()=>setTermLayout(side?'bottom':'side')}>{side?(lang==='de'?'Unter Seite':'Below page'):(lang==='de'?'Neben Seite':'Beside page')}</button>}
@@ -787,6 +794,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <AnswerPageAction turn={turn} last={last}/>
         </div>
       )}
+      {last&&!running&&<TaskPlan task={turn.task} recovery/>}
       {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock} workspaceEpoch={turn.mockWorkspaceEpoch}/>)}
       <TurnMedia n={turn.n} />
       <TurnHalt n={turn.n} />
@@ -2067,11 +2075,12 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
   const limited = useAgent((s) => s.turns[s.turns.length - 1]?.status === 'limit')
   /** the Regler paused the running task: the prompt is read-only and names the keys */
   const halted = useAgent((s) => !!s.halt)
+  const awaiting=useAgent(s=>s.turns.some(turn=>turn.status==='running'&&turn.contract?.phase==='decision'&&turn.contract.questions.some(q=>q.state==='open')))
   // what ↵ on the empty prompt would do (re-read with the log)
   useAgent((s) => s.echo)
   useAgent((s) => s.turns)
   const enter = running || asking ? null : emptyEnter()
-  const placeholder = halted
+  const placeholder = awaiting ? t('features.ai.task.attention') : halted
     ? t(isMac ? 'features.governor.halt.prompt.mac' : 'features.governor.halt.prompt.pc')
     : asking
     ? t('features.agent.placeholderAsk')
@@ -2097,6 +2106,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       <FailureDock />
       <NextContext />
       <Chips />
+      <DraftTaskPlan/>
       <RunPreflight/>
       <RepoFilesControl value={draft} onChange={v=>setDraft(v)} disabled={running} />
       {comp && (
