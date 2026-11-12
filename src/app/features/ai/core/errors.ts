@@ -55,7 +55,7 @@ export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: stri
   if(v.detail==='features.ai.source.documentMissing'||v.detail==='features.ai.transfer.sourcesMissing')return t(v.detail)
   if(v.detail==='features.ai.quantum.blocked')return t(v.detail)
   if(v.detail==='features.ai.mcp.sessionChanged')return t(v.detail)
-  if(code==='mcp'&&v.detail==='features.ai.mcp.polarionUnavailable')return t(v.detail)
+  if(code==='mcp'&&(v.detail==='features.ai.mcp.polarionUnavailable'||v.detail==='features.ai.mcp.identityUnavailable'))return t(v.detail)
   if(v.detail==='features.ai.local.unverifiedFacts')return t(v.detail)
   // Local material errors survive stored-run reconstruction; only known keys become UI text.
   if ((code === 'context' || code === 'capability') && ['features.agent.err.repeatedTool','features.ai.local.sourceContradiction','features.ai.local.discovery','features.ai.local.toolFormat','features.ai.local.mcpWorker','features.ai.copilot.mediaLimit','features.ai.copilot.pdfLimit','features.ai.copilot.pdfScan','features.ai.copilot.unsupportedPart'].includes(v.detail ?? '')) return t(v.detail!)

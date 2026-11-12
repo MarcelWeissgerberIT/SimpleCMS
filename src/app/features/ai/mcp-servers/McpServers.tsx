@@ -45,6 +45,8 @@ import { McpOverview } from './McpOverview'
 import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { quietSettings } from '../setup/openAISetup'
 import { McpCheckSetup } from './McpCheckSetup'
+import { AtlasStart } from '../../../shell/cloud/AtlasStart'
+import { useCloud } from '../../../cloud'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -59,6 +61,8 @@ const shortUrl = (url: string) => url.replace(/^https:\/\//, '').replace(/\/$/, 
  */
 export function McpServers({ openId, add }: { openId?: string; add?: boolean } = {}) {
   const t = useT()
+  const onboarding = useWorkspace(s => s.ai?.onboarding)
+  const readOnly = useCloud(s => s.readOnly)
   const raw = useWorkspace((s) => s.ai?.onboarding ? s.settings.workspaceMcpServers : s.settings.mcpServers)
   const servers = useMemo(() => readServers({ mcpServers: raw }), [raw])
   const hasKey = useAIStatus('mcp-setup.inspect').ready
@@ -125,6 +129,7 @@ export function McpServers({ openId, add }: { openId?: string; add?: boolean } =
         </button>
       </header>
       <p className="mcps__lead">{t('features.ai.mcp.lead')}</p>
+      {onboarding && <AtlasStart pageId={onboarding.startPageId} readOnly={readOnly} connectionOnly />}
       <McpOverview servers={servers} onShow={show} />
       {servers.length > 0 && (
         <ul className="mcps__list">
