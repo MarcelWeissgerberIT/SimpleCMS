@@ -22,3 +22,10 @@ test('invented quotations and quotes on a different page are refused',()=>{
  assert.throws(()=>validateAnalysis({...result,findings:[{...result.findings[0],page:2}]},s.chunks[0],s),/unverified/)
  assert.throws(()=>validateAnalysis({...result,findings:[{...result.findings[0],quote:'The system supports everything.'}]},s.chunks[0],s),/unverified/)
 })
+
+test('PDF line wraps are reconciled to the exact original quotation without changing words',()=>{
+ const s=makeSource('x','h',[{number:1,text:'The system shall\nrecord  the start time.'}])
+ const raw={summary:'Review',findings:[{page:1,quote:'The system shall record the start time.',finding:'Record start.'}],limitations:[]}
+ assert.equal(validateAnalysis(raw,s.chunks[0],s).findings[0].quote,s.pages[0].text)
+ assert.throws(()=>validateAnalysis({...raw,findings:[{...raw.findings[0],quote:'The system shall never record the start time.'}]},s.chunks[0],s),/unverified/)
+})

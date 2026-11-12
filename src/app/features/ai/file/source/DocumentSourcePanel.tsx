@@ -41,7 +41,9 @@ export function DocumentSourcePanel({editor,getPos,onClose}:{editor:Editor;getPo
   // A new snapshot never overwrites a user's edits or an earlier completed result.
   const title=name.replace(/\.[^.]+$/,'').slice(0,160)+' · '+(de?'Vollständige Quelle':'Complete source')
   const make=(title:string,parentId:string,content:JSONContent[])=>{
-   const id=isPrivatePage(pageId)?createPrivatePage({title,parentId}):useWorkspace.getState().createPage({title,parentId})
+   // Child pages inherit their parent's cloud scope synchronously. A freshly created
+   // private root receives its local marker only on the next microtask.
+   const id=parentId===pageId&&isPrivatePage(pageId)?createPrivatePage({title,parentId}):useWorkspace.getState().createPage({title,parentId})
    useWorkspace.getState().setContent(id,{type:'doc',content},'import');return id
   }
   let sourceLinks:JSONContent[]=[],storedDoc='';const analysisLinks:Record<number,{entry:JSONContent;signature:string}>={}
