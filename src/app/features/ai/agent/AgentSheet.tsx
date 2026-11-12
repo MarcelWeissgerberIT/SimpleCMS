@@ -1,3 +1,4 @@
+import {hasPdfExportWork} from './polarionPdfState'
 import { PolarionPdfExport } from './PolarionPdfExport'
 import {DraftTaskPlan,TaskPlan} from './TaskPlan'
 import { PolarionSignIn } from './PolarionSignIn'
@@ -507,6 +508,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
   const lang = useLang()
   const status = useAgent((s) => s.status)
   const turns = useAgent((s) => s.turns.length)
+  const pdfWork=useAgent(s=>hasPdfExportWork(s.steps.filter(step=>step.turn===s.turns.at(-1)?.n)))
   const changes = useAgent((s) => s.changes.length)
   const usage = useAgent((s) => s.usage)
   const max = useAgent((s) => s.max)
@@ -540,7 +542,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
         </span>
       ) : null}
       <span className="term-head__status" aria-live="polite">
-        {awaiting?t('features.ai.task.awaiting'):halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
+        {awaiting?t('features.ai.task.awaiting'):halted ? t('features.governor.term.paused') : status==='done'&&pdfWork?(lang==='de'?'Exportstand prüfen':'Review export progress'):t(`features.agent.status.${status}`)}
       </span>
       <button type="button" className="term-key" aria-label={lang==='de'?'Einstellungen und Werkzeuge':'Settings and tools'} aria-expanded={optionsOpen} aria-controls="term-options" onClick={()=>setOptionsOpen(!optionsOpen)}><Settings2 size={15} aria-hidden /></button>
       {wide&&<button type="button" className="term-key term-key--label" aria-pressed={side} onClick={()=>setTermLayout(side?'bottom':'side')}>{side?(lang==='de'?'Unter Seite':'Below page'):(lang==='de'?'Neben Seite':'Beside page')}</button>}
@@ -792,7 +794,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       )}
       {turn.answer && (
         <div className="term-answer">
-          <MarkdownLite source={turn.answer} />
+          {steps.some(step=>step.mcp?.receipt?.polarionPdf)?<details className="term-pdf-history" open><summary>{lang==='de'?'Antwort zum Zeitpunkt des Exports · aktuellen Ablagestatus oben prüfen':'Answer at export time · check current attachment status above'}</summary><MarkdownLite source={turn.answer}/></details>:<MarkdownLite source={turn.answer} />}
           <AnswerPageAction turn={turn} last={last}/>
         </div>
       )}

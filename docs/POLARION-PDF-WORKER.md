@@ -21,10 +21,24 @@ be updated/restarted; ONE's MCP catalogue must be refreshed. Exports are limited
 to supported LiveDocs and 20 MiB, and expire 30 minutes after job creation.
 Chunk retrieval is paced below the normal shared MCP request limit.
 
-Validation: typed receipt/byte corruption tests, terminal tests that import and
-insert an exact PDF without sending its bytes to the model, corrupt-file
-rejection, German mobile layout, app typecheck and build. Atlas has native
-English/German dialog fixtures and scoped PostgreSQL transfer tests. The real
-company Polarion download has not yet been confirmed: live browser automation
-could inspect the export dialog but could not reliably activate its Export
-control. This is not a production end-to-end success claim.
+The PDF cards derive attachment status from actual file nodes on the target page,
+not from an older applied change. Removing or undoing an attachment updates the
+status; an already saved file can be prepared for insertion again without another
+export or byte transfer. Saved files have a direct download link. Polling the same
+job does not multiply export counts or discard its import receipt.
+
+PDF tasks end with “Review export progress” rather than a blanket completion
+claim. The live summary counts confirmed exports and current attachments for this
+turn only; it does not infer the total requested batch. The model answer is labelled
+as historical, with failures still visible. Existing page prose is not rewritten.
+
+Validation: typed receipt/byte corruption and attachment-evidence tests; terminal
+tests import and insert exact PDF bytes, remove and restore the attachment without
+another worker call, check the live counts/download link, and reject corrupt files.
+German mobile layout, app typecheck and production build are checked.
+
+Live observation on 2026-11-12: five of eleven native exports reported success;
+three actual ONE attachments were visible, two awaited insertion. Six exports
+failed at document/actions/menu stages. Those stage errors do not establish that
+the source type is unsupported. Complete eleven-document delivery remains
+unverified; successful export jobs must not be blindly repeated.

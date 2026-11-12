@@ -128,7 +128,8 @@ test.describe('Task splitting and source verification',()=>{
   const host=await mockClaudeScript(page,[{blocks:[{type:'tool_use',id:'pdf-1',name:'one_mcp_search',input:{query:'atlas_polarion_status'}}]},{blocks:[{type:'tool_use',id:'pdf-2',name:'one_mcp_call',input:{server:'atlas',name:'atlas_polarion_status',arguments:{job}}}]},text('The original PDF is ready for the file action.')]);
   await page.keyboard.press(`${MOD}+j`);const term=page.getByRole('region',{name:'AI terminal'});
   await term.getByRole('textbox',{name:'Task for the agent'}).fill('Check the native Polarion PDF export status.');await term.getByRole('textbox',{name:'Task for the agent'}).press('Enter');
-  await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:25000});
+  await expect(term.locator('.term-head__status')).toHaveText('Review export progress',{timeout:25000});
+  await expect(term.locator('.term-pdf-history')).toContainText('Answer at export time');
   const card=term.getByRole('complementary',{name:'Polarion PDF'});await expect(card).toContainText('native-export.pdf');
   await card.getByRole('button',{name:'Save PDF in ONE'}).click();
   if(corrupt){await expect(card.getByRole('alert')).toContainText('validation failed');expect(await page.evaluate(()=>(window as any).__oneTerm.state.getState().changes.filter((c:any)=>c.kind==='media'))).toHaveLength(0)}
@@ -141,6 +142,17 @@ test.describe('Task splitting and source verification',()=>{
    await page.evaluate(async()=>{const term=(window as any).__oneTerm;await term.applyStaged([term.state.getState().changes.find((c:any)=>c.kind==='media').id])});
    await expect(card.getByRole('button',{name:'Saved and inserted in ONE'})).toBeDisabled();
    const content=await wsEval(page,(s,arg)=>s.pages[arg].content,pageId);expect(JSON.stringify(content)).toContain(media.src);expect(JSON.stringify(content)).toContain(pdf.sha256);
+   await expect(card.getByRole('link',{name:'Download saved PDF'})).toHaveAttribute('href',/^blob:/);
+   await expect(card).not.toContainText('Download is available for 30 minutes');
+   await expect(term).toContainText('1 confirmed exports · 1 attached to the target page · 0 not attached');
+   // A historical applied change must not claim the attachment still exists after editing.
+   await wsEval(page,(s,arg)=>s.updatePage(arg.id,{content:arg.content}),{id:pageId,content:doc(para('Attachment removed by editor.'))});
+   await expect(card.getByRole('button',{name:'Saved in ONE · Review insertion'})).toBeDisabled();
+   await expect(term).toContainText('1 confirmed exports · 0 attached to the target page · 1 not attached');
+   await card.getByRole('button',{name:'Prepare attachment for insertion again'}).click();
+   await expect(card.getByRole('button',{name:'Prepare attachment for insertion again'})).toHaveCount(0);
+   await page.evaluate(async()=>{const term=(window as any).__oneTerm;await term.applyStaged([term.state.getState().changes.find((c:any)=>c.kind==='media'&&c.status==='pending').id])});
+   await expect(card.getByRole('button',{name:'Saved and inserted in ONE'})).toBeDisabled();
    await card.screenshot({path:info.outputPath('native-pdf-ready.png')});
    await wsEval(page,s=>s.updateSettings({language:'de'}));await page.setViewportSize({width:390,height:844});
    const german=page.getByRole('complementary',{name:'Polarion-PDF'});expect(await german.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);await german.screenshot({path:info.outputPath('native-pdf-mobile-de.png')});
