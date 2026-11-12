@@ -1,4 +1,5 @@
 import { polarionSignInWindow } from './polarionSignInWindow'
+import { polarionAuthenticationRequested } from '@/shared/quandprofile/polarion-auth-intent'
 import {mockIntent,MOCK_WORKSPACE_SYSTEM} from '@/shared/ai/designMock'
 import {mcpWorkScope,readMcpWork,saveMcpWork,deleteMcpWork} from '../core/localMcpWork'
 import {validTaskRecovery,recoveryTask,type TaskRecovery} from '@/shared/ai/taskRecovery'
@@ -685,15 +686,19 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
     const tooling = terminalSetup(withCoding, withMemTools && pre.allows('memory'), withUpsert, prepared.taskRules)
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')
+    const polarionSignIn = !oneOnly && polarionAuthenticationRequested(task)
     const addressedMcp=forced.length>0||setup.servers.some(s=>[s.name,s.codeword].filter(Boolean).some(name=>new RegExp('(?:^|[^a-z0-9_-])'+name!.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?:$|[^a-z0-9_-])','i').test(task)))||(/\batlas[_\s]+(?:whoami|get|search|context)\b/i.test(task)&&setup.servers.some(s=>/^https:\/\/(?:eh|aj)-atlas\.com\//.test(s.url)))
     // An explicitly requested source must not silently become a page-only answer.
-    if(!mcpOk&&addressedMcp&&pre.route)throw new AIError('policy','mcp-required',undefined,undefined,[{kind:'step',step:'data',provider:pre.route.p,data:'mcp'}])
+    if(!mcpOk&&(addressedMcp||polarionSignIn)&&pre.route)throw new AIError('policy','mcp-required',undefined,undefined,[{kind:'step',step:'data',provider:pre.route.p,data:'mcp'}])
     if (!mcpOk) for (const name of mcpNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.policy', { server: name }))
     const mcp = setup.servers.length && mcpOk ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)
     for (const name of left) note(t('features.ai.mcp.cw.note.refused', { server: name }))
     // servers left out because they rejected their token: the terminal offers a sign-in under the task
     if (left.length && here()) patchTurn(n, { signIn: [...new Set([...(get().turns.find((x) => x.n === n)?.signIn ?? []), ...left])] })
+    // A page's historical login status cannot replace the requested live authentication.
+    // Do not pay for a model-only answer or mark this action done without any connection.
+    if (polarionSignIn && !mcp) throw new AIError('mcp', 'features.ai.mcp.polarionUnavailable')
     let repoText = ''
     const selectedFiles = repoFileRefs(task)
     if (selectedFiles.length && !pre.allows('files')) throw new AIError('policy', 'Repository files are excluded for this model.')
