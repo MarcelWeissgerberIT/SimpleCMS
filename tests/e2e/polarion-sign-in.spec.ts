@@ -22,6 +22,34 @@ test.describe('Compiled tasks and human decision cube',()=>{
  })
  test.afterEach(async()=>{await fake?.close()})
 
+ for(const missing of ['absent','disabled','workspace'] as const)test(`Polarion sign-in with ${missing} MCP stops before the model and offers connection settings`,async({page})=>{
+  await wsEval(page,(s,mode)=>{if(mode==='workspace'){const startPageId=s.createPage({title:'Prepared workspace',parentId:null});s.setWorkspaceAI({...s.ai,onboarding:{startPageId,mcpName:'atlas',mcpUrl:'https://aj-atlas.com/api/atlas/mcp',project:'Fixture'}});s.updateSettings({workspaceMcpServers:[]})}else s.updateSettings({mcpServers:mode==='absent'?[]:s.settings.mcpServers.map((server:any)=>({...server,enabled:false}))})},missing)
+  if(missing==='workspace')expect(await wsEval(page,s=>!!s.ai?.onboarding)).toBe(true)
+  fake.onText=r=>({model:r.model,text:'I could not sign in because no Polarion tools are available.',calls:[],inputTokens:200,outputTokens:60,usd:0})
+  await page.evaluate(()=>{window.open=()=>null})
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`)
+  const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill(missing==='absent'?'melde dich bei polarion an':'Please reconnect me to Polarion');await input.press('Enter')
+  await expect(term.locator('.term-head__status')).toHaveText('Error',{timeout:10000})
+  expect(fake.textAsked).toHaveLength(0);expect(fake.mcpAsked).toHaveLength(0)
+  await expect(term.getByRole('alert')).toContainText('Sign-in has not started')
+  await term.getByRole('alert').getByRole('button',{name:'MCP settings',exact:true}).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+ })
+
+ test('explaining Polarion sign-in without a connection remains an ordinary answer',async({page})=>{
+  await wsEval(page,s=>s.updateSettings({mcpServers:[]}))
+  fake.onText=r=>({model:r.model,text:'Sign in through the protected dialog. No sign-in was started.',calls:[],inputTokens:200,outputTokens:60,usd:0})
+  await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),LOCAL)
+  await page.keyboard.press(`${MOD}+j`)
+  const term=page.getByRole('region',{name:'AI terminal'}),input=term.getByRole('textbox',{name:'Task for the agent'})
+  await input.fill('Explain how to sign in to Polarion. Do not sign me in.');await input.press('Enter')
+  await expect(term.locator('.term-head__status')).toHaveText('Done',{timeout:10000})
+  expect(fake.textAsked.length).toBeGreaterThan(0);expect(fake.mcpAsked).toHaveLength(0)
+  await expect(term).toContainText('No sign-in was started.')
+ })
+
  for(const goal of ['Bitte in Polarion anmelden','Please sign in to Polarion'])for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: protected sign-in window and clickable fallback (${goal})`,async({page})=>{
   const signInUrl='https://aj-atlas.com/mcp/secure-input/69d0c649-a59e-4c4a-9982-64501b528b6e'
   await page.context().route('https://aj-atlas.com/mcp/secure-input/**',r=>r.fulfill({contentType:'text/html',body:'<h1>Protected sign-in fixture</h1>'}))
