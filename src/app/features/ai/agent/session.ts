@@ -139,7 +139,7 @@ export function bindTerminalReload(){
   queue=queue.then(async()=>{
    if(version!==generation)return
    const ok=await saveMcpWork(savedScope,slot,value).catch(()=>false)
-   if(!ok&&!warned&&version===generation){warned=true;note(t('features.agent.recovery.failed'))}
+   if(!ok&&!warned&&version===generation){warned=true;useUI.getState().toast({message:t('features.agent.recovery.failed'),kind:'error'})}
   }).catch(()=>{})
  }
  const activate=async()=>{
