@@ -290,6 +290,7 @@ export const messages: Messages = {
     'features.ai.mcp.agentChanged': 'MCP servers changed. Start a new task to use the new setup.',
     'features.ai.mcp.openSettings': 'MCP settings',
     'features.ai.mcp.polarionUnavailable': 'Sign-in has not started: no MCP connection is available to this conversation. Open MCP settings and connect or enable your Atlas/Polarion connection. Then start a new task and request sign-in again.',
+    'features.ai.mcp.identityUnavailable': 'Atlas identity has not been checked: no MCP connection is available to this conversation. Open MCP settings and connect or enable your personal Atlas access for this workspace. Then start a new task and request the identity check again.',
 
     /* ---------- History ---------- */
     'features.history.demoDraft': '{title} (draft)',
@@ -772,6 +773,7 @@ export const messages: Messages = {
     'features.ai.mcp.agentChanged': 'MCP-Server geändert. Starte eine neue Aufgabe, um die neue Einrichtung zu nutzen.',
     'features.ai.mcp.openSettings': 'MCP-Einstellungen',
     'features.ai.mcp.polarionUnavailable': 'Anmeldung nicht gestartet: Dieser Unterhaltung steht keine MCP-Verbindung zur Verfügung. Öffne die MCP-Einstellungen und verbinde oder aktiviere deinen Atlas-/Polarion-Zugang. Starte anschließend eine neue Aufgabe und fordere die Anmeldung erneut an.',
+    'features.ai.mcp.identityUnavailable': 'Atlas-Identität nicht geprüft: Dieser Unterhaltung steht keine MCP-Verbindung zur Verfügung. Öffne die MCP-Einstellungen und verbinde oder aktiviere deinen persönlichen Atlas-Zugang für diesen Workspace. Starte anschließend eine neue Aufgabe und fordere die Identitätsprüfung erneut an.',
 
     /* ---------- History ---------- */
     'features.history.demoDraft': '{title} (Entwurf)',
