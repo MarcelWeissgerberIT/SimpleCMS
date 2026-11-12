@@ -150,3 +150,12 @@ test('Kai confirmed-risk follow-up permits only the explicit ticket write throug
  assert.equal(check({contract:c,phase:'dispatch',tool:'execute',effect:'execute'}).decision,'block')
  assert.equal(check({contract:c,phase:'dispatch',tool:'write',effect:'write',evidence:{...evidence(),pending_decisions:1}}).decision,'block')
 })
+
+test('a blocked external write cannot finish as ready after successful reads',()=>{
+ const task=new TaskSession(contract(),{compile:r=>runtime.task(r),signature:()=> 'v1',check:()=>{}})
+ task.observe('one',true,true);task.observe('atlas',true,true)
+ assert.throws(()=>task.dispatch('write','write'),TaskBlocked)
+ assert.throws(()=>task.finish('The record could not be created. No write occurred.'),TaskBlocked)
+ assert.equal(task.report().phase,'blocked');assert.equal(task.report().evidence.denied_actions,1)
+ assert.equal(task.report().evidence.source_reads,2)
+})

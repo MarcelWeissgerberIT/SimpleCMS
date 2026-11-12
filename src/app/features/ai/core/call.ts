@@ -102,6 +102,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   })
 
 export interface NeutralOpts {
+  requireVerifiedFacts?: boolean
   readOnly?: boolean
   audit?: import('./liveAudit').LiveAudit
   mcp?: import('../mcp-servers/config').McpAttachment | null

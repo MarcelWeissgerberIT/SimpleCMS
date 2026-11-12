@@ -217,6 +217,38 @@ test.describe('Atlas source facts in the real browser-owned harness',()=>{
   expect(host.requests).toHaveLength(4);expect(host.requests[3].body.tools??[]).toEqual([]);expect(host.requests.every(r=>!r.body.mcp_servers)).toBe(true)
   expect(JSON.stringify(host.requests[3].body)).not.toContain('private-facts-token')
  })
+ test('explicit Atlas continuation retains its source page and obtains a fresh write contract',async({page})=>{
+  const original=await createPage(page,{title:'Original sync source',content:doc(para('Prepared dossier content.'))})
+  const other=await createPage(page,{title:'Unrelated current page',content:doc(para('Not the sync target.'))});await gotoPage(page,other)
+  await page.evaluate(async route=>(await (window as any).__oneAI.rules()).setDeviceDefault([route]),{p:'copilot',m:COPILOT})
+  await page.keyboard.press(`${MOD}+j`)
+  await expect.poll(()=>page.evaluate(()=>!!(window as any).__oneTerm)).toBe(true)
+  await page.evaluate(id=>{(window as any).__oneTerm.state.setState({status:'done',turns:[{n:1,status:'done',task:'synce diese seite mit einem neuen atlas records type dossier in flux-client',answer:'No record created: dispatch was blocked.',context:{pageId:id,page:'Original sync source',refs:0,mentions:[]},startedAt:Date.now()}],steps:[{id:'blocked',turn:1,kind:'mcp',state:'err',startedAt:Date.now(),mcp:{id:'blocked',server:'atlas',tool:'atlas_create',notExecuted:true}}]})},original)
+  fake.onText=async r=>{await new Promise(resolve=>setTimeout(resolve,500));return {model:r.model,text:'Preparing the requested continuation.',inputTokens:100,outputTokens:10,usd:0}}
+  const term=page.getByRole('region',{name:'AI terminal'})
+  await term.getByRole('button',{name:'Continue Atlas task',exact:true}).click()
+  await expect.poll(()=>fake.textAsked.length).toBeGreaterThan(0)
+  const state=await page.evaluate(()=>(window as any).__oneTerm.state.getState())
+  expect(state.turns.at(-1).continues).toBe(1);expect(state.turns.at(-1).context.pageId).toBe(original)
+  const card=state.turns.at(-1).contract
+  expect(card.compiled.contract.external_write).toBe(true)
+  expect(card.compiled.contract.goal).toContain('synce diese seite')
+  expect(JSON.stringify(fake.textAsked)).toContain('Prüfe zuerst den aktuellen Zielstand')
+  expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(0)
+  const stop=term.getByRole('button',{name:'Stop',exact:true});if(await stop.count())await stop.click()
+ })
+ for(const provider of ['local','copilot','anthropic'] as const)test(`${provider}: strict comparison rejects fallback despite successful Atlas reads`,async({page})=>{
+  fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Approved fixture'}})}
+  const steps=[{name:'one_mcp_search',input:{query:'atlas_get'}},{name:'one_mcp_call',input:{server:'atlas',name:'atlas_get',arguments:{ref:42}}}]
+  let round=0;fake.onText=r=>{const c=steps[round++];return {model:r.model,text:c?'':'Created a record in Atlas, Ref: 999.',calls:c?[{id:'c'+round,name:c.name,arguments:c.input}]:[],inputTokens:100,outputTokens:30,usd:0}}
+  if(provider==='anthropic'){
+   await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
+   await mockClaudeScript(page,[...steps.map((c,i)=>({blocks:[{type:'tool_use' as const,id:'c'+i,name:c.name,input:c.input}]})),text('Created a record in Atlas, Ref: 999.'),text('Created a record in Atlas, Ref: 999.')])
+  }
+  const answer=await page.evaluate(async route=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read Atlas ref 42. Read only.',requireVerifiedFacts:true,mcp:'free',route}),{p:provider,m:provider==='local'?LOCAL:provider==='copilot'?COPILOT:DEFAULT_CLAUDE_MODEL})
+  expect(answer).toMatchObject({ok:false,detail:'features.ai.local.unverifiedFacts'})
+  expect(fake.mcpAsked.filter(r=>r.action==='call').map(r=>r.name)).toEqual(['atlas_get'])
+ })
  test('Claude structured fields with an invented Atlas ref are withheld',async({page})=>{
   await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-test-key'}))
   fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_get',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]}:{result:envelope({item:{ref:42,body:'Approved fixture'}})}

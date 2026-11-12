@@ -20,6 +20,7 @@ export class TaskSession {
   private questions:TaskQuestion[]=[]
   private waiting:{id:string;resolve:(answer:string)=>void;reject:(error:Error)=>void}|null=null
   private typedReadAt=0
+  private deniedEffects=0
   private closed=false
   private phase:TaskReport['phase']='working'
   private compiled:TaskCompiled
@@ -58,7 +59,7 @@ export class TaskSession {
     const delivery=atlasTransferChoice(this.contract.goal)
     if(delivery&&!atlasTransferEffectAllowed(delivery,tool,effect))throw new TaskBlocked('The human selected Atlas delivery mode '+delivery+'. Only that operation and source reads are allowed. Ask the person before changing the delivery mode.')
     const c=this.check('dispatch',tool,effect,target)
-    if(c.decision!=='allow'){this.evidence.denied_actions++;this.phase='blocked';this.publish();const typed=c.findings.filter(f=>f.id.startsWith('typed_')&&f.hard&&f.status!=='verified');if(typed.length)throw new TaskBlocked('Typed AI check blocked: '+typed.map(f=>f.id).join(', '));throw new TaskBlocked('Compiled task blocked this action. Read-only bounds, an unresolved decision, unknown effects or a changed workspace/provider prevent dispatch. Do not retry the same effect. Continue independent reads or request a precise prerequisite decision after inspecting sources.')}
+    if(c.decision!=='allow'){this.evidence.denied_actions++;if(['write','execute'].includes(effect))this.deniedEffects++;this.phase='blocked';this.publish();const typed=c.findings.filter(f=>f.id.startsWith('typed_')&&f.hard&&f.status!=='verified');if(typed.length)throw new TaskBlocked('Typed AI check blocked: '+typed.map(f=>f.id).join(', '));throw new TaskBlocked('Compiled task blocked this action. Read-only bounds, an unresolved decision, unknown effects or a changed workspace/provider prevent dispatch. Do not retry the same effect. Continue independent reads or request a precise prerequisite decision after inspecting sources.')}
     return this.report()
   }
   observe(area:'one'|'atlas'|'other',success:boolean,contentRead:boolean,staged=false,inspects=contentRead,tool='source read'){
@@ -122,7 +123,7 @@ export class TaskSession {
     if(!q||!waiting||waiting.id!==q.id||this.closed||this.host.signal?.aborted||this.host.signature()!==this.pinned||!answer.trim()||answer.length>4000)return false
     this.host.check();q.state='answered';q.answer=answer.trim();this.contract.decisions.push({question:q.question,answer:q.answer});this.contract.revision++;this.evidence.pending_decisions--;this.waiting=null;this.phase='working';this.check('compile');this.publish();waiting.resolve(JSON.stringify({human_answer:q.answer,contract_revision:this.contract.revision,permissions_unchanged:true}));return true
   }
-  finish(answer:string,issues=0){this.evidence.answer=answer;this.evidence.issues=issues;this.compiled=this.check('result');this.phase=this.compiled.decision==='allow'?'ready':'blocked';this.publish();if(this.phase==='blocked')throw new TaskBlocked((this.compiled.findings.some(f=>f.id.startsWith('typed_')&&f.hard&&f.status!=='verified')?'Typed AI check blocked: ':'Compiled result check blocked: ')+this.compiled.findings.filter(f=>f.hard&&f.status!=='verified').map(f=>f.id).join(', '));return this.report()}
+  finish(answer:string,issues=0){this.evidence.answer=answer;this.evidence.issues=issues+this.deniedEffects;this.compiled=this.check('result');this.phase=this.compiled.decision==='allow'?'ready':'blocked';this.publish();if(this.phase==='blocked')throw new TaskBlocked((this.compiled.findings.some(f=>f.id.startsWith('typed_')&&f.hard&&f.status!=='verified')?'Typed AI check blocked: ':'Compiled result check blocked: ')+this.compiled.findings.filter(f=>f.hard&&f.status!=='verified').map(f=>f.id).join(', '));return this.report()}
   /** Host-only failure: preserve a blocked compiler card instead of a stale working state. */
   fail(reason:string){this.evidence.answer=reason.slice(0,2000);this.evidence.issues++;this.compiled=this.check('result');this.phase='blocked';this.publish()}
   accept(){if(this.phase!=='ready'||this.host.signature()!==this.pinned)return false;this.host.check();this.evidence.human_accepted=true;const c=this.check('result');if(c.decision!=='allow')return false;this.phase='accepted';this.publish();return true}

@@ -1,3 +1,4 @@
+import {canResumeAtlasWrite,atlasResumeTask} from './atlasResume'
 import { polarionSignInWindow } from './polarionSignInWindow'
 import { polarionAuthenticationRequested } from '@/shared/quandprofile/polarion-auth-intent'
 import { atlasIdentityTask } from '@/shared/quandprofile/task'
@@ -119,6 +120,56 @@ const sigSteps = new Map<ID, Array<[string, string]>>()
 let proposing: AbortController | null = null
 /** undo of a saved / updated proposal, by item id */
 const memUndo = new Map<string, () => void>()
+
+/** Reload restores historical data only; no controller, live decision or auto-run is revived. */
+let reloadBound=false
+export function bindTerminalReload(){
+ if(reloadBound)return;reloadBound=true
+ let key:string
+ try{key=sessionStorage.getItem('one.term.tab')??newId();sessionStorage.setItem('one.term.tab',key)}catch{return}
+ const slot='terminal-tab:'+key
+ type Snapshot={v:1;state:Pick<ReturnType<typeof get>,'turns'|'steps'|'changes'|'draft'|'refs'|'mentions'|'pageOff'|'pageTree'|'usage'|'route'|'reader'|'max'|'doneShown'>;history:BetaMessageParam[];provider:ProviderId|null;sequence:number}
+ let scope='',identity='',generation=0,restoring=false,warned=false
+ let timer:ReturnType<typeof setTimeout>|undefined,queue=Promise.resolve()
+ const save=()=>{
+  if(restoring||!scope||scope!==mcpWorkScope())return
+  const savedScope=scope,version=generation
+  const {turns,steps,changes,draft,refs,mentions,pageOff,pageTree,usage,route,reader,max,doneShown}=get()
+  const value=JSON.parse(scrubSecrets(JSON.stringify({v:1,state:{turns,steps,changes,draft,refs,mentions,pageOff,pageTree,usage,route,reader,max,doneShown},history,provider:historyProvider,sequence:seq}))) as Snapshot
+  queue=queue.then(async()=>{
+   if(version!==generation)return
+   const ok=await saveMcpWork(savedScope,slot,value).catch(()=>false)
+   if(!ok&&!warned&&version===generation){warned=true;note(t('features.agent.recovery.failed'))}
+  }).catch(()=>{})
+ }
+ const activate=async()=>{
+  const c=useCloud.getState(),ws=useWorkspace.getState()
+  const nextIdentity=JSON.stringify([ws.epoch,c.active,c.user?.id??null])
+  if(identity&&identity!==nextIdentity){clearTimeout(timer);generation++;scope='';identity=nextIdentity;restoring=true;newTask();restoring=false}
+  // Wait for the selected cloud workspace; never restore the local bootstrap session into it.
+  if(['checking','connecting'].includes(c.status)||c.active.kind==='cloud'&&(!c.user||ws.epoch!=='cloud:'+c.active.id))return
+  const next=mcpWorkScope()
+  if(next===scope)return
+  clearTimeout(timer);restoring=true
+  const version=++generation
+  scope=next;identity=nextIdentity;warned=false
+  const before=get()
+  const stored=await readMcpWork<Snapshot>(next,slot).catch(()=>null)
+  if(version!==generation||next!==mcpWorkScope())return
+  if(stored?.v===1&&Array.isArray(stored.state?.turns)&&Array.isArray(stored.state?.steps)&&get().turns===before.turns&&!before.turns.length&&get().draft===before.draft&&!before.draft&&!get().autorun){
+   history=Array.isArray(stored.history)?stored.history:[];historyProvider=stored.provider;seq=Math.max(seq,stored.sequence||0)
+   const st=stored.state
+   const turns=st.turns.map(t=>({...t,...(t.status==='running'?{status:'stopped' as const,endedAt:Date.now()}:{} )}))
+   set({...st,turns,steps:st.steps.map(step=>step.state==='run'?{...step,state:'err' as const}:step),changes:(st.changes??[]).map(c=>['pending','failed'].includes(c.status)?{...c,status:'failed' as const,error:currentLang()==='de'?'Nach dem Neuladen: Zielstand und Vorschlag vor der Übernahme erneut prüfen.':'After reloading: check the target and proposal before applying.'}:c),status:turns.at(-1)?.status??'idle',autorun:false,live:'',halt:null,applying:false})
+  }
+  restoring=false;save()
+ }
+ useAgent.subscribe((s,previous)=>{if(s===previous||restoring)return;clearTimeout(timer);timer=setTimeout(save,s.status==='running'?300:0)})
+ useWorkspace.subscribe(()=>{void activate()})
+ useCloud.subscribe(()=>{void activate()})
+ window.addEventListener('pagehide',save)
+ void activate()
+}
 
 /** The agent's rules for the One memory (added to the system prompt while its tools are offered). */
 const MEMORY_RULES = `One memory
@@ -406,6 +457,16 @@ export function continueTask(): Promise<void> {
   return runTask(prev.task, { history: false, continues: prev.continues ?? prev.n })
 }
 
+/** Explicit button action; keep the original source and history, with a fresh permission contract. */
+export function resumeAtlasWrite(n:number):Promise<void>{
+ const s=get(),prev=s.turns.at(-1)
+ if(s.status==='running'||!prev||prev.n!==n||!canResumeAtlasWrite(prev,s.steps))return Promise.resolve()
+ const page=prev.context?.pageId??null,pages=useWorkspace.getState().pages
+ if(page&&(!pages[page]||isEffectivelyTrashed(pages,page)))return Promise.resolve()
+ const snap=turnSnap.get(prev.n)
+ return runTask(atlasResumeTask(prev.task),{history:false,continues:prev.continues??prev.n,sourcePage:page,...(snap?{again:{refs:snap.refs,mentions:snap.mentions}}:{})})
+}
+
 export const activeRecoveryKey=()=> 'terminal-recovery:'+convId
 export async function resumeSavedWork(scope:string,key:string,onStarted?:()=>void){
  if(get().status==='running')return 'busy' as const
@@ -459,8 +520,8 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
   if (opts.history !== false) pushHistory(task)
   // the chips go along with this task: references, the mentions still in the text, the open page (a continuation: none again)
   // "Run the task again" (after a sign-in): the references and mentions the task had; the chips stay for the next one
-  const refs = opts.program || prevTurn ? [] : opts.again ? opts.again.refs : get().refs
-  const mentions = opts.program || prevTurn ? [] : (opts.again ? opts.again.mentions : get().mentions).filter((m) => task.includes(`@${m.title}`))
+  const refs = opts.program ? [] : opts.again ? opts.again.refs : prevTurn ? [] : get().refs
+  const mentions = opts.program ? [] : (opts.again ? opts.again.mentions : prevTurn ? [] : get().mentions).filter((m) => task.includes(`@${m.title}`))
   const programSpec=opts.program?readProgram(opts.program.saved.compiled):null
   const recoveryPage=opts.sourcePage&&useWorkspace.getState().pages[opts.sourcePage]&&!isEffectivelyTrashed(useWorkspace.getState().pages,opts.sourcePage)?opts.sourcePage:null
   const pageId = opts.sourcePage!==undefined?recoveryPage:programSpec?workflowTarget(programSpec,opts.program!.inputs)??(programSpec.steps.some(s=>s.kind==='workflow')?null:contextPageId()):contextPageId()
@@ -503,7 +564,7 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
   if(oneOnly){prepared.setup={servers:[],instructions:''};prepared.codingTools=false}
   if(opts.program){const names=new Set(programSpec!.steps.flatMap(s=>s.kind==='tool'&&s.server?[s.server]:s.kind==='workflow'?s.connections.map(c=>c.name):[]));prepared.setup={...prepared.setup,servers:prepared.setup.servers.filter(s=>names.has(s.name))}}
   const { setup, memTools: withMemTools, codingTools: withCoding, upsert: withUpsert } = prepared
-  const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
+  const prompt = prevTurn ? continuation(prevTurn)+(task!==prevTurn.task?'\n\nCurrent explicit continuation request:\n'+prepared.prompt:'') : prepared.prompt
   set((s) => ({
     status: 'running',
     // Continue leaves what the person is typing (and the chips for their next task) alone

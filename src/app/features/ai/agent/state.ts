@@ -1,6 +1,6 @@
 import type { Route } from '@/shared/ai/types'
 /**
- * AI terminal (the workspace agent) — session state (this tab only, never persisted). Kept light:
+ * AI terminal (the workspace agent) — tab state (reload snapshots are scoped and kept in the local work store). Kept light:
  * the terminal body, the loop and the tools load lazily when it opens (AgentPanel.tsx). A task
  * keeps running while the terminal is hidden; only Stop ends it.
  */
@@ -242,7 +242,7 @@ export function setTermLayout(layout: 'bottom' | 'side') {
 }
 
 export const useAgent = create<AgentState>()(() => ({
-  open: false,
+  open: (()=>{try{return sessionStorage.getItem('one.term.open')==='1'}catch{return false}})(),
   draft: '',
   autorun: false,
   refs: [],
@@ -257,6 +257,9 @@ export const useAgent = create<AgentState>()(() => ({
   layout: storedLayout(),
   ...initialAgentState(),
 }))
+
+// Only the open/closed UI preference lives in sessionStorage, never task content.
+useAgent.subscribe((s,previous)=>{if(s.open!==previous.open)try{sessionStorage.setItem('one.term.open',s.open?'1':'0')}catch{/* session only */}})
 
 /* ---------- command output in the log ---------- */
 

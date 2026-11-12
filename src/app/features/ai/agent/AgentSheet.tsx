@@ -1,3 +1,4 @@
+import {canResumeAtlasWrite} from './atlasResume'
 import {hasPdfExportWork} from './polarionPdfState'
 import { PolarionPdfExport } from './PolarionPdfExport'
 import {DraftTaskPlan,TaskPlan} from './TaskPlan'
@@ -42,7 +43,7 @@ import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, setTermSideWidth, setTermLayout, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { bindTerminalReload, resumeAtlasWrite, retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
 import { focusIsNowhere } from '../../../ui/focus'
@@ -107,6 +108,7 @@ const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce
 const focusPrompt = () => document.querySelector<HTMLTextAreaElement>('.term-prompt__input')?.focus({ preventScroll: true })
 
 export default function AgentSheet() {
+  useEffect(()=>{void bindTerminalReload()},[])
   const t = useT()
   const pickedRoute = useAgent(s => s.route)
   const hasKey = useAIStatus('terminal.task').ready || !!pickedRoute
@@ -850,6 +852,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       <TurnMedia n={turn.n} />
       <TurnHalt n={turn.n} />
       <AtlasTransferSummary turn={turn} steps={steps}/>
+      {last&&!running&&canResumeAtlasWrite(turn,steps)&&<div className="term-failure-dock"><button type="button" className="btn btn--primary" onClick={()=>void resumeAtlasWrite(turn.n)}>{lang==='de'?'Atlas-Auftrag fortsetzen':'Continue Atlas task'}</button><p>{lang==='de'?'Der vorbereitete Inhalt und die ursprüngliche Quellseite bleiben erhalten. ONE prüft Berechtigungen und vorhandene Ergebnisse erneut, bevor der fehlende Record angelegt wird.':'The prepared content and original source page are retained. ONE rechecks permissions and existing results before creating the missing record.'}</p></div>}
       {turn.receipt&&<p className="term-note" role="status">{t('features.ai.program.terminal.'+turn.receipt)}{turn.receipt==='failed'&&<button className="btn btn--sm" onClick={()=>void retryTurnReceipt(turn.n)}>{t('features.ai.program.terminal.retry')}</button>}</p>}
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
       {turn.status === 'limit' && <p className="term-turn__limit">{t('features.agent.limitEnd',{max:MAX_TOOL_CALLS})}</p>}
