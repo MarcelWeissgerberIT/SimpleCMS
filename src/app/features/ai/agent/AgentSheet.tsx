@@ -41,7 +41,7 @@ import { RouteChip } from '../routing/RouteChip'
 import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
-import { closeAgent, clampHeight, removeRef, setTermHeight, setTermLayout, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
+import { closeAgent, clampHeight, removeRef, setTermHeight, setTermSideWidth, setTermLayout, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
 import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
@@ -116,6 +116,7 @@ export default function AgentSheet() {
   const changes = useAgent((s) => s.changes)
   const autorun = useAgent((s) => s.autorun)
   const height = useAgent((s) => s.height)
+  const sideWidth = useAgent(s => s.sideWidth)
   const max = useAgent((s) => s.max)
   const layout = useAgent(s => s.layout)
   const wide = useMediaQuery('(min-width: 1100px)')
@@ -340,7 +341,7 @@ export default function AgentSheet() {
     }
   }
 
-  const style = { '--term-h': max ? 1 : waitingQuestion?Math.max(height,.86):height } as React.CSSProperties
+  const style = { '--term-w': sideWidth===null?undefined:`${sideWidth}px`, '--term-h': max ? 1 : waitingQuestion?Math.max(height,.86):height } as React.CSSProperties
   const body = (
     <section
       ref={rootRef}
@@ -358,7 +359,7 @@ export default function AgentSheet() {
       onTouchStartCapture={()=>{restoreAnchor.current=undefined}}
     >
       <div className="term__panel">
-        <Grip />
+        {side ? !max && <SideGrip /> : <Grip />}
         <Head side={side} wide={wide} />
         {openQuestion&&<aside className="term-awaiting" role="region" aria-label={t('features.ai.task.attention')}>
           <div role="status"><strong>{t('features.ai.task.attention')}</strong><p>{openQuestion.question}</p></div>
@@ -490,6 +491,52 @@ function Grip() {
       <span className="term-grip__mark" aria-hidden />
     </div>
   )
+}
+
+/** Resize the side terminal without changing the task, page or bottom-dock height. */
+function SideGrip() {
+  const lang=useLang()
+  const grip=useRef<HTMLDivElement>(null)
+  const gesture=useRef<{id:number;right:number;max:number;width:number}|null>(null)
+  const [dimensions,setDimensions]=useState({width:560,max:1000})
+  const [drag,setDrag]=useState(false)
+  useLayoutEffect(()=>{
+    const term=grip.current?.closest('.term'),host=term?.parentElement
+    if(!term || !host)return
+    const update=()=>setDimensions({width:Math.round(term.getBoundingClientRect().width),max:Math.max(320,Math.floor(host.getBoundingClientRect().width-320))})
+    update()
+    const observer=new ResizeObserver(update);observer.observe(term);observer.observe(host)
+    return ()=>observer.disconnect()
+  },[])
+  const clamp=(width:number,max=dimensions.max)=>Math.max(320,Math.min(max,width))
+  const finish=(e:React.PointerEvent<HTMLDivElement>)=>{
+    if(gesture.current?.id!==e.pointerId)return
+    setTermSideWidth(gesture.current.width);gesture.current=null;setDrag(false)
+    if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId)
+  }
+  return <div ref={grip} className="term-side-grip" role="separator" aria-orientation="vertical"
+    aria-label={lang==='de'?'Terminalbreite ändern':'Resize terminal width'}
+    title={lang==='de'?'Ziehen zum Ändern der Breite · Doppelklick zum Zurücksetzen':'Drag to resize · Double-click to reset'}
+    aria-valuemin={320} aria-valuemax={dimensions.max} aria-valuenow={dimensions.width}
+    aria-valuetext={`${dimensions.width} px`} tabIndex={0} data-drag={drag||undefined}
+    onPointerDown={e=>{
+      if(e.button!==0)return
+      const box=e.currentTarget.closest('.term')?.parentElement?.getBoundingClientRect();if(!box)return
+      e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId)
+      gesture.current={id:e.pointerId,right:box.right,max:Math.max(320,box.width-320),width:dimensions.width};setDrag(true)
+    }}
+    onPointerMove={e=>{
+      const current=gesture.current;if(!current || current.id!==e.pointerId)return
+      current.width=clamp(current.right-e.clientX,current.max)
+      useAgent.setState({sideWidth:current.width})
+    }}
+    onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}
+    onDoubleClick={()=>setTermSideWidth(null)}
+    onKeyDown={e=>{
+      const width=e.key==='ArrowLeft'?dimensions.width+32:e.key==='ArrowRight'?dimensions.width-32:e.key==='Home'?320:e.key==='End'?dimensions.max:null
+      if(width===null)return
+      e.preventDefault();e.stopPropagation();setTermSideWidth(clamp(width))
+    }}><span aria-hidden /></div>
 }
 
 function Elapsed({ start, end }: { start: number; end?: number }) {

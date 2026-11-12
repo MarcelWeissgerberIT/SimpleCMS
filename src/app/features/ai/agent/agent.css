@@ -2595,7 +2595,12 @@
 .term-head__options:not([hidden]) {display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:1 1 100%;padding:8px 0;border-top:1px solid var(--rule);max-height:30dvh;overflow:auto;}
 .term-head__options[hidden] {display:none;}
 .term-head__options .route-controls {max-width:100%;}
-.term[data-side] .term-grip {display:none;}
+/* A visible, keyboard-accessible splitter at the side terminal's left edge. */
+.term-side-grip {position:absolute;left:-5px;top:0;bottom:0;width:10px;z-index:5;cursor:ew-resize;touch-action:none;user-select:none;}
+.term-side-grip span {position:absolute;left:4px;top:50%;width:3px;height:40px;transform:translateY(-50%);border-radius:2px;background:var(--ink-3);}
+.term-side-grip:hover,.term-side-grip:focus-visible,.term-side-grip[data-drag] {background:var(--signal-wash);outline:none;}
+.term-side-grip:hover span,.term-side-grip:focus-visible span,.term-side-grip[data-drag] span {background:var(--signal);}
+.term:has(.term-side-grip[data-drag]) {user-select:none;}
 .term-next-context {font-size:11px;color:var(--ink-2);padding:6px 16px 0;overflow-wrap:anywhere;}
 .term-activity__context {font-size:11px;color:var(--ink-2);margin-top:3px;}
 .term-activity__elapsed {display:block;color:var(--ink-2);font-size:10px;margin-top:3px;}

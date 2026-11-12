@@ -143,6 +143,7 @@ export interface AgentState {
   unseen: 'done' | 'error' | null
   /** dock height as a share of the content area (per device) · maximised */
   height: number
+  sideWidth: number | null
   max: boolean
   /** bumped to move focus to the prompt (Mod+Shift+J while open) */
   focusTick: number
@@ -216,6 +217,22 @@ export function setTermHeight(h: number) {
   }
 }
 
+/** Side-panel width is a device preference, not shared workspace content. */
+function storedSideWidth(): number | null {
+  try {
+    const value=Number(window.localStorage.getItem('one.term.sideWidth'))
+    return Number.isFinite(value) && value>=320 && value<=10000 ? value : null
+  } catch { return null }
+}
+export function setTermSideWidth(width: number | null) {
+  const sideWidth=width===null ? null : Math.max(320,Math.min(10000,width))
+  useAgent.setState({sideWidth})
+  try {
+    if(sideWidth===null)window.localStorage.removeItem('one.term.sideWidth')
+    else window.localStorage.setItem('one.term.sideWidth',String(Math.round(sideWidth)))
+  } catch { /* session only */ }
+}
+
 function storedLayout(): 'bottom' | 'side' {
   try { return window.localStorage.getItem('one.term.layout') === 'side' ? 'side' : 'bottom' } catch { return 'bottom' }
 }
@@ -232,6 +249,7 @@ export const useAgent = create<AgentState>()(() => ({
   mentions: [],
   pageOff: null,
   height: typeof window === 'undefined' ? HEIGHT_DEFAULT : storedHeight(),
+  sideWidth: typeof window === 'undefined' ? null : storedSideWidth(),
   max: false,
   focusTick: 0,
   focusWork: false,
