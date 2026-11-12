@@ -18,6 +18,9 @@ async function setup(page:any,bytes:Uint8Array){
  const dialog=page.getByRole('dialog',{name:'Read and analyse a complete file',exact:true})
  await dialog.getByRole('button',{name:'Read entire file',exact:true}).click()
  await expect(dialog.getByText('Read: 137/137',{exact:true})).toBeVisible({timeout:30000})
+ await expect(dialog.getByRole('progressbar',{name:'Reading progress'})).toHaveAttribute('value','137')
+ await expect(dialog.getByRole('progressbar',{name:'Reading progress'})).toHaveAttribute('max','137')
+ await expect(dialog.getByRole('progressbar',{name:'Analysis progress'})).toHaveAttribute('value','0')
  return {id,dialog}
 }
 test('complete 137-page source survives host extraction, bounded model slices, and ONE readback',async({page,context})=>{
@@ -35,6 +38,7 @@ test('complete 137-page source survives host extraction, bounded model slices, a
  const {id,dialog}=await setup(page,realPath?readFileSync(realPath):pdfBytes(137,'Final page requirement: preserve every source page.',137))
  await dialog.getByRole('button',{name:'Analyse / Resume',exact:true}).click()
  await expect(dialog.getByRole('status')).toHaveText('All text sections analysed · human review pending',{timeout:120000})
+ await expect(dialog.getByRole('progressbar',{name:'Analysis progress'})).toHaveAttribute('value',String(prompts.length))
  const pages=await wsEval(page,s=>Object.values(s.pages))
  const root=pages.find(p=>p.parentId===id&&p.title.includes('Complete source'))!
  expect(root).toBeTruthy();expect(root.plain).toContain('137/137');expect(root.plain).toContain('No Atlas writes')
