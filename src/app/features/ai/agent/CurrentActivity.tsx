@@ -1,3 +1,5 @@
+import {hasEvidenceGaps} from '@/shared/ai/evidenceGaps'
+import {hasPdfExportWork} from './polarionPdfState'
 import {openPage} from '../../../lib/router'
 import {isEffectivelyTrashed} from '../../../store/selectors'
 import {useEffect,useState} from 'react'
@@ -20,7 +22,7 @@ export function CurrentActivity({following,unread,onTask,onLatest,onResult}: {
  const source=turn.context?.pageId,sourceAvailable=!!source&&!!pages[source]&&!isEffectivelyTrashed(pages,source)
  const running=status==='running',waiting=running&&(!!halt||turn.contract?.phase==='decision')
  const active=steps.filter(s=>s.turn===turn.n&&s.state==='run'),shown=active.slice(-2)
- const label=waiting?(de?'Deine Entscheidung':'Your decision'):running?(de?'Läuft':'Running'):turn.status==='done'?(de?'Abgeschlossen':'Completed'):turn.status==='error'?(de?'Fehlgeschlagen':'Failed'):turn.status==='limit'?(de?'Aufruflimit erreicht':'Call limit reached'):(de?'Angehalten':'Stopped')
+ const label=waiting?(de?'Deine Entscheidung':'Your decision'):running?(de?'Läuft':'Running'):turn.status==='done'&&hasEvidenceGaps(turn)?(de?'Teilstand · Quellenprüfung offen':'Partial result · evidence review open'):turn.status==='done'?(hasPdfExportWork(steps.filter(s=>s.turn===turn.n))?(de?'Exportstand prüfen':'Review export progress'):(de?'Abgeschlossen':'Completed')):turn.status==='error'?(de?'Fehlgeschlagen':'Failed'):turn.status==='limit'?(de?'Aufruflimit erreicht':'Call limit reached'):(de?'Angehalten':'Stopped')
  const fallback=halt?(de?'Wartet am Budgetlimit auf deine Entscheidung':'Waiting for your budget decision'):turn.contract?.phase==='decision'?(de?'Wartet auf deine Entscheidung':'Waiting for your decision'):live?(de?'Antwort wird geschrieben':'Writing the response'):(de?'Auftrag wird verarbeitet · noch keine neue Antwort':'Processing the task · no new response yet')
  return <section className="term-activity" aria-label={de?'Aktueller Auftrag':'Current task'} data-running={running||undefined}>
   <div className="term-activity__main">

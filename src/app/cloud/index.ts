@@ -381,3 +381,12 @@ export { captureReadiness, noteReadiness, noteAtlasRead, useReadinessSync, type 
 
 /** Same-origin, session-scoped API for the team hub. */
 export { request as teamRequest } from './api'
+
+/** A server-authenticated snapshot of other people in shared workspaces accessible to this session. */
+export interface WorkspacePresenceSnapshot {
+  at: string
+  workspaces: Array<{ id: string; name: string; people: Array<{ id: string; name: string }> }>
+}
+export function loadWorkspacePresence(signal?: AbortSignal): Promise<WorkspacePresenceSnapshot> {
+  return request('GET', 'api/workspaces/presence', undefined, { signal })
+}

@@ -79,3 +79,27 @@ test('background review action focuses proposals without applying them',async({p
  await expect(terminal(page).locator('.term-change[data-status="pending"]')).toBeFocused()
  expect(await wsEval(page,s=>Object.values(s.pages).some((p:any)=>p.title==='Proposed destination'))).toBe(false)
 })
+
+test('side terminal width can be dragged, remembered and reset without squeezing the page away',async({page},info)=>{
+ await page.setViewportSize({width:1440,height:1000});await openApp(page);await setKey(page)
+ await page.keyboard.press(`${MOD}+j`)
+ await terminal(page).getByRole('button',{name:'Beside page',exact:true}).click()
+ const divider=terminal(page).getByRole('separator',{name:'Resize terminal width',exact:true})
+ await expect(divider).toBeVisible();await expect(divider).toHaveAttribute('aria-orientation','vertical')
+ const before=(await terminal(page).boundingBox())!,handle=(await divider.boundingBox())!
+ await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);await page.mouse.down()
+ await page.mouse.move(handle.x-140,handle.y+handle.height/2,{steps:8});await page.mouse.up()
+ const dragged=(await terminal(page).boundingBox())!.width
+ expect(dragged).toBeGreaterThan(before.width+120)
+ await expect.poll(()=>page.evaluate(()=>Number(localStorage.getItem('one.term.sideWidth')))).toBeCloseTo(dragged,0)
+ await page.reload();await expect(page.locator('.ProseMirror').first()).toBeVisible();await page.keyboard.press(`${MOD}+j`)
+ await expect(divider).toBeVisible();expect((await terminal(page).boundingBox())!.width).toBeCloseTo(dragged,0)
+ await divider.focus();await divider.press('ArrowRight');expect((await terminal(page).boundingBox())!.width).toBeCloseTo(dragged-32,0)
+ await divider.press('End');expect((await page.locator('.stage').boundingBox())!.width).toBeGreaterThanOrEqual(319)
+ await divider.press('Home');expect((await terminal(page).boundingBox())!.width).toBeCloseTo(320,0)
+ await divider.dblclick();expect((await terminal(page).boundingBox())!.width).toBeCloseTo(before.width,0)
+ expect(await page.evaluate(()=>localStorage.getItem('one.term.sideWidth'))).toBeNull()
+ await page.screenshot({path:info.outputPath('side-terminal-resize.png')})
+ await page.setViewportSize({width:390,height:900});await expect(divider).toHaveCount(0)
+ await expect(terminal(page)).not.toHaveAttribute('data-side','true')
+})

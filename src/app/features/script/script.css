@@ -328,12 +328,14 @@
   color: var(--signal-ink);
 }
 
-@media (max-width: 760px) {
+/* Respond to the available stage width, including a docked terminal. */
+@container (max-width: 980px) {
   .sc-row {
     grid-template-columns: 44px minmax(0, 1fr) auto;
     grid-template-areas:
       'code name kind'
-      'code last keys';
+      'code last last'
+      'code keys keys';
     gap: 4px 10px;
   }
   .sc-row__code {
@@ -353,11 +355,10 @@
   }
   .sc-row__keys {
     grid-area: keys;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
   .sc-row__desc {
-    display: none;
-  }
-  .sc-hide-narrow {
     display: none;
   }
 }
@@ -392,7 +393,7 @@
 .sc--bench[data-kind='query'] .sc-code {
   grid-template-rows: minmax(150px, 28vh) auto;
 }
-@media (max-width: 980px) {
+@container (max-width: 980px) {
   .sc-bench {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -457,7 +458,7 @@
   margin-left: 6px;
   font-size: calc(9.5px * var(--text-scale));
 }
-@media (max-width: 760px) {
+@container (max-width: 760px) {
   .sc-tabs__keys {
     display: none;
   }
@@ -1396,7 +1397,7 @@ a.sc-changes__title:hover {
 .sc-qb__novalue {
   display: block;
 }
-@media (max-width: 420px) {
+@container (max-width: 420px) {
   .sc-qb__cond {
     grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr) 26px;
   }
@@ -1410,7 +1411,7 @@ a.sc-changes__title:hover {
 }
 
 /* ---------- phones ---------- */
-@media (max-width: 560px) {
+@container (max-width: 560px) {
   .sc-code {
     --ca-height: max(220px, 46vh);
   }
@@ -1454,8 +1455,8 @@ a.sc-changes__title:hover {
 .sc--focus .sc-code { --ca-height: max(320px, 65vh); }
 .sc-save { color: var(--ink-2); }
 
-@media (max-width: 560px) {
-  .sc-head--bench .sc-head__meta { flex-wrap: wrap; gap: 8px; }
+@container (max-width: 560px) {
+  .sc-head__meta { flex-wrap: wrap; gap: 8px; }
   .sc-head--bench .sc-save { flex-basis: calc(100% - 32px); }
 }
 
@@ -1483,7 +1484,7 @@ a.sc-changes__title:hover {
 .sc--focus .sc-workflow { display: flex; flex-wrap: wrap; gap: 8px; border: 0; }
 .sc--focus .sc-workflow__step { display: block; border: 0; padding: 0; background: none; }
 .sc-workflow-explain { display: none; }
-@media (max-width: 760px) {
+@container (max-width: 760px) {
   .sc-workflow__step { padding: 10px 8px; gap: 8px; }
   .sc-workflow__step > p, .sc-workflow .kbd { display: none; }
   .sc-workflow__step strong { font-size: 12px; overflow-wrap: anywhere; }

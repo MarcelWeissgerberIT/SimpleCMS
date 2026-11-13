@@ -1,3 +1,8 @@
+import {EvidenceGapCard} from './EvidenceGapCard'
+import {hasEvidenceGaps} from '@/shared/ai/evidenceGaps'
+import {canResumeAtlasWrite} from './atlasResume'
+import {hasPdfExportWork} from './polarionPdfState'
+import { PolarionPdfExport } from './PolarionPdfExport'
 import {DraftTaskPlan,TaskPlan} from './TaskPlan'
 import { PolarionSignIn } from './PolarionSignIn'
 import {WorkflowRepair} from '../workflow/WorkflowRepair'
@@ -39,8 +44,8 @@ import { RouteChip } from '../routing/RouteChip'
 import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
-import { closeAgent, clampHeight, removeRef, setTermHeight, setTermLayout, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
+import { closeAgent, clampHeight, removeRef, setTermHeight, setTermSideWidth, setTermLayout, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
+import { bindTerminalReload, resumeAtlasWrite, retryTurnReceipt, answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, continueWithCompactContext, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, haltKey, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { loadHaltCard, ReglerRestLine } from '../../governor'
 import { isMac } from '../../../ui/controls'
 import { focusIsNowhere } from '../../../ui/focus'
@@ -105,6 +110,7 @@ const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce
 const focusPrompt = () => document.querySelector<HTMLTextAreaElement>('.term-prompt__input')?.focus({ preventScroll: true })
 
 export default function AgentSheet() {
+  useEffect(()=>{void bindTerminalReload()},[])
   const t = useT()
   const pickedRoute = useAgent(s => s.route)
   const hasKey = useAIStatus('terminal.task').ready || !!pickedRoute
@@ -114,6 +120,7 @@ export default function AgentSheet() {
   const changes = useAgent((s) => s.changes)
   const autorun = useAgent((s) => s.autorun)
   const height = useAgent((s) => s.height)
+  const sideWidth = useAgent(s => s.sideWidth)
   const max = useAgent((s) => s.max)
   const layout = useAgent(s => s.layout)
   const wide = useMediaQuery('(min-width: 1100px)')
@@ -338,7 +345,7 @@ export default function AgentSheet() {
     }
   }
 
-  const style = { '--term-h': max ? 1 : waitingQuestion?Math.max(height,.86):height } as React.CSSProperties
+  const style = { '--term-w': sideWidth===null?undefined:`${sideWidth}px`, '--term-h': max ? 1 : waitingQuestion?Math.max(height,.86):height } as React.CSSProperties
   const body = (
     <section
       ref={rootRef}
@@ -356,7 +363,7 @@ export default function AgentSheet() {
       onTouchStartCapture={()=>{restoreAnchor.current=undefined}}
     >
       <div className="term__panel">
-        <Grip />
+        {side ? !max && <SideGrip /> : <Grip />}
         <Head side={side} wide={wide} />
         {openQuestion&&<aside className="term-awaiting" role="region" aria-label={t('features.ai.task.attention')}>
           <div role="status"><strong>{t('features.ai.task.attention')}</strong><p>{openQuestion.question}</p></div>
@@ -490,6 +497,52 @@ function Grip() {
   )
 }
 
+/** Resize the side terminal without changing the task, page or bottom-dock height. */
+function SideGrip() {
+  const lang=useLang()
+  const grip=useRef<HTMLDivElement>(null)
+  const gesture=useRef<{id:number;right:number;max:number;width:number}|null>(null)
+  const [dimensions,setDimensions]=useState({width:560,max:1000})
+  const [drag,setDrag]=useState(false)
+  useLayoutEffect(()=>{
+    const term=grip.current?.closest('.term'),host=term?.parentElement
+    if(!term || !host)return
+    const update=()=>setDimensions({width:Math.round(term.getBoundingClientRect().width),max:Math.max(320,Math.floor(host.getBoundingClientRect().width-320))})
+    update()
+    const observer=new ResizeObserver(update);observer.observe(term);observer.observe(host)
+    return ()=>observer.disconnect()
+  },[])
+  const clamp=(width:number,max=dimensions.max)=>Math.max(320,Math.min(max,width))
+  const finish=(e:React.PointerEvent<HTMLDivElement>)=>{
+    if(gesture.current?.id!==e.pointerId)return
+    setTermSideWidth(gesture.current.width);gesture.current=null;setDrag(false)
+    if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId)
+  }
+  return <div ref={grip} className="term-side-grip" role="separator" aria-orientation="vertical"
+    aria-label={lang==='de'?'Terminalbreite ändern':'Resize terminal width'}
+    title={lang==='de'?'Ziehen zum Ändern der Breite · Doppelklick zum Zurücksetzen':'Drag to resize · Double-click to reset'}
+    aria-valuemin={320} aria-valuemax={dimensions.max} aria-valuenow={dimensions.width}
+    aria-valuetext={`${dimensions.width} px`} tabIndex={0} data-drag={drag||undefined}
+    onPointerDown={e=>{
+      if(e.button!==0)return
+      const box=e.currentTarget.closest('.term')?.parentElement?.getBoundingClientRect();if(!box)return
+      e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId)
+      gesture.current={id:e.pointerId,right:box.right,max:Math.max(320,box.width-320),width:dimensions.width};setDrag(true)
+    }}
+    onPointerMove={e=>{
+      const current=gesture.current;if(!current || current.id!==e.pointerId)return
+      current.width=clamp(current.right-e.clientX,current.max)
+      useAgent.setState({sideWidth:current.width})
+    }}
+    onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}
+    onDoubleClick={()=>setTermSideWidth(null)}
+    onKeyDown={e=>{
+      const width=e.key==='ArrowLeft'?dimensions.width+32:e.key==='ArrowRight'?dimensions.width-32:e.key==='Home'?320:e.key==='End'?dimensions.max:null
+      if(width===null)return
+      e.preventDefault();e.stopPropagation();setTermSideWidth(clamp(width))
+    }}><span aria-hidden /></div>
+}
+
 function Elapsed({ start, end }: { start: number; end?: number }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -506,6 +559,8 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
   const lang = useLang()
   const status = useAgent((s) => s.status)
   const turns = useAgent((s) => s.turns.length)
+  const evidenceOpen=useAgent(s=>hasEvidenceGaps(s.turns.at(-1)))
+  const pdfWork=useAgent(s=>hasPdfExportWork(s.steps.filter(step=>step.turn===s.turns.at(-1)?.n)))
   const changes = useAgent((s) => s.changes.length)
   const usage = useAgent((s) => s.usage)
   const max = useAgent((s) => s.max)
@@ -516,7 +571,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
   const route = useAgent(s => s.route)
   const running = status === 'running'
   const mcp = pinned ?? nextMcp
-  const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' ? 'led led--ok' : 'led led--on'
+  const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' && !evidenceOpen ? 'led led--ok' : 'led led--on'
   return (
     <header className="term-head">
       <span className={led} aria-hidden />
@@ -539,7 +594,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
         </span>
       ) : null}
       <span className="term-head__status" aria-live="polite">
-        {awaiting?t('features.ai.task.awaiting'):halted ? t('features.governor.term.paused') : t(`features.agent.status.${status}`)}
+        {awaiting?t('features.ai.task.awaiting'):halted ? t('features.governor.term.paused') : status==='done'&&evidenceOpen?(lang==='de'?'Quellenprüfung offen':'Evidence review open'):status==='done'&&pdfWork?(lang==='de'?'Exportstand prüfen':'Review export progress'):t(`features.agent.status.${status}`)}
       </span>
       <button type="button" className="term-key" aria-label={lang==='de'?'Einstellungen und Werkzeuge':'Settings and tools'} aria-expanded={optionsOpen} aria-controls="term-options" onClick={()=>setOptionsOpen(!optionsOpen)}><Settings2 size={15} aria-hidden /></button>
       {wide&&<button type="button" className="term-key term-key--label" aria-pressed={side} onClick={()=>setTermLayout(side?'bottom':'side')}>{side?(lang==='de'?'Unter Seite':'Below page'):(lang==='de'?'Neben Seite':'Beside page')}</button>}
@@ -782,6 +837,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
         )}
       </ol>
       <PolarionSignIn steps={steps}/>
+      <PolarionPdfExport steps={steps} pageId={turn.context?.pageId??null}/>
       {live && (
         <div className="term-live">
           <MarkdownLite source={live} />
@@ -790,15 +846,17 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       )}
       {turn.answer && (
         <div className="term-answer">
-          <MarkdownLite source={turn.answer} />
+          {steps.some(step=>step.mcp?.receipt?.polarionPdf)?<details className="term-pdf-history" open><summary>{lang==='de'?'Antwort zum Zeitpunkt des Exports · aktuellen Ablagestatus oben prüfen':'Answer at export time · check current attachment status above'}</summary><MarkdownLite source={turn.answer}/></details>:<MarkdownLite source={turn.answer} />}
           <AnswerPageAction turn={turn} last={last}/>
         </div>
       )}
+      <EvidenceGapCard turn={turn} last={last}/>
       {last&&!running&&<TaskPlan task={turn.task} recovery/>}
       {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock} workspaceEpoch={turn.mockWorkspaceEpoch}/>)}
       <TurnMedia n={turn.n} />
       <TurnHalt n={turn.n} />
       <AtlasTransferSummary turn={turn} steps={steps}/>
+      {last&&!running&&canResumeAtlasWrite(turn,steps)&&<div className="term-failure-dock"><button type="button" className="btn btn--primary" onClick={()=>void resumeAtlasWrite(turn.n)}>{lang==='de'?'Atlas-Auftrag fortsetzen':'Continue Atlas task'}</button><p>{lang==='de'?'Der vorbereitete Inhalt und die ursprüngliche Quellseite bleiben erhalten. ONE prüft Berechtigungen und vorhandene Ergebnisse erneut, bevor der fehlende Record angelegt wird.':'The prepared content and original source page are retained. ONE rechecks permissions and existing results before creating the missing record.'}</p></div>}
       {turn.receipt&&<p className="term-note" role="status">{t('features.ai.program.terminal.'+turn.receipt)}{turn.receipt==='failed'&&<button className="btn btn--sm" onClick={()=>void retryTurnReceipt(turn.n)}>{t('features.ai.program.terminal.retry')}</button>}</p>}
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
       {turn.status === 'limit' && <p className="term-turn__limit">{t('features.agent.limitEnd',{max:MAX_TOOL_CALLS})}</p>}

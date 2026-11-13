@@ -1,6 +1,6 @@
 import type { Route } from '@/shared/ai/types'
 /**
- * AI terminal (the workspace agent) — session state (this tab only, never persisted). Kept light:
+ * AI terminal (the workspace agent) — tab state (reload snapshots are scoped and kept in the local work store). Kept light:
  * the terminal body, the loop and the tools load lazily when it opens (AgentPanel.tsx). A task
  * keeps running while the terminal is hidden; only Stop ends it.
  */
@@ -143,6 +143,7 @@ export interface AgentState {
   unseen: 'done' | 'error' | null
   /** dock height as a share of the content area (per device) · maximised */
   height: number
+  sideWidth: number | null
   max: boolean
   /** bumped to move focus to the prompt (Mod+Shift+J while open) */
   focusTick: number
@@ -216,6 +217,22 @@ export function setTermHeight(h: number) {
   }
 }
 
+/** Side-panel width is a device preference, not shared workspace content. */
+function storedSideWidth(): number | null {
+  try {
+    const value=Number(window.localStorage.getItem('one.term.sideWidth'))
+    return Number.isFinite(value) && value>=320 && value<=10000 ? value : null
+  } catch { return null }
+}
+export function setTermSideWidth(width: number | null) {
+  const sideWidth=width===null ? null : Math.max(320,Math.min(10000,width))
+  useAgent.setState({sideWidth})
+  try {
+    if(sideWidth===null)window.localStorage.removeItem('one.term.sideWidth')
+    else window.localStorage.setItem('one.term.sideWidth',String(Math.round(sideWidth)))
+  } catch { /* session only */ }
+}
+
 function storedLayout(): 'bottom' | 'side' {
   try { return window.localStorage.getItem('one.term.layout') === 'side' ? 'side' : 'bottom' } catch { return 'bottom' }
 }
@@ -225,13 +242,14 @@ export function setTermLayout(layout: 'bottom' | 'side') {
 }
 
 export const useAgent = create<AgentState>()(() => ({
-  open: false,
+  open: (()=>{try{return sessionStorage.getItem('one.term.open')==='1'}catch{return false}})(),
   draft: '',
   autorun: false,
   refs: [],
   mentions: [],
   pageOff: null,
   height: typeof window === 'undefined' ? HEIGHT_DEFAULT : storedHeight(),
+  sideWidth: typeof window === 'undefined' ? null : storedSideWidth(),
   max: false,
   focusTick: 0,
   focusWork: false,
@@ -239,6 +257,9 @@ export const useAgent = create<AgentState>()(() => ({
   layout: storedLayout(),
   ...initialAgentState(),
 }))
+
+// Only the open/closed UI preference lives in sessionStorage, never task content.
+useAgent.subscribe((s,previous)=>{if(s.open!==previous.open)try{sessionStorage.setItem('one.term.open',s.open?'1':'0')}catch{/* session only */}})
 
 /* ---------- command output in the log ---------- */
 

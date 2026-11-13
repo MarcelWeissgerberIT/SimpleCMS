@@ -18,6 +18,7 @@ export type ToolName =
   | 'read_design_source'
   | 'create_design_mock'
   | 'check_finding'
+  | 'report_evidence_gaps'
   | 'search_pages'
   | 'read_page'
   | 'read_requested_source'
@@ -72,7 +73,7 @@ export interface AgentStep {
   kind: 'tool' | 'note' | 'mcp'
   tool?: ToolName
   /** kind 'mcp': the call (server, tool name, the error text of a failed call) */
-  mcp?: { display?:import('@/shared/mcp/activityDisplay').McpDisplay; id: string; server: string; tool: string; error?: string; notExecuted?:boolean; receipt?: import('@/shared/mcp/facts').AtlasReceipt }
+  mcp?: { pdfImported?:{src:string;pageId:string}; display?:import('@/shared/mcp/activityDisplay').McpDisplay; id: string; server: string; tool: string; error?: string; notExecuted?:boolean; receipt?: import('@/shared/mcp/facts').AtlasReceipt }
   /** what the tool was asked for (a query, a page title …) */
   arg?: string
   /** readout after the call: "4 results", "staged #2" */
@@ -342,6 +343,9 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  evidence?:import('@/shared/ai/evidenceGaps').EvidenceReport
+  evidenceBatch?:{size:number;remaining:number}
+
   cost?: {usd:number;requests:number;partial:boolean}
 
   /** Explicit human copy of this answer into the ONE review; not an Atlas synchronization. */

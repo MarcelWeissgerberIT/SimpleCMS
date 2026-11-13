@@ -5,7 +5,7 @@ GlobalWorkerOptions.workerSrc = workerUrl
 
 export interface PdfSourcePage { number: number; text: string }
 /** Bounded local source extraction; page numbers always refer to the original file. */
-export async function pdfSourcePages(bytes: Uint8Array, signal?: AbortSignal): Promise<{ pages: PdfSourcePage[]; totalPages: number }> {
+export async function pdfSourcePages(bytes: Uint8Array, signal?: AbortSignal, options: {maxPages?:number;maxCharacters?:number;onPage?:(done:number,total:number)=>void} = {}): Promise<{ pages: PdfSourcePage[]; totalPages: number }> {
   signal?.throwIfAborted()
   const loading = getDocument({ data: bytes, useSystemFonts: false, disableFontFace: true, useWorkerFetch: false, enableXfa: false })
   loading.onPassword = () => { void loading.destroy() }
@@ -13,15 +13,15 @@ export async function pdfSourcePages(bytes: Uint8Array, signal?: AbortSignal): P
   signal?.addEventListener('abort', cancel, { once: true })
   try {
     const pdf = await loading.promise
-    if (pdf.numPages > 200) throw Error('PDF_SOURCE_PAGES')
+    if (pdf.numPages > (options.maxPages ?? 200)) throw Error('PDF_SOURCE_PAGES')
     const pages: PdfSourcePage[] = []; let characters = 0
     for (let number = 1; number <= pdf.numPages; number++) {
       signal?.throwIfAborted()
       const page = await pdf.getPage(number), content = await page.getTextContent()
       const text = content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join('').trim()
       page.cleanup(); characters += text.length
-      if (characters > 1_000_000) throw Error('PDF_SOURCE_TEXT')
-      pages.push({ number, text })
+      if (characters > (options.maxCharacters ?? 1_000_000)) throw Error('PDF_SOURCE_TEXT')
+      pages.push({ number, text }); options.onPage?.(number,pdf.numPages)
     }
     return { pages, totalPages: pdf.numPages }
   } finally { signal?.removeEventListener('abort', cancel); await loading.destroy() }

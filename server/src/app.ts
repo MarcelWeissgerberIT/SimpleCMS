@@ -86,7 +86,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['public-forms:1', 'team-hub:1', 'direct-invites:1', 'ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'central-ai:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
+      supports: ['presence:1', 'public-forms:1', 'team-hub:1', 'direct-invites:1', 'ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'central-ai:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'model-hosts:1', 'atlas-mcp:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
     }),
   )
 

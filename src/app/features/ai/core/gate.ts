@@ -362,12 +362,12 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     // as for that kind of request (default none — `false` said outright keeps a `pick` out too); `pick` (structured
     // only): exactly that server with only `reads` on (mcp-servers/config.ts onlyServer — the work-order planner's call);
     // `sources` / `run` as the call site would pass them
-    ask: (o: { purpose: PurposeId; prompt: string; route?: Route | null; run?: Partial<RunCtx>; structured?: boolean; mcp?: 'fixed' | 'free' | false; pick?: { server: string; reads: string[] }; sources?: SourceRef[] }) =>
+    ask: (o: { purpose: PurposeId; prompt: string; route?: Route | null; run?: Partial<RunCtx>; structured?: boolean; requireVerifiedFacts?: boolean; mcp?: 'fixed' | 'free' | false; pick?: { server: string; reads: string[] }; sources?: SourceRef[] }) =>
       Promise.all([import('../client'), import('../mcp-servers/config')]).then(async ([m, cfg]) => {
         const pick = o.pick ? cfg.onlyServer(o.pick.server, o.pick.reads) : null
         if (o.pick && !pick) return { ok: false, code: 'contract', detail: `no enabled server ${o.pick.server}` }
         const mcp = o.mcp === false ? false : (o.mcp ?? (pick ? ('fixed' as const) : (false as const)))
-        const base = { purpose: o.purpose, typed:o.prompt, sources: o.sources ?? ([] as SourceRef[]), system: 'Answer briefly.', prompt: o.prompt, mcp, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
+        const base = { purpose: o.purpose, requireVerifiedFacts:o.requireVerifiedFacts, typed:o.prompt, sources: o.sources ?? ([] as SourceRef[]), system: 'Answer briefly.', prompt: o.prompt, mcp, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
         try {
           const text = o.structured ? await m.completeStructured({ ...base, ...(pick ?? {}), schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } }) : await m.streamCompletion(base)
           return { ok: true, text }

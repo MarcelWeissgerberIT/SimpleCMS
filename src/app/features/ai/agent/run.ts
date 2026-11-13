@@ -1,3 +1,5 @@
+import {evidenceTool} from './evidenceTool'
+import {EVIDENCE_POLICY,type EvidenceGap} from '@/shared/ai/evidenceGaps'
 import {useWorkspace} from '../../../store/store'
 import {ReadRunMetrics} from '@/shared/ai/readMetrics'
 import { scrubSecrets } from '@/shared/ai/keys'
@@ -91,7 +93,8 @@ ${
 }- Questions across databases (counts, sums, filters, groups, look-ups) are one run_query call: a read-only One Script query. When the task asks for a script, a reusable automation or a saved query, draft it with write_script — the person saves it and runs it themselves (a dry run first); it never runs on its own.
 - Prefer one query_database call over reading rows one by one. You have at most ${MAX_TOOL_CALLS} tool calls per task (create_pages counts once); independent calls can go in parallel. When you reach the limit, the person can let you continue with a fresh budget: then pick up where you stopped and never stage anything twice.
 - Set database properties by their exact names with plain JSON values: text, numbers, true/false, option names for select and status (a list of names for multi-select), dates as "YYYY-MM-DD" or {"start": …, "end": …}, people by name, relations by row title or id. Computed properties (formulas, rollups, created/edited times, IDs) cannot be set. If a value does not fit, the tool says why: fix it and call again.
-- For PDFs and other attachments, read_page shows file metadata only. Use read_page_files to read the actual document text before extracting facts. Never infer amounts, issuer or invoice direction from a filename. Report scans/unreadable files precisely. For a calculation grid or Tabellenkalkulation use create_spreadsheet with actual numeric values and formulas, not create_database or a Markdown table. Include source filenames/page numbers; unknown amounts remain null, never zero.
+- For Polarion original PDFs, use atlas_polarion_export_pdf with a concrete LiveDoc URL through the personal browser worker, then atlas_polarion_status. queued/running is not an exported file; worker_upgrade_required needs a worker update. A verified exported result displays “PDF in ONE ablegen / Save PDF in ONE” for direct byte transfer by the UI. Do not call atlas_polarion_pdf_chunk from inference, include Base64 in text, or generate a substitute PDF. Saving in ONE and an optional Atlas transfer are separate actions; never claim either from export metadata alone. For multiple documents, keep an item-by-item ledger of requested, exported, failed, and still pending items; an ended model run does not mean the requested batch is complete. Report partial completion explicitly and preserve successful job IDs instead of exporting them again. An export failure at document/actions/menu is not evidence that the source type cannot be exported. retryable:false means do not retry automatically without inspection, not that a corrected attempt can never succeed. The file cards show the current attachment state after this answer; label any attachment status in your answer as the state at answer time and do not stage page text that asserts an attachment is still pending after it may have been inserted.
+- For PDFs and other attachments, read_page shows file metadata only. Use read_page_files to read the actual document text before extracting facts. For a complete-file request follow next_offset until null; never stop after the first slice or confuse extracted_pages with content actually read. For multiple large files, propose starting with one complete file and then continue file by file, retaining explicit coverage and gaps. Never infer amounts, issuer or invoice direction from a filename. Report scans/unreadable files precisely. For a calculation grid or Tabellenkalkulation use create_spreadsheet with actual numeric values and formulas, not create_database or a Markdown table. Include source filenames/page numbers; unknown amounts remain null, never zero.
 - Existing page-table values (including tables inside plates): use read_tables to list tables and read one table, then update_table_cells with only the exact existing cellIds requested. Never rebuild a table or its surrounding plate with edit_page to fill cells. These edits always wait for review. Missing source facts stay missing; do not manufacture decisions or evidence.
 - Adding versus changing: to add a section, notes or items to a page, use append_to_page. Change existing text with edit_page only when the task asks to fix, rewrite, update, shorten or remove it: read the page with read_page and refs: true, then cite the refs of exactly the blocks the task is about. Never rewrite, reorder or "improve" blocks the task does not touch, and keep their wording, links and formatting. Use replace_all only when the task asks for the whole page to be rewritten.
 - Write page content in Markdown: headings, lists, task lists ("- [ ] …"), tables, quotes, code. Link to a page with [Title](#/p/<page id>). Refs (⟦b3⟧) are labels for edit_page, never part of the text you write.
@@ -218,6 +221,7 @@ export function untilStopped(p: Promise<HaltChoice>, signal: AbortSignal): Promi
 }
 
 export interface RunHooks {
+  evidence?(gaps:EvidenceGap[]):void
   mock?(artifact:DesignMock):void
   contract?(report:import('@/shared/quandprofile/task').TaskReport):void
   /** a tool call starts: returns the step id */
@@ -330,8 +334,8 @@ export async function runAgent(opts: {
   const reviewSources = new ReviewSources()
   const atlasFacts=new AtlasFacts()
   const reviewTool: AgentTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
-  const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool]
-  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (mcp?'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY:'')
+  const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool,...(hooks.evidence?[evidenceTool(hooks.evidence)]:[])]
+  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (hooks.evidence?'\n'+EVIDENCE_POLICY:'') + (mcp?'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY:'')
   const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {

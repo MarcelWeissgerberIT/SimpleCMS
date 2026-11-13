@@ -191,6 +191,7 @@ type Entry =
 const W = (ws: string) => `/api/workspaces/${ws}`
 
 const ROUTES: Record<string, Entry> = {
+  'GET /api/workspaces/presence': { scope: 'none', why: 'session-scoped intersection of shared memberships; cross-workspace, private-document and forged-identity isolation verified in presence.test.ts' },
   'GET /api/workspaces/:id/checkout': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/checkout` }) },
   'POST /api/workspaces/:id/checkout/merge': { scope: 'workspace', req: (ws) => ({ method: 'POST', path: `${W(ws)}/checkout/merge`, json: { revisions: {}, data: { pages: {}, databases: {} } } }) },
   'ALL /api/*': { scope: 'none', why: 'catch-all 404 for unknown API paths' },

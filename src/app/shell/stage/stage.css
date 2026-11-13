@@ -726,7 +726,7 @@
 .app-work-area {display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;}
 @media(min-width:1100px) {
   .app-work-area:has(> .term[data-side]) {flex-direction:row;}
-  .app-work-area > .term[data-side] {flex:0 0 clamp(360px,42%,620px);height:100%;min-height:0;border-top:0;border-left:1px solid var(--rule);}
+  .app-work-area > .term[data-side] {flex:0 0 clamp(320px,var(--term-w,clamp(360px,42%,620px)),calc(100% - 320px));height:100%;min-height:0;border-top:0;border-left:1px solid var(--rule);}
   .app-work-area > .term[data-side][data-max] {flex:1;}
   .app-work-area:has(> .term[data-side][data-max]) > .stage {display:none;}
 }

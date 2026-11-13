@@ -55,6 +55,23 @@ function inviteJson(i: InviteRow & { inviter_name?: string | null; inviter_email
 export function workspaceRoutes(s: Services) {
   const app = new Hono<AppEnv>()
 
+  // A current connection snapshot, not activity tracking or last-seen history. No page data.
+  app.get('/presence', (c) => {
+    const auth = requireAuth(c)
+    c.header('Cache-Control', 'private, no-store')
+    const workspaces = s.repo.workspacesForUser(auth.user.id)
+      .filter(w => !w.personal_of && s.sessions.role(auth, w.id))
+      .map(w => ({
+        id: w.id,
+        name: w.name,
+        people: s.collab.connectedUsers(w.id).filter(id => id !== auth.user.id).flatMap(id => {
+          const u = s.repo.userById(id)
+          return u ? [{ id: u.id, name: u.name?.trim() || u.email.split('@')[0] || u.id }] : []
+        }).sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+    return c.json({ at: new Date().toISOString(), workspaces })
+  })
+
   // ── workspaces ───────────────────────────────────────────────────────
 
   app.post('/', async (c) => {

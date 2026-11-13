@@ -1,0 +1,9 @@
+.term-evidence{margin:16px 0;padding:16px;border:1px solid currentColor;border-left:3px solid var(--accent);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.term-evidence>strong{font-size:14px}
+.term-evidence p{margin:8px 0}
+.term-evidence summary{cursor:pointer}
+.term-evidence ul{padding-inline-start:20px;max-height:280px;overflow:auto}
+.term-evidence li{margin:10px 0}
+.term-evidence li p{margin:2px 0}
+.term-evidence__actions{display:flex;flex-wrap:wrap;gap:8px}
+.term-evidence__actions .btn{white-space:normal;min-height:36px;height:auto}
