@@ -28,7 +28,7 @@ export function legacyEvidenceGaps(answer:string):EvidenceReport|undefined{
  for(const line of body){
   if(!/^\s*[-*•]\s/u.test(line)||/keine (?:lücken|offenen)|no (?:gaps|open)|vollständig belegt|fully supported/iu.test(line))continue
   const kind:EvidenceGap['kind']=/spezifikation|specification/iu.test(line)?'specification':/implementierung|implementation/iu.test(line)?'implementation':/^\s*[-*•]\s*(?:\*\*)?tests?\s*:/iu.test(line)?'test_definition':/atlas/iu.test(line)?'atlas':/build|ausgeführt|executed/iu.test(line)?'test_execution':'quotation'
-  const files=[...line.matchAll(/`([^`\n]+\.(?:md|[cm]?[jt]sx?|py|java|cs|cpp|h|go|rs))`/giu)].map(m=>m[1]).filter(p=>p.length<=300&&!/[\u0000-\u001f]/u.test(p))
+  const files=[...line.matchAll(/`([^`\n]+\.(?:md|[cm]?[jt]sx?|py|java|cs|cpp|h|go|rs))`/giu)].map(m=>m[1]!).filter(p=>p.length<=300&&!/[\u0000-\u001f]/u.test(p))
   const reason=line.replace(/^\s*[-*•]\s/u,'').replace(/[*`]/gu,'').trim().slice(0,800)
   if(reason)for(const target of files.length?files:[kind])gaps.push({kind,target,reason})
  }

@@ -236,6 +236,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `POST /api/workspaces` | session | `{ name }` → workspace (caller = owner) |
 | `PATCH /api/workspaces/:id` | admin | `{ name?, icon? }` |
 | `DELETE /api/workspaces/:id` | owner | deletes workspace, documents, files |
+| `GET /api/workspaces/presence` | session | Current connected people in the caller's shared workspaces only: `{at, workspaces:[{id,name,people:[{id,name}]}]}`. Excludes self, personal workspaces, expired sessions and revoked memberships; no page metadata or history. `private, no-store`. Bounded access-test sessions are refused. |
 | `GET /api/workspaces/:id/members` | member | → `[{ user: {id,email,name}, role, guest, created_at }]` |
 | `PATCH /api/workspaces/:id/members/:userId` | admin | `{ role, guest? }` (`guest:true` requires viewer; owner transfer only by owner) |
 | `DELETE /api/workspaces/:id/members/:userId` | admin, or self (leave) | |
@@ -755,6 +756,7 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
   (`online` reconnects at once).
 - **Presence**: the meta document's awareness carries `{ user: { id, name, color, tone }, pageId }`;
   `pageId` follows the route (`null` on a private page). `Peer.color` is a CSS colour token (`var(--c-<tone>-text)`).
+- **Workspace presence** (`supports: presence:1`): the topbar shows the number of distinct other people connected across shared workspaces. Its panel groups them by workspace, with same-page awareness only in the current workspace. The server derives identities from authenticated shared-meta connections, not client awareness, and rechecks session/membership validity on each snapshot. Multiple tabs count once; private document connections alone do not publish presence. No page IDs/titles, last-seen history or activity metrics are returned. The client polls every 15 seconds while foregrounded and online, checks again on opening, and clears stale data on disconnect/error/session changes. An open tab means connected, not actively working. The registry is process-local, for the existing single collaboration-server deployment; multi-instance deployments need a shared registry before advertising this capability.
 - **Pages deleted for good** (`deletePagePermanently`, empty trash, an undone create …): the client
   that deleted them asks the server to drop their content documents (`DELETE …/documents/:pageId`,
   `purge.ts`), once the meta document's change is confirmed (`hasUnsyncedChanges` false, connected).

@@ -16,7 +16,7 @@ import { useIsMobile, useSaveStatus } from '../lib/hooks'
 import { goToPage, toggleSidebar } from '../lib/actions'
 import { revealMain, useStageView } from '../lib/stage'
 import { PageMenu } from './PageMenu'
-import { PresenceStack } from '../cloud/Presence'
+import { PresenceStack, WorkspacePresence } from '../cloud/Presence'
 import { useCloudReadout, ViewOnlyTag } from '../cloud/Sync'
 import { CheckoutMode } from '../cloud/Checkout'
 import { useReadOnly } from '../cloud/state'
@@ -80,6 +80,7 @@ export function Topbar({ route }: { route: Route }) {
         <PatchbayReturnChip />
         {/* Preflight: MASTER CAUTION on every route (nothing while Preflight is off) */}
         <MasterCautionKey />
+        <WorkspacePresence pageId={pageId} />
         <PresenceStack pageId={route.name === 'page' ? route.id : null} max={mobile ? 2 : 4} />
         <CheckoutMode />
         <ViewOnlyTag />

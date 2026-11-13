@@ -57,6 +57,8 @@ test('owner tests a prepared guest without creating accounts, exposing secrets, 
     read.doc.getMap('test').set('note','FORGED');await sleep(120)
     const privateDoc=openDoc(s,owner,`ws:${ws}:u:${actor}`);docs.push(privateDoc);await assert.rejects(privateDoc.ready,/forbidden/)
     const wrong=openDoc(s,owner,`ws:${other}`);docs.push(wrong);await assert.rejects(wrong.ready,/forbidden/)
+    const presence=await owner.get('/api/workspaces/presence')
+    assert.equal(presence.status,403,'bounded test access cannot enumerate cross-workspace presence')
     const stopped=await owner.post('/api/auth/test-access/stop')
     assert.equal(stopped.status,200);assert.equal(stopped.body.workspaceId,ws)
     assert.equal(owner.cookies.get('one_session'),originalCookie);assert.equal(owner.cookies.has('one_test_return'),false)

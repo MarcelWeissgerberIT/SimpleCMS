@@ -10,6 +10,8 @@ import type { ApiTokenRow, Repo } from './repo.ts'
 
 /** What REST routes may ask the realtime layer to do when membership changes. */
 export interface CollabControl {
+  /** Authenticated shared-meta connections, deduplicated; never page/private-document data. */
+  connectedUsers(workspaceId: string): string[]
   closeUser(userId: string, workspaceId: string, reason: CloseReason): number
   closeWorkspace(workspaceId: string, reason: CloseReason): number
   closeSession(sessionId: string, reason: CloseReason): number

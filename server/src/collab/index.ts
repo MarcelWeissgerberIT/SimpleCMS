@@ -27,6 +27,7 @@ interface ConnContext {
   sessionId: string
   workspaceId: string
   role: Role
+  sharedMeta?: boolean
   /** Direct connections of the server itself (public API, incoming webhooks): `api:<tokenId>` · `hook:<hookId>`. */
   actor?: string
   /** The client sent a schema generation below the minimum (schema-gate.ts): read-only, told so once connected. */
@@ -80,7 +81,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       // client that may not know every node type: it would delete what it cannot read (schema-gate.ts)
       const schema = schemaAccess(requestParameters.get('schema'))
       connectionConfig.readOnly = role === 'viewer' || schema !== 'current'
-      return { userId: auth.user.id, sessionId: auth.session.id, workspaceId: doc.workspaceId, role, ...(schema === 'outdated' ? { outdated: true } : {}) } satisfies ConnContext
+      return { userId: auth.user.id, sessionId: auth.session.id, workspaceId: doc.workspaceId, role, sharedMeta: doc.kind === 'meta' && doc.owner === null, ...(schema === 'outdated' ? { outdated: true } : {}) } satisfies ConnContext
     },
 
     async beforeHandleMessage({ context, connection }) {
@@ -241,6 +242,10 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
   sweep.unref()
 
   return {
+    connectedUsers(workspaceId) {
+      return [...new Set([...live].filter(e => e.sharedMeta && e.workspaceId === workspaceId &&
+        sessions.roleForSession(e.sessionId, workspaceId) === e.role).map(e => e.userId))]
+    },
     handleUpgrade(req, socket, head) {
       socket.on('error', () => socket.destroy())
       const path = (req.url ?? '/').split('?')[0]

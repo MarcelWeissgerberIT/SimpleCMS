@@ -17,7 +17,7 @@ export function sourceWindowEnd(text:string,offset:number,budget:ReadBudget):num
   const prefix=text.slice(0,end)
   const lines=prefix.matchAll(/^.*(?:\n|$)/gm)
   for(const line of lines){const start=line.index!,value=line[0],mark=value.match(/^\s{0,3}(`{3,}|~{3,})/)
-   if(mark){if(!fence)fence=mark[1];else if(mark[1][0]===fence[0]&&mark[1].length>=fence.length)fence=null}
+   if(mark?.[1]){if(!fence)fence=mark[1];else if(mark[1][0]===fence[0]&&mark[1].length>=fence.length)fence=null}
    if(!fence&&start>offset&&(/^[ \t]*\n$/.test(value)||/^#{1,6}\s/.test(value)))last=start
   }
   if(last>offset+(end-offset)*.6)end=last
