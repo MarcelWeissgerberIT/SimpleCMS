@@ -1,3 +1,4 @@
+import {evidenceOf,evidenceReviewTask,legacyEvidenceGaps,mergeEvidenceGaps,EVIDENCE_BATCH_SIZE,type EvidenceReport,type EvidenceGap} from '@/shared/ai/evidenceGaps'
 import {canResumeAtlasWrite,atlasResumeTask} from './atlasResume'
 import { polarionSignInWindow } from './polarionSignInWindow'
 import { polarionAuthenticationRequested } from '@/shared/quandprofile/polarion-auth-intent'
@@ -467,6 +468,22 @@ export function resumeAtlasWrite(n:number):Promise<void>{
  return runTask(atlasResumeTask(prev.task),{history:false,continues:prev.continues??prev.n,sourcePage:page,...(snap?{again:{refs:snap.refs,mentions:snap.mentions}}:{})})
 }
 
+/** A human requests a fresh, read-only evidence pass. Never replay the old write task. */
+export function reviewEvidence(n:number):Promise<void>{
+ const s=get(),prev=s.turns.at(-1)
+ if(s.status==='running'||!prev||prev.n!==n||prev.program||prev.contract?.program)return Promise.resolve()
+ const evidence=evidenceOf(prev)
+ if(!evidence?.gaps.length)return Promise.resolve()
+ const page=prev.context?.pageId??null,pages=useWorkspace.getState().pages
+ if(page&&(!pages[page]||isEffectivelyTrashed(pages,page)))return Promise.resolve()
+ const snap=turnSnap.get(prev.n)
+ return runTask(evidenceReviewTask(prev.task,evidence),{history:false,noMemory:true,continues:prev.continues??prev.n,sourcePage:page,evidenceReview:evidence,again:{refs:snap?.refs??[],mentions:snap?.mentions??[]}})
+}
+export function keepEvidencePartial(n:number){
+ const turn=get().turns.find(t=>t.n===n),evidence=turn&&evidenceOf(turn)
+ if(evidence&&get().status!=='running')patchTurn(n,{evidence:{...evidence,kept:true}})
+}
+
 export const activeRecoveryKey=()=> 'terminal-recovery:'+convId
 export async function resumeSavedWork(scope:string,key:string,onStarted?:()=>void){
  if(get().status==='running')return 'busy' as const
@@ -499,7 +516,7 @@ export function continueWithCompactContext():Promise<void>{
  * (/no-memory <task>); `history: false` when the prompt went into the history already; `continues`:
  * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
-export async function runTask(raw?: string, opts: { sourcePage?:string|null; compact?: string; noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
+export async function runTask(raw?: string, opts: { evidenceReview?:EvidenceReport; sourcePage?:string|null; compact?: string; noMemory?: boolean; history?: boolean; continues?: number; again?: { refs: TermRef[]; mentions: TermMention[] };program?:ProgramInvocation } = {}): Promise<void> {
   let task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
   // Tool choice and missing targets are resolved by the model from the bound context.
@@ -577,10 +594,11 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
     mentions: prevTurn || opts.again ? s.mentions : [],
     memOffNext: prevTurn ? s.memOffNext : false,
     // a key typed into the task is never shown again (the gate refuses it below)
-    turns: [...s.turns, { n, ...(opts.program?{program:{id:opts.program.saved.id,version:opts.program.saved.version,hash:opts.program.saved.compiled.hash}}:{}), task: looksLikeKey(task) ? scrubSecrets(task) : task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
+    turns: [...s.turns, { n, ...(opts.evidenceReview?{evidence:{...opts.evidenceReview,kept:false},evidenceBatch:{size:Math.min(EVIDENCE_BATCH_SIZE,opts.evidenceReview.gaps.length),remaining:Math.max(0,opts.evidenceReview.gaps.length-EVIDENCE_BATCH_SIZE)}}:{}), ...(opts.program?{program:{id:opts.program.saved.id,version:opts.program.saved.version,hash:opts.program.saved.compiled.hash}}:{}), task: looksLikeKey(task) ? scrubSecrets(task) : task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
   }))
 
   let answer = ''
+  let evidenceReport:EvidenceGap[]|undefined
   // streamed text is batched per frame
   let buf = ''
   let raf = 0
@@ -611,6 +629,12 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
   /** steps on the way already said in this task ("Anthropic passed this to …") */
   const said = new Set<string>()
   const hooks: RunHooks = {
+    evidence(gaps){if(here()){
+      evidenceReport=gaps
+      // A stopped/failed continuation must not drop its outstanding queue.
+      if(!opts.evidenceReview)patchTurn(n,{evidence:{origin:'reported',gaps}})
+      saveRecovery()
+    }},
     toolStart(tool, arg) {
       const id = nextId('s')
       if (!here()) return id
@@ -635,7 +659,9 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
       if (kind === 'note') note(text)
       else {
         answer = answer ? `${answer}\n\n${text}` : text
-        patchTurn(n, { answer });saveRecovery()
+        const reported=get().turns.find(t=>t.n===n)?.evidence
+        const legacy=legacyEvidenceGaps(answer)
+        patchTurn(n, { answer,...(legacy?{evidence:{origin:reported?.origin??'legacy',gaps:mergeEvidenceGaps(reported?.gaps??[],legacy.gaps)}}:{}) });saveRecovery()
       }
     },
     usage(u, entry) {
@@ -707,7 +733,8 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
       live: '',
       steps: s.steps.map((x) => (x.state === 'run' ? { ...x, state: 'err' } : x)),
     }))
-    patchTurn(n, { status, endedAt: Date.now(), answer, ...(error ? { error } : {}) });saveRecovery()
+    const finalEvidence=status==='done'&&evidenceReport!==undefined?{origin:'reported' as const,gaps:mergeEvidenceGaps(opts.evidenceReview?.gaps.slice(EVIDENCE_BATCH_SIZE)??[],evidenceReport,legacyEvidenceGaps(answer)?.gaps??[])}:undefined
+    patchTurn(n, { status, endedAt: Date.now(), answer,...(finalEvidence?{evidence:finalEvidence}:{}), ...(error ? { error } : {}) });saveRecovery()
     if (!get().open && status !== 'stopped') notifyHidden(status)
     // the One memory: the request goes into the memory log; proposals for what is worth keeping
     const staged = turnChanges(n)
@@ -782,7 +809,7 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
     return execute({
       purpose: 'terminal.task',
       privateContext:!!opts.compact,
-      readOnly:!!opts.compact,
+      readOnly:!!opts.compact||!!opts.evidenceReview,
       targetPage: pageId,
       route: pre.route,
       sources,
@@ -833,7 +860,7 @@ export async function runTask(raw?: string, opts: { sourcePage?:string|null; com
     else if(end==='done'&&failedMcp.size)finish('error',{code:'mcp',message:t('features.agent.err.mcpIncomplete')})
     else {
       finish(end === 'limit' ? 'limit' : 'done')
-      if(!opts.program&&end==='done'&&here()){
+      if(!opts.program&&end==='done'&&here()&&!evidenceOf(get().turns.find(x=>x.n===n)!)?.gaps.length&&!opts.evidenceReview){
         const report=get().turns.find(x=>x.n===n)?.contract
         if(report&&!report.compiled.contract.authenticate&&['ready','accepted'].includes(report.phase)){
           let spec:ReturnType<typeof taskProgramDraft>|undefined

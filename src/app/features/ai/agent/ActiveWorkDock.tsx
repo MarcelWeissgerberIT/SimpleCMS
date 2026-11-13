@@ -1,3 +1,4 @@
+import {hasEvidenceGaps} from '@/shared/ai/evidenceGaps'
 import {useWorkspace} from '../../../store/store'
 import {isEffectivelyTrashed} from '../../../store/selectors'
 import {openPage} from '../../../lib/router'
@@ -33,7 +34,7 @@ export function ActiveWorkDock(){
  const display=step?.kind==='mcp'?mcpActivityText(step.mcp?.tool??'',step.mcp?.display,step.arg,lang):step?.tool?oneActivity(step.tool,step.arg,pages,de):null
  const activity=waiting?t('workflow.waitingDecision'):display?[display.action,display.detail].filter(Boolean).join(' · '):t(writing?'workflow.writing':'workflow.processing')
  const source=turn.context?.pageId,sourceAvailable=!!source&&!!pages[source]&&!isEffectivelyTrashed(pages,source)
- const label=waiting?(de?'Deine Entscheidung':'Your decision'):running?(de?'KI arbeitet':'AI working'):turn.status==='done'?(de?'Ergebnis bereit':'Result ready'):turn.status==='error'?(de?'Fehlgeschlagen':'Failed'):turn.status==='limit'?(de?'Aufruflimit erreicht':'Call limit reached'):(de?'Angehalten':'Stopped')
+ const label=waiting?(de?'Deine Entscheidung':'Your decision'):running?(de?'KI arbeitet':'AI working'):turn.status==='done'&&hasEvidenceGaps(turn)?(de?'Teilstand · Quellenprüfung offen':'Partial result · evidence review open'):turn.status==='done'?(de?'Ergebnis bereit':'Result ready'):turn.status==='error'?(de?'Fehlgeschlagen':'Failed'):turn.status==='limit'?(de?'Aufruflimit erreicht':'Call limit reached'):(de?'Angehalten':'Stopped')
  return createPortal(<section ref={dockRef} className="active-work-dock" aria-label={de?'KI-Auftrag im Hintergrund':'Background AI task'}>
   <button type="button" className="active-work-dock__open" onClick={()=>openAgent({target:'resume'})} aria-label={de?'Zurück zum Auftrag':'Return to task'}>
    <span className="active-work-dock__status" role="status">{label}</span>

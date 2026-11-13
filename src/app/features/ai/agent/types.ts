@@ -18,6 +18,7 @@ export type ToolName =
   | 'read_design_source'
   | 'create_design_mock'
   | 'check_finding'
+  | 'report_evidence_gaps'
   | 'search_pages'
   | 'read_page'
   | 'read_requested_source'
@@ -342,6 +343,9 @@ export interface AgentUsage {
 export type AgentStatus = 'idle' | 'running' | 'done' | 'stopped' | 'limit' | 'error'
 
 export interface AgentTurn {
+  evidence?:import('@/shared/ai/evidenceGaps').EvidenceReport
+  evidenceBatch?:{size:number;remaining:number}
+
   cost?: {usd:number;requests:number;partial:boolean}
 
   /** Explicit human copy of this answer into the ONE review; not an Atlas synchronization. */

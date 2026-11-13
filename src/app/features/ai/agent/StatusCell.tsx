@@ -1,3 +1,5 @@
+import {hasEvidenceGaps} from '@/shared/ai/evidenceGaps'
+import {useLang} from '../../../i18n'
 /**
  * Status bar cell of the AI terminal: "AI ⌘J" at rest; while the terminal is hidden its LED shows a
  * task running in the background ("AI · working"), proposals waiting ("AI · 3 changes to review")
@@ -9,7 +11,8 @@ import { toggleAgent, useAgent } from './state'
 import './cell.css'
 
 export function AgentStatusCell() {
-  const t = useT()
+  const t = useT(),de=useLang()==='de'
+  const evidenceOpen=useAgent(s=>hasEvidenceGaps(s.turns.at(-1)))
   const open = useAgent((s) => s.open)
   const running = useAgent((s) => s.status === 'running')
   const pending = useAgent((s) => s.changes.filter((c) => c.status === 'pending').length)
@@ -23,8 +26,8 @@ export function AgentStatusCell() {
     text = t(`features.agent.cell.review.${pending === 1 ? 'one' : 'other'}`, { count: pending })
     led = 'led led--on'
   } else if (!open && unseen) {
-    text = t(unseen === 'error' ? 'features.agent.cell.error' : 'features.agent.cell.done')
-    led = unseen === 'error' ? 'led term-cell__err' : 'led led--ok'
+    text = evidenceOpen&&unseen!=='error'?(de?'Quellenprüfung offen':'Evidence review open'):t(unseen === 'error' ? 'features.agent.cell.error' : 'features.agent.cell.done')
+    led = unseen === 'error' ? 'led term-cell__err' : evidenceOpen?'led led--on':'led led--ok'
   } else if (running) led = 'led led--on'
   const title = `${open ? t('features.agent.close') : t('features.agent.open')} (${shortcutLabel('Mod+J')})`
   return (

@@ -1,3 +1,5 @@
+import {EvidenceGapCard} from './EvidenceGapCard'
+import {hasEvidenceGaps} from '@/shared/ai/evidenceGaps'
 import {canResumeAtlasWrite} from './atlasResume'
 import {hasPdfExportWork} from './polarionPdfState'
 import { PolarionPdfExport } from './PolarionPdfExport'
@@ -557,6 +559,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
   const lang = useLang()
   const status = useAgent((s) => s.status)
   const turns = useAgent((s) => s.turns.length)
+  const evidenceOpen=useAgent(s=>hasEvidenceGaps(s.turns.at(-1)))
   const pdfWork=useAgent(s=>hasPdfExportWork(s.steps.filter(step=>step.turn===s.turns.at(-1)?.n)))
   const changes = useAgent((s) => s.changes.length)
   const usage = useAgent((s) => s.usage)
@@ -568,7 +571,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
   const route = useAgent(s => s.route)
   const running = status === 'running'
   const mcp = pinned ?? nextMcp
-  const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' ? 'led led--ok' : 'led led--on'
+  const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' && !evidenceOpen ? 'led led--ok' : 'led led--on'
   return (
     <header className="term-head">
       <span className={led} aria-hidden />
@@ -591,7 +594,7 @@ function Head({side,wide}: {side:boolean;wide:boolean}) {
         </span>
       ) : null}
       <span className="term-head__status" aria-live="polite">
-        {awaiting?t('features.ai.task.awaiting'):halted ? t('features.governor.term.paused') : status==='done'&&pdfWork?(lang==='de'?'Exportstand prüfen':'Review export progress'):t(`features.agent.status.${status}`)}
+        {awaiting?t('features.ai.task.awaiting'):halted ? t('features.governor.term.paused') : status==='done'&&evidenceOpen?(lang==='de'?'Quellenprüfung offen':'Evidence review open'):status==='done'&&pdfWork?(lang==='de'?'Exportstand prüfen':'Review export progress'):t(`features.agent.status.${status}`)}
       </span>
       <button type="button" className="term-key" aria-label={lang==='de'?'Einstellungen und Werkzeuge':'Settings and tools'} aria-expanded={optionsOpen} aria-controls="term-options" onClick={()=>setOptionsOpen(!optionsOpen)}><Settings2 size={15} aria-hidden /></button>
       {wide&&<button type="button" className="term-key term-key--label" aria-pressed={side} onClick={()=>setTermLayout(side?'bottom':'side')}>{side?(lang==='de'?'Unter Seite':'Below page'):(lang==='de'?'Neben Seite':'Beside page')}</button>}
@@ -847,6 +850,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <AnswerPageAction turn={turn} last={last}/>
         </div>
       )}
+      <EvidenceGapCard turn={turn} last={last}/>
       {last&&!running&&<TaskPlan task={turn.task} recovery/>}
       {turn.mocks?.map(mock=><DesignMockCard key={mock.id} artifact={mock} workspaceEpoch={turn.mockWorkspaceEpoch}/>)}
       <TurnMedia n={turn.n} />

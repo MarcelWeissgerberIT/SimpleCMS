@@ -1,3 +1,5 @@
+import {evidenceTool} from './evidenceTool'
+import {EVIDENCE_POLICY,type EvidenceGap} from '@/shared/ai/evidenceGaps'
 import {useWorkspace} from '../../../store/store'
 import {ReadRunMetrics} from '@/shared/ai/readMetrics'
 import { scrubSecrets } from '@/shared/ai/keys'
@@ -219,6 +221,7 @@ export function untilStopped(p: Promise<HaltChoice>, signal: AbortSignal): Promi
 }
 
 export interface RunHooks {
+  evidence?(gaps:EvidenceGap[]):void
   mock?(artifact:DesignMock):void
   contract?(report:import('@/shared/quandprofile/task').TaskReport):void
   /** a tool call starts: returns the step id */
@@ -331,8 +334,8 @@ export async function runAgent(opts: {
   const reviewSources = new ReviewSources()
   const atlasFacts=new AtlasFacts()
   const reviewTool: AgentTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
-  const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool]
-  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (mcp?'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY:'')
+  const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool,...(hooks.evidence?[evidenceTool(hooks.evidence)]:[])]
+  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY + (hooks.evidence?'\n'+EVIDENCE_POLICY:'') + (mcp?'\n'+ATLAS_FACT_POLICY+'\n'+COMPILED_WORK_POLICY:'')
   const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {
