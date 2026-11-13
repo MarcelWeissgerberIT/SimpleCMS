@@ -5,14 +5,14 @@
  * the whole template gallery ("From template", ⌘K "New script from template…").
  */
 import { useEffect, useMemo } from 'react'
-import { ArrowRight, FlaskConical, LayoutTemplate, Play, Plus, Square } from 'lucide-react'
+import { ArrowRight, FlaskConical, LayoutTemplate, Play, Plus, Square, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import type { OneScript } from '../../../store/types'
 import { useCloud } from '../../../cloud'
 import { PageIcon } from '../../../ui/PageIcon'
 import { useLang, useT } from '../../../i18n'
 import { HelpLink } from '../../../help'
-import { createScript } from '../actions'
+import { createScript, deleteScript } from '../actions'
 import { TEMPLATES } from '../templates/catalog'
 import { openTemplateGallery } from '../templates/open'
 import { TemplateGallery, createFromTemplate } from './Gallery'
@@ -85,6 +85,11 @@ function ScriptRow({ script, n }: { script: OneScript; n: number }) {
           <a className="btn btn--sm btn--ghost" href={href}>
             {t('features.script.open')}
           </a>
+        )}
+        {!readOnly && !active && (
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => deleteScript(script.id)} aria-label={t('features.script.deleteNamed', { name: script.name })}>
+            <Trash2 size={13} strokeWidth={1.8} aria-hidden /> {t('features.script.delete')}
+          </button>
         )}
       </span>
     </li>
